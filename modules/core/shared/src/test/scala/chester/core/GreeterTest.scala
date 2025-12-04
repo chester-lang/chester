@@ -5,7 +5,7 @@ class GreeterTest extends munit.FunSuite {
     val result = Greeter.greet("World")
     assert(result.contains("Hello, World"))
   }
-  
+
   test("platform should return platform name") {
     val result = Greeter.platform
     assert(result.nonEmpty)
