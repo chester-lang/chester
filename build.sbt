@@ -17,6 +17,18 @@ lazy val commonSettings = Seq(
   )
 )
 
+// Vendor settings for spire-native (Scala 3.4 migration)
+lazy val commonVendorSettings = Seq(
+  scalaVersion := "3.7.3",
+  scalacOptions ++= Seq(
+    "-encoding", "UTF-8",
+    "-feature",
+    "-language:implicitConversions",
+    "-unchecked",
+    "-deprecation"
+  )
+)
+
 // Root project
 lazy val root = project
   .in(file("."))
@@ -26,7 +38,10 @@ lazy val root = project
     coreNative,
     utilsJVM,
     utilsJS,
-    utilsNative
+    utilsNative,
+    vendoredSpireJVM,
+    vendoredSpireJS,
+    vendoredSpireNative
   )
   .settings(
     name := "chester",
@@ -64,10 +79,52 @@ lazy val coreJVM = core.jvm
 lazy val coreJS = core.js
 lazy val coreNative = core.native
 
+// commit 0fe5a6a9714181a20fc9cef4c8b2af088ff2b4c9, core & util & platform & macros, main only, no tests
+// rewrite by scalac with 3.4-migration
+// needed project/GenProductTypes.scala
+// because spire doesn't provide scala native 0.5 binary for now
+lazy val genProductTypes = TaskKey[Seq[File]](
+  "gen-product-types",
+  "Generates several type classes for Tuple2-22."
+)
+lazy val vendoredSpire = crossProject(JSPlatform, JVMPlatform, NativePlatform)
+  .crossType(CrossType.Full)
+  .in(file("vendor/spire"))
+  .settings(
+    name := "spire",
+    commonVendorSettings,
+    scalacOptions ++= Seq("-rewrite", "-source", "3.4-migration"),
+    Compile / sourceGenerators += (Compile / genProductTypes).taskValue,
+    genProductTypes := {
+      val scalaSource = (Compile / sourceManaged).value
+      val s = streams.value
+      s.log.info("Generating spire/std/tuples.scala")
+      val algebraSource = ProductTypes.algebraProductTypes
+      val algebraFile = (scalaSource / "spire" / "std" / "tuples.scala").asFile
+      IO.write(algebraFile, algebraSource)
+
+      Seq[File](algebraFile)
+    },
+    libraryDependencies ++= Seq(
+      "org.typelevel" %%% "algebra-laws" % "2.13.0"
+    )
+  )
+  .nativeSettings(
+    nativeConfig ~= {
+      _.withLTO(LTO.none)
+        .withMode(Mode.debug)
+        .withGC(GC.immix)
+    }
+  )
+
+lazy val vendoredSpireJVM = vendoredSpire.jvm
+lazy val vendoredSpireJS = vendoredSpire.js
+lazy val vendoredSpireNative = vendoredSpire.native
+
 // Utils library - another subproject
 lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("modules/utils"))
-  .dependsOn(core)
+  .dependsOn(core, vendoredSpire)
   .settings(commonSettings)
   .settings(
     name := "chester-utils",
