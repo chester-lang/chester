@@ -17,16 +17,23 @@ lazy val commonSettings = Seq(
   )
 )
 
+// Shared native settings
+lazy val commonNativeSettings = Seq(
+  nativeConfig ~= {
+    _.withLTO(LTO.none)
+      .withMode(Mode.debug)
+      .withGC(GC.immix)
+  }
+)
+
 // Vendor settings for spire-native (Scala 3.4 migration)
 lazy val commonVendorSettings = Seq(
   scalaVersion := "3.7.3",
   scalacOptions ++= Seq(
     "-encoding", "UTF-8",
-    "-feature",
-    "-language:implicitConversions",
-    "-unchecked",
-    "-deprecation"
-  )
+    "-language:implicitConversions"
+  ),
+  scalacOptions -= "-Xfatal-warnings"
 )
 
 // Root project
@@ -68,11 +75,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .nativeSettings(
     // Scala Native-specific settings
-    nativeConfig ~= {
-      _.withLTO(LTO.none)
-        .withMode(Mode.debug)
-        .withGC(GC.immix)
-    }
+    commonNativeSettings
   )
 
 lazy val coreJVM = core.jvm
@@ -110,11 +113,7 @@ lazy val vendoredSpire = crossProject(JSPlatform, JVMPlatform, NativePlatform)
     )
   )
   .nativeSettings(
-    nativeConfig ~= {
-      _.withLTO(LTO.none)
-        .withMode(Mode.debug)
-        .withGC(GC.immix)
-    }
+    commonNativeSettings
   )
 
 lazy val vendoredSpireJVM = vendoredSpire.jvm
@@ -136,11 +135,7 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     scalaJSUseMainModuleInitializer := false
   )
   .nativeSettings(
-    nativeConfig ~= {
-      _.withLTO(LTO.none)
-        .withMode(Mode.debug)
-        .withGC(GC.immix)
-    }
+    commonNativeSettings
   )
 
 lazy val utilsJVM = utils.jvm
