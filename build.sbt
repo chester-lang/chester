@@ -31,9 +31,9 @@ lazy val commonVendorSettings = Seq(
   scalaVersion := "3.7.3",
   scalacOptions ++= Seq(
     "-encoding", "UTF-8",
-    "-language:implicitConversions"
-  ),
-  scalacOptions -= "-Xfatal-warnings"
+    "-language:implicitConversions",
+    "-nowarn"
+  )
 )
 
 // Root project
