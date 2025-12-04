@@ -119,6 +119,7 @@ lazy val root = project
 // Core library - shared code
 lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("modules/core"))
+  .dependsOn(utils)
   .settings(commonSettings)
   .settings(
     name := "chester-core",
@@ -184,7 +185,7 @@ lazy val vendoredSpireNative = vendoredSpire.native
 // Utils library - another subproject
 lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("modules/utils"))
-  .dependsOn(core, vendoredSpire, vendoredKiama)
+  .dependsOn(vendoredSpire, vendoredKiama)
   .jsConfigure(_.dependsOn(jsTypingsJS))
   .settings(commonSettings)
   .settings(
