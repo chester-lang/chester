@@ -53,8 +53,8 @@ object PrettyPrinterTypes {
   */
 trait PrettyPrinterBase {
 
-  import org.bitbucket.inkytonik.kiama.relation.Bridge
-  import org.bitbucket.inkytonik.kiama.util.StringOps.lines
+  import kiama.relation.Bridge
+  import kiama.util.StringOps.lines
   import PrettyPrinterTypes.{Indent, Links, Width}
   import scala.collection.immutable.Seq
 
@@ -726,7 +726,7 @@ trait PrettyPrinter extends StringPrettyPrinter {
   */
 trait AbstractPrettyPrinter extends PrettyPrinterBase {
 
-  import org.bitbucket.inkytonik.kiama.util.Trampolines.{Done, More, step, Trampoline}
+  import kiama.util.Trampolines.{Done, More, step, Trampoline}
   import PrettyPrinterTypes.{emptyLinks, Indent, LinkRange, Links, LinkValue, Width}
   import scala.collection.immutable.{Queue, Seq}
   import scala.collection.immutable.Queue.{empty => emptyDq}

@@ -47,16 +47,31 @@ lazy val commonVendorSettings = Seq(
   }
 )
 
-// original kiama-core
-lazy val vendoredKiamaCore = crossProject(JSPlatform, JVMPlatform, NativePlatform)
-  .crossType(CrossType.Pure)
-  .in(file("vendor/kiama-core"))
+// https://github.com/effekt-lang/kiama/commit/51fda9aa8386429444f17ab0d9e4b7cab5a06409
+lazy val replDependencies = Seq(
+  "jline" % "jline" % "2.14.6",
+  "org.rogach" %% "scallop" % "4.1.0",
+)
+lazy val lspDependencies = Seq(
+  "org.eclipse.lsp4j" % "org.eclipse.lsp4j" % "0.23.1",
+  "com.google.code.gson" % "gson" % "2.11.0"
+)
+lazy val testingDependencies = Seq(
+  "org.scala-sbt" %% "io" % "1.6.0" % Test,
+  "org.scalameta" %% "munit" % "0.7.29" % Test
+)
+lazy val vendoredKiama = crossProject(JSPlatform, JVMPlatform, NativePlatform)
+  .crossType(CrossType.Full)
+  .in(file("vendor/kiama"))
   .settings(commonVendorSettings)
   .nativeSettings(commonNativeSettings)
+  .jvmSettings(
+    libraryDependencies ++= (replDependencies ++ lspDependencies ++ testingDependencies),
+  )
 
-lazy val kiamaCoreJVM = vendoredKiamaCore.jvm
-lazy val kiamaCoreJS = vendoredKiamaCore.js
-lazy val kiamaCoreNative = vendoredKiamaCore.native
+lazy val KiamaJVM = vendoredKiama.jvm
+lazy val KiamaJS = vendoredKiama.js
+lazy val KiamaNative = vendoredKiama.native
 
 // JS typings from ScalablyTyped
 lazy val jsTypings = crossProject(JSPlatform)
@@ -89,9 +104,9 @@ lazy val root = project
     vendoredSpireJVM,
     vendoredSpireJS,
     vendoredSpireNative,
-    kiamaCoreJVM,
-    kiamaCoreJS,
-    kiamaCoreNative,
+    KiamaJVM,
+    KiamaJS,
+    KiamaNative,
     jsTypingsJS
   )
   .settings(
@@ -167,7 +182,7 @@ lazy val vendoredSpireNative = vendoredSpire.native
 // Utils library - another subproject
 lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("modules/utils"))
-  .dependsOn(core, vendoredSpire, vendoredKiamaCore)
+  .dependsOn(core, vendoredSpire, vendoredKiama)
   .jsConfigure(_.dependsOn(jsTypingsJS))
   .settings(commonSettings)
   .settings(
