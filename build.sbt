@@ -48,15 +48,15 @@ lazy val commonVendorSettings = Seq(
 )
 
 // original kiama-core
-lazy val kiamaCore = crossProject(JSPlatform, JVMPlatform, NativePlatform)
+lazy val vendoredKiamaCore = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("vendor/kiama-core"))
   .settings(commonVendorSettings)
   .nativeSettings(commonNativeSettings)
 
-lazy val kiamaCoreJVM = kiamaCore.jvm
-lazy val kiamaCoreJS = kiamaCore.js
-lazy val kiamaCoreNative = kiamaCore.native
+lazy val kiamaCoreJVM = vendoredKiamaCore.jvm
+lazy val kiamaCoreJS = vendoredKiamaCore.js
+lazy val kiamaCoreNative = vendoredKiamaCore.native
 
 // JS typings from ScalablyTyped
 lazy val jsTypings = crossProject(JSPlatform)
@@ -167,7 +167,7 @@ lazy val vendoredSpireNative = vendoredSpire.native
 // Utils library - another subproject
 lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("modules/utils"))
-  .dependsOn(core, vendoredSpire, kiamaCore)
+  .dependsOn(core, vendoredSpire, vendoredKiamaCore)
   .jsConfigure(_.dependsOn(jsTypingsJS))
   .settings(commonSettings)
   .settings(
