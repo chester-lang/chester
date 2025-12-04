@@ -6,7 +6,7 @@ object GenProductTypes {
     def typeName(i: Int): String = (64 + i).toChar.toString
     val types = (1 to arity).map(typeName(_)).mkString(", ")
     val specTypes = if (arity == 2) {
-      (1 to arity).map { i => spec + typeName(i) }.mkString(",")
+      (1 to arity).map(i => spec + typeName(i)).mkString(",")
     } else {
       types
     }
@@ -23,9 +23,7 @@ object GenProductTypes {
     import tpe._
 
     val parents = ("%s[(%s)]".format(structure, types)) + (parentStructure
-      .map { p =>
-        " with %sProduct%d[%s]".format(p, arity, types)
-      }
+      .map(p => " with %sProduct%d[%s]".format(p, arity, types))
       .getOrElse(""))
 
     "private[spire] trait %s[%s] extends %s {".format(name, specTypes, parents)
@@ -35,9 +33,7 @@ object GenProductTypes {
     import tpe._
 
     (1 to arity)
-      .map { i =>
-        "  implicit def %s%d: %s[%s]".format(prefix, i, structure, typeName(i))
-      }
+      .map(i => "  implicit def %s%d: %s[%s]".format(prefix, i, structure, typeName(i)))
       .mkString("\n")
   }
 
@@ -52,9 +48,7 @@ object GenProductTypes {
     args match {
       case Nil =>
         val call = (1 to arity)
-          .map { i =>
-            "%s%d.%s".format(prefix, i, methodName)
-          }
+          .map(i => "%s%d.%s".format(prefix, i, methodName))
           .mkString("(", ", ", ")")
         "  %sdef %s: (%s) = %s".format(over, methodName, types, call)
 
@@ -67,15 +61,16 @@ object GenProductTypes {
           .mkString(", ")
         val call = (1 to arity)
           .map { j =>
-            "%s%d.%s(%s)".format(prefix,
-                                 j,
-                                 methodName,
-                                 args.zipWithIndex
-                                   .map {
-                                     case (DelegateArg, i) => "x%d._%d".format(i, j)
-                                     case (FixedArg(_), i) => "x" + i
-                                   }
-                                   .mkString(", ")
+            "%s%d.%s(%s)".format(
+              prefix,
+              j,
+              methodName,
+              args.zipWithIndex
+                .map {
+                  case (DelegateArg, i) => "x%d._%d".format(i, j)
+                  case (FixedArg(_), i) => "x" + i
+                }
+                .mkString(", ")
             )
           }
           .mkString("(", ", ", ")")
@@ -93,14 +88,10 @@ object GenProductTypes {
     import tpe._
 
     val implicits = (1 to arity)
-      .map { i =>
-        "_%s%d: %s[%s]".format(prefix, i, structure, typeName(i))
-      }
+      .map(i => "_%s%d: %s[%s]".format(prefix, i, structure, typeName(i)))
       .mkString(", ")
     val members = (1 to arity)
-      .map { i =>
-        "      val %s%d = _%s%d".format(prefix, i, prefix, i)
-      }
+      .map(i => "      val %s%d = _%s%d".format(prefix, i, prefix, i))
       .mkString("\n")
 
     """  implicit def %s[%s](implicit %s): %s[(%s)] = {
@@ -117,9 +108,7 @@ object GenProductTypes {
 
   def implicitsTrait(start: Int, end: Int): Definition => String = { defn =>
     val implicits = (start to end)
-      .map { arity =>
-        constructor(defn.ofArity(arity))
-      }
+      .map(arity => constructor(defn.ofArity(arity)))
       .mkString("\n")
 
     """trait %sProductInstances {
@@ -130,9 +119,7 @@ object GenProductTypes {
   def renderStructure(start: Int, end: Int): Definition => String = { defn =>
     val genTrait = productTrait(defn.blocks)
     val traits = (start to end)
-      .map { arity =>
-        genTrait(defn.ofArity(arity))
-      }
+      .map(arity => genTrait(defn.ofArity(arity)))
       .mkString("\n")
 
     "%s\n%s".format(traits, implicitsTrait(start, end)(defn))
@@ -147,22 +134,18 @@ object GenProductTypes {
                              |
                              |""".stripMargin
 
-  def unifiedTrait(defns: Seq[Definition], start: Int, end: Int): String = {
+  def unifiedTrait(defns: Seq[Definition], start: Int, end: Int): String =
     "trait ProductInstances extends " + (defns
-      .map { defn =>
-        defn.structure + "ProductInstances"
-      }
+      .map(defn => defn.structure + "ProductInstances")
       .mkString(" with "))
-  }
 
-  def renderAll(pkg: String, imports: List[String], start: Int = 2, end: Int = 22): Seq[Definition] => String = {
-    defns =>
-      val imps = imports.map("import " + _).mkString("\n")
-      val header = "package %s\n%s\nimport scala.{ specialized => spec }".format(pkg, imps)
-      val body = defns.map(renderStructure(start, end)).mkString("\n")
-      val unified = "\n%s\n".format(unifiedTrait(defns, start, end))
+  def renderAll(pkg: String, imports: List[String], start: Int = 2, end: Int = 22): Seq[Definition] => String = { defns =>
+    val imps = imports.map("import " + _).mkString("\n")
+    val header = "package %s\n%s\nimport scala.{ specialized => spec }".format(pkg, imps)
+    val body = defns.map(renderStructure(start, end)).mkString("\n")
+    val unified = "\n%s\n".format(unifiedTrait(defns, start, end))
 
-      header + disclaimer + body + unified
+    header + disclaimer + body + unified
   }
 }
 
@@ -171,9 +154,7 @@ object ProductTypes {
 
   private val fromInt = method("fromInt", FixedArg("Int") :: Nil, true)
   private val pow = method("pow", DelegateArg :: FixedArg("Int") :: Nil, true)
-  private val isWhole: Block = { tpe =>
-    "  def isWhole(x: (%s)): Boolean = false".format(tpe.types)
-  }
+  private val isWhole: Block = { tpe => "  def isWhole(x: (%s)): Boolean = false".format(tpe.types) }
 
   val semigroup = Definition("Semigroup")(binary("combine") :: Nil)
   val monoid = Definition("Monoid", Some("Semigroup"))(const("empty") :: Nil)
@@ -188,9 +169,7 @@ object ProductTypes {
     import tpe._
 
     val bool = (1 to arity)
-      .map { i =>
-        "%s%d.eqv(x0._%d, x1._%d)".format(prefix, i, i, i)
-      }
+      .map(i => "%s%d.eqv(x0._%d, x1._%d)".format(prefix, i, i, i))
       .mkString(" && ")
     "  def eqv(x0: (%s), x1: (%s)): Boolean = %s".format(types, types, bool)
   }

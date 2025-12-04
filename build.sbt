@@ -8,7 +8,8 @@ organization := "chester"
 lazy val commonSettings = Seq(
   scalaVersion := "3.7.4",
   scalacOptions ++= Seq(
-    "-encoding", "UTF-8",
+    "-encoding",
+    "UTF-8",
     "-feature",
     "-language:implicitConversions",
     "-unchecked",
@@ -35,7 +36,8 @@ lazy val commonNativeSettings = Seq(
 lazy val commonVendorSettings = Seq(
   scalaVersion := "3.7.4",
   scalacOptions ++= Seq(
-    "-encoding", "UTF-8",
+    "-encoding",
+    "UTF-8",
     "-language:implicitConversions",
     "-nowarn"
   ),
@@ -50,7 +52,7 @@ lazy val commonVendorSettings = Seq(
 // https://github.com/effekt-lang/kiama/commit/51fda9aa8386429444f17ab0d9e4b7cab5a06409
 lazy val replDependencies = Seq(
   "jline" % "jline" % "2.14.6",
-  "org.rogach" %% "scallop" % "4.1.0",
+  "org.rogach" %% "scallop" % "4.1.0"
 )
 lazy val lspDependencies = Seq(
   "org.eclipse.lsp4j" % "org.eclipse.lsp4j" % "0.23.1",
@@ -66,7 +68,7 @@ lazy val vendoredKiama = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .settings(commonVendorSettings)
   .nativeSettings(commonNativeSettings)
   .jvmSettings(
-    libraryDependencies ++= (replDependencies ++ lspDependencies ++ testingDependencies),
+    libraryDependencies ++= (replDependencies ++ lspDependencies ++ testingDependencies)
   )
 
 lazy val KiamaJVM = vendoredKiama.jvm
@@ -81,7 +83,7 @@ lazy val jsTypings = crossProject(JSPlatform)
   .jsEnablePlugins(ScalablyTypedConverterPlugin)
   .settings(
     commonVendorSettings,
-  scalaVersion := "3.5.2", // ScalablyTyped needs older Scala version with implicit.
+    scalaVersion := "3.5.2" // ScalablyTyped needs older Scala version with implicit.
   )
   .jsSettings(
     Compile / npmDependencies ++= Seq(
