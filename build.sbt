@@ -6,7 +6,7 @@ organization := "chester"
 
 // Shared settings for all projects
 lazy val commonSettings = Seq(
-  scalaVersion := "3.7.3",
+  scalaVersion := "3.7.4",
   scalacOptions ++= Seq(
     "-encoding", "UTF-8",
     "-feature",
@@ -28,7 +28,7 @@ lazy val commonNativeSettings = Seq(
 
 // Vendor settings for spire-native (Scala 3.4 migration)
 lazy val commonVendorSettings = Seq(
-  scalaVersion := "3.7.3",
+  scalaVersion := "3.7.4",
   scalacOptions ++= Seq(
     "-encoding", "UTF-8",
     "-language:implicitConversions",
