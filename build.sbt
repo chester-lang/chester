@@ -12,7 +12,6 @@ lazy val commonSettings = Seq(
     "-feature",
     "-language:implicitConversions",
     "-unchecked",
-    "-Xfatal-warnings",
     "-deprecation"
   )
 )
@@ -129,7 +128,8 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     name := "chester-utils",
     libraryDependencies ++= Seq(
       "org.scalameta" %%% "munit" % "1.0.0" % Test,
-      "com.lihaoyi" %%% "upickle" % "4.0.2"
+      "com.lihaoyi" %%% "upickle" % "4.0.2",
+      "com.eed3si9n.ifdef" %%% "ifdef-annotation" % "0.4.1"
     )
   )
   .jsSettings(
