@@ -58,6 +58,24 @@ lazy val kiamaCoreJVM = kiamaCore.jvm
 lazy val kiamaCoreJS = kiamaCore.js
 lazy val kiamaCoreNative = kiamaCore.native
 
+// JS typings from ScalablyTyped
+lazy val jsTypings = crossProject(JSPlatform)
+  .withoutSuffixFor(JSPlatform)
+  .crossType(CrossType.Pure)
+  .in(file("js-typings"))
+  .jsEnablePlugins(ScalablyTypedConverterPlugin)
+  .settings(
+    commonVendorSettings,
+  scalaVersion := "3.5.2", // ScalablyTyped needs older Scala version with implicit.
+  )
+  .jsSettings(
+    Compile / npmDependencies ++= Seq(
+      "@types/node" -> "22.7.0" // needs 22.7.0. newer versions have issues
+    )
+  )
+
+lazy val jsTypingsJS = jsTypings.js
+
 // Root project
 lazy val root = project
   .in(file("."))
@@ -73,7 +91,8 @@ lazy val root = project
     vendoredSpireNative,
     kiamaCoreJVM,
     kiamaCoreJS,
-    kiamaCoreNative
+    kiamaCoreNative,
+    jsTypingsJS
   )
   .settings(
     name := "chester",
@@ -149,6 +168,7 @@ lazy val vendoredSpireNative = vendoredSpire.native
 lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("modules/utils"))
   .dependsOn(core, vendoredSpire, kiamaCore)
+  .jsConfigure(_.dependsOn(jsTypingsJS))
   .settings(commonSettings)
   .settings(
     name := "chester-utils",
@@ -157,14 +177,32 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
       "com.lihaoyi" %%% "upickle" % "4.0.2",
       "com.lihaoyi" %%% "fastparse" % "3.1.1",
       "com.lihaoyi" %%% "fansi" % "0.5.1",
-      "com.eed3si9n.ifdef" %%% "ifdef-annotation" % "0.4.1"
+      "com.eed3si9n.ifdef" %%% "ifdef-annotation" % "0.4.1",
+      "org.typelevel" %%% "cats-core" % "2.13.0",
+      "org.typelevel" %%% "cats-free" % "2.13.0"
     )
   )
+  .jvmSettings(
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "os-lib" % "0.11.3",
+      "org.jline" % "jline" % "3.30.6",
+      "org.jline" % "jline-terminal" % "3.30.6",
+      "org.jline" % "jline-terminal-jni" % "3.30.6",
+      "org.jline" % "jline-reader" % "3.30.6"
+    )
+  )
+  .jsConfigure(project => project.enablePlugins(ScalaJSBundlerPlugin))
   .jsSettings(
-    scalaJSUseMainModuleInitializer := false
+    scalaJSUseMainModuleInitializer := false,
+    Compile / npmDependencies ++= Seq(
+      "@types/node" -> "22.7.0"
+    )
   )
   .nativeSettings(
-    commonNativeSettings
+    commonNativeSettings,
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %%% "os-lib" % "0.11.3"
+    )
   )
 
 lazy val utilsJVM = utils.jvm

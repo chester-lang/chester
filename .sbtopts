@@ -1,0 +1,3 @@
+# https://github.com/scala-native/scala-native/blob/main/.sbtopts
+-J-Xmx8G
+-J-XX:+UseG1GC
