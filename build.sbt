@@ -38,8 +38,25 @@ lazy val commonVendorSettings = Seq(
     "-encoding", "UTF-8",
     "-language:implicitConversions",
     "-nowarn"
-  )
+  ),
+  // Workaround for Metals: disable BSP for native/js targets to prevent compilation issues
+  // See: https://github.com/scalameta/metals-feature-requests/issues/13
+  bspEnabled := {
+    val platform = crossProjectPlatform.?.value.getOrElse(JVMPlatform)
+    platform == JVMPlatform
+  }
 )
+
+// original kiama-core
+lazy val kiamaCore = crossProject(JSPlatform, JVMPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("vendor/kiama-core"))
+  .settings(commonVendorSettings)
+  .nativeSettings(commonNativeSettings)
+
+lazy val kiamaCoreJVM = kiamaCore.jvm
+lazy val kiamaCoreJS = kiamaCore.js
+lazy val kiamaCoreNative = kiamaCore.native
 
 // Root project
 lazy val root = project
@@ -53,7 +70,10 @@ lazy val root = project
     utilsNative,
     vendoredSpireJVM,
     vendoredSpireJS,
-    vendoredSpireNative
+    vendoredSpireNative,
+    kiamaCoreJVM,
+    kiamaCoreJS,
+    kiamaCoreNative
   )
   .settings(
     name := "chester",
@@ -128,13 +148,15 @@ lazy val vendoredSpireNative = vendoredSpire.native
 // Utils library - another subproject
 lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("modules/utils"))
-  .dependsOn(core, vendoredSpire)
+  .dependsOn(core, vendoredSpire, kiamaCore)
   .settings(commonSettings)
   .settings(
     name := "chester-utils",
     libraryDependencies ++= Seq(
       "org.scalameta" %%% "munit" % "1.0.0" % Test,
       "com.lihaoyi" %%% "upickle" % "4.0.2",
+      "com.lihaoyi" %%% "fastparse" % "3.1.1",
+      "com.lihaoyi" %%% "fansi" % "0.5.1",
       "com.eed3si9n.ifdef" %%% "ifdef-annotation" % "0.4.1"
     )
   )
