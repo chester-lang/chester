@@ -13,7 +13,13 @@ lazy val commonSettings = Seq(
     "-language:implicitConversions",
     "-unchecked",
     "-deprecation"
-  )
+  ),
+  // Workaround for Metals: disable BSP for native/js targets to prevent compilation issues
+  // See: https://github.com/scalameta/metals-feature-requests/issues/13
+  bspEnabled := {
+    val platform = crossProjectPlatform.?.value.getOrElse(JVMPlatform)
+    platform == JVMPlatform
+  }
 )
 
 // Shared native settings
