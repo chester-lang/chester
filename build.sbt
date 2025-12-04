@@ -128,7 +128,8 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .settings(
     name := "chester-utils",
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "munit" % "1.0.0" % Test
+      "org.scalameta" %%% "munit" % "1.0.0" % Test,
+      "com.lihaoyi" %%% "upickle" % "4.0.2"
     )
   )
   .jsSettings(
