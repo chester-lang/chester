@@ -29,6 +29,22 @@ class SolverTest extends munit.FunSuite {
   test("ConcurrentSolver - type member access") {
     testTypeMembers(ConcurrentSolverModule)
   }
+
+  test("ProceduralSolver - bidirectional constraints") {
+    testBidirectionalConstraints(ProceduralSolverModule)
+  }
+
+  test("ConcurrentSolver - bidirectional constraints") {
+    testBidirectionalConstraints(ConcurrentSolverModule)
+  }
+
+  test("ProceduralSolver - complex multi-directional flow") {
+    testComplexMultiDirectionalFlow(ProceduralSolverModule)
+  }
+
+  test("ConcurrentSolver - complex multi-directional flow") {
+    testComplexMultiDirectionalFlow(ConcurrentSolverModule)
+  }
   
   // Common test logic that works with any SolverModule
   def testBasicCellOperations(module: SolverModule): Unit = {
@@ -90,6 +106,108 @@ class SolverTest extends munit.FunSuite {
     
     assert(module.noStableValue(solver, cell1))
   }
+
+  // Test bidirectional constraint: a * b = c
+  // Can solve for any missing variable given the other two
+  def testBidirectionalConstraints(module: SolverModule): Unit = {
+    // Scenario 1: Given a=5, b=3, solve for c (forward: c = a*b)
+    {
+      val solver = module.makeSolver[ProductConstraint](ProductHandlerConf(module))
+      val a = module.newOnceCell[ProductConstraint, Int](solver)
+      val b = module.newOnceCell[ProductConstraint, Int](solver)
+      val c = module.newOnceCell[ProductConstraint, Int](solver)
+
+      module.addConstraint(solver, ProductConstraint(a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+                                                       b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+                                                       c.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]))
+      
+      module.fill(solver, a.asInstanceOf[module.CellW[Int]], 5)
+      module.fill(solver, b.asInstanceOf[module.CellW[Int]], 3)
+      module.run(solver)
+      
+      assertEquals(module.readStable(solver, c.asInstanceOf[module.CellR[Int]]), Some(15), "Forward: 5 * 3 = 15")
+    }
+
+    // Scenario 2: Given a=6, c=18, solve for b (backward: b = c/a)
+    {
+      val solver = module.makeSolver[ProductConstraint](ProductHandlerConf(module))
+      val a = module.newOnceCell[ProductConstraint, Int](solver)
+      val b = module.newOnceCell[ProductConstraint, Int](solver)
+      val c = module.newOnceCell[ProductConstraint, Int](solver)
+
+      module.addConstraint(solver, ProductConstraint(a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+                                                       b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+                                                       c.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]))
+      
+      module.fill(solver, a.asInstanceOf[module.CellW[Int]], 6)
+      module.fill(solver, c.asInstanceOf[module.CellW[Int]], 18)
+      module.run(solver)
+      
+      assertEquals(module.readStable(solver, b.asInstanceOf[module.CellR[Int]]), Some(3), "Backward: 18 / 6 = 3")
+    }
+
+    // Scenario 3: Given b=4, c=20, solve for a (backward: a = c/b)
+    {
+      val solver = module.makeSolver[ProductConstraint](ProductHandlerConf(module))
+      val a = module.newOnceCell[ProductConstraint, Int](solver)
+      val b = module.newOnceCell[ProductConstraint, Int](solver)
+      val c = module.newOnceCell[ProductConstraint, Int](solver)
+
+      module.addConstraint(solver, ProductConstraint(a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+                                                       b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+                                                       c.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]))
+      
+      module.fill(solver, b.asInstanceOf[module.CellW[Int]], 4)
+      module.fill(solver, c.asInstanceOf[module.CellW[Int]], 20)
+      module.run(solver)
+      
+      assertEquals(module.readStable(solver, a.asInstanceOf[module.CellR[Int]]), Some(5), "Backward: 20 / 4 = 5")
+    }
+  }
+
+  // Test complex multi-directional flow: system of equations
+  // a + b = sum1
+  // b + c = sum2
+  // Given a and sum1 and sum2, solve for b and c
+  def testComplexMultiDirectionalFlow(module: SolverModule): Unit = {
+    val solver = module.makeSolver[MixedConstraint](MixedHandlerConf(module))
+    
+    val a = module.newOnceCell[MixedConstraint, Int](solver)
+    val b = module.newOnceCell[MixedConstraint, Int](solver)
+    val c = module.newOnceCell[MixedConstraint, Int](solver)
+    val sum1 = module.newOnceCell[MixedConstraint, Int](solver)
+    val sum2 = module.newOnceCell[MixedConstraint, Int](solver)
+    val product = module.newOnceCell[MixedConstraint, Int](solver)
+
+    // Add constraints: a + b = sum1, b + c = sum2, b * c = product
+    module.addConstraint(solver, SumConstraint(
+      a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+      b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+      sum1.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]
+    ))
+    module.addConstraint(solver, SumConstraint(
+      b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+      c.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+      sum2.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]
+    ))
+    module.addConstraint(solver, ProductConstraint(
+      b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+      c.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
+      product.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]
+    ))
+
+    // Given: a=5, sum1=12, sum2=15
+    // Should solve: b=7 (from a+b=12), c=8 (from b+c=15), product=56 (from b*c)
+    module.fill(solver, a.asInstanceOf[module.CellW[Int]], 5)
+    module.fill(solver, sum1.asInstanceOf[module.CellW[Int]], 12)
+    module.fill(solver, sum2.asInstanceOf[module.CellW[Int]], 15)
+    
+    module.run(solver)
+    
+    assertEquals(module.readStable(solver, b.asInstanceOf[module.CellR[Int]]), Some(7), "b should be 7 (12-5)")
+    assertEquals(module.readStable(solver, c.asInstanceOf[module.CellR[Int]]), Some(8), "c should be 8 (15-7)")
+    assertEquals(module.readStable(solver, product.asInstanceOf[module.CellR[Int]]), Some(56), "product should be 56 (7*8)")
+  }
 }
 
 // Test constraint that sums two cells - just a plain case class
@@ -123,4 +241,129 @@ object TestSumHandler extends Handler[TestSumConstraint] {
   override def canDefaulting(level: DefaultingLevel): Boolean = false
   
   override def defaulting[M <: SolverModule](constraint: TestSumConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[TestSumConstraint]): Boolean = false
+}
+
+// Bidirectional product constraint: a * b = c
+case class ProductConstraint(
+  a: Cell[Int, Nothing, CellContent[Int, Nothing]],
+  b: Cell[Int, Nothing, CellContent[Int, Nothing]],
+  product: Cell[Int, Int, CellContent[Int, Int]]
+)
+
+case class ProductHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ProductConstraint, M] {
+  override def getHandler(constraint: ProductConstraint): Option[Handler[ProductConstraint]] = Some(ProductHandler)
+}
+
+object ProductHandler extends Handler[ProductConstraint] {
+  override def run[M <: SolverModule](constraint: ProductConstraint)(using module: M, solver: module.Solver[ProductConstraint]): Result = {
+    val va = module.readStable(solver, constraint.a.asInstanceOf[module.CellR[Int]])
+    val vb = module.readStable(solver, constraint.b.asInstanceOf[module.CellR[Int]])
+    val vp = module.readStable(solver, constraint.product.asInstanceOf[module.CellR[Int]])
+    
+    (va, vb, vp) match {
+      // Forward: a * b = product
+      case (Some(a), Some(b), None) =>
+        module.fill(solver, constraint.product.asInstanceOf[module.CellW[Int]], a * b)
+        Result.Done
+      // Backward: product / a = b
+      case (Some(a), None, Some(p)) if a != 0 && p % a == 0 =>
+        module.fill(solver, constraint.b.asInstanceOf[module.CellW[Int]], p / a)
+        Result.Done
+      // Backward: product / b = a
+      case (None, Some(b), Some(p)) if b != 0 && p % b == 0 =>
+        module.fill(solver, constraint.a.asInstanceOf[module.CellW[Int]], p / b)
+        Result.Done
+      // All filled - check consistency
+      case (Some(a), Some(b), Some(p)) if a * b == p =>
+        Result.Done
+      case _ =>
+        Result.Waiting(constraint.a, constraint.b, constraint.product)
+    }
+  }
+  
+  override def canDefaulting(level: DefaultingLevel): Boolean = false
+  override def defaulting[M <: SolverModule](constraint: ProductConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[ProductConstraint]): Boolean = false
+}
+
+// Sum constraint that can solve backwards: a + b = sum
+case class SumConstraint(
+  a: Cell[Int, Nothing, CellContent[Int, Nothing]],
+  b: Cell[Int, Nothing, CellContent[Int, Nothing]],
+  sum: Cell[Int, Int, CellContent[Int, Int]]
+)
+
+// Mixed constraint type that can be either Sum or Product
+type MixedConstraint = SumConstraint | ProductConstraint
+
+case class MixedHandlerConf[M <: SolverModule](module: M) extends HandlerConf[MixedConstraint, M] {
+  override def getHandler(constraint: MixedConstraint): Option[Handler[MixedConstraint]] = constraint match {
+    case _: SumConstraint => Some(MixedSumHandler)
+    case _: ProductConstraint => Some(MixedProductHandler)
+  }
+}
+
+object MixedSumHandler extends Handler[MixedConstraint] {
+  override def run[M <: SolverModule](constraint: MixedConstraint)(using module: M, solver: module.Solver[MixedConstraint]): Result = {
+    constraint match {
+      case c: SumConstraint =>
+        val va = module.readStable(solver, c.a.asInstanceOf[module.CellR[Int]])
+        val vb = module.readStable(solver, c.b.asInstanceOf[module.CellR[Int]])
+        val vs = module.readStable(solver, c.sum.asInstanceOf[module.CellR[Int]])
+        
+        (va, vb, vs) match {
+          // Forward: a + b = sum
+          case (Some(a), Some(b), None) =>
+            module.fill(solver, c.sum.asInstanceOf[module.CellW[Int]], a + b)
+            Result.Done
+          // Backward: sum - a = b
+          case (Some(a), None, Some(s)) =>
+            module.fill(solver, c.b.asInstanceOf[module.CellW[Int]], s - a)
+            Result.Done
+          // Backward: sum - b = a
+          case (None, Some(b), Some(s)) =>
+            module.fill(solver, c.a.asInstanceOf[module.CellW[Int]], s - b)
+            Result.Done
+          // All filled - check consistency
+          case (Some(a), Some(b), Some(s)) if a + b == s =>
+            Result.Done
+          case _ =>
+            Result.Waiting(c.a, c.b, c.sum)
+        }
+      case _ => Result.Waiting()
+    }
+  }
+  
+  override def canDefaulting(level: DefaultingLevel): Boolean = false
+  override def defaulting[M <: SolverModule](constraint: MixedConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[MixedConstraint]): Boolean = false
+}
+
+object MixedProductHandler extends Handler[MixedConstraint] {
+  override def run[M <: SolverModule](constraint: MixedConstraint)(using module: M, solver: module.Solver[MixedConstraint]): Result = {
+    constraint match {
+      case c: ProductConstraint =>
+        val va = module.readStable(solver, c.a.asInstanceOf[module.CellR[Int]])
+        val vb = module.readStable(solver, c.b.asInstanceOf[module.CellR[Int]])
+        val vp = module.readStable(solver, c.product.asInstanceOf[module.CellR[Int]])
+        
+        (va, vb, vp) match {
+          case (Some(a), Some(b), None) =>
+            module.fill(solver, c.product.asInstanceOf[module.CellW[Int]], a * b)
+            Result.Done
+          case (Some(a), None, Some(p)) if a != 0 && p % a == 0 =>
+            module.fill(solver, c.b.asInstanceOf[module.CellW[Int]], p / a)
+            Result.Done
+          case (None, Some(b), Some(p)) if b != 0 && p % b == 0 =>
+            module.fill(solver, c.a.asInstanceOf[module.CellW[Int]], p / b)
+            Result.Done
+          case (Some(a), Some(b), Some(p)) if a * b == p =>
+            Result.Done
+          case _ =>
+            Result.Waiting(c.a, c.b, c.product)
+        }
+      case _ => Result.Waiting()
+    }
+  }
+  
+  override def canDefaulting(level: DefaultingLevel): Boolean = false
+  override def defaulting[M <: SolverModule](constraint: MixedConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[MixedConstraint]): Boolean = false
 }
