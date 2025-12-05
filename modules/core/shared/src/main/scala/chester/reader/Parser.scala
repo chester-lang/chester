@@ -219,12 +219,15 @@ object Parser {
     val elements = ArrayBuffer.empty[CST]
     var tail: Option[CST] = None
 
-    while (state.hasNext && !state.current.exists(_.isInstanceOf[Token.RBrace])) {
-      // Parse atoms until we hit a semicolon, closing brace, or EOF
+    while (state.hasNext && 
+           !state.current.exists(_.isInstanceOf[Token.RBrace]) &&
+           !state.current.exists(_.isInstanceOf[Token.RParen])) {
+      // Parse atoms until we hit a semicolon, closing brace/paren, or EOF
       val atomsBeforeSemi = ArrayBuffer.empty[CST]
       
       while (state.hasNext && 
              !state.current.exists(_.isInstanceOf[Token.RBrace]) &&
+             !state.current.exists(_.isInstanceOf[Token.RParen]) &&
              !state.current.exists(_.isInstanceOf[Token.Semicolon])) {
         atomsBeforeSemi += parseAtom(state)
         state.skipTrivia()
@@ -257,6 +260,13 @@ object Parser {
           case Some(Token.RBrace(_)) =>
             // Final element without semicolon - this is the tail
             tail = Some(elem)
+          case Some(Token.RParen(_)) =>
+            // Error recovery: block closed with ) instead of }
+            tail = Some(elem)
+            state.recordError("Expected '}' to close block", Some(start))
+            val endSpan = elem.span
+            val result = CST.Block(elements.toVector, tail, start.combine(endSpan))
+            return result
           case Some(Token.EOF(_)) | None =>
             // Error recovery: missing closing brace
             tail = Some(elem)
@@ -277,6 +287,11 @@ object Parser {
     state.current match {
       case Some(Token.RBrace(endSpan)) =>
         state.advance()
+        CST.Block(elements.toVector, tail, start.combine(endSpan))
+      case Some(Token.RParen(_)) =>
+        // Error recovery: block closed with ) instead of }
+        state.recordError("Expected '}' to close block", Some(start))
+        val endSpan = tail.map(_.span).orElse(elements.lastOption.map(_.span)).getOrElse(start)
         CST.Block(elements.toVector, tail, start.combine(endSpan))
       case _ =>
         // Error recovery: missing closing brace

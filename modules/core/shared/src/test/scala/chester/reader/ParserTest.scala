@@ -545,4 +545,55 @@ class ParserTest extends munit.FunSuite {
       case _ => fail(s"Expected Block for error recovery, got: $cst")
     }
   }
+
+  test("error recovery: block with wrong closing delimiter") {
+    val (cst, errors) = parseString("f({print(a);b)")
+    // Should have errors for mismatched delimiters
+    assert(errors.nonEmpty, s"Expected errors for block closed with ) instead of }}")
+    cst match {
+      case CST.SeqOf(elements, _) =>
+        val elemVec = elements.toVector
+        assertEquals(elemVec.length, 2, "Expected f and block")
+        elemVec(0) match {
+          case CST.Symbol(name, _) => assertEquals(name, "f")
+          case _                   => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
+        }
+        elemVec(1) match {
+          case CST.Tuple(tupleElements, _) =>
+            // The tuple should contain the recovered block
+            assertEquals(tupleElements.length, 1, "Tuple should contain the block")
+            tupleElements(0) match {
+              case CST.Block(blockElements, blockTail, _) =>
+                // Block should have recovered: elements=[SeqOf(print, (a))], tail=b
+                assertEquals(blockElements.length, 1)
+                blockElements(0) match {
+                  case CST.SeqOf(seqElements, _) =>
+                    val seqVec = seqElements.toVector
+                    assertEquals(seqVec.length, 2)
+                    seqVec(0) match {
+                      case CST.Symbol(name, _) => assertEquals(name, "print")
+                      case _                   => fail(s"Expected Symbol 'print', got: ${seqVec(0)}")
+                    }
+                    seqVec(1) match {
+                      case CST.Tuple(innerTupleElements, _) =>
+                        assertEquals(innerTupleElements.length, 1)
+                        innerTupleElements(0) match {
+                          case CST.Symbol(name, _) => assertEquals(name, "a")
+                          case _                   => fail(s"Expected Symbol 'a'")
+                        }
+                      case _ => fail(s"Expected Tuple, got: ${seqVec(1)}")
+                    }
+                  case _ => fail(s"Expected SeqOf in block, got: ${blockElements(0)}")
+                }
+                blockTail match {
+                  case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
+                  case _                         => fail(s"Expected Symbol 'b' as block tail, got: $blockTail")
+                }
+              case _ => fail(s"Expected Block, got: ${tupleElements(0)}")
+            }
+          case _ => fail(s"Expected Tuple, got: ${elemVec(1)}")
+        }
+      case _ => fail(s"Expected SeqOf, got: $cst")
+    }
+  }
 }
