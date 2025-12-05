@@ -81,6 +81,7 @@ object Parser {
         token match {
           case Token.LParen(span)   => parseTuple(state)
           case Token.LBracket(span) => parseListLiteral(state)
+          case Token.LBrace(span)   => parseBlock(state)
           case Token.StringLiteral(value, span) =>
             state.advance()
             CST.StringLiteral(value.asString, span)
@@ -195,6 +196,55 @@ object Parser {
         state.recordError("Expected ']' to close list", Some(start))
         val endSpan = if (elements.nonEmpty) elements.last.span else start
         CST.ListLiteral(elements.toVector, start.combine(endSpan))
+    }
+  }
+
+  private def parseBlock(state: ParserState): CST = {
+    val start = state.current.get.span
+    state.advance() // Skip LBrace
+    state.skipTrivia()
+
+    val elements = ArrayBuffer.empty[CST]
+    var tail: Option[CST] = None
+
+    while (state.hasNext && !state.current.exists(_.isInstanceOf[Token.RBrace])) {
+      val elem = parseAtom(state)
+      state.skipTrivia()
+
+      state.current match {
+        case Some(Token.Semicolon(_)) =>
+          // Element followed by semicolon
+          elements += elem
+          state.advance()
+          state.skipTrivia()
+        case Some(Token.RBrace(_)) =>
+          // Final element without semicolon - this is the tail
+          tail = Some(elem)
+        case Some(Token.EOF(_)) | None =>
+          // Error recovery: missing closing brace
+          tail = Some(elem)
+          state.recordError("Expected '}' to close block", Some(start))
+          val endSpan = elem.span
+          val result = CST.Block(elements.toVector, tail, start.combine(endSpan))
+          return result
+        case Some(other) =>
+          // Error recovery: missing semicolon, treat as element and continue
+          state.recordError(s"Expected ';' or '}}' but got ${other.tokenType}", other.span)
+          elements += elem
+          state.advance()
+          state.skipTrivia()
+      }
+    }
+
+    state.current match {
+      case Some(Token.RBrace(endSpan)) =>
+        state.advance()
+        CST.Block(elements.toVector, tail, start.combine(endSpan))
+      case _ =>
+        // Error recovery: missing closing brace
+        state.recordError("Expected '}' to close block", Some(start))
+        val endSpan = tail.map(_.span).orElse(elements.lastOption.map(_.span)).getOrElse(start)
+        CST.Block(elements.toVector, tail, start.combine(endSpan))
     }
   }
 }

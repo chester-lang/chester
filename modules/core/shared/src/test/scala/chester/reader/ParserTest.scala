@@ -327,4 +327,150 @@ class ParserTest extends munit.FunSuite {
       case _ => fail(s"Expected SeqOf, got: $cst")
     }
   }
+
+  test("parse empty block") {
+    val (cst, errors) = parseString("{}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 0)
+        assertEquals(tail, None)
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("parse block with tail only") {
+    val (cst, errors) = parseString("{a}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 0)
+        tail match {
+          case Some(CST.Symbol(name, _)) => assertEquals(name, "a")
+          case _                         => fail(s"Expected Symbol 'a' as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("parse block with elements and tail") {
+    val (cst, errors) = parseString("{a;b}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 1)
+        elements(0) match {
+          case CST.Symbol(name, _) => assertEquals(name, "a")
+          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
+        }
+        tail match {
+          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
+          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("parse block with elements only (no tail)") {
+    val (cst, errors) = parseString("{a;b;}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 2)
+        elements(0) match {
+          case CST.Symbol(name, _) => assertEquals(name, "a")
+          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
+        }
+        elements(1) match {
+          case CST.Symbol(name, _) => assertEquals(name, "b")
+          case _                   => fail(s"Expected Symbol 'b', got: ${elements(1)}")
+        }
+        assertEquals(tail, None)
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("parse block with multiple elements and tail") {
+    val (cst, errors) = parseString("{a;b;c}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 2)
+        elements(0) match {
+          case CST.Symbol(name, _) => assertEquals(name, "a")
+          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
+        }
+        elements(1) match {
+          case CST.Symbol(name, _) => assertEquals(name, "b")
+          case _                   => fail(s"Expected Symbol 'b', got: ${elements(1)}")
+        }
+        tail match {
+          case Some(CST.Symbol(name, _)) => assertEquals(name, "c")
+          case _                         => fail(s"Expected Symbol 'c' as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("parse nested block") {
+    val (cst, errors) = parseString("{a;{b;c}}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 1)
+        elements(0) match {
+          case CST.Symbol(name, _) => assertEquals(name, "a")
+          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
+        }
+        tail match {
+          case Some(CST.Block(innerElements, innerTail, _)) =>
+            assertEquals(innerElements.length, 1)
+            innerElements(0) match {
+              case CST.Symbol(name, _) => assertEquals(name, "b")
+              case _                   => fail(s"Expected Symbol 'b', got: ${innerElements(0)}")
+            }
+            innerTail match {
+              case Some(CST.Symbol(name, _)) => assertEquals(name, "c")
+              case _                         => fail(s"Expected Symbol 'c' as inner tail, got: $innerTail")
+            }
+          case _ => fail(s"Expected Block as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("parse block with integers") {
+    val (cst, errors) = parseString("{1;2;3}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 2)
+        elements.zipWithIndex.foreach { case (elem, idx) =>
+          elem match {
+            case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(idx + 1))
+            case _                            => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
+          }
+        }
+        tail match {
+          case Some(CST.IntegerLiteral(value, _)) => assertEquals(value, BigInt(3))
+          case _                                  => fail(s"Expected IntegerLiteral 3 as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("error recovery: unclosed block") {
+    val (cst, errors) = parseString("{a;b")
+    assert(errors.nonEmpty, "Expected errors for unclosed block")
+    assert(errors.exists(_.message.contains("Expected '}'")))
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.length, 1, "Should recover and create block with 1 element")
+        tail match {
+          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
+          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block for error recovery, got: $cst")
+    }
+  }
 }

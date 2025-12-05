@@ -17,6 +17,10 @@ enum CST(val span: Span) extends ToDoc derives ReadWriter:
   case Tuple(elements: Vector[CST], override val span: Span) extends CST(span)
   // [a,b]
   case ListLiteral(elements: Vector[CST], override val span: Span) extends CST(span)
+  // {a;b;c} - elements are semicolon-separated, tail is optional final expression without semicolon
+  // {a;b} => elements=[a], tail=Some(b)
+  // {a;b;} => elements=[a,b], tail=None
+  case Block(elements: Vector[CST], tail: Option[CST], override val span: Span) extends CST(span)
 
   case StringLiteral(value: String, override val span: Span) extends CST(span)
   case IntegerLiteral(value: BigInt, override val span: Span) extends CST(span)
@@ -31,6 +35,12 @@ enum CST(val span: Span) extends ToDoc derives ReadWriter:
       parens(hsep(elements.map(_.toDoc), `,`))
     case CST.ListLiteral(elements, _) =>
       brackets(hsep(elements.map(_.toDoc), `,`))
+    case CST.Block(elements, tail, _) =>
+      val elemDocs = elements.map(e => e.toDoc <> text(";"))
+      val allDocs = tail match
+        case Some(t) => elemDocs :+ t.toDoc
+        case None => elemDocs
+      braces(hsep(allDocs, text(" ")))
     case CST.StringLiteral(value, _) =>
       text("\"") <> text(value) <> text("\"")
     case CST.IntegerLiteral(value, _) =>
