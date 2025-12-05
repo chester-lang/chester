@@ -40,6 +40,18 @@ object Parser {
 
     def recordError(message: String, spanOpt: Option[Span]): Unit =
       reporter.report(ParseError(message, spanOpt))
+    
+    // Helper to check if current token is a closing delimiter
+    def isClosing(token: Token): Boolean = token match {
+      case _: Token.RParen | _: Token.RBracket | _: Token.RBrace => true
+      case _ => false
+    }
+    
+    // Helper to check if we should stop parsing in certain contexts
+    def shouldStopInBlock: Boolean = current.exists {
+      case _: Token.Semicolon | _: Token.RBrace | _: Token.RParen | _: Token.EOF => true
+      case _ => false
+    }
   }
 
   def parse(tokens: Seq[Token])(using reporter: Reporter[ParseError]): ParseResult = {
@@ -113,101 +125,105 @@ object Parser {
     }
   }
 
-  private def parseTuple(state: ParserState): CST = {
-    val start = state.current.get.span
-    state.advance() // Skip LParen
-    state.skipTrivia()
-
+  /** Parse a delimited sequence of elements (tuple or list) */
+  private def parseDelimited(
+    state: ParserState,
+    start: Span,
+    closingDelimiter: Token => Boolean,
+    separator: Token.Comma.type,
+    closingName: String,
+    build: (Vector[CST], Span) => CST
+  ): CST = {
     val elements = ArrayBuffer.empty[CST]
 
-    while (state.hasNext && !state.current.exists(_.isInstanceOf[Token.RParen])) {
+    while (state.hasNext && !state.current.exists(closingDelimiter)) {
       elements += parseAtom(state)
       state.skipTrivia()
 
       state.current match {
-        case Some(Token.Comma(_)) =>
+        case Some(_: Token.Comma) =>
           state.advance()
           state.skipTrivia()
-        case Some(Token.RParen(_)) =>
-        // End of tuple
+        case Some(tok) if closingDelimiter(tok) =>
+          // End of delimited sequence
         case Some(Token.EOF(_)) | None =>
-          // Error recovery: missing closing paren
-          state.recordError("Expected ')' to close tuple", Some(start))
+          // Error recovery: missing closing delimiter
+          state.recordError(s"Expected $closingName", Some(start))
           val endSpan = if (elements.nonEmpty) elements.last.span else start
-          val result = CST.Tuple(elements.toVector, start.combine(endSpan))
-          return result
-        case Some(Token.Semicolon(_)) =>
-          // Error recovery: semicolon indicates end of tuple in block context
-          state.recordError("Expected ')' to close tuple", Some(start))
+          return build(elements.toVector, start.combine(endSpan))
+        case Some(_: Token.Semicolon) =>
+          // Error recovery: semicolon ends this structure in block context
+          state.recordError(s"Expected $closingName", Some(start))
           val endSpan = if (elements.nonEmpty) elements.last.span else start
-          val result = CST.Tuple(elements.toVector, start.combine(endSpan))
-          return result
+          return build(elements.toVector, start.combine(endSpan))
         case Some(other) =>
-          // Error recovery: skip unexpected token and continue
-          state.recordError(s"Expected ',' or ')' but got ${other.tokenType}", other.span)
+          // Error recovery: skip unexpected token
+          state.recordError(s"Expected ',' or $closingName but got ${other.tokenType}", other.span)
           state.advance()
           state.skipTrivia()
       }
     }
 
     state.current match {
-      case Some(Token.RParen(endSpan)) =>
+      case Some(tok) if closingDelimiter(tok) =>
+        val endSpan = tok.span
         state.advance()
-        CST.Tuple(elements.toVector, start.combine(endSpan))
+        build(elements.toVector, start.combine(endSpan))
       case _ =>
-        // Error recovery: missing closing paren
-        state.recordError("Expected ')' to close tuple", Some(start))
+        // Error recovery: missing closing delimiter
+        state.recordError(s"Expected $closingName", Some(start))
         val endSpan = if (elements.nonEmpty) elements.last.span else start
-        CST.Tuple(elements.toVector, start.combine(endSpan))
+        build(elements.toVector, start.combine(endSpan))
     }
+  }
+
+  private def parseTuple(state: ParserState): CST = {
+    val start = state.current.get.span
+    state.advance() // Skip LParen
+    state.skipTrivia()
+    parseDelimited(
+      state, start,
+      _.isInstanceOf[Token.RParen],
+      Token.Comma,
+      "')' to close tuple",
+      (elems, span) => CST.Tuple(elems, span)
+    )
   }
 
   private def parseListLiteral(state: ParserState): CST = {
     val start = state.current.get.span
     state.advance() // Skip LBracket
     state.skipTrivia()
+    parseDelimited(
+      state, start,
+      _.isInstanceOf[Token.RBracket],
+      Token.Comma,
+      "']' to close list",
+      (elems, span) => CST.ListLiteral(elems, span)
+    )
+  }
 
-    val elements = ArrayBuffer.empty[CST]
-
-    while (state.hasNext && !state.current.exists(_.isInstanceOf[Token.RBracket])) {
-      elements += parseAtom(state)
+  /** Parse multiple atoms into a single CST, creating SeqOf if needed */
+  private def parseAtomSequence(state: ParserState): CST = {
+    val atoms = ArrayBuffer.empty[CST]
+    
+    while (state.hasNext && !state.shouldStopInBlock) {
+      atoms += parseAtom(state)
       state.skipTrivia()
-
-      state.current match {
-        case Some(Token.Comma(_)) =>
-          state.advance()
-          state.skipTrivia()
-        case Some(Token.RBracket(_)) =>
-        // End of list
-        case Some(Token.EOF(_)) | None =>
-          // Error recovery: missing closing bracket - treat [a as [a]
-          state.recordError("Expected ']' to close list", Some(start))
-          val endSpan = if (elements.nonEmpty) elements.last.span else start
-          val result = CST.ListLiteral(elements.toVector, start.combine(endSpan))
-          return result
-        case Some(Token.Semicolon(_)) =>
-          // Error recovery: semicolon indicates end of list in block context
-          state.recordError("Expected ']' to close list", Some(start))
-          val endSpan = if (elements.nonEmpty) elements.last.span else start
-          val result = CST.ListLiteral(elements.toVector, start.combine(endSpan))
-          return result
-        case Some(other) =>
-          // Error recovery: skip unexpected token and continue
-          state.recordError(s"Expected ',' or ']' but got ${other.tokenType}", other.span)
-          state.advance()
-          state.skipTrivia()
-      }
     }
-
-    state.current match {
-      case Some(Token.RBracket(endSpan)) =>
-        state.advance()
-        CST.ListLiteral(elements.toVector, start.combine(endSpan))
-      case _ =>
-        // Error recovery: missing closing bracket - treat [a as [a]
-        state.recordError("Expected ']' to close list", Some(start))
-        val endSpan = if (elements.nonEmpty) elements.last.span else start
-        CST.ListLiteral(elements.toVector, start.combine(endSpan))
+    
+    if (atoms.isEmpty) {
+      // Should not happen in normal flow
+      val span = state.current.map(_.span).getOrElse(
+        Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
+      )
+      CST.Symbol("<error>", span)
+    } else if (atoms.length == 1) {
+      atoms(0)
+    } else {
+      val startSpan = atoms(0).span
+      val endSpan = atoms.last.span
+      CST.SeqOf(NonEmptyVector.fromVectorUnsafe(atoms.toVector), startSpan.combine(endSpan))
     }
   }
 
@@ -218,72 +234,45 @@ object Parser {
 
     val elements = ArrayBuffer.empty[CST]
     var tail: Option[CST] = None
+    val isBlockClosed = (tok: Token) => tok.isInstanceOf[Token.RBrace]
+    val wrongClosing = (tok: Token) => tok.isInstanceOf[Token.RParen]
 
-    while (state.hasNext && 
-           !state.current.exists(_.isInstanceOf[Token.RBrace]) &&
-           !state.current.exists(_.isInstanceOf[Token.RParen])) {
-      // Parse atoms until we hit a semicolon, closing brace/paren, or EOF
-      val atomsBeforeSemi = ArrayBuffer.empty[CST]
-      
-      while (state.hasNext && 
-             !state.current.exists(_.isInstanceOf[Token.RBrace]) &&
-             !state.current.exists(_.isInstanceOf[Token.RParen]) &&
-             !state.current.exists(_.isInstanceOf[Token.Semicolon])) {
-        atomsBeforeSemi += parseAtom(state)
+    // Parse statements separated by semicolons
+    while (state.hasNext && !state.current.exists(isBlockClosed) && !state.current.exists(wrongClosing)) {
+      // Skip empty statements (multiple semicolons)
+      if (state.current.exists(_.isInstanceOf[Token.Semicolon])) {
+        state.advance()
         state.skipTrivia()
-      }
-
-      if (atomsBeforeSemi.isEmpty) {
-        // No atoms parsed, something went wrong
-        state.current match {
-          case Some(Token.Semicolon(_)) =>
-            state.advance()
-            state.skipTrivia()
-          case _ => // Will be handled by outer loop
-        }
+        // Continue to next iteration
       } else {
-        // Combine multiple atoms into SeqOf if needed
-        val elem = if (atomsBeforeSemi.length == 1) {
-          atomsBeforeSemi(0)
-        } else {
-          val startSpan = atomsBeforeSemi(0).span
-          val endSpan = atomsBeforeSemi.last.span
-          CST.SeqOf(NonEmptyVector.fromVectorUnsafe(atomsBeforeSemi.toVector), startSpan.combine(endSpan))
-        }
-
+        val statement = parseAtomSequence(state)
+        
         state.current match {
-          case Some(Token.Semicolon(_)) =>
-            // Element followed by semicolon
-            elements += elem
+          case Some(_: Token.Semicolon) =>
+            // Statement followed by semicolon - add to elements
+            elements += statement
             state.advance()
             state.skipTrivia()
-          case Some(Token.RBrace(_)) =>
-            // Final element without semicolon - this is the tail
-            tail = Some(elem)
-          case Some(Token.RParen(_)) =>
-            // Error recovery: block closed with ) instead of }
-            tail = Some(elem)
-            state.recordError("Expected '}' to close block", Some(start))
-            val endSpan = elem.span
-            val result = CST.Block(elements.toVector, tail, start.combine(endSpan))
-            return result
+          case Some(tok) if isBlockClosed(tok) || wrongClosing(tok) =>
+            // Final statement without semicolon - this is the tail
+            tail = Some(statement)
           case Some(Token.EOF(_)) | None =>
             // Error recovery: missing closing brace
-            tail = Some(elem)
+            tail = Some(statement)
             state.recordError("Expected '}' to close block", Some(start))
-            val endSpan = elem.span
-            val result = CST.Block(elements.toVector, tail, start.combine(endSpan))
-            return result
+            val endSpan = statement.span
+            return CST.Block(elements.toVector, tail, start.combine(endSpan))
           case Some(other) =>
-            // Shouldn't reach here due to inner while loop condition
+            // Shouldn't reach here - error in logic
             state.recordError(s"Unexpected token: ${other.tokenType}", other.span)
-            elements += elem
+            elements += statement
             state.advance()
             state.skipTrivia()
         }
       }
     }
 
+    // Handle closing delimiter
     state.current match {
       case Some(Token.RBrace(endSpan)) =>
         state.advance()
