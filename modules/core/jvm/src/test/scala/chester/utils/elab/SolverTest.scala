@@ -45,6 +45,14 @@ class SolverTest extends munit.FunSuite {
   test("ConcurrentSolver - complex multi-directional flow") {
     testComplexMultiDirectionalFlow(ConcurrentSolverModule)
   }
+
+  test("ProceduralSolver - defaulting behavior") {
+    testDefaulting(ProceduralSolverModule)
+  }
+
+  test("ConcurrentSolver - defaulting behavior") {
+    testDefaulting(ConcurrentSolverModule)
+  }
   
   // Common test logic that works with any SolverModule
   def testBasicCellOperations(module: SolverModule): Unit = {
@@ -192,6 +200,41 @@ class SolverTest extends munit.FunSuite {
     assertEquals(module.readStable(solver, b), Some(7), "b should be 7 (12-5)")
     assertEquals(module.readStable(solver, c), Some(8), "c should be 8 (15-7)")
     assertEquals(module.readStable(solver, product), Some(56), "product should be 56 (7*8)")
+  }
+
+  // Test defaulting: cells with default values should use them when no info added
+  def testDefaulting(module: SolverModule): Unit = {
+    import module.given
+    val solver = module.makeSolver[DefaultingConstraint](DefaultingHandlerConf(module))
+    
+    // Create cells with different scenarios
+    val cellWithValue = module.newOnceCell[DefaultingConstraint, Int](solver, default = Some(100))
+    val cellWithDefault = module.newOnceCell[DefaultingConstraint, Int](solver, default = Some(0))
+    val cellWithDefaultUnused = module.newOnceCell[DefaultingConstraint, Int](solver, default = Some(999))
+    val cellNoDefault = module.newOnceCell[DefaultingConstraint, Int](solver)
+    val result = module.newOnceCell[DefaultingConstraint, Int](solver)
+    
+    // Add constraint: result = cellWithValue + cellWithDefault + cellWithDefaultUnused + cellNoDefault
+    module.addConstraint(solver, DefaultingConstraint(cellWithValue, cellWithDefault, cellWithDefaultUnused, cellNoDefault, result))
+    
+    // Fill only cellWithValue and cellWithDefaultUnused (the one with default that shouldn't be used)
+    module.fill(solver, cellWithValue, 10)
+    module.fill(solver, cellWithDefaultUnused, 5)
+    
+    // Run solver - should trigger defaulting
+    module.run(solver)
+    
+    // Check results:
+    // - cellWithValue should have 10 (we filled it)
+    // - cellWithDefault should have 0 (defaulted)
+    // - cellWithDefaultUnused should have 5 (we filled it, default ignored)
+    // - cellNoDefault should have 0 (defaulted to 0 by handler)
+    // - result should be 10 + 0 + 5 + 0 = 15
+    assertEquals(module.readStable(solver, cellWithValue), Some(10), "cellWithValue should be 10")
+    assertEquals(module.readStable(solver, cellWithDefault), Some(0), "cellWithDefault should use default 0")
+    assertEquals(module.readStable(solver, cellWithDefaultUnused), Some(5), "cellWithDefaultUnused should be 5, not default")
+    assertEquals(module.readStable(solver, cellNoDefault), Some(0), "cellNoDefault should be defaulted to 0")
+    assertEquals(module.readStable(solver, result), Some(15), "result should be 15 (10+0+5+0)")
   }
 }
 
@@ -351,4 +394,65 @@ object MixedProductHandler extends Handler[MixedConstraint] {
   
   override def canDefaulting(level: DefaultingLevel): Boolean = false
   override def defaulting[M <: SolverModule](constraint: MixedConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[MixedConstraint]): Boolean = false
+}
+
+// Defaulting constraint: sum four cells where some might need defaulting
+case class DefaultingConstraint(
+  a: Cell[Int, Int, CellContent[Int, Int]],
+  b: Cell[Int, Int, CellContent[Int, Int]],
+  c: Cell[Int, Int, CellContent[Int, Int]],
+  d: Cell[Int, Int, CellContent[Int, Int]],
+  result: Cell[Int, Int, CellContent[Int, Int]]
+)
+
+case class DefaultingHandlerConf[M <: SolverModule](module: M) extends HandlerConf[DefaultingConstraint, M] {
+  override def getHandler(constraint: DefaultingConstraint): Option[Handler[DefaultingConstraint]] = Some(DefaultingHandler)
+}
+
+object DefaultingHandler extends Handler[DefaultingConstraint] {
+  override def run[M <: SolverModule](constraint: DefaultingConstraint)(using module: M, solver: module.Solver[DefaultingConstraint]): Result = {
+    val va = module.readStable(solver, constraint.a)
+    val vb = module.readStable(solver, constraint.b)
+    val vc = module.readStable(solver, constraint.c)
+    val vd = module.readStable(solver, constraint.d)
+    
+    (va, vb, vc, vd) match {
+      case (Some(a), Some(b), Some(c), Some(d)) =>
+        // All values present, compute result
+        module.fill(solver, constraint.result, a + b + c + d)
+        Result.Done
+      case _ =>
+        // Some values missing - wait and allow defaulting
+        Result.Waiting(constraint.a, constraint.b, constraint.c, constraint.d)
+    }
+  }
+  
+  override def canDefaulting(level: DefaultingLevel): Boolean = {
+    // Allow defaulting at any level
+    true
+  }
+  
+  override def defaulting[M <: SolverModule](constraint: DefaultingConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[DefaultingConstraint]): Boolean = {
+    // Default any missing cells to 0
+    var didDefault = false
+    
+    if (module.noStableValue(solver, constraint.a)) {
+      module.fill(solver, constraint.a, 0)
+      didDefault = true
+    }
+    if (module.noStableValue(solver, constraint.b)) {
+      module.fill(solver, constraint.b, 0)
+      didDefault = true
+    }
+    if (module.noStableValue(solver, constraint.c)) {
+      module.fill(solver, constraint.c, 0)
+      didDefault = true
+    }
+    if (module.noStableValue(solver, constraint.d)) {
+      module.fill(solver, constraint.d, 0)
+      didDefault = true
+    }
+    
+    didDefault
+  }
 }
