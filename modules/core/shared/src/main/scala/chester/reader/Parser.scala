@@ -3,6 +3,7 @@ package chester.reader
 import chester.core.CST
 import chester.error.{Span, SpanInFile, Pos, Reporter}
 import scala.language.experimental.genericNumberLiterals
+import cats.data.NonEmptyVector
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -51,10 +52,10 @@ object Parser {
     
     if (!state.hasNext) {
       state.recordError("No tokens to parse", None)
-      // Return a dummy CST for error recovery
+      // Return a dummy symbol for error recovery since SeqOf requires at least one element
       val dummySpan = if (tokens.nonEmpty) tokens.last.span else 
         Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
-      return ParseResult(CST.SeqOf(Vector.empty, dummySpan), state.getRest)
+      return ParseResult(CST.Symbol("<empty>", dummySpan), state.getRest)
     }
     
     val elements = scala.collection.mutable.ArrayBuffer.empty[CST]
@@ -68,7 +69,7 @@ object Parser {
     val cst = if (elements.length == 1) elements(0) 
               else {
                 val endSpan = if (elements.nonEmpty) elements.last.span else startSpan
-                CST.SeqOf(elements.toVector, startSpan.combine(endSpan))
+                CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elements.toVector), startSpan.combine(endSpan))
               }
     ParseResult(cst, state.getRest)
   }
@@ -98,14 +99,14 @@ object Parser {
           state.advance()
           // Try to parse next atom
           if (state.hasNext) parseAtom(state)
-          else CST.SeqOf(Vector.empty, token.span)
+          else CST.Symbol("<error>", token.span)
       }
       case None =>
         val lastSpan = if (state.tokens.nonEmpty) state.tokens.last.span else {
           Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
         }
         state.recordError("Unexpected end of input", Some(lastSpan))
-        CST.SeqOf(Vector.empty, lastSpan)
+        CST.Symbol("<error>", lastSpan)
     }
   }
   

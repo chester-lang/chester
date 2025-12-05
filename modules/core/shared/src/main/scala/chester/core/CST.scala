@@ -5,6 +5,8 @@ import chester.error.Span
 import chester.utils.doc.{*, given}
 import chester.utils.doc.Docs.*
 import upickle.default.*
+import cats.data.NonEmptyVector
+import chester.utils.{*, given}
 
 /** Simple Concrete Syntax Tree using Scala 3 enum */
 enum CST(val span: Span) extends ToDoc derives ReadWriter:
@@ -19,8 +21,8 @@ enum CST(val span: Span) extends ToDoc derives ReadWriter:
   case StringLiteral(value: String, override val span: Span) extends CST(span)
   case IntegerLiteral(value: BigInt, override val span: Span) extends CST(span)
 
-// a b
-  case SeqOf(elements: Vector[CST], override val span: Span) extends CST(span)
+// a b - requires at least one element
+  case SeqOf(elements: NonEmptyVector[CST], override val span: Span) extends CST(span)
   
   def toDoc(using options: DocConf): Doc = this match
     case CST.Symbol(name, _) =>
@@ -34,4 +36,4 @@ enum CST(val span: Span) extends ToDoc derives ReadWriter:
     case CST.IntegerLiteral(value, _) =>
       text(value.toString)
     case CST.SeqOf(elements, _) =>
-      hsep(elements.map(_.toDoc), text(" "))
+      hsep(elements.toVector.map(_.toDoc), text(" "))
