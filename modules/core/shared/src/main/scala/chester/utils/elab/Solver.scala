@@ -54,7 +54,7 @@ trait SolverModule {
   // Derived cell type aliases
   type CellOf[A, B] = Cell[A, B, CellContent[A, B]]
   type CellRW[T] = Cell[T, T, CellContent[T, T]]
-  type CellAny = Cell[Any, Any, CellContent[Any, Any]]
+  type CellAny = Cell[Any, Nothing, CellContent[Any, Nothing]]
   type CellR[+T] = Cell[T, Nothing, CellContentR[T]]
   type CellW[-T] = Cell[Nothing, T, CellContent[Nothing, T]]
   

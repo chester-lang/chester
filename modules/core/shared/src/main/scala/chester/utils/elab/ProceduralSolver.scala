@@ -40,9 +40,10 @@ object ProceduralSolverModule extends SolverModule {
   private def updateCell[A, B](solver: Solver, id: CellOf[A, B], f: CellContent[A, B] => CellContent[A, B]): Unit = {
     val current = id.storeAs[CellContent[A, B]]
     val newValue = f(current)
-    if (current == newValue) return
-    id._store = newValue
-    solver.updatedCells.append(id.asInstanceOf[CellAny])
+    if (current != newValue) {
+      id._store = newValue
+      solver.updatedCells.append(id.asInstanceOf[CellAny])
+    }
   }
   
   // Implement module interface
