@@ -57,11 +57,23 @@ object Parser {
       return ParseResult(CST.SeqOf(Vector.empty, dummySpan), state.getRest)
     }
     
-    val cst = parseExpression(state)
+    val elements = scala.collection.mutable.ArrayBuffer.empty[CST]
+    val startSpan = state.current.get.span
+    
+    while (state.hasNext) {
+      elements += parseAtom(state)
+      state.skipTrivia()
+    }
+    
+    val cst = if (elements.length == 1) elements(0) 
+              else {
+                val endSpan = if (elements.nonEmpty) elements.last.span else startSpan
+                CST.SeqOf(elements.toVector, startSpan.combine(endSpan))
+              }
     ParseResult(cst, state.getRest)
   }
   
-  private def parseExpression(state: ParserState): CST = {
+  private def parseAtom(state: ParserState): CST = {
     state.skipTrivia()
     
     state.current match {
@@ -84,8 +96,8 @@ object Parser {
           // Error recovery: skip unexpected token and continue
           state.recordError(s"Unexpected token: ${token.tokenType}", token.span)
           state.advance()
-          // Try to parse next expression
-          if (state.hasNext) parseExpression(state)
+          // Try to parse next atom
+          if (state.hasNext) parseAtom(state)
           else CST.SeqOf(Vector.empty, token.span)
       }
       case None =>
@@ -105,7 +117,7 @@ object Parser {
     val elements = ArrayBuffer.empty[CST]
     
     while (state.hasNext && !state.current.exists(_.isInstanceOf[Token.RParen])) {
-      elements += parseExpression(state)
+      elements += parseAtom(state)
       state.skipTrivia()
       
       state.current match {
@@ -148,7 +160,7 @@ object Parser {
     val elements = ArrayBuffer.empty[CST]
     
     while (state.hasNext && !state.current.exists(_.isInstanceOf[Token.RBracket])) {
-      elements += parseExpression(state)
+      elements += parseAtom(state)
       state.skipTrivia()
       
       state.current match {

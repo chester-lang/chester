@@ -264,4 +264,65 @@ class ParserTest extends munit.FunSuite {
       case _ => fail(s"Expected SeqOf for empty input, got: $cst")
     }
   }
+
+  test("parse function call f(a) as SeqOf") {
+    val (cst, errors) = parseString("f(a)")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.SeqOf(elements, _) =>
+        assertEquals(elements.length, 2, "Expected SeqOf with 2 elements")
+        elements(0) match {
+          case CST.Symbol(name, _) => assertEquals(name, "f")
+          case _ => fail(s"Expected Symbol 'f', got: ${elements(0)}")
+        }
+        elements(1) match {
+          case CST.Tuple(tupleElements, _) =>
+            assertEquals(tupleElements.length, 1)
+            tupleElements(0) match {
+              case CST.Symbol(name, _) => assertEquals(name, "a")
+              case _ => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
+            }
+          case _ => fail(s"Expected Tuple, got: ${elements(1)}")
+        }
+      case _ => fail(s"Expected SeqOf, got: $cst")
+    }
+  }
+
+  test("parse multiple atoms a b c as SeqOf") {
+    val (cst, errors) = parseString("a b c")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.SeqOf(elements, _) =>
+        assertEquals(elements.length, 3)
+        val names = elements.collect { case CST.Symbol(name, _) => name }
+        assertEquals(names, Vector("a", "b", "c"))
+      case _ => fail(s"Expected SeqOf, got: $cst")
+    }
+  }
+
+  test("parse f(a, b) g(c) as SeqOf") {
+    val (cst, errors) = parseString("f(a, b) g(c)")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.SeqOf(elements, _) =>
+        assertEquals(elements.length, 4, "Expected f, (a,b), g, (c)")
+        elements(0) match {
+          case CST.Symbol(name, _) => assertEquals(name, "f")
+          case _ => fail(s"Expected Symbol 'f', got: ${elements(0)}")
+        }
+        elements(1) match {
+          case CST.Tuple(tupleElements, _) => assertEquals(tupleElements.length, 2)
+          case _ => fail(s"Expected Tuple, got: ${elements(1)}")
+        }
+        elements(2) match {
+          case CST.Symbol(name, _) => assertEquals(name, "g")
+          case _ => fail(s"Expected Symbol 'g', got: ${elements(2)}")
+        }
+        elements(3) match {
+          case CST.Tuple(tupleElements, _) => assertEquals(tupleElements.length, 1)
+          case _ => fail(s"Expected Tuple, got: ${elements(3)}")
+        }
+      case _ => fail(s"Expected SeqOf, got: $cst")
+    }
+  }
 }
