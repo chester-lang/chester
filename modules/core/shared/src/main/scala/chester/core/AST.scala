@@ -7,15 +7,15 @@ import chester.utils.doc.Docs.*
 import upickle.default.*
 
 /** Simple AST using Scala 3 enum */
-enum AST(val span: Span) derives ReadWriter:
+enum AST(val span: Span) extends ToDoc derives ReadWriter:
   /** A symbol reference */
   case Symbol(name: String, override val span: Span) extends AST(span)
   
   /** Function application */
   case Apply(function: AST, arguments: List[AST], override val span: Span) extends AST(span)
-
-extension (ast: AST) def toDoc(using options: DocConf): Doc = ast match
-  case AST.Symbol(name, _) => 
-    text(name)
-  case AST.Apply(function, arguments, _) =>
-    function.toDoc <> parens(hsep(arguments.map(_.toDoc), `,`))
+  
+  def toDoc(using options: DocConf): Doc = this match
+    case AST.Symbol(name, _) => 
+      text(name)
+    case AST.Apply(function, arguments, _) =>
+      function.toDoc <> parens(hsep(arguments.map(_.toDoc), `,`))
