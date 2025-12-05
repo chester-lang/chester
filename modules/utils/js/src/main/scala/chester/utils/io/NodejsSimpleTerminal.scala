@@ -15,14 +15,15 @@ class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future
 
   private var live: Boolean = true
 
-  private var reading: Promise[String] = scala.compiletime.uninitialized
+  private var reading: Promise[String] | Null = null
 
   private def closeCallback(): Unit =
     if (live) {
-      if (reading != null) {
-        val r = reading
+      reading match {
+        case null => ()
+        case r => 
         reading = null
-        r.success(null)
+        r.success("")
       }
     }
 

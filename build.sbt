@@ -13,7 +13,9 @@ lazy val commonSettings = Seq(
     "-feature",
     "-language:implicitConversions",
     "-unchecked",
-    "-deprecation"
+    "-deprecation",
+  // experiemntal:
+    "-Yexplicit-nulls"
   ),
   // Workaround for Metals: disable BSP for native/js targets to prevent compilation issues
   // See: https://github.com/scalameta/metals-feature-requests/issues/13
