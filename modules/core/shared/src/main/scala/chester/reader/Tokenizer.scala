@@ -128,13 +128,13 @@ object Tokenizer {
     state.advance()
     state.advance()
     
-    val chars = ArrayBuffer.empty[Char]
+    val chars = ArrayBuffer.empty[StringChar]
     while (state.hasNext && state.current.get.text != "\n") {
-      chars += state.current.get.text.head
+      chars += state.current.get
       state.advance()
     }
     
-    Token.Comment(chars.mkString, state.spanFrom(start))
+    Token.Comment(chars.toVector, state.spanFrom(start))
   }
   
   private def readBlockComment(state: TokenizerState): Token = {
@@ -143,23 +143,23 @@ object Tokenizer {
     state.advance()
     state.advance()
     
-    val chars = ArrayBuffer.empty[Char]
+    val chars = ArrayBuffer.empty[StringChar]
     var depth = 1
     while (state.hasNext && depth > 0) {
       if (state.current.get.text == "/" && state.peek(1).exists(_.text == "*")) {
         depth += 1
-        chars += state.current.get.text.head
+        chars += state.current.get
         state.advance()
-        chars += state.current.get.text.head
+        chars += state.current.get
         state.advance()
       } else if (state.current.get.text == "*" && state.peek(1).exists(_.text == "/")) {
         depth -= 1
-        chars += state.current.get.text.head
+        chars += state.current.get
         state.advance()
-        chars += state.current.get.text.head
+        chars += state.current.get
         state.advance()
       } else {
-        chars += state.current.get.text.head
+        chars += state.current.get
         state.advance()
       }
     }
@@ -168,7 +168,7 @@ object Tokenizer {
       throw TokenizeException(t"Unclosed block comment", state.spanFrom(start))
     }
     
-    Token.Comment(chars.mkString, state.spanFrom(start))
+    Token.Comment(chars.toVector, state.spanFrom(start))
   }
   
   private def readStringLiteral(state: TokenizerState): Token = {
@@ -212,11 +212,11 @@ object Tokenizer {
     val start = state.currentPos
     state.advance() // Skip opening '
     
-    val chars = ArrayBuffer.empty[Char]
+    val chars = ArrayBuffer.empty[StringChar]
     
     // Read identifier characters using IdentifierRules
     while (state.codePoint.exists(IdentifierRules.isIdentifierPart)) {
-      chars += state.current.get.text.head
+      chars += state.current.get
       state.advance()
     }
     
@@ -224,35 +224,35 @@ object Tokenizer {
       throw TokenizeException(t"Empty symbol literal", state.spanFrom(start))
     }
     
-    Token.SymbolLiteral(chars.mkString, state.spanFrom(start))
+    Token.SymbolLiteral(chars.toVector, state.spanFrom(start))
   }
   
   private def readNumberLiteral(state: TokenizerState): Token = {
     val start = state.currentPos
-    val chars = ArrayBuffer.empty[Char]
+    val chars = ArrayBuffer.empty[StringChar]
     
     while (state.codePoint.exists(cp => Character.isDigit(cp) || cp == '_'.asInt)) {
       if (state.current.get.text != "_") {
-        chars += state.current.get.text.head
+        chars += state.current.get
       }
       state.advance()
     }
     
     // Check for rational literal (/)
     if (state.current.exists(_.text == "/") && state.peek(1).exists(c => Character.isDigit(c.text.codePointAt(0)))) {
-      chars += '/'
+      chars += state.current.get
       state.advance()
       
       while (state.codePoint.exists(cp => Character.isDigit(cp) || cp == '_'.asInt)) {
         if (state.current.get.text != "_") {
-          chars += state.current.get.text.head
+          chars += state.current.get
         }
         state.advance()
       }
       
-      Token.RationalLiteral(chars.mkString, state.spanFrom(start))
+      Token.RationalLiteral(chars.toVector, state.spanFrom(start))
     } else {
-      Token.IntegerLiteral(chars.mkString, state.spanFrom(start))
+      Token.IntegerLiteral(chars.toVector, state.spanFrom(start))
     }
   }
   

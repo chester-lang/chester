@@ -48,7 +48,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.IntegerLiteral(value, _) => assertEquals(value, "12345")
+      case Token.IntegerLiteral(value, _) => assertEquals(value.asString, "12345")
       case _ => fail("Expected IntegerLiteral")
     }
   }
@@ -59,7 +59,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.IntegerLiteral(value, _) => assertEquals(value, "1000000")
+      case Token.IntegerLiteral(value, _) => assertEquals(value.asString, "1000000")
       case _ => fail("Expected IntegerLiteral")
     }
   }
@@ -70,7 +70,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.RationalLiteral(value, _) => assertEquals(value, "22/7")
+      case Token.RationalLiteral(value, _) => assertEquals(value.asString, "22/7")
       case _ => fail("Expected RationalLiteral")
     }
   }
@@ -147,7 +147,7 @@ class TokenizerTest extends munit.FunSuite {
     assertEquals(tokens.length, 1)
     tokens(0) match {
       case Token.SymbolLiteral(value, _) => 
-        assertEquals(value, "mysymbol")
+        assertEquals(value.asString, "mysymbol")
       case _ => fail("Expected SymbolLiteral")
     }
   }
@@ -164,7 +164,7 @@ class TokenizerTest extends munit.FunSuite {
     }
     tokens(1) match {
       case Token.Comment(text, _) => 
-        assertEquals(text, " this is a comment")
+        assertEquals(text.asString, " this is a comment")
       case _ => fail("Expected Comment")
     }
     tokens(2) match {
@@ -186,7 +186,7 @@ class TokenizerTest extends munit.FunSuite {
     }
     tokens(1) match {
       case Token.Comment(text, _) => 
-        assertEquals(text, " comment */")
+        assertEquals(text.asString, " comment */")
       case _ => fail("Expected Comment")
     }
     tokens(2) match {

@@ -5,6 +5,9 @@ import chester.i18n.*
 import chester.utils.codepointToString
 import chester.utils.lenIsOne
  import scala.language.experimental.genericNumberLiterals
+
+type Text = Vector[StringChar]
+
 case class StringChar(text: String, span: Span) {
   require(
     text.lenIsOne,
@@ -15,6 +18,10 @@ case class StringChar(text: String, span: Span) {
 object StringChar {
   def apply(codePoint: Int, span: Span): StringChar =
     new StringChar(codepointToString(codePoint), span)
+
+  extension (text: Text) {
+    def asString: String = text.map(_.text).mkString
+  }
 }
 
 enum Token extends SpanRequired {
@@ -30,12 +37,12 @@ enum Token extends SpanRequired {
   case At(span: Span)
   case EOF(span: Span)
   case Whitespace(span: Span, hasNewline: Boolean = false)
-  case Comment(text: String, span: Span)
-  case IntegerLiteral(value: String, span: Span)
-  case RationalLiteral(value: String, span: Span)
-  case StringLiteral(value: Vector[StringChar], span: Span)
-  case SymbolLiteral(value: String, span: Span)
-  case Identifier(parts: Vector[StringChar], span: Span)
+  case Comment(text: Text, span: Span)
+  case IntegerLiteral(value: Text, span: Span)
+  case RationalLiteral(value: Text, span: Span)
+  case StringLiteral(value: Text, span: Span)
+  case SymbolLiteral(value: Text, span: Span)
+  case Identifier(parts: Text, span: Span)
   case Hash(span: Span)
 
   def isWhitespace: Boolean = this match {
