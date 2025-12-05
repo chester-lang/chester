@@ -473,4 +473,76 @@ class ParserTest extends munit.FunSuite {
       case _ => fail(s"Expected Block for error recovery, got: $cst")
     }
   }
+
+  test("parse block with function call - well formed") {
+    val (cst, errors) = parseString("{print(a);b}")
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        // Should have 1 element: SeqOf(print, (a)) before semicolon
+        assertEquals(elements.length, 1, s"Should have 1 element, got ${elements.length}: ${elements.map(_.getClass.getSimpleName)}")
+        elements(0) match {
+          case CST.SeqOf(seqElements, _) =>
+            val seqVec = seqElements.toVector
+            assertEquals(seqVec.length, 2, "Expected SeqOf with 2 elements (print and tuple)")
+            seqVec(0) match {
+              case CST.Symbol(name, _) => assertEquals(name, "print")
+              case _                   => fail(s"Expected Symbol 'print', got: ${seqVec(0)}")
+            }
+            seqVec(1) match {
+              case CST.Tuple(tupleElements, _) =>
+                assertEquals(tupleElements.length, 1)
+                tupleElements(0) match {
+                  case CST.Symbol(name, _) => assertEquals(name, "a")
+                  case _                   => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
+                }
+              case _ => fail(s"Expected Tuple, got: ${seqVec(1)}")
+            }
+          case _ => fail(s"Expected SeqOf, got: ${elements(0)}")
+        }
+        // Tail should be 'b'
+        tail match {
+          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
+          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block, got: $cst")
+    }
+  }
+
+  test("error recovery: complex block with unclosed tuple") {
+    val (cst, errors) = parseString("{print(a;b}")
+    // Should have errors - parser will recover from unclosed structures
+    assert(errors.nonEmpty, s"Expected errors for malformed block with unclosed tuple")
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        // With improved error recovery: tuple parser stops at semicolon
+        // Result should be: elements=[SeqOf(print, (a))], tail=b
+        assertEquals(elements.length, 1, s"Should have 1 element before semicolon, got ${elements.length}: ${elements.map(_.getClass.getSimpleName)}")
+        elements(0) match {
+          case CST.SeqOf(seqElements, _) =>
+            val seqVec = seqElements.toVector
+            assertEquals(seqVec.length, 2, "Expected SeqOf with 2 elements (print and tuple)")
+            seqVec(0) match {
+              case CST.Symbol(name, _) => assertEquals(name, "print")
+              case _                   => fail(s"Expected Symbol 'print', got: ${seqVec(0)}")
+            }
+            seqVec(1) match {
+              case CST.Tuple(tupleElements, _) =>
+                assertEquals(tupleElements.length, 1, "Tuple should recover with 1 element")
+                tupleElements(0) match {
+                  case CST.Symbol(name, _) => assertEquals(name, "a")
+                  case _                   => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
+                }
+              case _ => fail(s"Expected Tuple, got: ${seqVec(1)}")
+            }
+          case _ => fail(s"Expected SeqOf, got: ${elements(0)}")
+        }
+        // Tail should be 'b'
+        tail match {
+          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
+          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
+        }
+      case _ => fail(s"Expected Block for error recovery, got: $cst")
+    }
+  }
 }
