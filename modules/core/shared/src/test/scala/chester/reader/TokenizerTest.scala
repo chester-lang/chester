@@ -152,34 +152,44 @@ class TokenizerTest extends munit.FunSuite {
     }
   }
 
-  test("tokenize line comment is skipped") {
+  test("tokenize line comment is kept") {
     val result = tokenizeString("hello // this is a comment\nworld")
     assert(result.isRight)
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
-    assertEquals(tokens.length, 2)
+    assertEquals(tokens.length, 3)
     tokens(0) match {
       case Token.Identifier(parts, _) => 
         assertEquals(parts.map(_.text).mkString, "hello")
       case _ => fail("Expected Identifier")
     }
     tokens(1) match {
+      case Token.Comment(text, _) => 
+        assertEquals(text, " this is a comment")
+      case _ => fail("Expected Comment")
+    }
+    tokens(2) match {
       case Token.Identifier(parts, _) => 
         assertEquals(parts.map(_.text).mkString, "world")
       case _ => fail("Expected Identifier")
     }
   }
 
-  test("tokenize block comment is skipped") {
+  test("tokenize block comment is kept") {
     val result = tokenizeString("hello /* comment */ world")
     assert(result.isRight)
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
-    assertEquals(tokens.length, 2)
+    assertEquals(tokens.length, 3)
     tokens(0) match {
       case Token.Identifier(parts, _) => 
         assertEquals(parts.map(_.text).mkString, "hello")
       case _ => fail("Expected Identifier")
     }
     tokens(1) match {
+      case Token.Comment(text, _) => 
+        assertEquals(text, " comment */")
+      case _ => fail("Expected Comment")
+    }
+    tokens(2) match {
       case Token.Identifier(parts, _) => 
         assertEquals(parts.map(_.text).mkString, "world")
       case _ => fail("Expected Identifier")
@@ -190,7 +200,8 @@ class TokenizerTest extends munit.FunSuite {
     val result = tokenizeString("a /* outer /* inner */ still comment */ b")
     assert(result.isRight)
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
-    assertEquals(tokens.length, 2)
+    assertEquals(tokens.length, 3)
+    assert(tokens(1).isInstanceOf[Token.Comment])
   }
 
   test("tokenize complex expression") {

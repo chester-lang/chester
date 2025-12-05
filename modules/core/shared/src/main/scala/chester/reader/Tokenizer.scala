@@ -90,11 +90,9 @@ object Tokenizer {
           case '"' => Some(readStringLiteral(state))
           case '\'' => Some(readSymbolLiteral(state))
           case '/' if state.peek(1).exists(_.text.codePointAt(0) == '/') => 
-            readLineComment(state)
-            None
+            Some(readLineComment(state))
           case '/' if state.peek(1).exists(_.text.codePointAt(0) == '*') => 
-            readBlockComment(state)
-            None
+            Some(readBlockComment(state))
           case _ if Character.isWhitespace(cp) => 
             readWhitespace(state)
             None
@@ -124,39 +122,53 @@ object Tokenizer {
     }
   }
   
-  private def readLineComment(state: TokenizerState): Unit = {
+  private def readLineComment(state: TokenizerState): Token = {
+    val start = state.currentPos
     // Skip //
     state.advance()
     state.advance()
     
+    val chars = ArrayBuffer.empty[Char]
     while (state.hasNext && state.current.get.text != "\n") {
+      chars += state.current.get.text.head
       state.advance()
     }
+    
+    Token.Comment(chars.mkString, state.spanFrom(start))
   }
   
-  private def readBlockComment(state: TokenizerState): Unit = {
+  private def readBlockComment(state: TokenizerState): Token = {
+    val start = state.currentPos
     // Skip /*
     state.advance()
     state.advance()
     
+    val chars = ArrayBuffer.empty[Char]
     var depth = 1
     while (state.hasNext && depth > 0) {
       if (state.current.get.text == "/" && state.peek(1).exists(_.text == "*")) {
         depth += 1
+        chars += state.current.get.text.head
         state.advance()
+        chars += state.current.get.text.head
         state.advance()
       } else if (state.current.get.text == "*" && state.peek(1).exists(_.text == "/")) {
         depth -= 1
+        chars += state.current.get.text.head
         state.advance()
+        chars += state.current.get.text.head
         state.advance()
       } else {
+        chars += state.current.get.text.head
         state.advance()
       }
     }
     
     if (depth > 0) {
-      throw TokenizeException(t"Unclosed block comment", state.spanFrom(0))
+      throw TokenizeException(t"Unclosed block comment", state.spanFrom(start))
     }
+    
+    Token.Comment(chars.mkString, state.spanFrom(start))
   }
   
   private def readStringLiteral(state: TokenizerState): Token = {
