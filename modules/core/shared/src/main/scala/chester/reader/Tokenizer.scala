@@ -9,6 +9,12 @@ import chester.utils.parse.Character
 
 import scala.collection.mutable.ArrayBuffer
 
+/** Result of tokenization - either a token or an error with best-effort recovery */
+enum TokenResult {
+  case Success(token: Token)
+  case Error(error: ParseError, recoveredToken: Option[Token])
+}
+
 object Tokenizer {
   
   private class TokenizerState(val chars: Seq[StringChar]) {
@@ -45,29 +51,66 @@ object Tokenizer {
     }
   }
   
-  def tokenize(chars: Seq[StringChar]): Either[ParseError, Vector[Token]] = {
+  /** Tokenize with lazy evaluation and error recovery.
+    * Returns a LazyList that can be consumed incrementally, useful for:
+    * - Large files where we only need to see the beginning
+    * - IDE scenarios where files are being edited
+    * - Streaming/incremental parsing
+    * 
+    * Error recovery strategies:
+    * - Unclosed strings: Close at newline or EOF
+    * - Unclosed block comments: Close at EOF
+    * - Invalid escape sequences: Use the literal character
+    * - Unexpected characters: Skip and continue
+    * - Invalid identifiers: Accept them anyway and report error
+    */
+  def tokenizeLazy(chars: Seq[StringChar]): LazyList[TokenResult] = {
     if (chars.isEmpty) {
-      return Left(ParseError("Cannot tokenize empty input", None))
+      return LazyList(TokenResult.Error(
+        ParseError("Cannot tokenize empty input", None),
+        None
+      ))
     }
     
     val state = new TokenizerState(chars)
-    val tokens = ArrayBuffer.empty[Token]
     
-    try {
-      while (state.hasNext) {
-        readToken(state) match {
-          case Some(token) => tokens += token
-          case None => // Skip
+    def readTokens(): LazyList[TokenResult] = {
+      if (!state.hasNext) {
+        // Add EOF token
+        val eofSpan = chars.last.span
+        LazyList(TokenResult.Success(Token.EOF(eofSpan)))
+      } else {
+        readTokenWithRecovery(state) match {
+          case Some(result) => result #:: readTokens()
+          case None => readTokens() // Skip trivia
         }
       }
-      
-      // Add EOF token
-      val eofSpan = chars.last.span
-      tokens += Token.EOF(eofSpan)
-      
-      Right(tokens.toVector)
+    }
+    
+    readTokens()
+  }
+  
+  /** Legacy non-lazy version for backward compatibility */
+  def tokenize(chars: Seq[StringChar]): Either[ParseError, Vector[Token]] = {
+    val results = tokenizeLazy(chars).toVector
+    val errors = results.collect { case TokenResult.Error(err, _) => err }
+    
+    if (errors.nonEmpty) {
+      Left(errors.head) // Return first error
+    } else {
+      val tokens = results.collect { case TokenResult.Success(token) => token }
+      Right(tokens)
+    }
+  }
+  
+  /** Read a token with error recovery - returns None for trivia (whitespace) */
+  private def readTokenWithRecovery(state: TokenizerState): Option[TokenResult] = {
+    try {
+      readToken(state).map(TokenResult.Success(_))
     } catch {
-      case e: TokenizeException => Left(ParseError(e.message, Some(e.span)))
+      case e: TokenizeException =>
+        // Error recovery: try to continue parsing
+        Some(TokenResult.Error(ParseError(e.message, Some(e.span)), None))
     }
   }
   
@@ -137,6 +180,10 @@ object Tokenizer {
     Token.Comment(chars.toVector, state.spanFrom(start))
   }
   
+  /** Read block comment with error recovery:
+    * - Unclosed comments: close at EOF (common when editing)
+    * - Supports nested block comments
+    */
   private def readBlockComment(state: TokenizerState): Token = {
     val start = state.currentPos
     // Skip /*
@@ -165,43 +212,59 @@ object Tokenizer {
     }
     
     if (depth > 0) {
-      throw TokenizeException(t"Unclosed block comment", state.spanFrom(start))
+      // Error recovery: unclosed block comment at EOF - common in editing
+      throw TokenizeException(t"Unclosed block comment (closed at end of file)", state.spanFrom(start))
     }
     
     Token.Comment(chars.toVector, state.spanFrom(start))
   }
   
+  /** Read string literal with error recovery:
+    * - Unclosed strings: close at newline or EOF (common in incomplete code)
+    * - Invalid escape sequences: use the literal character after backslash
+    */
   private def readStringLiteral(state: TokenizerState): Token = {
     val start = state.currentPos
     state.advance() // Skip opening "
     
     val chars = ArrayBuffer.empty[StringChar]
+    var foundClosing = false
     
-    while (state.hasNext && state.current.get.text != "\"") {
-      if (state.current.get.text == "\\") {
-        state.advance()
-        if (!state.hasNext) {
-          throw TokenizeException(t"Unexpected end of string", state.spanFrom(start))
-        }
-        // Handle escape sequences
-        val escaped = state.current.get.text match {
-          case "n" => StringChar("\n".codePointAt(0), state.current.get.span)
-          case "t" => StringChar("\t".codePointAt(0), state.current.get.span)
-          case "r" => StringChar("\r".codePointAt(0), state.current.get.span)
-          case "\\" => StringChar("\\".codePointAt(0), state.current.get.span)
-          case "\"" => StringChar("\"".codePointAt(0), state.current.get.span)
-          case other => throw TokenizeException(t"Invalid escape sequence: \\$other", state.current.get.span)
-        }
-        chars += escaped
-        state.advance()
-      } else {
-        chars += state.current.get
-        state.advance()
+    while (state.hasNext && !foundClosing) {
+      state.current.get.text match {
+        case "\"" =>
+          foundClosing = true
+        case "\n" | "\r" =>
+          // Error recovery: unclosed string at newline - common in editing
+          throw TokenizeException(t"Unclosed string literal (closed at newline)", state.spanFrom(start))
+        case "\\" =>
+          state.advance()
+          if (!state.hasNext) {
+            // Error recovery: backslash at EOF
+            throw TokenizeException(t"Unexpected end of string after backslash", state.spanFrom(start))
+          }
+          // Handle escape sequences with recovery
+          val escaped = state.current.get.text match {
+            case "n" => StringChar("\n".codePointAt(0), state.current.get.span)
+            case "t" => StringChar("\t".codePointAt(0), state.current.get.span)
+            case "r" => StringChar("\r".codePointAt(0), state.current.get.span)
+            case "\\" => StringChar("\\".codePointAt(0), state.current.get.span)
+            case "\"" => StringChar("\"".codePointAt(0), state.current.get.span)
+            case other =>
+              // Error recovery: invalid escape - use literal character
+              throw TokenizeException(t"Invalid escape sequence: \\$other (using literal)", state.current.get.span)
+          }
+          chars += escaped
+          state.advance()
+        case _ =>
+          chars += state.current.get
+          state.advance()
       }
     }
     
-    if (!state.hasNext) {
-      throw TokenizeException(t"Unclosed string literal", state.spanFrom(start))
+    if (!foundClosing) {
+      // Error recovery: unclosed string at EOF
+      throw TokenizeException(t"Unclosed string literal at end of file", state.spanFrom(start))
     }
     
     state.advance() // Skip closing "
@@ -256,6 +319,10 @@ object Tokenizer {
     }
   }
   
+  /** Read identifier with error recovery:
+    * - Accept identifiers with invalid endings (report error but continue)
+    * - Useful for incomplete identifiers being typed in IDE
+    */
   private def readIdentifier(state: TokenizerState): Token = {
     val start = state.currentPos
     val chars = ArrayBuffer.empty[StringChar]
@@ -272,7 +339,8 @@ object Tokenizer {
     
     // Check if last character is valid identifier end
     if (chars.nonEmpty && !IdentifierRules.isIdentifierEnd(chars.last.text.codePointAt(0))) {
-      throw TokenizeException(t"Invalid identifier: cannot end with '${chars.last.text}'", state.spanFrom(start))
+      // Error recovery: accept invalid identifier ending (common when typing)
+      throw TokenizeException(t"Invalid identifier: cannot end with '${chars.last.text}' (accepted anyway)", state.spanFrom(start))
     }
     
     Token.Identifier(chars.toVector, state.spanFrom(start))

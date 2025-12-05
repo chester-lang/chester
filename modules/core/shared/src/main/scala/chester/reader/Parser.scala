@@ -1,7 +1,7 @@
 package chester.reader
 
 import chester.core.CST
-import chester.error.{Span, SpanInFile, Pos}
+import chester.error.{Span, SpanInFile, Pos, Reporter}
 import scala.language.experimental.genericNumberLiterals
 
 import scala.collection.mutable.ArrayBuffer
@@ -10,7 +10,7 @@ object Parser {
   
   case class ParseResult(cst: CST, rest: Seq[Token])
   
-  private class ParserState(val tokens: Seq[Token]) {
+  private class ParserState(val tokens: Seq[Token], val reporter: Reporter[ParseError]) {
     private var position = 0
     
     def hasNext: Boolean = position < tokens.length && !current.exists(_.isInstanceOf[Token.EOF])
@@ -35,22 +35,30 @@ object Parser {
         advance()
       }
     }
+    
+    def recordError(message: String, span: Span): Unit = {
+      reporter.report(ParseError(message, Some(span)))
+    }
+    
+    def recordError(message: String, spanOpt: Option[Span]): Unit = {
+      reporter.report(ParseError(message, spanOpt))
+    }
   }
   
-  def parse(tokens: Seq[Token]): Either[ParseError, ParseResult] = {
-    val state = new ParserState(tokens)
+  def parse(tokens: Seq[Token])(using reporter: Reporter[ParseError]): ParseResult = {
+    val state = new ParserState(tokens, reporter)
     state.skipTrivia()
     
     if (!state.hasNext) {
-      return Left(ParseError("No tokens to parse", None))
+      state.recordError("No tokens to parse", None)
+      // Return a dummy CST for error recovery
+      val dummySpan = if (tokens.nonEmpty) tokens.last.span else 
+        Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
+      return ParseResult(CST.SeqOf(Vector.empty, dummySpan), state.getRest)
     }
     
-    try {
-      val cst = parseExpression(state)
-      Right(ParseResult(cst, state.getRest))
-    } catch {
-      case e: ParseException => Left(ParseError(e.message, Some(e.span)))
-    }
+    val cst = parseExpression(state)
+    ParseResult(cst, state.getRest)
   }
   
   private def parseExpression(state: ParserState): CST = {
@@ -73,14 +81,19 @@ object Parser {
           state.advance()
           CST.Symbol(parts.map(_.text).mkString, span)
         case _ =>
-          throw ParseException(s"Unexpected token: ${token.tokenType}", token.span)
+          // Error recovery: skip unexpected token and continue
+          state.recordError(s"Unexpected token: ${token.tokenType}", token.span)
+          state.advance()
+          // Try to parse next expression
+          if (state.hasNext) parseExpression(state)
+          else CST.SeqOf(Vector.empty, token.span)
       }
       case None =>
         val lastSpan = if (state.tokens.nonEmpty) state.tokens.last.span else {
-          throw ParseException("No tokens available", 
-            Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero)))
+          Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
         }
-        throw ParseException("Unexpected end of input", lastSpan)
+        state.recordError("Unexpected end of input", Some(lastSpan))
+        CST.SeqOf(Vector.empty, lastSpan)
     }
   }
   
@@ -101,10 +114,17 @@ object Parser {
           state.skipTrivia()
         case Some(Token.RParen(_)) =>
           // End of tuple
+        case Some(Token.EOF(_)) | None =>
+          // Error recovery: missing closing paren
+          state.recordError("Expected ')' to close tuple", Some(start))
+          val endSpan = if (elements.nonEmpty) elements.last.span else start
+          val result = CST.Tuple(elements.toVector, start.combine(endSpan))
+          return result
         case Some(other) =>
-          throw ParseException(s"Expected ',' or ')' but got ${other.tokenType}", other.span)
-        case None =>
-          throw ParseException("Unexpected end of input in tuple", start)
+          // Error recovery: skip unexpected token
+          state.recordError(s"Expected ',' or ')' but got ${other.tokenType}", other.span)
+          state.advance()
+          state.skipTrivia()
       }
     }
     
@@ -113,7 +133,10 @@ object Parser {
         state.advance()
         CST.Tuple(elements.toVector, start.combine(endSpan))
       case _ =>
-        throw ParseException("Expected ')' to close tuple", start)
+        // Error recovery: missing closing paren
+        state.recordError("Expected ')' to close tuple", Some(start))
+        val endSpan = if (elements.nonEmpty) elements.last.span else start
+        CST.Tuple(elements.toVector, start.combine(endSpan))
     }
   }
   
@@ -134,10 +157,17 @@ object Parser {
           state.skipTrivia()
         case Some(Token.RBracket(_)) =>
           // End of list
+        case Some(Token.EOF(_)) | None =>
+          // Error recovery: missing closing bracket - treat [a as [a]
+          state.recordError("Expected ']' to close list", Some(start))
+          val endSpan = if (elements.nonEmpty) elements.last.span else start
+          val result = CST.ListLiteral(elements.toVector, start.combine(endSpan))
+          return result
         case Some(other) =>
-          throw ParseException(s"Expected ',' or ']' but got ${other.tokenType}", other.span)
-        case None =>
-          throw ParseException("Unexpected end of input in list", start)
+          // Error recovery: skip unexpected token
+          state.recordError(s"Expected ',' or ']' but got ${other.tokenType}", other.span)
+          state.advance()
+          state.skipTrivia()
       }
     }
     
@@ -146,9 +176,10 @@ object Parser {
         state.advance()
         CST.ListLiteral(elements.toVector, start.combine(endSpan))
       case _ =>
-        throw ParseException("Expected ']' to close list", start)
+        // Error recovery: missing closing bracket - treat [a as [a]
+        state.recordError("Expected ']' to close list", Some(start))
+        val endSpan = if (elements.nonEmpty) elements.last.span else start
+        CST.ListLiteral(elements.toVector, start.combine(endSpan))
     }
   }
-  
-  private case class ParseException(message: String, span: Span) extends Exception(message)
 }
