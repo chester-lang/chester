@@ -54,14 +54,14 @@ class SolverTest extends munit.FunSuite {
     // Test OnceCell
     val onceCell = module.newOnceCell[TestSumConstraint, Int](solver)
     assert(module.noStableValue(solver, onceCell))
-    module.fill(solver, onceCell.asInstanceOf[module.CellW[Int]], 42)
+    module.fill(solver, onceCell, 42)
     assert(module.hasStableValue(solver, onceCell))
     assertEquals(module.readStable(solver, onceCell), Some(42), "OnceCell value")
     
     // Test MutableCell
     val mutableCell = module.newMutableCell[TestSumConstraint, String](solver, Some("initial"))
     assertEquals(module.readStable(solver, mutableCell), Some("initial"), "MutableCell initial")
-    module.fill(solver, mutableCell.asInstanceOf[module.CellW[String]], "updated")
+    module.fill(solver, mutableCell, "updated")
     assertEquals(module.readStable(solver, mutableCell), Some("updated"), "MutableCell updated")
     
     // Test LiteralCell
@@ -79,13 +79,11 @@ class SolverTest extends munit.FunSuite {
     val resultCell = module.newOnceCell[TestSumConstraint, Int](solver)
     
     // Add constraint that depends on cell1 and cell2
-    module.addConstraint(solver, TestSumConstraint(cell1.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                    cell2.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                    resultCell.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]))
+    module.addConstraint(solver, TestSumConstraint(cell1, cell2, resultCell))
     
     // Fill inputs
-    module.fill(solver, cell1.asInstanceOf[module.CellW[Int]], 10)
-    module.fill(solver, cell2.asInstanceOf[module.CellW[Int]], 20)
+    module.fill(solver, cell1, 10)
+    module.fill(solver, cell2, 20)
     
     // Run solver
     module.run(solver)
