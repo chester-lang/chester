@@ -65,12 +65,27 @@ case class Offset(
 ) derives ReadWriter {
 
   if (lineOffset != 0) require(posOffset.nonZero)
-  if (posOffset.nonZero) require(lineOffset != 0)
   require(posOffset >= firstLineColumnOffset)
+  if (lineOffset == 0) require(posOffset == firstLineColumnOffset)
   def getPos: Pos = add(Pos.zero)
   def next(codePoint: Int): Offset = codepointToString(codePoint) match {
-    case s @ "\n" => copy(lineOffset = lineOffset + (1: Natural), posOffset = posOffset + WithUTF16(1, s.utf16Len))
-    case s        => copy(posOffset = posOffset + WithUTF16(1, s.utf16Len))
+    case s @ "\n" => 
+      val newLineSize = WithUTF16(1, s.utf16Len)
+      copy(
+        lineOffset = lineOffset + (1: Natural), 
+        posOffset = posOffset + newLineSize
+        // firstLineColumnOffset stays the same - it remembers the starting column from first line
+        // posOffset continues to accumulate, keeping the invariant posOffset >= firstLineColumnOffset
+      )
+    case s => 
+      if (lineOffset == 0) {
+        // On first line, both posOffset and firstLineColumnOffset must grow together
+        val newOffset = firstLineColumnOffset + WithUTF16(1, s.utf16Len)
+        copy(posOffset = newOffset, firstLineColumnOffset = newOffset)
+      } else {
+        // On subsequent lines, only posOffset grows, firstLineColumnOffset stays fixed
+        copy(posOffset = posOffset + WithUTF16(1, s.utf16Len))
+      }
   }
   def add(x: Pos): Pos =
     if (x.line == 0)

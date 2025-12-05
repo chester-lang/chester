@@ -197,11 +197,12 @@ class TokenizerTest extends munit.FunSuite {
     val result = tokenizeString("(foo 123 \"bar\")")
     assert(result.isRight)
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
-    assertEquals(tokens.length, 4)
+    assertEquals(tokens.length, 5)
     assert(tokens(0).isInstanceOf[Token.LParen])
     assert(tokens(1).isInstanceOf[Token.Identifier])
     assert(tokens(2).isInstanceOf[Token.IntegerLiteral])
     assert(tokens(3).isInstanceOf[Token.StringLiteral])
+    assert(tokens(4).isInstanceOf[Token.RParen])
   }
 
   test("tokenize function definition syntax") {

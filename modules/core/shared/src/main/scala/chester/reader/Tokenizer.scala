@@ -46,6 +46,10 @@ object Tokenizer {
   }
   
   def tokenize(chars: Seq[StringChar]): Either[ParseError, Vector[Token]] = {
+    if (chars.isEmpty) {
+      return Left(ParseError("Cannot tokenize empty input", None))
+    }
+    
     val state = new TokenizerState(chars)
     val tokens = ArrayBuffer.empty[Token]
     
@@ -58,9 +62,7 @@ object Tokenizer {
       }
       
       // Add EOF token
-      val eofSpan = chars.lastOption.map(_.span).getOrElse(
-        throw new IllegalStateException("Cannot tokenize empty input")
-      )
+      val eofSpan = chars.last.span
       tokens += Token.EOF(eofSpan)
       
       Right(tokens.toVector)
@@ -200,16 +202,16 @@ object Tokenizer {
     
     val chars = ArrayBuffer.empty[Char]
     
-    while (state.hasNext && state.current.get.text != "'") {
+    // Read identifier characters (letters, digits, underscore)
+    while (state.codePoint.exists(cp => Character.isLetterOrDigit(cp) || cp == '_'.asInt)) {
       chars += state.current.get.text.head
       state.advance()
     }
     
-    if (!state.hasNext) {
-      throw TokenizeException(t"Unclosed symbol literal", state.spanFrom(start))
+    if (chars.isEmpty) {
+      throw TokenizeException(t"Empty symbol literal", state.spanFrom(start))
     }
     
-    state.advance() // Skip closing '
     Token.SymbolLiteral(chars.mkString, state.spanFrom(start))
   }
   

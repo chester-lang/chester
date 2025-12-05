@@ -16,9 +16,10 @@ object CharReader {
     val chars = ArrayBuffer.empty[StringChar]
     var currentOffset = offset
     for (codePoint <- getCodePoints(head)) {
-      val begin = currentOffset
-      currentOffset = begin.next(codePoint)
-      chars += StringChar(codePoint, Span(source, SpanInFile(currentOffset.getPos, currentOffset.getPos)))
+      val beginPos = currentOffset.getPos
+      currentOffset = currentOffset.next(codePoint)
+      val endPos = currentOffset.getPos
+      chars += StringChar(codePoint, Span(source, SpanInFile(beginPos, endPos)))
     }
     LazyList.from(chars) #::: reading(tail, source, currentOffset)
   }
