@@ -1,6 +1,6 @@
 package chester.reader
 
-import chester.error.{ParseError, Span, SpanInFile}
+import chester.error.{Span, SpanInFile}
 import chester.i18n.*
 import chester.syntax.IdentifierRules
 import chester.utils.asInt
