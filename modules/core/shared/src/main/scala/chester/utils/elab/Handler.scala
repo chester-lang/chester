@@ -5,58 +5,33 @@ enum Result {
   case Waiting(vars: CellAny*)
 }
 
-/** Constraint handler that works with any solver module.
-  * 
+/** Constraint handler that works with any solver module and any constraint type.
+  *
   * DESIGN DECISIONS:
-  * 
-  * 1. Handlers are NOT parameterized by solver module at class level
-  *    - Instead, each method takes [M <: SolverModule] type parameter
-  *    - This allows same handler to work with different solvers
-  *    - User can easily switch between ProceduralSolver and ConcurrentSolver
-  * 
-  * 2. Methods receive (using module: M, solver: module.Solver)
-  *    - Module comes first to establish the type
-  *    - Then solver: module.Solver uses path-dependent type
-  *    - Can't use M#Solver in using clause (Scala 3 syntax limitation)
-  * 
-  * 3. Handler caching in Constraint
-  *    - Handler lookup is cached per constraint instance
-  *    - No type parameter needed since handlers are polymorphic
+  *
+  *   1. Handlers are fully generic over constraint type C
+  *      - No need for Kind trait - constraint type is the key
+  *      - User defines any constraint type they want
+  *   2. Handlers take [M <: SolverModule] type parameter per method
+  *      - Same handler can work with different solvers
+  *      - Easy to switch between ProceduralSolver and ConcurrentSolver
+  *   3. Methods receive (using module: M, solver: module.Solver)
+  *      - Module comes first to establish the type
+  *      - Then solver: module.Solver uses path-dependent type
   */
-trait Handler[+K <: Kind](val kind: K) {
-  def run[M <: SolverModule](constant: kind.Of)(using module: M, solver: module.Solver): Result
+trait Handler[C] {
+  def run[M <: SolverModule](constraint: C)(using module: M, solver: module.Solver[C]): Result
 
   /** return true means did something false means nothing */
-  def defaulting[M <: SolverModule](constant: kind.Of, level: DefaultingLevel)(using module: M, solver: module.Solver): Boolean = false
+  def defaulting[M <: SolverModule](constraint: C, level: DefaultingLevel)(using module: M, solver: module.Solver[C]): Boolean = false
 
   def canDefaulting(level: DefaultingLevel): Boolean
 }
 
-import scala.collection.mutable
-
-extension [A, B](x: mutable.HashMap[A, B]) {
-  // putIfAbsent is available in concurrent.TrieMap
-  def putIfAbsent(key: A, value: B): Option[B] =
-    if (x.contains(key)) Some(x(key))
-    else {
-      val _ = x.put(key, value)
-      None
-    }
-}
-
-trait HandlerConf[M <: SolverModule] {
-  def getHandler(kind: Kind): Option[Handler[? <: Kind]]
-}
-
-final class MutHandlerConf[M <: SolverModule](hs: Handler[? <: Kind]*) extends HandlerConf[M] {
-  private val store = mutable.HashMap[Kind, Handler[? <: Kind]](hs.map(h => (h.kind, h))*)
-
-  override def getHandler(kind: Kind): Option[Handler[? <: Kind]] = store.get(kind)
-
-  def register[K <: Kind](handler: Handler[K]): Unit = {
-    val oldValue = store.putIfAbsent(handler.kind, handler)
-    if (oldValue.isDefined) throw new IllegalStateException("already")
-  }
+/** Handler configuration for a specific constraint type C. Each solver instance is configured for one constraint type.
+  */
+trait HandlerConf[C, M <: SolverModule] {
+  def getHandler(constraint: C): Option[Handler[C]]
 }
 
 enum DefaultingLevel extends Enum[DefaultingLevel] {

@@ -1,7 +1,15 @@
 package chester.utils.elab
 
 import chester.utils.Parameter
-import chester.utils.cell.{CellContent, CellContentR, OnceCellContent, MutableCellContent, CollectionCellContent, MappingCellContent, LiteralCellContent}
+import chester.utils.cell.{
+  CellContent,
+  CellContentR,
+  OnceCellContent,
+  MutableCellContent,
+  CollectionCellContent,
+  MappingCellContent,
+  LiteralCellContent
+}
 
 import java.util.concurrent.{ForkJoinPool, TimeUnit}
 import scala.language.implicitConversions
@@ -15,8 +23,8 @@ final class ConcurrentCell[+A, -B, +C <: CellContent[A, B]](
   private[elab] inline def storeRefAs[T]: Ref[T] = _storeRef.asInstanceOf[Ref[T]]
 }
 
-// Solver instance - just holds state
-final class ConcurrentSolverInstance(val conf: HandlerConf[ConcurrentSolverModule.type]) {
+// Solver instance - just holds state, parameterized by constraint type
+final class ConcurrentSolverInstance[C](val conf: HandlerConf[C, ConcurrentSolverModule.type]) {
   val pool = new ForkJoinPool()
   val delayedConstraints = Ref(Vector[WaitingConstraint]())
 }
@@ -25,19 +33,17 @@ final class ConcurrentSolverInstance(val conf: HandlerConf[ConcurrentSolverModul
 object ConcurrentSolverModule extends SolverModule {
   // Define Cell type as ConcurrentCell
   override type Cell[+A, -B, +C <: CellContent[A, B]] = ConcurrentCell[A, B, C]
-  
-  // Define Solver instance type
-  override type Solver = ConcurrentSolverInstance
-  
-  override def makeSolver[Ops](conf: HandlerConf[this.type]): Solver =
-    new ConcurrentSolverInstance(conf)
-  
-  // Helper methods
-  private def peakCell[T](id: CellR[T]): CellContentR[T] = atomic { implicit txn =>
-    id.storeRefAs[CellContentR[T]].get
-  }
 
-  private def updateCell[A, B](solver: Solver, id: CellOf[A, B], f: CellContent[A, B] => CellContent[A, B]): Unit = {
+  // Define Solver instance type - parameterized by constraint type
+  override type Solver[C] = ConcurrentSolverInstance[C]
+
+  override def makeSolver[C](conf: HandlerConf[C, this.type]): Solver[C] =
+    new ConcurrentSolverInstance[C](conf)
+
+  // Helper methods
+  private def peakCell[T](id: CellR[T]): CellContentR[T] = atomic(implicit txn => id.storeRefAs[CellContentR[T]].get)
+
+  private def updateCell[C, A, B](solver: Solver[C], id: CellOf[A, B], f: CellContent[A, B] => CellContent[A, B]): Unit = {
     val relatedConstraints = atomic { implicit txn =>
       val ref = id.storeRefAs[CellContent[A, B]]
       val current = ref.get
@@ -46,73 +52,73 @@ object ConcurrentSolverModule extends SolverModule {
         ref.set(newValue)
         val (related, others) = solver.delayedConstraints.get.partition(_.related(id))
         solver.delayedConstraints.set(others)
-        related.map(_.x)
+        related.map(_.constraint)
       } else {
-        Vector.empty[Constraint]
+        Vector.empty[Any]
       }
     }
     if (relatedConstraints.nonEmpty) {
-      addConstraints(solver, relatedConstraints)
+      addConstraints(solver, relatedConstraints.asInstanceOf[Seq[C]])
     }
   }
-  
+
   // Implement module interface
-  override def hasStableValue(solver: Solver, id: CellAny): Boolean = 
+  override def hasStableValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).hasStableValue
 
-  override def noStableValue(solver: Solver, id: CellAny): Boolean = 
+  override def noStableValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).noStableValue
 
-  override def readStable[U](solver: Solver, id: CellR[U]): Option[U] = 
+  override def readStable[C, U](solver: Solver[C], id: CellR[U]): Option[U] =
     peakCell(id).readStable
 
-  override def hasSomeValue(solver: Solver, id: CellAny): Boolean = 
+  override def hasSomeValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).hasSomeValue
 
-  override def noAnyValue(solver: Solver, id: CellAny): Boolean = 
+  override def noAnyValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).noAnyValue
 
-  override def readUnstable[U](solver: Solver, id: CellR[U]): Option[U] = 
+  override def readUnstable[C, U](solver: Solver[C], id: CellR[U]): Option[U] =
     peakCell(id).readUnstable
 
-  override def fill[T](solver: Solver, id: CellW[T], value: T): Unit = 
+  override def fill[C, T](solver: Solver[C], id: CellW[T], value: T): Unit =
     updateCell(solver, id.asInstanceOf[CellOf[Any, Any]], _.fill(value))
-  
-  override def newOnceCell[T](solver: Solver, default: Option[T] = None): OnceCell[T] = 
+
+  override def newOnceCell[C, T](solver: Solver[C], default: Option[T] = None): OnceCell[T] =
     ConcurrentCell(OnceCellContent[T](None, default))
-  
-  override def newMutableCell[T](solver: Solver, initial: Option[T] = None): MutableCell[T] = 
+
+  override def newMutableCell[C, T](solver: Solver[C], initial: Option[T] = None): MutableCell[T] =
     ConcurrentCell(MutableCellContent[T](initial))
-  
-  override def newCollectionCell[A](solver: Solver): CollectionCell[A] = 
+
+  override def newCollectionCell[C, A](solver: Solver[C]): CollectionCell[A] =
     ConcurrentCell(CollectionCellContent[A, A]())
-  
-  override def newMapCell[K, V](solver: Solver): MapCell[K, V] = 
+
+  override def newMapCell[C, K, V](solver: Solver[C]): MapCell[K, V] =
     ConcurrentCell(MappingCellContent[K, V]())
-  
-  override def newLiteralCell[T](solver: Solver, value: T): LiteralCell[T] = 
+
+  override def newLiteralCell[C, T](solver: Solver[C], value: T): LiteralCell[T] =
     ConcurrentCell(LiteralCellContent(value))
 
-  override def addCell[A, B, C <: CellContent[A, B]](solver: Solver, cell: C): Cell[A, B, C] = 
+  override def addCell[C, A, B, CC <: CellContent[A, B]](solver: Solver[C], cell: CC): Cell[A, B, CC] =
     ConcurrentCell(cell)
-  
-  override def addConstraint(solver: Solver, x: Constraint): Unit = {
-    val handler = x.cached(solver.conf.getHandler(x.kind).getOrElse(throw new IllegalStateException(s"no handler for ${x.kind}")))
+
+  override def addConstraint[C](solver: Solver[C], constraint: C): Unit = {
+    val handler = solver.conf.getHandler(constraint).getOrElse(throw new IllegalStateException(s"no handler for $constraint"))
     solver.pool.execute { () =>
       atomic { implicit txn =>
-        val result = handler.run(x.asInstanceOf[handler.kind.Of])(using this, solver)
+        val result = handler.run(constraint)(using this, solver)
         result match {
           case Result.Done => ()
           case Result.Waiting(vars @ _*) =>
-            val delayed = WaitingConstraint(vars.toVector, x)
+            val delayed = WaitingConstraint(vars.toVector, constraint)
             solver.delayedConstraints.set(solver.delayedConstraints.get.appended(delayed))
         }
       }
     }
   }
 
-  override def stable(solver: Solver): Boolean = {
-    val hasDelayed = atomic { implicit txn => solver.delayedConstraints.get }.nonEmpty
+  override def stable[C](solver: Solver[C]): Boolean = {
+    val hasDelayed = atomic(implicit txn => solver.delayedConstraints.get).nonEmpty
     if (hasDelayed) {
       false
     } else if (solver.pool.isShutdown) {
@@ -125,7 +131,7 @@ object ConcurrentSolverModule extends SolverModule {
     }
   }
 
-  private def finish(solver: Solver): Unit = {
+  private def finish[C](solver: Solver[C]): Unit = {
     atomic { implicit txn =>
       assume(solver.delayedConstraints.get.isEmpty)
       assume(solver.pool.isQuiescent)
@@ -134,23 +140,19 @@ object ConcurrentSolverModule extends SolverModule {
     assume(tasks.isEmpty)
   }
 
-  private def entropy(solver: Solver) = atomic { implicit txn =>
-    solver.delayedConstraints.get.map(c => c.x.kind.hashCode() << 8 + c.x.hashCode()).sorted.toVector
-  }
+  private def entropy[C](solver: Solver[C]) = atomic(implicit txn => solver.delayedConstraints.get.map(c => c.constraint.hashCode()).sorted.toVector)
 
-  private def inPoolTickStage1(solver: Solver, zonkLevel: DefaultingLevel): Unit = {
-    val delayed = atomic { implicit txn =>
-      solver.delayedConstraints.get
-    }
+  private def inPoolTickStage1[C](solver: Solver[C], zonkLevel: DefaultingLevel): Unit = {
+    val delayed = atomic(implicit txn => solver.delayedConstraints.get)
     delayed.foreach(x => doDefaulting(solver, x, zonkLevel))
   }
 
-  override def run(solver: Solver): Unit = boundary[Unit] { outer ?=>
+  override def run[C](solver: Solver[C]): Unit = boundary[Unit] { outer ?=>
     while (true) boundary[Unit] { inner ?=>
       assume(!solver.pool.isShutdown)
       val _ = solver.pool.awaitQuiescence(Long.MaxValue, TimeUnit.DAYS)
       assume(solver.pool.isQuiescent)
-      if (atomic { implicit txn => solver.delayedConstraints.get }.isEmpty) {
+      if (atomic(implicit txn => solver.delayedConstraints.get).isEmpty) {
         finish(solver)
         boundary.break()(using outer)
       }
@@ -161,7 +163,7 @@ object ConcurrentSolverModule extends SolverModule {
         solver.pool.execute(() => inPoolTickStage1(solver, level))
         val _ = solver.pool.awaitQuiescence(Long.MaxValue, TimeUnit.DAYS)
         assume(solver.pool.isQuiescent)
-        if (atomic { implicit txn => solver.delayedConstraints.get }.isEmpty) {
+        if (atomic(implicit txn => solver.delayedConstraints.get).isEmpty) {
           finish(solver)
           boundary.break()(using outer)
         }
@@ -171,24 +173,24 @@ object ConcurrentSolverModule extends SolverModule {
     }
   }
 
-  private def doDefaulting(solver: Solver, delayed: WaitingConstraint, zonkLevel: DefaultingLevel): Unit = {
-    val x = delayed.x
-    val handler = x.cached(solver.conf.getHandler(x.kind).getOrElse(throw new IllegalStateException("no handler")))
+  private def doDefaulting[C](solver: Solver[C], delayed: WaitingConstraint, zonkLevel: DefaultingLevel): Unit = {
+    val constraint = delayed.constraint.asInstanceOf[C]
+    val handler = solver.conf.getHandler(constraint).getOrElse(throw new IllegalStateException("no handler"))
     if (!handler.canDefaulting(zonkLevel)) {
-      return  // OK to use return here - simple early exit
+      return // OK to use return here - simple early exit
     }
     solver.pool.execute { () =>
       atomic { implicit txn =>
-        val result = handler.run(x.asInstanceOf[handler.kind.Of])(using this, solver)
+        val result = handler.run(constraint)(using this, solver)
         result match {
           case Result.Done => solver.delayedConstraints.set(solver.delayedConstraints.get.filterNot(_ == delayed))
           case Result.Waiting(vars @ _*) =>
-            if (handler.defaulting(x.asInstanceOf[handler.kind.Of], zonkLevel)(using this, solver)) {
-              val result = handler.run(x.asInstanceOf[handler.kind.Of])(using this, solver)
+            if (handler.defaulting(constraint, zonkLevel)(using this, solver)) {
+              val result = handler.run(constraint)(using this, solver)
               result match {
                 case Result.Done => solver.delayedConstraints.set(solver.delayedConstraints.get.filterNot(_ == delayed))
                 case Result.Waiting(vars2 @ _*) =>
-                  val delayed1 = WaitingConstraint(vars2.toVector, x)
+                  val delayed1 = WaitingConstraint(vars2.toVector, constraint)
                   val got = solver.delayedConstraints.get
                   val delayedConstraints1 = got.filterNot(_ == delayed)
                   if (delayedConstraints1.length < got.length) {
@@ -196,7 +198,7 @@ object ConcurrentSolverModule extends SolverModule {
                   }
               }
             } else {
-              val delayed1 = WaitingConstraint(vars.toVector, x)
+              val delayed1 = WaitingConstraint(vars.toVector, constraint)
               val got = solver.delayedConstraints.get
               val delayedConstraints1 = got.filterNot(_ == delayed)
               if (delayedConstraints1.length < got.length) {

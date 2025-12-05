@@ -32,33 +32,33 @@ class SolverTest extends munit.FunSuite {
   
   // Common test logic that works with any SolverModule
   def testBasicCellOperations(module: SolverModule): Unit = {
-    val solver = module.makeSolver(TestHandlerConf(module))
+    val solver = module.makeSolver[TestSumConstraint](TestHandlerConf(module))
     
     // Test OnceCell
-    val onceCell = module.newOnceCell[Int](solver)
+    val onceCell = module.newOnceCell[TestSumConstraint, Int](solver)
     assert(module.noStableValue(solver, onceCell))
     module.fill(solver, onceCell.asInstanceOf[module.CellW[Int]], 42)
     assert(module.hasStableValue(solver, onceCell))
-    assertEquals(module.readStable(solver, onceCell.asInstanceOf[module.CellR[Int]]), Some(42))
+    assertEquals(module.readStable(solver, onceCell.asInstanceOf[module.CellR[Int]]), Some(42), "OnceCell value")
     
     // Test MutableCell
-    val mutableCell = module.newMutableCell[String](solver, Some("initial"))
-    assertEquals(module.readStable(solver, mutableCell.asInstanceOf[module.CellR[String]]), Some("initial"))
+    val mutableCell = module.newMutableCell[TestSumConstraint, String](solver, Some("initial"))
+    assertEquals(module.readStable(solver, mutableCell.asInstanceOf[module.CellR[String]]), Some("initial"), "MutableCell initial")
     module.fill(solver, mutableCell.asInstanceOf[module.CellW[String]], "updated")
-    assertEquals(module.readStable(solver, mutableCell.asInstanceOf[module.CellR[String]]), Some("updated"))
+    assertEquals(module.readStable(solver, mutableCell.asInstanceOf[module.CellR[String]]), Some("updated"), "MutableCell updated")
     
     // Test LiteralCell
     val literalCell = module.newLiteralCell(solver, 100)
     assert(module.hasStableValue(solver, literalCell))
-    assertEquals(module.readStable(solver, literalCell), Some(100))
+    assertEquals(module.readStable(solver, literalCell), Some(100), "LiteralCell value")
   }
   
   def testConstraintSolving(module: SolverModule): Unit = {
-    val solver = module.makeSolver(TestHandlerConf(module))
+    val solver = module.makeSolver[TestSumConstraint](TestHandlerConf(module))
     
-    val cell1 = module.newOnceCell[Int](solver)
-    val cell2 = module.newOnceCell[Int](solver)
-    val resultCell = module.newOnceCell[Int](solver)
+    val cell1 = module.newOnceCell[TestSumConstraint, Int](solver)
+    val cell2 = module.newOnceCell[TestSumConstraint, Int](solver)
+    val resultCell = module.newOnceCell[TestSumConstraint, Int](solver)
     
     // Add constraint that depends on cell1 and cell2
     module.addConstraint(solver, TestSumConstraint(cell1.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
@@ -73,49 +73,41 @@ class SolverTest extends munit.FunSuite {
     module.run(solver)
     
     // Check result
-    assertEquals(module.readStable(solver, resultCell.asInstanceOf[module.CellR[Int]]), Some(30))
+    assertEquals(module.readStable(solver, resultCell.asInstanceOf[module.CellR[Int]]), Some(30), "Sum result")
   }
   
   def testTypeMembers(module: SolverModule): Unit = {
-    val solver = module.makeSolver(TestHandlerConf(module))
+    val solver = module.makeSolver[TestSumConstraint](TestHandlerConf(module))
     
     // Test that we can use module.CellR, module.OnceCell, etc.
-    val cell1: module.OnceCell[Int] = module.newOnceCell[Int](solver)
+    val cell1: module.OnceCell[Int] = module.newOnceCell[TestSumConstraint, Int](solver)
     val cell2: module.CellR[Int] = cell1.asInstanceOf[module.CellR[Int]]
     val cell3: module.CellRW[Int] = cell1.asInstanceOf[module.CellRW[Int]]
     
     // Test variance: CellR is covariant
-    val numCell: module.CellR[Int] = module.newOnceCell[Int](solver).asInstanceOf[module.CellR[Int]]
+    val numCell: module.CellR[Int] = module.newOnceCell[TestSumConstraint, Int](solver).asInstanceOf[module.CellR[Int]]
     val anyCell: module.CellR[Any] = numCell  // Should compile due to covariance
     
     assert(module.noStableValue(solver, cell1))
   }
 }
 
-// Test constraint that sums two cells
+// Test constraint that sums two cells - just a plain case class
 case class TestSumConstraint(
   cell1: Cell[Int, Nothing, CellContent[Int, Nothing]],
   cell2: Cell[Int, Nothing, CellContent[Int, Nothing]],
   result: Cell[Int, Int, CellContent[Int, Int]]
-) extends Constraint(TestSumConstraintKind)
-
-object TestSumConstraintKind extends Kind {
-  override type Of = TestSumConstraint
-}
+)
 
 // Test handler configuration
-case class TestHandlerConf[M <: SolverModule](module: M) extends HandlerConf[M] {
-  override def getHandler(kind: Kind): Option[Handler[? <: Kind]] = {
-    if (kind == TestSumConstraintKind) {
-      Some(TestSumHandler)
-    } else {
-      None
-    }
+case class TestHandlerConf[M <: SolverModule](module: M) extends HandlerConf[TestSumConstraint, M] {
+  override def getHandler(constraint: TestSumConstraint): Option[Handler[TestSumConstraint]] = {
+    Some(TestSumHandler)
   }
 }
 
-object TestSumHandler extends Handler[TestSumConstraintKind.type](TestSumConstraintKind) {
-  override def run[M <: SolverModule](constraint: TestSumConstraint)(using module: M, solver: module.Solver): Result = {
+object TestSumHandler extends Handler[TestSumConstraint] {
+  override def run[M <: SolverModule](constraint: TestSumConstraint)(using module: M, solver: module.Solver[TestSumConstraint]): Result = {
     val v1 = module.readStable(solver, constraint.cell1.asInstanceOf[module.CellR[Int]])
     val v2 = module.readStable(solver, constraint.cell2.asInstanceOf[module.CellR[Int]])
     
@@ -130,5 +122,5 @@ object TestSumHandler extends Handler[TestSumConstraintKind.type](TestSumConstra
   
   override def canDefaulting(level: DefaultingLevel): Boolean = false
   
-  override def defaulting[M <: SolverModule](constraint: TestSumConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver): Boolean = false
+  override def defaulting[M <: SolverModule](constraint: TestSumConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[TestSumConstraint]): Boolean = false
 }

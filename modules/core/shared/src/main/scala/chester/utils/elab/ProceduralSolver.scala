@@ -1,6 +1,14 @@
 package chester.utils.elab
 
-import chester.utils.cell.{CellContent, CellContentR, OnceCellContent, MutableCellContent, CollectionCellContent, MappingCellContent, LiteralCellContent}
+import chester.utils.cell.{
+  CellContent,
+  CellContentR,
+  OnceCellContent,
+  MutableCellContent,
+  CollectionCellContent,
+  MappingCellContent,
+  LiteralCellContent
+}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -16,9 +24,9 @@ final class ProceduralCell[+A, -B, +C <: CellContent[A, B]](
   private[elab] inline def storeAs[T]: T = _store.asInstanceOf[T]
 }
 
-// Solver instance - just holds state
-final class ProceduralSolverInstance(val conf: HandlerConf[ProceduralSolverModule.type]) {
-  val todo: Queue[Constraint] = mutable.Queue[Constraint]()
+// Solver instance - just holds state, parameterized by constraint type
+final class ProceduralSolverInstance[C](val conf: HandlerConf[C, ProceduralSolverModule.type]) {
+  val todo: Queue[C] = mutable.Queue[C]()
   val delayedConstraints: ArrayBuffer[WaitingConstraint] = mutable.ArrayBuffer[WaitingConstraint]()
   val updatedCells: ArrayBuffer[ProceduralSolverModule.CellAny] = mutable.ArrayBuffer[ProceduralSolverModule.CellAny]()
 }
@@ -27,17 +35,17 @@ final class ProceduralSolverInstance(val conf: HandlerConf[ProceduralSolverModul
 object ProceduralSolverModule extends SolverModule {
   // Define Cell type as ProceduralCell
   override type Cell[+A, -B, +C <: CellContent[A, B]] = ProceduralCell[A, B, C]
-  
-  // Define Solver instance type
-  override type Solver = ProceduralSolverInstance
-  
-  override def makeSolver[Ops](conf: HandlerConf[this.type]): Solver =
-    new ProceduralSolverInstance(conf)
-  
+
+  // Define Solver instance type - parameterized by constraint type
+  override type Solver[C] = ProceduralSolverInstance[C]
+
+  override def makeSolver[C](conf: HandlerConf[C, this.type]): Solver[C] =
+    new ProceduralSolverInstance[C](conf)
+
   // Helper methods
   private def peakCell[T](id: CellR[T]): CellContentR[T] = id.storeAs[CellContentR[T]]
 
-  private def updateCell[A, B](solver: Solver, id: CellOf[A, B], f: CellContent[A, B] => CellContent[A, B]): Unit = {
+  private def updateCell[C, A, B](solver: Solver[C], id: CellOf[A, B], f: CellContent[A, B] => CellContent[A, B]): Unit = {
     val current = id.storeAs[CellContent[A, B]]
     val newValue = f(current)
     if (current != newValue) {
@@ -45,62 +53,62 @@ object ProceduralSolverModule extends SolverModule {
       solver.updatedCells.append(id.asInstanceOf[CellAny])
     }
   }
-  
+
   // Implement module interface
-  override def hasStableValue(solver: Solver, id: CellAny): Boolean = 
+  override def hasStableValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).hasStableValue
 
-  override def noStableValue(solver: Solver, id: CellAny): Boolean = 
+  override def noStableValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).noStableValue
 
-  override def readStable[U](solver: Solver, id: CellR[U]): Option[U] = 
+  override def readStable[C, U](solver: Solver[C], id: CellR[U]): Option[U] =
     peakCell(id).readStable
 
-  override def hasSomeValue(solver: Solver, id: CellAny): Boolean = 
+  override def hasSomeValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).hasSomeValue
 
-  override def noAnyValue(solver: Solver, id: CellAny): Boolean = 
+  override def noAnyValue[C](solver: Solver[C], id: CellAny): Boolean =
     peakCell(id.asInstanceOf[CellR[Any]]).noAnyValue
 
-  override def readUnstable[U](solver: Solver, id: CellR[U]): Option[U] = 
+  override def readUnstable[C, U](solver: Solver[C], id: CellR[U]): Option[U] =
     peakCell(id).readUnstable
 
-  override def fill[T](solver: Solver, id: CellW[T], value: T): Unit = 
+  override def fill[C, T](solver: Solver[C], id: CellW[T], value: T): Unit =
     updateCell(solver, id.asInstanceOf[CellOf[Any, Any]], _.fill(value))
-  
-  override def newOnceCell[T](solver: Solver, default: Option[T] = None): OnceCell[T] = 
+
+  override def newOnceCell[C, T](solver: Solver[C], default: Option[T] = None): OnceCell[T] =
     ProceduralCell(OnceCellContent[T](None, default))
-  
-  override def newMutableCell[T](solver: Solver, initial: Option[T] = None): MutableCell[T] = 
+
+  override def newMutableCell[C, T](solver: Solver[C], initial: Option[T] = None): MutableCell[T] =
     ProceduralCell(MutableCellContent[T](initial))
-  
-  override def newCollectionCell[A](solver: Solver): CollectionCell[A] = 
+
+  override def newCollectionCell[C, A](solver: Solver[C]): CollectionCell[A] =
     ProceduralCell(CollectionCellContent[A, A]())
-  
-  override def newMapCell[K, V](solver: Solver): MapCell[K, V] = 
+
+  override def newMapCell[C, K, V](solver: Solver[C]): MapCell[K, V] =
     ProceduralCell(MappingCellContent[K, V]())
-  
-  override def newLiteralCell[T](solver: Solver, value: T): LiteralCell[T] = 
+
+  override def newLiteralCell[C, T](solver: Solver[C], value: T): LiteralCell[T] =
     ProceduralCell(LiteralCellContent(value))
 
-  override def addCell[A, B, C <: CellContent[A, B]](solver: Solver, cell: C): Cell[A, B, C] = 
+  override def addCell[C, A, B, CC <: CellContent[A, B]](solver: Solver[C], cell: CC): Cell[A, B, CC] =
     ProceduralCell(cell)
-  
-  override def addConstraint(solver: Solver, x: Constraint): Unit = 
-    solver.todo.enqueue(x)
 
-  override def stable(solver: Solver): Boolean = 
+  override def addConstraint[C](solver: Solver[C], constraint: C): Unit =
+    solver.todo.enqueue(constraint)
+
+  override def stable[C](solver: Solver[C]): Boolean =
     solver.delayedConstraints.isEmpty && solver.todo.isEmpty
 
   @tailrec
-  override def run(solver: Solver): Unit = {
+  override def run[C](solver: Solver[C]): Unit = {
     while (solver.todo.nonEmpty) {
       var heuristics: Int = 1
       while (solver.todo.nonEmpty && heuristics < 32) {
         heuristics += 1
         val c = solver.todo.dequeue()
-        val handler = c.cached(solver.conf.getHandler(c.kind).getOrElse(throw new IllegalStateException("no handler")))
-        val result = handler.run(c.asInstanceOf[handler.kind.Of])(using this, solver)
+        val handler = solver.conf.getHandler(c).getOrElse(throw new IllegalStateException("no handler"))
+        val result = handler.run(c)(using this, solver)
         result match {
           case Result.Done =>
           // do nothing
@@ -111,7 +119,7 @@ object ProceduralSolverModule extends SolverModule {
       if (solver.delayedConstraints.nonEmpty) {
         val _ = solver.delayedConstraints.filterInPlace { c =>
           val call = c.vars.exists(solver.updatedCells.contains)
-          if (call) solver.todo.enqueue(c.x)
+          if (call) solver.todo.enqueue(c.constraint.asInstanceOf[C])
           !call
         }
         solver.updatedCells.clear()
@@ -123,16 +131,16 @@ object ProceduralSolverModule extends SolverModule {
       val default = defaults.head
       defaults = defaults.tail
       val _ = solver.delayedConstraints.flatMapInPlace { x =>
-        val c = x.x
-        val handler = c.cached(solver.conf.getHandler(c.kind).getOrElse(throw new IllegalStateException("no handler")))
+        val c = x.constraint.asInstanceOf[C]
+        val handler = solver.conf.getHandler(c).getOrElse(throw new IllegalStateException("no handler"))
         if (handler.canDefaulting(default)) {
-          val result = handler.run(c.asInstanceOf[handler.kind.Of])(using this, solver)
+          val result = handler.run(c)(using this, solver)
           result match {
             case Result.Done =>
               Vector()
             case Result.Waiting(vars @ _*) =>
-            if (handler.defaulting(c.asInstanceOf[handler.kind.Of], default)(using this, solver)) {
-              val result = handler.run(c.asInstanceOf[handler.kind.Of])(using this, solver)
+              if (handler.defaulting(c, default)(using this, solver)) {
+                val result = handler.run(c)(using this, solver)
                 result match {
                   case Result.Done =>
                     Vector()
@@ -155,7 +163,7 @@ object ProceduralSolverModule extends SolverModule {
     }
     val _ = solver.delayedConstraints.filterInPlace { c =>
       val call = c.vars.exists(solver.updatedCells.contains)
-      if (call) solver.todo.enqueue(c.x)
+      if (call) solver.todo.enqueue(c.constraint.asInstanceOf[C])
       !call
     }
     solver.updatedCells.clear()

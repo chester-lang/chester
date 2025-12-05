@@ -14,12 +14,12 @@ enum TypeScriptAST derives ReadWriter {
   case BooleanLiteral(value: Boolean, span: Span)
   case NullLiteral(span: Span)
   case UndefinedLiteral(span: Span)
-  
+
   // Identifiers and References
   case Identifier(name: String, span: Span)
   case PropertyAccess(obj: TypeScriptAST, property: String, span: Span)
   case ElementAccess(obj: TypeScriptAST, index: TypeScriptAST, span: Span)
-  
+
   // Expressions
   case BinaryOp(left: TypeScriptAST, op: String, right: TypeScriptAST, span: Span)
   case UnaryOp(op: String, operand: TypeScriptAST, span: Span)
@@ -39,7 +39,7 @@ enum TypeScriptAST derives ReadWriter {
   case Cast(expr: TypeScriptAST, targetType: TypeScriptType, span: Span)
   case NonNull(expr: TypeScriptAST, span: Span)
   case Parenthesized(expr: TypeScriptAST, span: Span)
-  
+
   // Statements
   case Block(statements: Vector[TypeScriptAST], span: Span)
   case VariableDeclaration(kind: VarKind, declarations: Vector[VariableDeclarator], span: Span)
@@ -59,19 +59,46 @@ enum TypeScriptAST derives ReadWriter {
   case Labeled(label: String, statement: TypeScriptAST, span: Span)
   case Empty(span: Span)
   case Debugger(span: Span)
-  
+
   // Declarations
-  case FunctionDeclaration(name: String, params: Vector[Parameter], returnType: Option[TypeScriptType], body: TypeScriptAST, modifiers: Vector[Modifier], span: Span)
-  case ClassDeclaration(name: String, typeParams: Vector[TypeParameter], superClass: Option[TypeScriptAST], implements: Vector[TypeScriptType], members: Vector[ClassMember], modifiers: Vector[Modifier], span: Span)
-  case InterfaceDeclaration(name: String, typeParams: Vector[TypeParameter], extendsTypes: Vector[TypeScriptType], members: Vector[InterfaceMember], span: Span)
+  case FunctionDeclaration(
+      name: String,
+      params: Vector[Parameter],
+      returnType: Option[TypeScriptType],
+      body: TypeScriptAST,
+      modifiers: Vector[Modifier],
+      span: Span
+  )
+  case ClassDeclaration(
+      name: String,
+      typeParams: Vector[TypeParameter],
+      superClass: Option[TypeScriptAST],
+      implements: Vector[TypeScriptType],
+      members: Vector[ClassMember],
+      modifiers: Vector[Modifier],
+      span: Span
+  )
+  case InterfaceDeclaration(
+      name: String,
+      typeParams: Vector[TypeParameter],
+      extendsTypes: Vector[TypeScriptType],
+      members: Vector[InterfaceMember],
+      span: Span
+  )
   case TypeAliasDeclaration(name: String, typeParams: Vector[TypeParameter], aliasType: TypeScriptType, span: Span)
   case EnumDeclaration(name: String, members: Vector[EnumMember], isConst: Boolean, span: Span)
   case NamespaceDeclaration(name: String, body: Vector[TypeScriptAST], span: Span)
-  
+
   // Module system
   case ImportDeclaration(specifiers: Vector[ImportSpecifier], source: String, span: Span)
-  case ExportDeclaration(declaration: Option[TypeScriptAST], specifiers: Vector[ExportSpecifier], source: Option[String], isDefault: Boolean, span: Span)
-  
+  case ExportDeclaration(
+      declaration: Option[TypeScriptAST],
+      specifiers: Vector[ExportSpecifier],
+      source: Option[String],
+      isDefault: Boolean,
+      span: Span
+  )
+
   // Program root
   case Program(statements: Vector[TypeScriptAST], span: Span)
 
@@ -81,22 +108,22 @@ enum TypeScriptAST derives ReadWriter {
 object TypeScriptAST {
   def toDoc(ast: TypeScriptAST)(using DocConf): Doc = ast match {
     // Literals
-    case NumberLiteral(value, _) => text(value)
-    case StringLiteral(value, _) => text("\"") <> text(value.replace("\"", "\\\"")) <> text("\"")
+    case NumberLiteral(value, _)  => text(value)
+    case StringLiteral(value, _)  => text("\"") <> text(value.replace("\"", "\\\"")) <> text("\"")
     case BooleanLiteral(value, _) => text(value.toString)
-    case NullLiteral(_) => text("null")
-    case UndefinedLiteral(_) => text("undefined")
-    
+    case NullLiteral(_)           => text("null")
+    case UndefinedLiteral(_)      => text("undefined")
+
     // Identifiers
-    case Identifier(name, _) => text(name)
+    case Identifier(name, _)              => text(name)
     case PropertyAccess(obj, property, _) => toDoc(obj) <> text(".") <> text(property)
-    case ElementAccess(obj, index, _) => toDoc(obj) <> text("[") <> toDoc(index) <> text("]")
-    
+    case ElementAccess(obj, index, _)     => toDoc(obj) <> text("[") <> toDoc(index) <> text("]")
+
     // Expressions
     case BinaryOp(left, op, right, _) => toDoc(left) <+> text(op) <+> toDoc(right)
-    case UnaryOp(op, operand, _) => text(op) <> toDoc(operand)
-    case Call(callee, args, _) => toDoc(callee) <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
-    case New(constructor, args, _) => text("new ") <> toDoc(constructor) <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
+    case UnaryOp(op, operand, _)      => text(op) <> toDoc(operand)
+    case Call(callee, args, _)        => toDoc(callee) <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
+    case New(constructor, args, _)    => text("new ") <> toDoc(constructor) <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
     case Arrow(params, body, _) =>
       val paramsDoc = if (params.length == 1 && params.head.paramType.isEmpty && !params.head.isRest) {
         text(params.head.name)
@@ -105,7 +132,7 @@ object TypeScriptAST {
       }
       paramsDoc <+> text("=>") <+> (body match {
         case Block(_, _) => toDoc(body)
-        case _ => toDoc(body)
+        case _           => toDoc(body)
       })
     case Function(name, params, returnType, body, _) =>
       val nameDoc = name.map(n => text(" ") <> text(n)).getOrElse(empty)
@@ -124,15 +151,15 @@ object TypeScriptAST {
         else Vector(text(part), text("${") <> toDoc(expr) <> text("}"))
       }
       text("`") <> concat(combined) <> text("`")
-    case Await(expr, _) => text("await ") <> toDoc(expr)
-    case Yield(exprOpt, _) => text("yield") <> exprOpt.map(e => text(" ") <> toDoc(e)).getOrElse(empty)
-    case This(_) => text("this")
-    case Super(_) => text("super")
-    case Spread(expr, _) => text("...") <> toDoc(expr)
+    case Await(expr, _)            => text("await ") <> toDoc(expr)
+    case Yield(exprOpt, _)         => text("yield") <> exprOpt.map(e => text(" ") <> toDoc(e)).getOrElse(empty)
+    case This(_)                   => text("this")
+    case Super(_)                  => text("super")
+    case Spread(expr, _)           => text("...") <> toDoc(expr)
     case Cast(expr, targetType, _) => toDoc(expr) <+> text("as") <+> typeToDoc(targetType)
-    case NonNull(expr, _) => toDoc(expr) <> text("!")
-    case Parenthesized(expr, _) => text("(") <> toDoc(expr) <> text(")")
-    
+    case NonNull(expr, _)          => toDoc(expr) <> text("!")
+    case Parenthesized(expr, _)    => text("(") <> toDoc(expr) <> text(")")
+
     // Statements
     case Block(statements, _) =>
       if (statements.isEmpty) text("{}")
@@ -140,8 +167,8 @@ object TypeScriptAST {
     case VariableDeclaration(kind, declarations, _) =>
       val kindStr = kind match {
         case VarKind.Const => "const"
-        case VarKind.Let => "let"
-        case VarKind.Var => "var"
+        case VarKind.Let   => "let"
+        case VarKind.Var   => "var"
       }
       text(kindStr) <+> hsep(declarations.map(varDeclToDoc), text(", "))
     case ExpressionStatement(expr, _) => toDoc(expr)
@@ -165,21 +192,21 @@ object TypeScriptAST {
       text("switch (") <> toDoc(discriminant) <> text(") {") <@@>
         ssep(cases.map(switchCaseToDoc), hardline).indented() <@@> text("}")
     case Return(exprOpt, _) => text("return") <> exprOpt.map(e => text(" ") <> toDoc(e)).getOrElse(empty)
-    case Throw(expr, _) => text("throw ") <> toDoc(expr)
+    case Throw(expr, _)     => text("throw ") <> toDoc(expr)
     case Try(block, handler, finalizer, _) =>
       val base = text("try") <+> toDoc(block)
       val withCatch = handler.map(h => base <+> catchClauseToDoc(h)).getOrElse(base)
       finalizer.map(f => withCatch <+> text("finally") <+> toDoc(f)).getOrElse(withCatch)
-    case Break(labelOpt, _) => text("break") <> labelOpt.map(l => text(" ") <> text(l)).getOrElse(empty)
-    case Continue(labelOpt, _) => text("continue") <> labelOpt.map(l => text(" ") <> text(l)).getOrElse(empty)
+    case Break(labelOpt, _)           => text("break") <> labelOpt.map(l => text(" ") <> text(l)).getOrElse(empty)
+    case Continue(labelOpt, _)        => text("continue") <> labelOpt.map(l => text(" ") <> text(l)).getOrElse(empty)
     case Labeled(label, statement, _) => text(label) <> text(": ") <> toDoc(statement)
-    case Empty(_) => empty
-    case Debugger(_) => text("debugger")
-    
+    case Empty(_)                     => empty
+    case Debugger(_)                  => text("debugger")
+
     // Declarations
     case FunctionDeclaration(name, params, returnType, body, modifiers, _) =>
       val modsDoc = if (modifiers.nonEmpty) hsep(modifiers.map(modifierToDoc), text(" ")) <> text(" ") else empty
-      modsDoc <> text("function ") <> text(name) <> text("(") <> 
+      modsDoc <> text("function ") <> text(name) <> text("(") <>
         hsep(params.map(paramToDoc), text(", ")) <> text(")") <>
         returnType.map(t => text(": ") <> typeToDoc(t)).getOrElse(empty) <+> toDoc(body)
     case ClassDeclaration(name, typeParams, superClass, implements, members, modifiers, _) =>
@@ -204,7 +231,7 @@ object TypeScriptAST {
     case NamespaceDeclaration(name, body, _) =>
       text("namespace ") <> text(name) <+> text("{") <@@>
         ssep(body.map(s => toDoc(s) <> text(";")), hardline).indented() <@@> text("}")
-    
+
     // Module system
     case ImportDeclaration(specifiers, source, _) =>
       text("import ") <> hsep(specifiers.map(importSpecToDoc), text(", ")) <+>
@@ -218,7 +245,7 @@ object TypeScriptAST {
         val exportDoc = text("export ") <> text("{") <> hsep(specifiers.map(exportSpecToDoc), text(", ")) <> text("}")
         source.map(s => exportDoc <+> text("from \"") <> text(s) <> text("\"")).getOrElse(exportDoc)
       }
-    
+
     case Program(statements, _) =>
       ssep(statements.map(s => toDoc(s) <> text(";")), hardline)
   }
@@ -238,7 +265,7 @@ object TypeScriptAST {
 
   def objPropToDoc(prop: ObjectProperty)(using DocConf): Doc = {
     val keyDoc = prop.key match {
-      case Left(str) => text(str)
+      case Left(str)  => text(str)
       case Right(ast) => text("[") <> toDoc(ast) <> text("]")
     }
     if (prop.isShorthand) keyDoc
@@ -285,7 +312,7 @@ object TypeScriptAST {
         val optionalDoc = if (isOptional) text("?") else empty
         readonlyDoc <> text(member.name) <> optionalDoc <> text(": ") <> typeToDoc(propertyType)
       case InterfaceMemberType.MethodSignature(params, returnType) =>
-        text(member.name) <> text("(") <> hsep(params.map(paramToDoc), text(", ")) <> 
+        text(member.name) <> text("(") <> hsep(params.map(paramToDoc), text(", ")) <>
           text("): ") <> typeToDoc(returnType)
       case InterfaceMemberType.CallSignature(params, returnType) =>
         text("(") <> hsep(params.map(paramToDoc), text(", ")) <> text("): ") <> typeToDoc(returnType)
@@ -303,7 +330,7 @@ object TypeScriptAST {
   }
 
   def importSpecToDoc(spec: ImportSpecifier)(using DocConf): Doc = spec match {
-    case ImportSpecifier.Default(local, _) => text(local)
+    case ImportSpecifier.Default(local, _)   => text(local)
     case ImportSpecifier.Namespace(local, _) => text("* as ") <> text(local)
     case ImportSpecifier.Named(imported, localOpt, _) =>
       localOpt.map(local => text(imported) <+> text("as") <+> text(local)).getOrElse(text(imported))
@@ -318,16 +345,16 @@ object TypeScriptAST {
   }
 
   def modifierToDoc(modifier: Modifier)(using DocConf): Doc = modifier match {
-    case Modifier.Public => text("public")
-    case Modifier.Private => text("private")
+    case Modifier.Public    => text("public")
+    case Modifier.Private   => text("private")
     case Modifier.Protected => text("protected")
-    case Modifier.Static => text("static")
-    case Modifier.Readonly => text("readonly")
-    case Modifier.Abstract => text("abstract")
-    case Modifier.Async => text("async")
-    case Modifier.Const => text("const")
-    case Modifier.Declare => text("declare")
-    case Modifier.Export => text("export")
+    case Modifier.Static    => text("static")
+    case Modifier.Readonly  => text("readonly")
+    case Modifier.Abstract  => text("abstract")
+    case Modifier.Async     => text("async")
+    case Modifier.Const     => text("const")
+    case Modifier.Declare   => text("declare")
+    case Modifier.Export    => text("export")
   }
 
   def typeParamToDoc(tp: TypeParameter)(using DocConf): Doc = {
@@ -352,16 +379,16 @@ object TypeScriptAST {
       text("(") <> hsep(params.map(paramToDoc), text(", ")) <> text(") => ") <> typeToDoc(returnType)
     case TypeScriptType.ObjectType(members, _) =>
       text("{") <+> hsep(members.map(interfaceMemberToDoc), text(" ")) <+> text("}")
-    case TypeScriptType.LiteralType(value, _) => toDoc(value)
+    case TypeScriptType.LiteralType(value, _)    => toDoc(value)
     case TypeScriptType.KeyofType(objectType, _) => text("keyof ") <> typeToDoc(objectType)
-    case TypeScriptType.TypeofType(expr, _) => text("typeof ") <> toDoc(expr)
+    case TypeScriptType.TypeofType(expr, _)      => text("typeof ") <> toDoc(expr)
     case TypeScriptType.IndexedAccessType(objectType, indexType, _) =>
       typeToDoc(objectType) <> text("[") <> typeToDoc(indexType) <> text("]")
     case TypeScriptType.MappedType(typeParam, nameType, objectType, _) =>
       val nameDoc = nameType.map(n => text(" as ") <> typeToDoc(n)).getOrElse(empty)
       text("{[") <> text(typeParam.name) <+> text("in") <+> typeToDoc(objectType) <> nameDoc <> text("]: ") <> text("...}")
     case TypeScriptType.ConditionalType(checkType, extendsType, trueType, falseType, _) =>
-      typeToDoc(checkType) <+> text("extends") <+> typeToDoc(extendsType) <+> text("?") <+> 
+      typeToDoc(checkType) <+> text("extends") <+> typeToDoc(extendsType) <+> text("?") <+>
         typeToDoc(trueType) <+> text(":") <+> typeToDoc(falseType)
     case TypeScriptType.InferType(typeParam, _) => text("infer ") <> text(typeParam.name)
     case TypeScriptType.TemplateLiteralType(parts, types, _) =>
@@ -381,43 +408,50 @@ enum VarKind derives ReadWriter {
 }
 
 case class Parameter(
-  name: String,
-  paramType: Option[TypeScriptType],
-  defaultValue: Option[TypeScriptAST],
-  isRest: Boolean,
-  span: Span
+    name: String,
+    paramType: Option[TypeScriptType],
+    defaultValue: Option[TypeScriptAST],
+    isRest: Boolean,
+    span: Span
 ) derives ReadWriter
 
 case class VariableDeclarator(
-  name: String,
-  varType: Option[TypeScriptType],
-  init: Option[TypeScriptAST],
-  span: Span
+    name: String,
+    varType: Option[TypeScriptType],
+    init: Option[TypeScriptAST],
+    span: Span
 ) derives ReadWriter
 
 case class ObjectProperty(
-  key: Either[String, TypeScriptAST],
-  value: TypeScriptAST,
-  isShorthand: Boolean,
-  isMethod: Boolean,
-  span: Span
+    key: Either[String, TypeScriptAST],
+    value: TypeScriptAST,
+    isShorthand: Boolean,
+    isMethod: Boolean,
+    span: Span
 ) derives ReadWriter
 
 case class SwitchCase(
-  test: Option[TypeScriptAST], // None for default case
-  consequent: Vector[TypeScriptAST],
-  span: Span
+    test: Option[TypeScriptAST], // None for default case
+    consequent: Vector[TypeScriptAST],
+    span: Span
 ) derives ReadWriter
 
 case class CatchClause(
-  param: Option[String],
-  body: TypeScriptAST,
-  span: Span
+    param: Option[String],
+    body: TypeScriptAST,
+    span: Span
 ) derives ReadWriter
 
 enum ClassMember derives ReadWriter {
   case Constructor(params: Vector[Parameter], body: TypeScriptAST, span: Span)
-  case Method(name: String, params: Vector[Parameter], returnType: Option[TypeScriptType], body: TypeScriptAST, modifiers: Vector[Modifier], span: Span)
+  case Method(
+      name: String,
+      params: Vector[Parameter],
+      returnType: Option[TypeScriptType],
+      body: TypeScriptAST,
+      modifiers: Vector[Modifier],
+      span: Span
+  )
   case Property(name: String, propertyType: Option[TypeScriptType], init: Option[TypeScriptAST], modifiers: Vector[Modifier], span: Span)
   case Getter(name: String, returnType: Option[TypeScriptType], body: TypeScriptAST, modifiers: Vector[Modifier], span: Span)
   case Setter(name: String, param: Parameter, body: TypeScriptAST, modifiers: Vector[Modifier], span: Span)
@@ -425,9 +459,9 @@ enum ClassMember derives ReadWriter {
 }
 
 case class InterfaceMember(
-  name: String,
-  memberType: InterfaceMemberType,
-  span: Span
+    name: String,
+    memberType: InterfaceMemberType,
+    span: Span
 ) derives ReadWriter
 
 enum InterfaceMemberType derives ReadWriter {
@@ -439,9 +473,9 @@ enum InterfaceMemberType derives ReadWriter {
 }
 
 case class EnumMember(
-  name: String,
-  value: Option[TypeScriptAST],
-  span: Span
+    name: String,
+    value: Option[TypeScriptAST],
+    span: Span
 ) derives ReadWriter
 
 enum ImportSpecifier derives ReadWriter {
@@ -470,10 +504,10 @@ enum Modifier derives ReadWriter {
 }
 
 case class TypeParameter(
-  name: String,
-  constraint: Option[TypeScriptType],
-  default: Option[TypeScriptType],
-  span: Span
+    name: String,
+    constraint: Option[TypeScriptType],
+    default: Option[TypeScriptType],
+    span: Span
 ) derives ReadWriter
 
 /** TypeScript type system */

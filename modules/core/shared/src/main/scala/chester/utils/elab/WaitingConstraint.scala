@@ -1,5 +1,6 @@
 package chester.utils.elab
 
-case class WaitingConstraint(vars: Vector[CellAny], x: Constraint) {
-  def related(x: CellAny): Boolean = vars.contains(x)
+// Constraints can be any user-defined type
+case class WaitingConstraint(vars: Vector[CellAny], constraint: Any) {
+  def related(cell: CellAny): Boolean = vars.contains(cell)
 }
