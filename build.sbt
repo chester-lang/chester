@@ -133,6 +133,9 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jvmSettings(
     // JVM-specific settings
+    libraryDependencies ++= Seq(
+      "org.scala-stm" %% "scala-stm" % "0.11.1"
+    )
   )
   .jsSettings(
     // Scala.js-specific settings
