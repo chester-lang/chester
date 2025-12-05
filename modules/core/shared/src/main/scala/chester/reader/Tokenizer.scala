@@ -202,8 +202,8 @@ object Tokenizer {
     
     val chars = ArrayBuffer.empty[Char]
     
-    // Read identifier characters (letters, digits, underscore)
-    while (state.codePoint.exists(cp => Character.isLetterOrDigit(cp) || cp == '_'.asInt)) {
+    // Read identifier characters using IdentifierRules
+    while (state.codePoint.exists(IdentifierRules.isIdentifierPart)) {
       chars += state.current.get.text.head
       state.advance()
     }
