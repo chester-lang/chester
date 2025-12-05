@@ -50,11 +50,12 @@ trait SolverModule {
   // 1. User code creates cells through module.newXXXCell methods
   // 2. Cells from different solvers never mix in practice
   // 3. The top-level Cell trait is just an interface - implementation is module-specific
+  //
+  // Simple conversion: top-level Cell → module.Cell with same type parameters
+  // This handles the common case where constraint case classes store Cell[A, B, C]
+  // and handlers need to work with module.Cell[A, B, C]
   given cellToModuleCell[A, B, C <: CellContent[A, B]]: Conversion[chester.utils.elab.Cell[A, B, C], Cell[A, B, C]] =
     _.asInstanceOf[Cell[A, B, C]]
-
-  given moduleCellToCell[A, B, C <: CellContent[A, B]]: Conversion[Cell[A, B, C], chester.utils.elab.Cell[A, B, C]] =
-    _.asInstanceOf[chester.utils.elab.Cell[A, B, C]]
 
   // Derived cell type aliases
   type CellOf[A, B] = Cell[A, B, CellContent[A, B]]

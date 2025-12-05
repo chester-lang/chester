@@ -48,6 +48,7 @@ class SolverTest extends munit.FunSuite {
   
   // Common test logic that works with any SolverModule
   def testBasicCellOperations(module: SolverModule): Unit = {
+    import module.given
     val solver = module.makeSolver[TestSumConstraint](TestHandlerConf(module))
     
     // Test OnceCell
@@ -55,13 +56,13 @@ class SolverTest extends munit.FunSuite {
     assert(module.noStableValue(solver, onceCell))
     module.fill(solver, onceCell.asInstanceOf[module.CellW[Int]], 42)
     assert(module.hasStableValue(solver, onceCell))
-    assertEquals(module.readStable(solver, onceCell.asInstanceOf[module.CellR[Int]]), Some(42), "OnceCell value")
+    assertEquals(module.readStable(solver, onceCell), Some(42), "OnceCell value")
     
     // Test MutableCell
     val mutableCell = module.newMutableCell[TestSumConstraint, String](solver, Some("initial"))
-    assertEquals(module.readStable(solver, mutableCell.asInstanceOf[module.CellR[String]]), Some("initial"), "MutableCell initial")
+    assertEquals(module.readStable(solver, mutableCell), Some("initial"), "MutableCell initial")
     module.fill(solver, mutableCell.asInstanceOf[module.CellW[String]], "updated")
-    assertEquals(module.readStable(solver, mutableCell.asInstanceOf[module.CellR[String]]), Some("updated"), "MutableCell updated")
+    assertEquals(module.readStable(solver, mutableCell), Some("updated"), "MutableCell updated")
     
     // Test LiteralCell
     val literalCell = module.newLiteralCell(solver, 100)
@@ -70,6 +71,7 @@ class SolverTest extends munit.FunSuite {
   }
   
   def testConstraintSolving(module: SolverModule): Unit = {
+    import module.given
     val solver = module.makeSolver[TestSumConstraint](TestHandlerConf(module))
     
     val cell1 = module.newOnceCell[TestSumConstraint, Int](solver)
@@ -89,19 +91,20 @@ class SolverTest extends munit.FunSuite {
     module.run(solver)
     
     // Check result
-    assertEquals(module.readStable(solver, resultCell.asInstanceOf[module.CellR[Int]]), Some(30), "Sum result")
+    assertEquals(module.readStable(solver, resultCell), Some(30), "Sum result")
   }
   
   def testTypeMembers(module: SolverModule): Unit = {
+    import module.given
     val solver = module.makeSolver[TestSumConstraint](TestHandlerConf(module))
     
     // Test that we can use module.CellR, module.OnceCell, etc.
     val cell1: module.OnceCell[Int] = module.newOnceCell[TestSumConstraint, Int](solver)
-    val cell2: module.CellR[Int] = cell1.asInstanceOf[module.CellR[Int]]
-    val cell3: module.CellRW[Int] = cell1.asInstanceOf[module.CellRW[Int]]
+    val cell2: module.CellR[Int] = cell1
+    val cell3: module.CellRW[Int] = cell1
     
     // Test variance: CellR is covariant
-    val numCell: module.CellR[Int] = module.newOnceCell[TestSumConstraint, Int](solver).asInstanceOf[module.CellR[Int]]
+    val numCell: module.CellR[Int] = module.newOnceCell[TestSumConstraint, Int](solver)
     val anyCell: module.CellR[Any] = numCell  // Should compile due to covariance
     
     assert(module.noStableValue(solver, cell1))
@@ -110,6 +113,7 @@ class SolverTest extends munit.FunSuite {
   // Test bidirectional constraint: a * b = c
   // Can solve for any missing variable given the other two
   def testBidirectionalConstraints(module: SolverModule): Unit = {
+    import module.given
     // Scenario 1: Given a=5, b=3, solve for c (forward: c = a*b)
     {
       val solver = module.makeSolver[ProductConstraint](ProductHandlerConf(module))
@@ -125,7 +129,7 @@ class SolverTest extends munit.FunSuite {
       module.fill(solver, b.asInstanceOf[module.CellW[Int]], 3)
       module.run(solver)
       
-      assertEquals(module.readStable(solver, c.asInstanceOf[module.CellR[Int]]), Some(15), "Forward: 5 * 3 = 15")
+      assertEquals(module.readStable(solver, c), Some(15), "Forward: 5 * 3 = 15")
     }
 
     // Scenario 2: Given a=6, c=18, solve for b (backward: b = c/a)
@@ -143,7 +147,7 @@ class SolverTest extends munit.FunSuite {
       module.fill(solver, c.asInstanceOf[module.CellW[Int]], 18)
       module.run(solver)
       
-      assertEquals(module.readStable(solver, b.asInstanceOf[module.CellR[Int]]), Some(3), "Backward: 18 / 6 = 3")
+      assertEquals(module.readStable(solver, b), Some(3), "Backward: 18 / 6 = 3")
     }
 
     // Scenario 3: Given b=4, c=20, solve for a (backward: a = c/b)
@@ -161,7 +165,7 @@ class SolverTest extends munit.FunSuite {
       module.fill(solver, c.asInstanceOf[module.CellW[Int]], 20)
       module.run(solver)
       
-      assertEquals(module.readStable(solver, a.asInstanceOf[module.CellR[Int]]), Some(5), "Backward: 20 / 4 = 5")
+      assertEquals(module.readStable(solver, a), Some(5), "Backward: 20 / 4 = 5")
     }
   }
 
@@ -170,6 +174,7 @@ class SolverTest extends munit.FunSuite {
   // b + c = sum2
   // Given a and sum1 and sum2, solve for b and c
   def testComplexMultiDirectionalFlow(module: SolverModule): Unit = {
+    import module.given
     val solver = module.makeSolver[MixedConstraint](MixedHandlerConf(module))
     
     val a = module.newOnceCell[MixedConstraint, Int](solver)
@@ -204,9 +209,9 @@ class SolverTest extends munit.FunSuite {
     
     module.run(solver)
     
-    assertEquals(module.readStable(solver, b.asInstanceOf[module.CellR[Int]]), Some(7), "b should be 7 (12-5)")
-    assertEquals(module.readStable(solver, c.asInstanceOf[module.CellR[Int]]), Some(8), "c should be 8 (15-7)")
-    assertEquals(module.readStable(solver, product.asInstanceOf[module.CellR[Int]]), Some(56), "product should be 56 (7*8)")
+    assertEquals(module.readStable(solver, b), Some(7), "b should be 7 (12-5)")
+    assertEquals(module.readStable(solver, c), Some(8), "c should be 8 (15-7)")
+    assertEquals(module.readStable(solver, product), Some(56), "product should be 56 (7*8)")
   }
 }
 
@@ -226,8 +231,8 @@ case class TestHandlerConf[M <: SolverModule](module: M) extends HandlerConf[Tes
 
 object TestSumHandler extends Handler[TestSumConstraint] {
   override def run[M <: SolverModule](constraint: TestSumConstraint)(using module: M, solver: module.Solver[TestSumConstraint]): Result = {
-    val v1 = module.readStable(solver, constraint.cell1.asInstanceOf[module.CellR[Int]])
-    val v2 = module.readStable(solver, constraint.cell2.asInstanceOf[module.CellR[Int]])
+    val v1 = module.readStable(solver, constraint.cell1)
+    val v2 = module.readStable(solver, constraint.cell2)
     
     (v1, v2) match {
       case (Some(a), Some(b)) =>
@@ -256,9 +261,9 @@ case class ProductHandlerConf[M <: SolverModule](module: M) extends HandlerConf[
 
 object ProductHandler extends Handler[ProductConstraint] {
   override def run[M <: SolverModule](constraint: ProductConstraint)(using module: M, solver: module.Solver[ProductConstraint]): Result = {
-    val va = module.readStable(solver, constraint.a.asInstanceOf[module.CellR[Int]])
-    val vb = module.readStable(solver, constraint.b.asInstanceOf[module.CellR[Int]])
-    val vp = module.readStable(solver, constraint.product.asInstanceOf[module.CellR[Int]])
+    val va = module.readStable(solver, constraint.a)
+    val vb = module.readStable(solver, constraint.b)
+    val vp = module.readStable(solver, constraint.product)
     
     (va, vb, vp) match {
       // Forward: a * b = product
@@ -306,9 +311,9 @@ object MixedSumHandler extends Handler[MixedConstraint] {
   override def run[M <: SolverModule](constraint: MixedConstraint)(using module: M, solver: module.Solver[MixedConstraint]): Result = {
     constraint match {
       case c: SumConstraint =>
-        val va = module.readStable(solver, c.a.asInstanceOf[module.CellR[Int]])
-        val vb = module.readStable(solver, c.b.asInstanceOf[module.CellR[Int]])
-        val vs = module.readStable(solver, c.sum.asInstanceOf[module.CellR[Int]])
+        val va = module.readStable(solver, c.a)
+        val vb = module.readStable(solver, c.b)
+        val vs = module.readStable(solver, c.sum)
         
         (va, vb, vs) match {
           // Forward: a + b = sum
@@ -341,9 +346,9 @@ object MixedProductHandler extends Handler[MixedConstraint] {
   override def run[M <: SolverModule](constraint: MixedConstraint)(using module: M, solver: module.Solver[MixedConstraint]): Result = {
     constraint match {
       case c: ProductConstraint =>
-        val va = module.readStable(solver, c.a.asInstanceOf[module.CellR[Int]])
-        val vb = module.readStable(solver, c.b.asInstanceOf[module.CellR[Int]])
-        val vp = module.readStable(solver, c.product.asInstanceOf[module.CellR[Int]])
+        val va = module.readStable(solver, c.a)
+        val vb = module.readStable(solver, c.b)
+        val vp = module.readStable(solver, c.product)
         
         (va, vb, vp) match {
           case (Some(a), Some(b), None) =>
