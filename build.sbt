@@ -4,6 +4,8 @@ version := "0.1.0-SNAPSHOT"
 scalaVersion := "3.7.4"
 organization := "chester"
 
+addCommandAlias("updates", "reload plugins; dependencyUpdates; reload return; dependencyUpdates;")
+
 // Shared settings for all projects
 lazy val commonSettings = Seq(
   scalaVersion := "3.7.4",
