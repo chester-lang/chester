@@ -62,7 +62,7 @@ trait SolverModule {
   type CellRW[T] = Cell[T, T, CellContent[T, T]]
   type CellAny = Cell[Any, Nothing, CellContent[Any, Nothing]]
   type CellR[+T] = Cell[T, Nothing, CellContentR[T]]
-  type CellW[-T] = Cell[Nothing, T, CellContent[Nothing, T]]
+  type CellW[-T] = Cell[Any, T, CellContent[Any, T]]
 
   // Specific cell types for common content types
   type OnceCell[T] = Cell[T, T, OnceCellContent[T]]

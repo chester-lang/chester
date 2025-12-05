@@ -121,12 +121,10 @@ class SolverTest extends munit.FunSuite {
       val b = module.newOnceCell[ProductConstraint, Int](solver)
       val c = module.newOnceCell[ProductConstraint, Int](solver)
 
-      module.addConstraint(solver, ProductConstraint(a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                       b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                       c.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]))
+      module.addConstraint(solver, ProductConstraint(a, b, c))
       
-      module.fill(solver, a.asInstanceOf[module.CellW[Int]], 5)
-      module.fill(solver, b.asInstanceOf[module.CellW[Int]], 3)
+      module.fill(solver, a, 5)
+      module.fill(solver, b, 3)
       module.run(solver)
       
       assertEquals(module.readStable(solver, c), Some(15), "Forward: 5 * 3 = 15")
@@ -139,12 +137,10 @@ class SolverTest extends munit.FunSuite {
       val b = module.newOnceCell[ProductConstraint, Int](solver)
       val c = module.newOnceCell[ProductConstraint, Int](solver)
 
-      module.addConstraint(solver, ProductConstraint(a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                       b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                       c.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]))
+      module.addConstraint(solver, ProductConstraint(a, b, c))
       
-      module.fill(solver, a.asInstanceOf[module.CellW[Int]], 6)
-      module.fill(solver, c.asInstanceOf[module.CellW[Int]], 18)
+      module.fill(solver, a, 6)
+      module.fill(solver, c, 18)
       module.run(solver)
       
       assertEquals(module.readStable(solver, b), Some(3), "Backward: 18 / 6 = 3")
@@ -157,12 +153,10 @@ class SolverTest extends munit.FunSuite {
       val b = module.newOnceCell[ProductConstraint, Int](solver)
       val c = module.newOnceCell[ProductConstraint, Int](solver)
 
-      module.addConstraint(solver, ProductConstraint(a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                       b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-                                                       c.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]))
+      module.addConstraint(solver, ProductConstraint(a, b, c))
       
-      module.fill(solver, b.asInstanceOf[module.CellW[Int]], 4)
-      module.fill(solver, c.asInstanceOf[module.CellW[Int]], 20)
+      module.fill(solver, b, 4)
+      module.fill(solver, c, 20)
       module.run(solver)
       
       assertEquals(module.readStable(solver, a), Some(5), "Backward: 20 / 4 = 5")
@@ -185,27 +179,15 @@ class SolverTest extends munit.FunSuite {
     val product = module.newOnceCell[MixedConstraint, Int](solver)
 
     // Add constraints: a + b = sum1, b + c = sum2, b * c = product
-    module.addConstraint(solver, SumConstraint(
-      a.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-      b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-      sum1.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]
-    ))
-    module.addConstraint(solver, SumConstraint(
-      b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-      c.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-      sum2.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]
-    ))
-    module.addConstraint(solver, ProductConstraint(
-      b.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-      c.asInstanceOf[Cell[Int, Nothing, CellContent[Int, Nothing]]], 
-      product.asInstanceOf[Cell[Int, Int, CellContent[Int, Int]]]
-    ))
+    module.addConstraint(solver, SumConstraint(a, b, sum1))
+    module.addConstraint(solver, SumConstraint(b, c, sum2))
+    module.addConstraint(solver, ProductConstraint(b, c, product))
 
     // Given: a=5, sum1=12, sum2=15
     // Should solve: b=7 (from a+b=12), c=8 (from b+c=15), product=56 (from b*c)
-    module.fill(solver, a.asInstanceOf[module.CellW[Int]], 5)
-    module.fill(solver, sum1.asInstanceOf[module.CellW[Int]], 12)
-    module.fill(solver, sum2.asInstanceOf[module.CellW[Int]], 15)
+    module.fill(solver, a, 5)
+    module.fill(solver, sum1, 12)
+    module.fill(solver, sum2, 15)
     
     module.run(solver)
     
@@ -236,7 +218,7 @@ object TestSumHandler extends Handler[TestSumConstraint] {
     
     (v1, v2) match {
       case (Some(a), Some(b)) =>
-        module.fill(solver, constraint.result.asInstanceOf[module.CellW[Int]], a + b)
+        module.fill(solver, constraint.result, a + b)
         Result.Done
       case _ =>
         Result.Waiting(constraint.cell1, constraint.cell2)
@@ -250,8 +232,8 @@ object TestSumHandler extends Handler[TestSumConstraint] {
 
 // Bidirectional product constraint: a * b = c
 case class ProductConstraint(
-  a: Cell[Int, Nothing, CellContent[Int, Nothing]],
-  b: Cell[Int, Nothing, CellContent[Int, Nothing]],
+  a: Cell[Int, Int, CellContent[Int, Int]],
+  b: Cell[Int, Int, CellContent[Int, Int]],
   product: Cell[Int, Int, CellContent[Int, Int]]
 )
 
@@ -268,15 +250,15 @@ object ProductHandler extends Handler[ProductConstraint] {
     (va, vb, vp) match {
       // Forward: a * b = product
       case (Some(a), Some(b), None) =>
-        module.fill(solver, constraint.product.asInstanceOf[module.CellW[Int]], a * b)
+        module.fill(solver, constraint.product, a * b)
         Result.Done
       // Backward: product / a = b
       case (Some(a), None, Some(p)) if a != 0 && p % a == 0 =>
-        module.fill(solver, constraint.b.asInstanceOf[module.CellW[Int]], p / a)
+        module.fill(solver, constraint.b, p / a)
         Result.Done
       // Backward: product / b = a
       case (None, Some(b), Some(p)) if b != 0 && p % b == 0 =>
-        module.fill(solver, constraint.a.asInstanceOf[module.CellW[Int]], p / b)
+        module.fill(solver, constraint.a, p / b)
         Result.Done
       // All filled - check consistency
       case (Some(a), Some(b), Some(p)) if a * b == p =>
@@ -292,8 +274,8 @@ object ProductHandler extends Handler[ProductConstraint] {
 
 // Sum constraint that can solve backwards: a + b = sum
 case class SumConstraint(
-  a: Cell[Int, Nothing, CellContent[Int, Nothing]],
-  b: Cell[Int, Nothing, CellContent[Int, Nothing]],
+  a: Cell[Int, Int, CellContent[Int, Int]],
+  b: Cell[Int, Int, CellContent[Int, Int]],
   sum: Cell[Int, Int, CellContent[Int, Int]]
 )
 
@@ -318,15 +300,15 @@ object MixedSumHandler extends Handler[MixedConstraint] {
         (va, vb, vs) match {
           // Forward: a + b = sum
           case (Some(a), Some(b), None) =>
-            module.fill(solver, c.sum.asInstanceOf[module.CellW[Int]], a + b)
+            module.fill(solver, c.sum, a + b)
             Result.Done
           // Backward: sum - a = b
           case (Some(a), None, Some(s)) =>
-            module.fill(solver, c.b.asInstanceOf[module.CellW[Int]], s - a)
+            module.fill(solver, c.b, s - a)
             Result.Done
           // Backward: sum - b = a
           case (None, Some(b), Some(s)) =>
-            module.fill(solver, c.a.asInstanceOf[module.CellW[Int]], s - b)
+            module.fill(solver, c.a, s - b)
             Result.Done
           // All filled - check consistency
           case (Some(a), Some(b), Some(s)) if a + b == s =>
@@ -352,13 +334,13 @@ object MixedProductHandler extends Handler[MixedConstraint] {
         
         (va, vb, vp) match {
           case (Some(a), Some(b), None) =>
-            module.fill(solver, c.product.asInstanceOf[module.CellW[Int]], a * b)
+            module.fill(solver, c.product, a * b)
             Result.Done
           case (Some(a), None, Some(p)) if a != 0 && p % a == 0 =>
-            module.fill(solver, c.b.asInstanceOf[module.CellW[Int]], p / a)
+            module.fill(solver, c.b, p / a)
             Result.Done
           case (None, Some(b), Some(p)) if b != 0 && p % b == 0 =>
-            module.fill(solver, c.a.asInstanceOf[module.CellW[Int]], p / b)
+            module.fill(solver, c.a, p / b)
             Result.Done
           case (Some(a), Some(b), Some(p)) if a * b == p =>
             Result.Done
