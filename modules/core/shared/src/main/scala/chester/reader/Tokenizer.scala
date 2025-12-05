@@ -1,4 +1,4 @@
-package chester.readerv2
+package chester.reader
 
 import chester.error.{ParseError, Span, SpanInFile}
 import chester.i18n.*

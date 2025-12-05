@@ -1,8 +1,8 @@
-package chester.readerv2
+package chester.reader
 
 import chester.error.{Span, SpanInFile}
 import chester.reader.{Offset, ParseError, Source}
-import chester.readerv2.StringChar
+import chester.reader.StringChar
 import chester.utils.getCodePoints
  import scala.language.experimental.genericNumberLiterals
 
