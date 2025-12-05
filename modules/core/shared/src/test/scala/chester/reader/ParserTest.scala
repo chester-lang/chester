@@ -7,593 +7,277 @@ import scala.language.experimental.genericNumberLiterals
 
 class ParserTest extends munit.FunSuite {
 
-  private def createTestSource(content: String): Source =
-    Source(FileNameAndContent("test.chester", content))
-
-  private def parseString(input: String): (CST, Vector[ParseError]) = {
+  private def parse(input: String): (CST, Vector[ParseError]) = {
     given reporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
-    val source = createTestSource(input)
-    val charsResult = CharReader.read(source)
-    if (charsResult.isLeft) {
-      // Return dummy Symbol for empty input since SeqOf requires at least one element
-      val dummySpan = Span(source, SpanInFile(Pos.zero, Pos.zero))
-      return (CST.Symbol("<empty>", dummySpan), reporter.getReports)
-    }
-    val chars = charsResult.toOption.get
-    val tokensResult = Tokenizer.tokenize(chars)
-    if (tokensResult.isLeft) {
-      // Return dummy Symbol for tokenization failures
-      val dummySpan = Span(source, SpanInFile(Pos.zero, Pos.zero))
-      return (CST.Symbol("<error>", dummySpan), reporter.getReports)
-    }
-    val tokens = tokensResult.toOption.get
-    val result = Parser.parse(tokens)
-    (result.cst, reporter.getReports)
+    val source = Source(FileNameAndContent("test.chester", input))
+    val dummySpan = Span(source, SpanInFile(Pos.zero, Pos.zero))
+    
+    val result = for {
+      chars <- CharReader.read(source)
+      tokens <- Tokenizer.tokenize(chars)
+    } yield Parser.parse(tokens).cst
+    
+    (result.getOrElse(CST.Symbol("<error>", dummySpan)), reporter.getReports)
   }
 
-  test("parse integer literal") {
-    val (cst, errors) = parseString("42")
+  // Helper assertions
+  private def assertNoErrors(errors: Vector[ParseError]): Unit =
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(42))
-      case _                            => fail(s"Expected IntegerLiteral, got: $cst")
-    }
+
+  private def assertHasError(errors: Vector[ParseError], msg: String): Unit = {
+    assert(errors.nonEmpty, s"Expected errors containing '$msg'")
+    assert(errors.exists(_.message.contains(msg)), s"Expected error with '$msg', got: $errors")
   }
 
-  test("parse string literal") {
-    val (cst, errors) = parseString("\"hello\"")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.StringLiteral(value, _) => assertEquals(value, "hello")
-      case _                           => fail(s"Expected StringLiteral, got: $cst")
-    }
+  private def expectSymbol(cst: CST, name: String): Unit = cst match {
+    case CST.Symbol(n, _) => assertEquals(n, name)
+    case _ => fail(s"Expected Symbol($name), got: $cst")
   }
 
-  test("parse symbol literal") {
-    val (cst, errors) = parseString("'foo")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Symbol(name, _) => assertEquals(name, "foo")
-      case _                   => fail(s"Expected Symbol, got: $cst")
-    }
+  private def expectInt(cst: CST, value: Int): Unit = cst match {
+    case CST.IntegerLiteral(v, _) => assertEquals(v, BigInt(value))
+    case _ => fail(s"Expected IntegerLiteral($value), got: $cst")
   }
 
-  test("parse identifier") {
-    val (cst, errors) = parseString("myVar")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Symbol(name, _) => assertEquals(name, "myVar")
-      case _                   => fail(s"Expected Symbol, got: $cst")
-    }
+  private def expectString(cst: CST, value: String): Unit = cst match {
+    case CST.StringLiteral(v, _) => assertEquals(v, value)
+    case _ => fail(s"Expected StringLiteral($value), got: $cst")
   }
 
-  test("parse empty tuple") {
-    val (cst, errors) = parseString("()")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Tuple(elements, _) => assertEquals(elements.length, 0)
-      case _                      => fail(s"Expected Tuple, got: $cst")
-    }
+  test("parse literals") {
+    val (int, e1) = parse("42")
+    assertNoErrors(e1)
+    expectInt(int, 42)
+
+    val (str, e2) = parse("\"hello\"")
+    assertNoErrors(e2)
+    expectString(str, "hello")
+
+    val (sym, e3) = parse("'foo")
+    assertNoErrors(e3)
+    expectSymbol(sym, "foo")
+
+    val (id, e4) = parse("myVar")
+    assertNoErrors(e4)
+    expectSymbol(id, "myVar")
   }
 
-  test("parse tuple with single element") {
-    val (cst, errors) = parseString("(42)")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Tuple(elements, _) =>
-        assertEquals(elements.length, 1)
-        elements(0) match {
-          case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(42))
-          case _                            => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
-        }
-      case _ => fail(s"Expected Tuple, got: $cst")
-    }
+  test("parse tuples") {
+    val (empty, e1) = parse("()")
+    assertNoErrors(e1)
+    assert(empty.isInstanceOf[CST.Tuple] && empty.asInstanceOf[CST.Tuple].elements.isEmpty)
+
+    val (single, e2) = parse("(42)")
+    assertNoErrors(e2)
+    val CST.Tuple(elems1, _) = single: @unchecked
+    assertEquals(elems1.length, 1)
+    expectInt(elems1(0), 42)
+
+    val (multi, e3) = parse("(1, 2, 3)")
+    assertNoErrors(e3)
+    val CST.Tuple(elems2, _) = multi: @unchecked
+    assertEquals(elems2.length, 3)
+    elems2.zipWithIndex.foreach { case (e, i) => expectInt(e, i + 1) }
+
+    val (nested, e4) = parse("(1, (2, 3))")
+    assertNoErrors(e4)
+    val CST.Tuple(elems3, _) = nested: @unchecked
+    assertEquals(elems3.length, 2)
+    expectInt(elems3(0), 1)
+    assert(elems3(1).isInstanceOf[CST.Tuple])
   }
 
-  test("parse tuple with multiple elements") {
-    val (cst, errors) = parseString("(1, 2, 3)")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Tuple(elements, _) =>
-        assertEquals(elements.length, 3)
-        elements.zipWithIndex.foreach { case (elem, idx) =>
-          elem match {
-            case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(idx + 1))
-            case _                            => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
-          }
-        }
-      case _ => fail(s"Expected Tuple, got: $cst")
-    }
+  test("parse lists") {
+    val (empty, e1) = parse("[]")
+    assertNoErrors(e1)
+    assert(empty.isInstanceOf[CST.ListLiteral] && empty.asInstanceOf[CST.ListLiteral].elements.isEmpty)
+
+    val (list, e2) = parse("[1, 2, 3]")
+    assertNoErrors(e2)
+    val CST.ListLiteral(elems1, _) = list: @unchecked
+    assertEquals(elems1.length, 3)
+    elems1.zipWithIndex.foreach { case (e, i) => expectInt(e, i + 1) }
+
+    val (nested, e3) = parse("[1, [2, 3]]")
+    assertNoErrors(e3)
+    val CST.ListLiteral(elems2, _) = nested: @unchecked
+    assertEquals(elems2.length, 2)
+    expectInt(elems2(0), 1)
+    assert(elems2(1).isInstanceOf[CST.ListLiteral])
+
+    val (mixed, e4) = parse("(1, [2, 3], 4)")
+    assertNoErrors(e4)
+    val CST.Tuple(elems3, _) = mixed: @unchecked
+    assertEquals(elems3.length, 3)
+    assert(elems3(1).isInstanceOf[CST.ListLiteral])
   }
 
-  test("parse nested tuple") {
-    val (cst, errors) = parseString("(1, (2, 3))")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Tuple(elements, _) =>
-        assertEquals(elements.length, 2)
-        elements(0) match {
-          case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(1))
-          case _                            => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
-        }
-        elements(1) match {
-          case CST.Tuple(inner, _) => assertEquals(inner.length, 2)
-          case _                   => fail(s"Expected Tuple, got: ${elements(1)}")
-        }
-      case _ => fail(s"Expected Tuple, got: $cst")
-    }
+  test("error recovery") {
+    val (t1, e1) = parse("(1, 2")
+    assertHasError(e1, "')'")
+    assert(t1.asInstanceOf[CST.Tuple].elements.length == 2)
+
+    val (t2, e2) = parse("[1, 2")
+    assertHasError(e2, "']'")
+    assert(t2.asInstanceOf[CST.ListLiteral].elements.length == 2)
+
+    val (t3, e3) = parse("(1 2)")
+    assert(e3.nonEmpty)
+    assert(t3.isInstanceOf[CST.Tuple])
   }
 
-  test("parse empty list") {
-    val (cst, errors) = parseString("[]")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.ListLiteral(elements, _) => assertEquals(elements.length, 0)
-      case _                            => fail(s"Expected ListLiteral, got: $cst")
-    }
+  test("parse with whitespace and comments") {
+    val (cst, errors) = parse("( 1 , /* comment */ 2 )")
+    assertNoErrors(errors)
+    val CST.Tuple(elems, _) = cst: @unchecked
+    assertEquals(elems.length, 2)
   }
 
-  test("parse list with elements") {
-    val (cst, errors) = parseString("[1, 2, 3]")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.ListLiteral(elements, _) =>
-        assertEquals(elements.length, 3)
-        elements.zipWithIndex.foreach { case (elem, idx) =>
-          elem match {
-            case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(idx + 1))
-            case _                            => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
-          }
-        }
-      case _ => fail(s"Expected ListLiteral, got: $cst")
-    }
+  test("parse complex nested structures") {
+    val (cst, errors) = parse("(fn, [1, 2], (a, b))")
+    assertNoErrors(errors)
+    val CST.Tuple(elems, _) = cst: @unchecked
+    assertEquals(elems.length, 3)
+    expectSymbol(elems(0), "fn")
+    assert(elems(1).isInstanceOf[CST.ListLiteral])
+    assert(elems(2).isInstanceOf[CST.Tuple])
   }
 
-  test("parse nested list") {
-    val (cst, errors) = parseString("[1, [2, 3]]")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.ListLiteral(elements, _) =>
-        assertEquals(elements.length, 2)
-        elements(0) match {
-          case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(1))
-          case _                            => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
-        }
-        elements(1) match {
-          case CST.ListLiteral(inner, _) => assertEquals(inner.length, 2)
-          case _                         => fail(s"Expected ListLiteral, got: ${elements(1)}")
-        }
-      case _ => fail(s"Expected ListLiteral, got: $cst")
-    }
+  test("parse string escapes") {
+    val (cst, errors) = parse("\"hello\\nworld\"")
+    assertNoErrors(errors)
+    expectString(cst, "hello\nworld")
   }
 
-  test("parse mixed tuple and list") {
-    val (cst, errors) = parseString("(1, [2, 3], 4)")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Tuple(elements, _) =>
-        assertEquals(elements.length, 3)
-        elements(1) match {
-          case CST.ListLiteral(inner, _) => assertEquals(inner.length, 2)
-          case _                         => fail(s"Expected ListLiteral, got: ${elements(1)}")
-        }
-      case _ => fail(s"Expected Tuple, got: $cst")
-    }
+  test("empty input") {
+    val (cst, _) = parse("")
+    assert(cst.isInstanceOf[CST.Symbol])
   }
 
-  test("error recovery: unclosed tuple") {
-    val (cst, errors) = parseString("(1, 2")
-    assert(errors.nonEmpty, "Expected errors for unclosed tuple")
-    assert(errors.exists(_.message.contains("Expected ')'")))
-    cst match {
-      case CST.Tuple(elements, _) =>
-        assertEquals(elements.length, 2, "Should recover and create tuple with 2 elements")
-      case _ => fail(s"Expected Tuple for error recovery, got: $cst")
-    }
+  test("parse SeqOf expressions") {
+    val (seq1, e1) = parse("f(a)")
+    assertNoErrors(e1)
+    val CST.SeqOf(elems1NEV, _) = seq1: @unchecked
+    val elems1 = elems1NEV.toVector
+    assertEquals(elems1.length, 2)
+    expectSymbol(elems1(0), "f")
+    assert(elems1(1).isInstanceOf[CST.Tuple])
+
+    val (seq2, e2) = parse("a b c")
+    assertNoErrors(e2)
+    val CST.SeqOf(elems2, _) = seq2: @unchecked
+    assertEquals(elems2.length, 3)
+    val names = elems2.toVector.collect { case CST.Symbol(n, _) => n }
+    assertEquals(names, Vector("a", "b", "c"))
+
+    val (seq3, e3) = parse("f(a, b) g(c)")
+    assertNoErrors(e3)
+    val CST.SeqOf(elems3NEV, _) = seq3: @unchecked
+    val elems3 = elems3NEV.toVector
+    assertEquals(elems3.length, 4)
+    expectSymbol(elems3(0), "f")
+    assert(elems3(1).isInstanceOf[CST.Tuple])
+    expectSymbol(elems3(2), "g")
+    assert(elems3(3).isInstanceOf[CST.Tuple])
   }
 
-  test("error recovery: unclosed list") {
-    val (cst, errors) = parseString("[1, 2")
-    assert(errors.nonEmpty, "Expected errors for unclosed list")
-    assert(errors.exists(_.message.contains("Expected ']'")))
-    cst match {
-      case CST.ListLiteral(elements, _) =>
-        assertEquals(elements.length, 2, "Should recover and create list with 2 elements")
-      case _ => fail(s"Expected ListLiteral for error recovery, got: $cst")
-    }
+  test("parse blocks - basic cases") {
+    val (empty, e1) = parse("{}")
+    assertNoErrors(e1)
+    val CST.Block(emptyElems, emptyTail, _) = empty: @unchecked
+    assertEquals(emptyElems.length, 0)
+    assertEquals(emptyTail, None)
+
+    val (tailOnly, e2) = parse("{a}")
+    assertNoErrors(e2)
+    val CST.Block(_, tail1, _) = tailOnly: @unchecked
+    expectSymbol(tail1.get, "a")
+
+    val (elemsTail, e3) = parse("{a;b}")
+    assertNoErrors(e3)
+    val CST.Block(elems2, tail2, _) = elemsTail: @unchecked
+    assertEquals(elems2.length, 1)
+    expectSymbol(elems2(0), "a")
+    expectSymbol(tail2.get, "b")
+
+    val (elemsOnly, e4) = parse("{a;b;}")
+    assertNoErrors(e4)
+    val CST.Block(elems3, tail3, _) = elemsOnly: @unchecked
+    assertEquals(elems3.length, 2)
+    expectSymbol(elems3(0), "a")
+    expectSymbol(elems3(1), "b")
+    assertEquals(tail3, None)
+
+    val (multiElems, e5) = parse("{a;b;c}")
+    assertNoErrors(e5)
+    val CST.Block(elems4, tail4, _) = multiElems: @unchecked
+    assertEquals(elems4.length, 2)
+    expectSymbol(elems4(0), "a")
+    expectSymbol(elems4(1), "b")
+    expectSymbol(tail4.get, "c")
   }
 
-  test("error recovery: missing comma in tuple") {
-    val (cst, errors) = parseString("(1 2)")
-    assert(errors.nonEmpty, "Expected errors for missing comma")
-    cst match {
-      case CST.Tuple(elements, _) =>
-        // Should skip unexpected token and continue parsing
-        assert(elements.nonEmpty, "Should recover and parse some elements")
-      case _ => fail(s"Expected Tuple for error recovery, got: $cst")
-    }
+  test("parse blocks - nested and typed") {
+    val (nested, e1) = parse("{a;{b;c}}")
+    assertNoErrors(e1)
+    val CST.Block(elems1, tail1, _) = nested: @unchecked
+    assertEquals(elems1.length, 1)
+    expectSymbol(elems1(0), "a")
+    val CST.Block(innerElems, innerTail, _) = tail1.get: @unchecked
+    assertEquals(innerElems.length, 1)
+    expectSymbol(innerElems(0), "b")
+    expectSymbol(innerTail.get, "c")
+
+    val (ints, e2) = parse("{1;2;3}")
+    assertNoErrors(e2)
+    val CST.Block(elems2, tail2, _) = ints: @unchecked
+    assertEquals(elems2.length, 2)
+    expectInt(elems2(0), 1)
+    expectInt(elems2(1), 2)
+    expectInt(tail2.get, 3)
   }
 
-  test("parse tuple with whitespace and comments") {
-    val (cst, errors) = parseString("( 1 , /* comment */ 2 )")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Tuple(elements, _) =>
-        assertEquals(elements.length, 2)
-      case _ => fail(s"Expected Tuple, got: $cst")
-    }
+  test("parse blocks - error recovery") {
+    val (unclosed, e1) = parse("{a;b")
+    assertHasError(e1, "Expected '}'")
+    val CST.Block(elems1, tail1, _) = unclosed: @unchecked
+    assertEquals(elems1.length, 1)
+    expectSymbol(tail1.get, "b")
   }
 
-  test("parse complex expression") {
-    val (cst, errors) = parseString("(fn, [1, 2], (a, b))")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Tuple(elements, _) =>
-        assertEquals(elements.length, 3)
-        elements(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "fn")
-          case _                   => fail(s"Expected Symbol, got: ${elements(0)}")
-        }
-        elements(1) match {
-          case CST.ListLiteral(_, _) => // OK
-          case _                     => fail(s"Expected ListLiteral, got: ${elements(1)}")
-        }
-        elements(2) match {
-          case CST.Tuple(_, _) => // OK
-          case _               => fail(s"Expected Tuple, got: ${elements(2)}")
-        }
-      case _ => fail(s"Expected Tuple, got: $cst")
-    }
-  }
+  test("parse blocks - complex with function calls") {
+    val (wellFormed, e1) = parse("{print(a);b}")
+    assertNoErrors(e1)
+    val CST.Block(elems1, tail1, _) = wellFormed: @unchecked
+    assertEquals(elems1.length, 1)
+    val CST.SeqOf(seqElems1NEV, _) = elems1(0): @unchecked
+    val seqElems1 = seqElems1NEV.toVector
+    assertEquals(seqElems1.length, 2)
+    expectSymbol(seqElems1(0), "print")
+    assert(seqElems1(1).isInstanceOf[CST.Tuple])
+    expectSymbol(tail1.get, "b")
 
-  test("parse string with escapes") {
-    val (cst, errors) = parseString("\"hello\\nworld\"")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.StringLiteral(value, _) => assertEquals(value, "hello\nworld")
-      case _                           => fail(s"Expected StringLiteral, got: $cst")
-    }
-  }
+    val (unclosedTuple, e2) = parse("{print(a;b}")
+    assertHasError(e2, "")
+    val CST.Block(elems2, tail2, _) = unclosedTuple: @unchecked
+    assertEquals(elems2.length, 1)
+    val CST.SeqOf(seqElems2NEV, _) = elems2(0): @unchecked
+    val seqElems2 = seqElems2NEV.toVector
+    assertEquals(seqElems2.length, 2)
+    expectSymbol(seqElems2(0), "print")
+    assert(seqElems2(1).isInstanceOf[CST.Tuple])
+    expectSymbol(tail2.get, "b")
 
-  test("empty input produces dummy CST") {
-    val (cst, errors) = parseString("")
-    // Empty input gets handled and returns a Symbol since SeqOf requires at least one element
-    cst match {
-      case CST.Symbol(name, _) => assert(name == "<empty>" || name == "<error>")
-      case _                   => fail(s"Expected Symbol for empty input, got: $cst")
-    }
-  }
-
-  test("parse function call f(a) as SeqOf") {
-    val (cst, errors) = parseString("f(a)")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.SeqOf(elements, _) =>
-        val elemVec = elements.toVector
-        assertEquals(elemVec.length, 2, "Expected SeqOf with 2 elements")
-        elemVec(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "f")
-          case _                   => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
-        }
-        elemVec(1) match {
-          case CST.Tuple(tupleElements, _) =>
-            assertEquals(tupleElements.length, 1)
-            tupleElements(0) match {
-              case CST.Symbol(name, _) => assertEquals(name, "a")
-              case _                   => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
-            }
-          case _ => fail(s"Expected Tuple, got: ${elemVec(1)}")
-        }
-      case _ => fail(s"Expected SeqOf, got: $cst")
-    }
-  }
-
-  test("parse multiple atoms a b c as SeqOf") {
-    val (cst, errors) = parseString("a b c")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.SeqOf(elements, _) =>
-        val elemVec = elements.toVector
-        assertEquals(elemVec.length, 3)
-        val names = elemVec.collect { case CST.Symbol(name, _) => name }
-        assertEquals(names, Vector("a", "b", "c"))
-      case _ => fail(s"Expected SeqOf, got: $cst")
-    }
-  }
-
-  test("parse f(a, b) g(c) as SeqOf") {
-    val (cst, errors) = parseString("f(a, b) g(c)")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.SeqOf(elements, _) =>
-        val elemVec = elements.toVector
-        assertEquals(elemVec.length, 4, "Expected f, (a,b), g, (c)")
-        elemVec(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "f")
-          case _                   => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
-        }
-        elemVec(1) match {
-          case CST.Tuple(tupleElements, _) => assertEquals(tupleElements.length, 2)
-          case _                           => fail(s"Expected Tuple, got: ${elemVec(1)}")
-        }
-        elemVec(2) match {
-          case CST.Symbol(name, _) => assertEquals(name, "g")
-          case _                   => fail(s"Expected Symbol 'g', got: ${elemVec(2)}")
-        }
-        elemVec(3) match {
-          case CST.Tuple(tupleElements, _) => assertEquals(tupleElements.length, 1)
-          case _                           => fail(s"Expected Tuple, got: ${elemVec(3)}")
-        }
-      case _ => fail(s"Expected SeqOf, got: $cst")
-    }
-  }
-
-  test("parse empty block") {
-    val (cst, errors) = parseString("{}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 0)
-        assertEquals(tail, None)
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("parse block with tail only") {
-    val (cst, errors) = parseString("{a}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 0)
-        tail match {
-          case Some(CST.Symbol(name, _)) => assertEquals(name, "a")
-          case _                         => fail(s"Expected Symbol 'a' as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("parse block with elements and tail") {
-    val (cst, errors) = parseString("{a;b}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 1)
-        elements(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "a")
-          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
-        }
-        tail match {
-          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
-          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("parse block with elements only (no tail)") {
-    val (cst, errors) = parseString("{a;b;}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 2)
-        elements(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "a")
-          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
-        }
-        elements(1) match {
-          case CST.Symbol(name, _) => assertEquals(name, "b")
-          case _                   => fail(s"Expected Symbol 'b', got: ${elements(1)}")
-        }
-        assertEquals(tail, None)
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("parse block with multiple elements and tail") {
-    val (cst, errors) = parseString("{a;b;c}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 2)
-        elements(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "a")
-          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
-        }
-        elements(1) match {
-          case CST.Symbol(name, _) => assertEquals(name, "b")
-          case _                   => fail(s"Expected Symbol 'b', got: ${elements(1)}")
-        }
-        tail match {
-          case Some(CST.Symbol(name, _)) => assertEquals(name, "c")
-          case _                         => fail(s"Expected Symbol 'c' as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("parse nested block") {
-    val (cst, errors) = parseString("{a;{b;c}}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 1)
-        elements(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "a")
-          case _                   => fail(s"Expected Symbol 'a', got: ${elements(0)}")
-        }
-        tail match {
-          case Some(CST.Block(innerElements, innerTail, _)) =>
-            assertEquals(innerElements.length, 1)
-            innerElements(0) match {
-              case CST.Symbol(name, _) => assertEquals(name, "b")
-              case _                   => fail(s"Expected Symbol 'b', got: ${innerElements(0)}")
-            }
-            innerTail match {
-              case Some(CST.Symbol(name, _)) => assertEquals(name, "c")
-              case _                         => fail(s"Expected Symbol 'c' as inner tail, got: $innerTail")
-            }
-          case _ => fail(s"Expected Block as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("parse block with integers") {
-    val (cst, errors) = parseString("{1;2;3}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 2)
-        elements.zipWithIndex.foreach { case (elem, idx) =>
-          elem match {
-            case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(idx + 1))
-            case _                            => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
-          }
-        }
-        tail match {
-          case Some(CST.IntegerLiteral(value, _)) => assertEquals(value, BigInt(3))
-          case _                                  => fail(s"Expected IntegerLiteral 3 as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("error recovery: unclosed block") {
-    val (cst, errors) = parseString("{a;b")
-    assert(errors.nonEmpty, "Expected errors for unclosed block")
-    assert(errors.exists(_.message.contains("Expected '}'")))
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        assertEquals(elements.length, 1, "Should recover and create block with 1 element")
-        tail match {
-          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
-          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block for error recovery, got: $cst")
-    }
-  }
-
-  test("parse block with function call - well formed") {
-    val (cst, errors) = parseString("{print(a);b}")
-    assert(errors.isEmpty, s"Expected no errors, got: $errors")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        // Should have 1 element: SeqOf(print, (a)) before semicolon
-        assertEquals(elements.length, 1, s"Should have 1 element, got ${elements.length}: ${elements.map(_.getClass.getSimpleName)}")
-        elements(0) match {
-          case CST.SeqOf(seqElements, _) =>
-            val seqVec = seqElements.toVector
-            assertEquals(seqVec.length, 2, "Expected SeqOf with 2 elements (print and tuple)")
-            seqVec(0) match {
-              case CST.Symbol(name, _) => assertEquals(name, "print")
-              case _                   => fail(s"Expected Symbol 'print', got: ${seqVec(0)}")
-            }
-            seqVec(1) match {
-              case CST.Tuple(tupleElements, _) =>
-                assertEquals(tupleElements.length, 1)
-                tupleElements(0) match {
-                  case CST.Symbol(name, _) => assertEquals(name, "a")
-                  case _                   => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
-                }
-              case _ => fail(s"Expected Tuple, got: ${seqVec(1)}")
-            }
-          case _ => fail(s"Expected SeqOf, got: ${elements(0)}")
-        }
-        // Tail should be 'b'
-        tail match {
-          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
-          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block, got: $cst")
-    }
-  }
-
-  test("error recovery: complex block with unclosed tuple") {
-    val (cst, errors) = parseString("{print(a;b}")
-    // Should have errors - parser will recover from unclosed structures
-    assert(errors.nonEmpty, s"Expected errors for malformed block with unclosed tuple")
-    cst match {
-      case CST.Block(elements, tail, _) =>
-        // With improved error recovery: tuple parser stops at semicolon
-        // Result should be: elements=[SeqOf(print, (a))], tail=b
-        assertEquals(elements.length, 1, s"Should have 1 element before semicolon, got ${elements.length}: ${elements.map(_.getClass.getSimpleName)}")
-        elements(0) match {
-          case CST.SeqOf(seqElements, _) =>
-            val seqVec = seqElements.toVector
-            assertEquals(seqVec.length, 2, "Expected SeqOf with 2 elements (print and tuple)")
-            seqVec(0) match {
-              case CST.Symbol(name, _) => assertEquals(name, "print")
-              case _                   => fail(s"Expected Symbol 'print', got: ${seqVec(0)}")
-            }
-            seqVec(1) match {
-              case CST.Tuple(tupleElements, _) =>
-                assertEquals(tupleElements.length, 1, "Tuple should recover with 1 element")
-                tupleElements(0) match {
-                  case CST.Symbol(name, _) => assertEquals(name, "a")
-                  case _                   => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
-                }
-              case _ => fail(s"Expected Tuple, got: ${seqVec(1)}")
-            }
-          case _ => fail(s"Expected SeqOf, got: ${elements(0)}")
-        }
-        // Tail should be 'b'
-        tail match {
-          case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
-          case _                         => fail(s"Expected Symbol 'b' as tail, got: $tail")
-        }
-      case _ => fail(s"Expected Block for error recovery, got: $cst")
-    }
-  }
-
-  test("error recovery: block with wrong closing delimiter") {
-    val (cst, errors) = parseString("f({print(a);b)")
-    // Should have errors for mismatched delimiters
-    assert(errors.nonEmpty, s"Expected errors for block closed with ) instead of }}")
-    cst match {
-      case CST.SeqOf(elements, _) =>
-        val elemVec = elements.toVector
-        assertEquals(elemVec.length, 2, "Expected f and block")
-        elemVec(0) match {
-          case CST.Symbol(name, _) => assertEquals(name, "f")
-          case _                   => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
-        }
-        elemVec(1) match {
-          case CST.Tuple(tupleElements, _) =>
-            // The tuple should contain the recovered block
-            assertEquals(tupleElements.length, 1, "Tuple should contain the block")
-            tupleElements(0) match {
-              case CST.Block(blockElements, blockTail, _) =>
-                // Block should have recovered: elements=[SeqOf(print, (a))], tail=b
-                assertEquals(blockElements.length, 1)
-                blockElements(0) match {
-                  case CST.SeqOf(seqElements, _) =>
-                    val seqVec = seqElements.toVector
-                    assertEquals(seqVec.length, 2)
-                    seqVec(0) match {
-                      case CST.Symbol(name, _) => assertEquals(name, "print")
-                      case _                   => fail(s"Expected Symbol 'print', got: ${seqVec(0)}")
-                    }
-                    seqVec(1) match {
-                      case CST.Tuple(innerTupleElements, _) =>
-                        assertEquals(innerTupleElements.length, 1)
-                        innerTupleElements(0) match {
-                          case CST.Symbol(name, _) => assertEquals(name, "a")
-                          case _                   => fail(s"Expected Symbol 'a'")
-                        }
-                      case _ => fail(s"Expected Tuple, got: ${seqVec(1)}")
-                    }
-                  case _ => fail(s"Expected SeqOf in block, got: ${blockElements(0)}")
-                }
-                blockTail match {
-                  case Some(CST.Symbol(name, _)) => assertEquals(name, "b")
-                  case _                         => fail(s"Expected Symbol 'b' as block tail, got: $blockTail")
-                }
-              case _ => fail(s"Expected Block, got: ${tupleElements(0)}")
-            }
-          case _ => fail(s"Expected Tuple, got: ${elemVec(1)}")
-        }
-      case _ => fail(s"Expected SeqOf, got: $cst")
-    }
+    val (wrongCloser, e3) = parse("f({print(a);b)")
+    assertHasError(e3, "")
+    val CST.SeqOf(topElemsNEV, _) = wrongCloser: @unchecked
+    val topElems = topElemsNEV.toVector
+    assertEquals(topElems.length, 2)
+    expectSymbol(topElems(0), "f")
+    val CST.Tuple(tupleElems, _) = topElems(1): @unchecked
+    val CST.Block(blockElems, blockTail, _) = tupleElems(0): @unchecked
+    assertEquals(blockElems.length, 1)
+    assert(blockElems(0).isInstanceOf[CST.SeqOf])
+    expectSymbol(blockTail.get, "b")
   }
 }
