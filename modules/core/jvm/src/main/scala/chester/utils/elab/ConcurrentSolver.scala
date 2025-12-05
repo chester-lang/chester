@@ -1,17 +1,18 @@
 package chester.utils.elab
 
 import chester.utils.Parameter
-import chester.utils.cell.*
+import chester.utils.cell.{OnceCellContent, MutableCellContent, CollectionCellContent, MappingCellContent, LiteralCellContent, *}
 
 import java.util.concurrent.{ForkJoinPool, TimeUnit}
 import scala.language.implicitConversions
 import scala.util.boundary
 import scala.concurrent.stm.*
 
-final class ConcurrentCell[+A, -B, C <: CellContent[A, B]](
+final class ConcurrentCell[+A, -B, +C <: CellContent[A, B]](
     initialValue: C
 ) extends Cell[A, B, C] {
-  val storeRef: Ref[C] = Ref(initialValue)
+  private[elab] val _storeRef: Ref[Any] = Ref(initialValue)
+  private[elab] inline def storeRefAs[T]: Ref[T] = _storeRef.asInstanceOf[Ref[T]]
 }
 
 val parameterTxn = new Parameter[InTxn]()
@@ -44,14 +45,29 @@ private def atom[T](f: => T): T =
 
 final class ConcurrentSolver[Ops](val conf: HandlerConf[Ops])(using Ops) extends BasicSolverOps {
 
-  implicit inline def thereAreAllConcurrent[A, B, C <: CellContent[A, B]](inline x: Cell[A, B, C]): ConcurrentCell[A, B, C] =
-    x.asInstanceOf[ConcurrentCell[A, B, C]]
+  // Define Cell type using type lambda to match variance in interface  
+  override type Cell[+A, -B, +C <: CellContent[A, B]] = ConcurrentCell[A, B, C]
 
   implicit def inTxn: InTxn = parameterTxn.getOrElse(throw new IllegalStateException("not in transaction"))
 
   override protected def peakCell[T](id: CellR[T]): CellContentR[T] = optionalAtom {
-    id.storeRef.get
+    id.storeRefAs[CellContentR[T]].get
   }
+  
+  override def newOnceCell[T](default: Option[T] = None): OnceCell[T] = 
+    ConcurrentCell(OnceCellContent[T](None, default))
+  
+  override def newMutableCell[T](initial: Option[T] = None): MutableCell[T] = 
+    ConcurrentCell(MutableCellContent[T](initial))
+  
+  override def newCollectionCell[A]: CollectionCell[A] = 
+    ConcurrentCell(CollectionCellContent[A, A]())
+  
+  override def newMapCell[K, V]: MapCell[K, V] = 
+    ConcurrentCell(MappingCellContent[K, V]())
+  
+  override def newLiteralCell[T](value: T): LiteralCell[T] = 
+    ConcurrentCell(LiteralCellContent(value))
 
   given SolverOps = this
   private val pool = new ForkJoinPool()
@@ -168,10 +184,11 @@ final class ConcurrentSolver[Ops](val conf: HandlerConf[Ops])(using Ops) extends
     }
 
   override protected def updateCell[A, B](id: CellOf[A, B], f: CellContent[A, B] => CellContent[A, B]): Unit = {
-    val current = id.storeRef.get
+    val ref = id.storeRefAs[CellContent[A, B]]
+    val current = ref.get
     val newValue = f(current)
     if (current == newValue) return
-    id.storeRef.set(newValue)
+    ref.set(newValue)
     val (related, others) = delayedConstraints.get.partition(_.related(id))
     delayedConstraints.set(others)
     addConstraints(related.map(_.x))

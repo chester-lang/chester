@@ -1,6 +1,6 @@
 package chester.utils.elab
 
-import chester.utils.cell.{CellContent, CellContentR}
+import chester.utils.cell.{CellContent, CellContentR, OnceCellContent, MutableCellContent, CollectionCellContent, MappingCellContent, LiteralCellContent}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -8,10 +8,12 @@ import scala.language.implicitConversions
 import scala.collection.mutable.Queue
 import scala.collection.mutable.ArrayBuffer
 
-final class ProceduralCell[+A, -B, C <: CellContent[A, B]](
+final class ProceduralCell[+A, -B, +C <: CellContent[A, B]](
     initialValue: C
 ) extends Cell[A, B, C] {
-  var store = initialValue
+  private[elab] var _store: Any = initialValue
+  private[elab] inline def store: Any = _store
+  private[elab] inline def storeAs[T]: T = _store.asInstanceOf[T]
 }
 
 object ProceduralSolver extends SolverFactory {
@@ -19,22 +21,22 @@ object ProceduralSolver extends SolverFactory {
 }
 
 final class ProceduralSolver[Ops](val conf: HandlerConf[Ops])(using Ops) extends BasicSolverOps {
+  // Define Cell type using type lambda to match variance in interface
+  override type Cell[+A, -B, +C <: CellContent[A, B]] = ProceduralCell[A, B, C]
+  
   given SolverOps = this
   val todo: Queue[Constraint] = mutable.Queue[Constraint]()
   val delayedConstraints: ArrayBuffer[WaitingConstraint] = mutable.ArrayBuffer[WaitingConstraint]()
-  val updatedCells: ArrayBuffer[Cell[Any, Nothing, CellContent[Any, Nothing]]] = mutable.ArrayBuffer[CellAny]()
+  val updatedCells: ArrayBuffer[CellAny] = mutable.ArrayBuffer[CellAny]()
 
-  implicit inline def thereAreAllProcedural[A, B, C <: CellContent[A, B]](inline x: Cell[A, B, C]): ProceduralCell[A, B, C] =
-    x.asInstanceOf[ProceduralCell[A, B, C]]
-
-  override protected def peakCell[T](id: CellR[T]): CellContentR[T] = id.store
+  override protected def peakCell[T](id: CellR[T]): CellContentR[T] = id.storeAs[CellContentR[T]]
 
   override protected def updateCell[A, B](id: CellOf[A, B], f: CellContent[A, B] => CellContent[A, B]): Unit = {
-    val current = id.store
+    val current = id.storeAs[CellContent[A, B]]
     val newValue = f(current)
     if (current == newValue) return
-    id.store = newValue
-    updatedCells.append(id)
+    id._store = newValue
+    updatedCells.append(id.asInstanceOf[CellAny])
   }
 
   @tailrec
@@ -110,6 +112,21 @@ final class ProceduralSolver[Ops](val conf: HandlerConf[Ops])(using Ops) extends
   override def stable: Boolean = delayedConstraints.isEmpty && todo.isEmpty
 
   override def addConstraint(x: Constraint): Unit = todo.enqueue(x)
+  
+  override def newOnceCell[T](default: Option[T] = None): OnceCell[T] = 
+    ProceduralCell(OnceCellContent[T](None, default))
+  
+  override def newMutableCell[T](initial: Option[T] = None): MutableCell[T] = 
+    ProceduralCell(MutableCellContent[T](initial))
+  
+  override def newCollectionCell[A]: CollectionCell[A] = 
+    ProceduralCell(CollectionCellContent[A, A]())
+  
+  override def newMapCell[K, V]: MapCell[K, V] = 
+    ProceduralCell(MappingCellContent[K, V]())
+  
+  override def newLiteralCell[T](value: T): LiteralCell[T] = 
+    ProceduralCell(LiteralCellContent(value))
 
   override def addCell[A, B, C <: CellContent[A, B]](cell: C): Cell[A, B, C] = ProceduralCell(cell)
 }

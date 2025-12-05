@@ -1,10 +1,28 @@
 package chester.utils.elab
 
-import chester.utils.cell.{CellContent, CellContentR}
+import chester.utils.cell.{CellContent, CellContentR, OnceCellContent, MutableCellContent, CollectionCellContent, MappingCellContent, LiteralCellContent}
 
 import scala.language.implicitConversions
 
 trait SolverOps {
+  // Abstract cell type - each solver defines its own implementation
+  // Variance in interface, concrete implementations hide mutable storage
+  type Cell[+A, -B, +C <: CellContent[A, B]]
+  
+  // Derived cell type aliases
+  type CellOf[+A, -B] = Cell[A, B, CellContent[A, B]]
+  type CellRW[T] = Cell[T, T, CellContent[T, T]]
+  type CellAny = Cell[Any, Nothing, CellContent[Any, Nothing]]
+  type CellR[+T] = Cell[T, Nothing, CellContent[T, Nothing]]
+  type CellW[-T] = Cell[Any, T, CellContent[Any, T]]
+  
+  // Specific cell types for common content types
+  type OnceCell[T] = Cell[T, T, OnceCellContent[T]]
+  type MutableCell[T] = Cell[T, T, MutableCellContent[T]]
+  type CollectionCell[A] = Cell[Seq[A], Seq[A], CollectionCellContent[A, A]]
+  type MapCell[K, V] = Cell[Map[K, V], Map[K, V], MappingCellContent[K, V]]
+  type LiteralCell[T] = Cell[T, Nothing, LiteralCellContent[T]]
+  
   def hasStableValue(id: CellAny): Boolean
   def noStableValue(id: CellAny): Boolean
   def readStable[U](id: CellR[U]): Option[U]
@@ -22,6 +40,14 @@ trait SolverOps {
     x.result
   }
 
+  // Typed cell constructors - no CellContent exposure
+  def newOnceCell[T](default: Option[T] = None): OnceCell[T]
+  def newMutableCell[T](initial: Option[T] = None): MutableCell[T]
+  def newCollectionCell[A]: CollectionCell[A]
+  def newMapCell[K, V]: MapCell[K, V]
+  def newLiteralCell[T](value: T): LiteralCell[T]
+  
+  // Generic constructor for extensibility
   def addCell[A, B, C <: CellContent[A, B]](cell: C): Cell[A, B, C]
   def fill[T](id: CellW[T], value: T): Unit
 }
@@ -29,16 +55,16 @@ trait SolverOps {
 object SolverOps {
   def callConstraint[A](x: ConstraintResult[A])(using ops: SolverOps): A = ops.callConstraint(x)
   def addConstraint(x: Constraint)(using ops: SolverOps): Unit = ops.addConstraint(x)
-  def hasSomeValue(id: CellAny)(using ops: SolverOps): Boolean = ops.hasSomeValue(id)
-  def readUnstable[U](id: CellR[U])(using ops: SolverOps): Option[U] = ops.readUnstable(id)
-  def hasStableValue(id: CellAny)(using ops: SolverOps): Boolean = ops.hasStableValue(id)
-  def readStable[U](id: CellR[U])(using ops: SolverOps): Option[U] = ops.readStable(id)
-  def addCell[A, B, C <: CellContent[A, B]](cell: C)(using ops: SolverOps): Cell[A, B, C] = ops.addCell(cell)
-  def fill[T](id: CellW[T], value: T)(using ops: SolverOps): Unit = ops.fill(id, value)
+  def hasSomeValue(using ops: SolverOps)(id: ops.CellAny): Boolean = ops.hasSomeValue(id)
+  def readUnstable[U](using ops: SolverOps)(id: ops.CellR[U]): Option[U] = ops.readUnstable(id)
+  def hasStableValue(using ops: SolverOps)(id: ops.CellAny): Boolean = ops.hasStableValue(id)
+  def readStable[U](using ops: SolverOps)(id: ops.CellR[U]): Option[U] = ops.readStable(id)
+  def addCell[A, B, C <: CellContent[A, B]](cell: C)(using ops: SolverOps): ops.Cell[A, B, C] = ops.addCell(cell)
+  def fill[T](using ops: SolverOps)(id: ops.CellW[T], value: T): Unit = ops.fill(id, value)
 }
 
-extension [T](id: CellW[T]) {
-  def fill(value: T)(using ops: SolverOps): Unit = ops.fill(id, value)
+extension [T](using ops: SolverOps)(id: ops.CellW[T]) {
+  def fill(value: T): Unit = ops.fill(id, value)
 }
 
 trait BasicSolverOps extends SolverOps {
