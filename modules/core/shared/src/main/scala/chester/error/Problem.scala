@@ -141,3 +141,10 @@ object SourceReader {
 
   def empty: SourceReader = SourceReader(_ => None)
 }
+
+case class ParseError(message: String, span0: Option[Span] = None) extends Problem {
+  override def severity: Problem.Severity = Problem.Severity.Error
+  override def stage: Problem.Stage = Problem.Stage.PARSE
+
+  override def toDoc(using DocConf): Doc = Doc.text(message)
+}
