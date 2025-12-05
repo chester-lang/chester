@@ -39,7 +39,7 @@ enum CST(val span: Span) extends ToDoc derives ReadWriter:
       val elemDocs = elements.map(e => e.toDoc <> text(";"))
       val allDocs = tail match
         case Some(t) => elemDocs :+ t.toDoc
-        case None => elemDocs
+        case None    => elemDocs
       braces(hsep(allDocs, text(" ")))
     case CST.StringLiteral(value, _) =>
       text("\"") <> text(value) <> text("\"")

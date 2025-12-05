@@ -21,9 +21,9 @@ class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future
     if (live) {
       reading match {
         case null => ()
-        case r => 
-        reading = null
-        r.success("")
+        case r =>
+          reading = null
+          r.success("")
       }
     }
 
