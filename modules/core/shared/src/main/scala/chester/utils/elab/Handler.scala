@@ -5,11 +5,29 @@ enum Result {
   case Waiting(vars: CellAny*)
 }
 
-open trait Handler[-Ops, +K <: Kind](val kind: K) {
-  def run(constant: kind.Of)(using Ops, SolverOps): Result
+/** Constraint handler that works with any solver module.
+  * 
+  * DESIGN DECISIONS:
+  * 
+  * 1. Handlers are NOT parameterized by solver module at class level
+  *    - Instead, each method takes [M <: SolverModule] type parameter
+  *    - This allows same handler to work with different solvers
+  *    - User can easily switch between ProceduralSolver and ConcurrentSolver
+  * 
+  * 2. Methods receive (using module: M, solver: module.Solver)
+  *    - Module comes first to establish the type
+  *    - Then solver: module.Solver uses path-dependent type
+  *    - Can't use M#Solver in using clause (Scala 3 syntax limitation)
+  * 
+  * 3. Handler caching in Constraint
+  *    - Handler lookup is cached per constraint instance
+  *    - No type parameter needed since handlers are polymorphic
+  */
+trait Handler[+K <: Kind](val kind: K) {
+  def run[M <: SolverModule](constant: kind.Of)(using module: M, solver: module.Solver): Result
 
   /** return true means did something false means nothing */
-  def defaulting(constant: kind.Of, level: DefaultingLevel)(using Ops, SolverOps): Boolean = false
+  def defaulting[M <: SolverModule](constant: kind.Of, level: DefaultingLevel)(using module: M, solver: module.Solver): Boolean = false
 
   def canDefaulting(level: DefaultingLevel): Boolean
 }
@@ -26,16 +44,16 @@ extension [A, B](x: mutable.HashMap[A, B]) {
     }
 }
 
-trait HandlerConf[Ops] {
-  def getHandler(kind: Kind): Option[Handler[Ops, Kind]]
+trait HandlerConf[M <: SolverModule] {
+  def getHandler(kind: Kind): Option[Handler[? <: Kind]]
 }
 
-final class MutHandlerConf[Ops](hs: Handler[Ops, Kind]*) extends HandlerConf[Ops] {
-  private val store = mutable.HashMap[Kind, Handler[Ops, Kind]](hs.map(h => (h.kind, h))*)
+final class MutHandlerConf[M <: SolverModule](hs: Handler[? <: Kind]*) extends HandlerConf[M] {
+  private val store = mutable.HashMap[Kind, Handler[? <: Kind]](hs.map(h => (h.kind, h))*)
 
-  override def getHandler(kind: Kind): Option[Handler[Ops, Kind]] = store.get(kind)
+  override def getHandler(kind: Kind): Option[Handler[? <: Kind]] = store.get(kind)
 
-  def register(handler: Handler[Ops, Kind]): Unit = {
+  def register[K <: Kind](handler: Handler[K]): Unit = {
     val oldValue = store.putIfAbsent(handler.kind, handler)
     if (oldValue.isDefined) throw new IllegalStateException("already")
   }

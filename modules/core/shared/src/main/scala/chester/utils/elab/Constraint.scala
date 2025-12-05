@@ -7,11 +7,11 @@ trait Kind {
 }
 
 trait Constraint(val kind: Kind) {
-  private[chester] final var cache: Handler[Nothing, Kind] | Null = null
-  private[chester] final def cached[Ops, K <: Kind](x: => Handler[Ops, K]): Handler[Ops, K] = {
+  private[chester] final var cache: Handler[Kind] | Null = null
+  private[chester] final def cached[K <: Kind](x: => Handler[K]): Handler[K] = {
     val c = cache
     if (c != null) {
-      c.asInstanceOf[Handler[Ops, K]]
+      c.asInstanceOf[Handler[K]]
     } else {
       val result = x
       cache = result
