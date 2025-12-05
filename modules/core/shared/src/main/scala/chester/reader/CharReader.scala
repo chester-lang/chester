@@ -4,7 +4,7 @@ import chester.error.{Span, SpanInFile}
 import chester.reader.{Offset, ParseError, Source}
 import chester.reader.StringChar
 import chester.utils.getCodePoints
- import scala.language.experimental.genericNumberLiterals
+import scala.language.experimental.genericNumberLiterals
 
 import scala.collection.mutable.ArrayBuffer
 

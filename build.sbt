@@ -56,15 +56,15 @@ lazy val commonVendorSettings = Seq(
 // https://github.com/effekt-lang/kiama/commit/51fda9aa8386429444f17ab0d9e4b7cab5a06409
 lazy val replDependencies = Seq(
   "jline" % "jline" % "2.14.6",
-  "org.rogach" %% "scallop" % "4.1.0"
+  "org.rogach" %% "scallop" % "6.0.0"
 )
 lazy val lspDependencies = Seq(
-  "org.eclipse.lsp4j" % "org.eclipse.lsp4j" % "0.23.1",
-  "com.google.code.gson" % "gson" % "2.11.0"
+  "org.eclipse.lsp4j" % "org.eclipse.lsp4j" % "0.24.0",
+  "com.google.code.gson" % "gson" % "2.13.2"
 )
 lazy val testingDependencies = Seq(
-  "org.scala-sbt" %% "io" % "1.6.0" % Test,
-  "org.scalameta" %% "munit" % "0.7.29" % Test
+  "org.scala-sbt" %% "io" % "1.10.5" % Test,
+  "org.scalameta" %% "munit" % "1.2.1" % Test
 )
 lazy val vendoredKiama = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Full)
@@ -128,7 +128,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .settings(
     name := "chester-core",
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "munit" % "1.0.0" % Test
+      "org.scalameta" %%% "munit" % "1.2.1" % Test
     )
   )
   .jvmSettings(
@@ -195,8 +195,8 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .settings(
     name := "chester-utils",
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "munit" % "1.0.0" % Test,
-      "com.lihaoyi" %%% "upickle" % "4.0.2",
+      "org.scalameta" %%% "munit" % "1.2.1" % Test,
+      "com.lihaoyi" %%% "upickle" % "4.4.1",
       "com.lihaoyi" %%% "fastparse" % "3.1.1",
       "com.lihaoyi" %%% "fansi" % "0.5.1",
       "com.eed3si9n.ifdef" %%% "ifdef-annotation" % "0.4.1",
@@ -206,7 +206,7 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jvmSettings(
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "os-lib" % "0.11.3",
+      "com.lihaoyi" %% "os-lib" % "0.11.6",
       "org.jline" % "jline" % "3.30.6",
       "org.jline" % "jline-terminal" % "3.30.6",
       "org.jline" % "jline-terminal-jni" % "3.30.6",
@@ -223,7 +223,7 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .nativeSettings(
     commonNativeSettings,
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %%% "os-lib" % "0.11.3"
+      "com.lihaoyi" %%% "os-lib" % "0.11.6"
     )
   )
 

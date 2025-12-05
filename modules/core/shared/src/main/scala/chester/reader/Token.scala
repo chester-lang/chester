@@ -4,7 +4,7 @@ import chester.error.*
 import chester.i18n.*
 import chester.utils.codepointToString
 import chester.utils.lenIsOne
- import scala.language.experimental.genericNumberLiterals
+import scala.language.experimental.genericNumberLiterals
 
 type Text = Vector[StringChar]
 
@@ -47,44 +47,45 @@ enum Token extends SpanRequired {
 
   def isWhitespace: Boolean = this match {
     case Whitespace(_, _) => true
-    case _ => false
+    case _                => false
   }
 
   def isComment: Boolean = this match {
     case Comment(_, _) => true
-    case _ => false
+    case _             => false
   }
 
   def containsNewline: Boolean = this match {
     case Whitespace(_, hasNewline) => hasNewline
-    case _ => false
+    case _                         => false
   }
 
   def tokenType: String = this match {
-    case LParen(_) => t"left parenthesis '('"
-    case RParen(_) => t"right parenthesis ')'"
-    case LBracket(_) => t"left bracket '['"
-    case RBracket(_) => t"right bracket ']"
-    case LBrace(_) => t"left brace '{'"
-    case RBrace(_) => t"right brace '}'"
-    case Comma(_) => t"comma ','"
-    case Semicolon(_) => t"semicolon ';'"
-    case Dot(_) => t"dot '.'"
-    case At(_) => t"at '@'"
-    case EOF(_) => t"end of file"
-    case Whitespace(_, _) => t"whitespace"
-    case Comment(_, _) => t"comment"
-    case IntegerLiteral(_, _) => t"integer literal"
+    case LParen(_)             => t"left parenthesis '('"
+    case RParen(_)             => t"right parenthesis ')'"
+    case LBracket(_)           => t"left bracket '['"
+    case RBracket(_)           => t"right bracket ']"
+    case LBrace(_)             => t"left brace '{'"
+    case RBrace(_)             => t"right brace '}'"
+    case Comma(_)              => t"comma ','"
+    case Semicolon(_)          => t"semicolon ';'"
+    case Dot(_)                => t"dot '.'"
+    case At(_)                 => t"at '@'"
+    case EOF(_)                => t"end of file"
+    case Whitespace(_, _)      => t"whitespace"
+    case Comment(_, _)         => t"comment"
+    case IntegerLiteral(_, _)  => t"integer literal"
     case RationalLiteral(_, _) => t"rational literal"
-    case StringLiteral(_, _) => t"string literal"
-    case SymbolLiteral(_, _) => t"symbol literal"
-    case Identifier(_, _) => t"identifier"
-    case Hash(_) => t"hash '#' "
+    case StringLiteral(_, _)   => t"string literal"
+    case SymbolLiteral(_, _)   => t"symbol literal"
+    case Identifier(_, _)      => t"identifier"
+    case Hash(_)               => t"hash '#' "
   }
 }
 
 object Token {
   extension (token: Token.Identifier) {
+
     /** Returns the text representation of this identifier */
     def toStr: String = token.parts.map(_.text).mkString
 

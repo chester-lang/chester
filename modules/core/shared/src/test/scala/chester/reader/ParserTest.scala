@@ -7,9 +7,8 @@ import scala.language.experimental.genericNumberLiterals
 
 class ParserTest extends munit.FunSuite {
 
-  private def createTestSource(content: String): Source = {
+  private def createTestSource(content: String): Source =
     Source(FileNameAndContent("test.chester", content))
-  }
 
   private def parseString(input: String): (CST, Vector[ParseError]) = {
     given reporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
@@ -37,7 +36,7 @@ class ParserTest extends munit.FunSuite {
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
     cst match {
       case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(42))
-      case _ => fail(s"Expected IntegerLiteral, got: $cst")
+      case _                            => fail(s"Expected IntegerLiteral, got: $cst")
     }
   }
 
@@ -46,7 +45,7 @@ class ParserTest extends munit.FunSuite {
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
     cst match {
       case CST.StringLiteral(value, _) => assertEquals(value, "hello")
-      case _ => fail(s"Expected StringLiteral, got: $cst")
+      case _                           => fail(s"Expected StringLiteral, got: $cst")
     }
   }
 
@@ -55,7 +54,7 @@ class ParserTest extends munit.FunSuite {
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
     cst match {
       case CST.Symbol(name, _) => assertEquals(name, "foo")
-      case _ => fail(s"Expected Symbol, got: $cst")
+      case _                   => fail(s"Expected Symbol, got: $cst")
     }
   }
 
@@ -64,7 +63,7 @@ class ParserTest extends munit.FunSuite {
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
     cst match {
       case CST.Symbol(name, _) => assertEquals(name, "myVar")
-      case _ => fail(s"Expected Symbol, got: $cst")
+      case _                   => fail(s"Expected Symbol, got: $cst")
     }
   }
 
@@ -73,7 +72,7 @@ class ParserTest extends munit.FunSuite {
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
     cst match {
       case CST.Tuple(elements, _) => assertEquals(elements.length, 0)
-      case _ => fail(s"Expected Tuple, got: $cst")
+      case _                      => fail(s"Expected Tuple, got: $cst")
     }
   }
 
@@ -85,7 +84,7 @@ class ParserTest extends munit.FunSuite {
         assertEquals(elements.length, 1)
         elements(0) match {
           case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(42))
-          case _ => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
+          case _                            => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
         }
       case _ => fail(s"Expected Tuple, got: $cst")
     }
@@ -100,7 +99,7 @@ class ParserTest extends munit.FunSuite {
         elements.zipWithIndex.foreach { case (elem, idx) =>
           elem match {
             case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(idx + 1))
-            case _ => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
+            case _                            => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
           }
         }
       case _ => fail(s"Expected Tuple, got: $cst")
@@ -115,11 +114,11 @@ class ParserTest extends munit.FunSuite {
         assertEquals(elements.length, 2)
         elements(0) match {
           case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(1))
-          case _ => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
+          case _                            => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
         }
         elements(1) match {
           case CST.Tuple(inner, _) => assertEquals(inner.length, 2)
-          case _ => fail(s"Expected Tuple, got: ${elements(1)}")
+          case _                   => fail(s"Expected Tuple, got: ${elements(1)}")
         }
       case _ => fail(s"Expected Tuple, got: $cst")
     }
@@ -130,7 +129,7 @@ class ParserTest extends munit.FunSuite {
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
     cst match {
       case CST.ListLiteral(elements, _) => assertEquals(elements.length, 0)
-      case _ => fail(s"Expected ListLiteral, got: $cst")
+      case _                            => fail(s"Expected ListLiteral, got: $cst")
     }
   }
 
@@ -143,7 +142,7 @@ class ParserTest extends munit.FunSuite {
         elements.zipWithIndex.foreach { case (elem, idx) =>
           elem match {
             case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(idx + 1))
-            case _ => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
+            case _                            => fail(s"Expected IntegerLiteral at index $idx, got: $elem")
           }
         }
       case _ => fail(s"Expected ListLiteral, got: $cst")
@@ -158,11 +157,11 @@ class ParserTest extends munit.FunSuite {
         assertEquals(elements.length, 2)
         elements(0) match {
           case CST.IntegerLiteral(value, _) => assertEquals(value, BigInt(1))
-          case _ => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
+          case _                            => fail(s"Expected IntegerLiteral, got: ${elements(0)}")
         }
         elements(1) match {
           case CST.ListLiteral(inner, _) => assertEquals(inner.length, 2)
-          case _ => fail(s"Expected ListLiteral, got: ${elements(1)}")
+          case _                         => fail(s"Expected ListLiteral, got: ${elements(1)}")
         }
       case _ => fail(s"Expected ListLiteral, got: $cst")
     }
@@ -176,7 +175,7 @@ class ParserTest extends munit.FunSuite {
         assertEquals(elements.length, 3)
         elements(1) match {
           case CST.ListLiteral(inner, _) => assertEquals(inner.length, 2)
-          case _ => fail(s"Expected ListLiteral, got: ${elements(1)}")
+          case _                         => fail(s"Expected ListLiteral, got: ${elements(1)}")
         }
       case _ => fail(s"Expected Tuple, got: $cst")
     }
@@ -233,15 +232,15 @@ class ParserTest extends munit.FunSuite {
         assertEquals(elements.length, 3)
         elements(0) match {
           case CST.Symbol(name, _) => assertEquals(name, "fn")
-          case _ => fail(s"Expected Symbol, got: ${elements(0)}")
+          case _                   => fail(s"Expected Symbol, got: ${elements(0)}")
         }
         elements(1) match {
           case CST.ListLiteral(_, _) => // OK
-          case _ => fail(s"Expected ListLiteral, got: ${elements(1)}")
+          case _                     => fail(s"Expected ListLiteral, got: ${elements(1)}")
         }
         elements(2) match {
           case CST.Tuple(_, _) => // OK
-          case _ => fail(s"Expected Tuple, got: ${elements(2)}")
+          case _               => fail(s"Expected Tuple, got: ${elements(2)}")
         }
       case _ => fail(s"Expected Tuple, got: $cst")
     }
@@ -252,7 +251,7 @@ class ParserTest extends munit.FunSuite {
     assert(errors.isEmpty, s"Expected no errors, got: $errors")
     cst match {
       case CST.StringLiteral(value, _) => assertEquals(value, "hello\nworld")
-      case _ => fail(s"Expected StringLiteral, got: $cst")
+      case _                           => fail(s"Expected StringLiteral, got: $cst")
     }
   }
 
@@ -261,7 +260,7 @@ class ParserTest extends munit.FunSuite {
     // Empty input gets handled and returns a Symbol since SeqOf requires at least one element
     cst match {
       case CST.Symbol(name, _) => assert(name == "<empty>" || name == "<error>")
-      case _ => fail(s"Expected Symbol for empty input, got: $cst")
+      case _                   => fail(s"Expected Symbol for empty input, got: $cst")
     }
   }
 
@@ -274,14 +273,14 @@ class ParserTest extends munit.FunSuite {
         assertEquals(elemVec.length, 2, "Expected SeqOf with 2 elements")
         elemVec(0) match {
           case CST.Symbol(name, _) => assertEquals(name, "f")
-          case _ => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
+          case _                   => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
         }
         elemVec(1) match {
           case CST.Tuple(tupleElements, _) =>
             assertEquals(tupleElements.length, 1)
             tupleElements(0) match {
               case CST.Symbol(name, _) => assertEquals(name, "a")
-              case _ => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
+              case _                   => fail(s"Expected Symbol 'a', got: ${tupleElements(0)}")
             }
           case _ => fail(s"Expected Tuple, got: ${elemVec(1)}")
         }
@@ -311,19 +310,19 @@ class ParserTest extends munit.FunSuite {
         assertEquals(elemVec.length, 4, "Expected f, (a,b), g, (c)")
         elemVec(0) match {
           case CST.Symbol(name, _) => assertEquals(name, "f")
-          case _ => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
+          case _                   => fail(s"Expected Symbol 'f', got: ${elemVec(0)}")
         }
         elemVec(1) match {
           case CST.Tuple(tupleElements, _) => assertEquals(tupleElements.length, 2)
-          case _ => fail(s"Expected Tuple, got: ${elemVec(1)}")
+          case _                           => fail(s"Expected Tuple, got: ${elemVec(1)}")
         }
         elemVec(2) match {
           case CST.Symbol(name, _) => assertEquals(name, "g")
-          case _ => fail(s"Expected Symbol 'g', got: ${elemVec(2)}")
+          case _                   => fail(s"Expected Symbol 'g', got: ${elemVec(2)}")
         }
         elemVec(3) match {
           case CST.Tuple(tupleElements, _) => assertEquals(tupleElements.length, 1)
-          case _ => fail(s"Expected Tuple, got: ${elemVec(3)}")
+          case _                           => fail(s"Expected Tuple, got: ${elemVec(3)}")
         }
       case _ => fail(s"Expected SeqOf, got: $cst")
     }

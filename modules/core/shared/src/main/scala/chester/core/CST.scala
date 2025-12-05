@@ -12,7 +12,7 @@ import chester.utils.{*, given}
 enum CST(val span: Span) extends ToDoc derives ReadWriter:
   /** A symbol reference */
   case Symbol(name: String, override val span: Span) extends CST(span)
-  
+
   // (a,b)
   case Tuple(elements: Vector[CST], override val span: Span) extends CST(span)
   // [a,b]
@@ -23,7 +23,7 @@ enum CST(val span: Span) extends ToDoc derives ReadWriter:
 
 // a b - requires at least one element
   case SeqOf(elements: NonEmptyVector[CST], override val span: Span) extends CST(span)
-  
+
   def toDoc(using options: DocConf): Doc = this match
     case CST.Symbol(name, _) =>
       text(name)

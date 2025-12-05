@@ -7,9 +7,8 @@ import chester.utils.WithUTF16
 import scala.language.experimental.genericNumberLiterals
 class TokenizerTest extends munit.FunSuite {
 
-  private def createTestSource(content: String): Source = {
+  private def createTestSource(content: String): Source =
     Source(FileNameAndContent("test.chester", content))
-  }
 
   private def tokenizeString(input: String): Either[ParseError, Vector[Token]] = {
     val source = createTestSource(input)
@@ -49,7 +48,7 @@ class TokenizerTest extends munit.FunSuite {
     assertEquals(tokens.length, 1)
     tokens(0) match {
       case Token.IntegerLiteral(value, _) => assertEquals(value.asString, "12345")
-      case _ => fail("Expected IntegerLiteral")
+      case _                              => fail("Expected IntegerLiteral")
     }
   }
 
@@ -60,7 +59,7 @@ class TokenizerTest extends munit.FunSuite {
     assertEquals(tokens.length, 1)
     tokens(0) match {
       case Token.IntegerLiteral(value, _) => assertEquals(value.asString, "1000000")
-      case _ => fail("Expected IntegerLiteral")
+      case _                              => fail("Expected IntegerLiteral")
     }
   }
 
@@ -71,7 +70,7 @@ class TokenizerTest extends munit.FunSuite {
     assertEquals(tokens.length, 1)
     tokens(0) match {
       case Token.RationalLiteral(value, _) => assertEquals(value.asString, "22/7")
-      case _ => fail("Expected RationalLiteral")
+      case _                               => fail("Expected RationalLiteral")
     }
   }
 
@@ -81,7 +80,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.Identifier(parts, _) => 
+      case Token.Identifier(parts, _) =>
         assertEquals(parts.map(_.text).mkString, "hello")
       case _ => fail("Expected Identifier")
     }
@@ -93,7 +92,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.Identifier(parts, _) => 
+      case Token.Identifier(parts, _) =>
         assertEquals(parts.map(_.text).mkString, "hello_world")
       case _ => fail("Expected Identifier")
     }
@@ -105,7 +104,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.Identifier(parts, _) => 
+      case Token.Identifier(parts, _) =>
         assertEquals(parts.map(_.text).mkString, "++")
       case _ => fail("Expected Identifier")
     }
@@ -117,7 +116,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.StringLiteral(chars, _) => 
+      case Token.StringLiteral(chars, _) =>
         assertEquals(chars.map(_.text).mkString, "hello world")
       case _ => fail("Expected StringLiteral")
     }
@@ -129,7 +128,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.StringLiteral(chars, _) => 
+      case Token.StringLiteral(chars, _) =>
         assertEquals(chars.map(_.text).mkString, "hello\nworld\t!")
       case _ => fail("Expected StringLiteral")
     }
@@ -146,7 +145,7 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 1)
     tokens(0) match {
-      case Token.SymbolLiteral(value, _) => 
+      case Token.SymbolLiteral(value, _) =>
         assertEquals(value.asString, "mysymbol")
       case _ => fail("Expected SymbolLiteral")
     }
@@ -158,17 +157,17 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 3)
     tokens(0) match {
-      case Token.Identifier(parts, _) => 
+      case Token.Identifier(parts, _) =>
         assertEquals(parts.map(_.text).mkString, "hello")
       case _ => fail("Expected Identifier")
     }
     tokens(1) match {
-      case Token.Comment(text, _) => 
+      case Token.Comment(text, _) =>
         assertEquals(text.asString, " this is a comment")
       case _ => fail("Expected Comment")
     }
     tokens(2) match {
-      case Token.Identifier(parts, _) => 
+      case Token.Identifier(parts, _) =>
         assertEquals(parts.map(_.text).mkString, "world")
       case _ => fail("Expected Identifier")
     }
@@ -180,17 +179,17 @@ class TokenizerTest extends munit.FunSuite {
     val tokens = result.toOption.get.filterNot(_.isInstanceOf[Token.EOF])
     assertEquals(tokens.length, 3)
     tokens(0) match {
-      case Token.Identifier(parts, _) => 
+      case Token.Identifier(parts, _) =>
         assertEquals(parts.map(_.text).mkString, "hello")
       case _ => fail("Expected Identifier")
     }
     tokens(1) match {
-      case Token.Comment(text, _) => 
+      case Token.Comment(text, _) =>
         assertEquals(text.asString, " comment */")
       case _ => fail("Expected Comment")
     }
     tokens(2) match {
-      case Token.Identifier(parts, _) => 
+      case Token.Identifier(parts, _) =>
         assertEquals(parts.map(_.text).mkString, "world")
       case _ => fail("Expected Identifier")
     }
@@ -237,7 +236,7 @@ class TokenizerTest extends munit.FunSuite {
     assertEquals(tokens.length, 8)
     tokens.foreach {
       case Token.Identifier(_, _) => // OK
-      case other => fail(s"Expected Identifier, got $other")
+      case other                  => fail(s"Expected Identifier, got $other")
     }
   }
 }

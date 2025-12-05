@@ -31,7 +31,7 @@ object Docs {
   def `<:`(using DocConf): Doc =
     if (ReplaceBracketsWithWord.get) Doc.text("isSubtypeOf ") else Doc.text("<:")
   val `with`: Doc = Doc.text("with")
-  
+
   def parens(doc: Doc)(using DocConf): Doc = `(` <> doc <> `)`
   def brackets(doc: Doc)(using DocConf): Doc = `[` <> doc <> `]`
   def braces(doc: Doc)(using DocConf): Doc = `{` <> doc <> `}`

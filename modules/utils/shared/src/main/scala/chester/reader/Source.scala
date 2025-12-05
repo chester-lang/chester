@@ -69,15 +69,15 @@ case class Offset(
   if (lineOffset == 0) require(posOffset == firstLineColumnOffset)
   def getPos: Pos = add(Pos.zero)
   def next(codePoint: Int): Offset = codepointToString(codePoint) match {
-    case s @ "\n" => 
+    case s @ "\n" =>
       val newLineSize = WithUTF16(1, s.utf16Len)
       copy(
-        lineOffset = lineOffset + (1: Natural), 
+        lineOffset = lineOffset + (1: Natural),
         posOffset = posOffset + newLineSize
         // firstLineColumnOffset stays the same - it remembers the starting column from first line
         // posOffset continues to accumulate, keeping the invariant posOffset >= firstLineColumnOffset
       )
-    case s => 
+    case s =>
       if (lineOffset == 0) {
         // On first line, both posOffset and firstLineColumnOffset must grow together
         val newOffset = firstLineColumnOffset + WithUTF16(1, s.utf16Len)
