@@ -17,6 +17,19 @@ class SolverTest extends munit.FunSuite {
     testTypeMembers(ProceduralSolverModule)
   }
   
+  // Test with ConcurrentSolver
+  test("ConcurrentSolver - basic cell operations") {
+    testBasicCellOperations(ConcurrentSolverModule)
+  }
+  
+  test("ConcurrentSolver - constraint solving") {
+    testConstraintSolving(ConcurrentSolverModule)
+  }
+  
+  test("ConcurrentSolver - type member access") {
+    testTypeMembers(ConcurrentSolverModule)
+  }
+  
   // Common test logic that works with any SolverModule
   def testBasicCellOperations(module: SolverModule): Unit = {
     val solver = module.makeSolver(TestHandlerConf(module))
