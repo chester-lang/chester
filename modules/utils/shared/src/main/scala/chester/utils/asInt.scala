@@ -2,9 +2,6 @@ package chester.utils
 
 import spire.math.Natural
 
-def Nat(n: Int): Natural = Natural(n.toLong)
-def Nat(n: Long): Natural = Natural(n)
-
 private val MaxInt = Nat(Integer.MAX_VALUE)
 
 extension (n: Natural) {
