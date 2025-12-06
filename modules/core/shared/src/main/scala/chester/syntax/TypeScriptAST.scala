@@ -525,7 +525,13 @@ enum TypeScriptType derives ReadWriter {
   case TypeofType(expr: TypeScriptAST, span: Option[Span])
   case IndexedAccessType(objectType: TypeScriptType, indexType: TypeScriptType, span: Option[Span])
   case MappedType(typeParam: TypeParameter, nameType: Option[TypeScriptType], objectType: TypeScriptType, span: Option[Span])
-  case ConditionalType(checkType: TypeScriptType, extendsType: TypeScriptType, trueType: TypeScriptType, falseType: TypeScriptType, span: Option[Span])
+  case ConditionalType(
+      checkType: TypeScriptType,
+      extendsType: TypeScriptType,
+      trueType: TypeScriptType,
+      falseType: TypeScriptType,
+      span: Option[Span]
+  )
   case InferType(typeParam: TypeParameter, span: Option[Span])
   case TemplateLiteralType(parts: Vector[String], types: Vector[TypeScriptType], span: Option[Span])
   case ParenthesizedType(innerType: TypeScriptType, span: Option[Span])

@@ -78,18 +78,8 @@ class ElaboratorTest extends FunSuite {
     
     module.addConstraint(solver, ElabConstraint.Infer(cst, resultCell, typeCell, ctx))
     
-    println(s"Before run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
+    // Run solver
     module.run(solver)
-    println(s"After 1st run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
-    
-    // The block handler creates nested constraints, so we might need more runs
-    if !module.hasStableValue(solver, resultCell) then
-      module.run(solver)
-      println(s"After 2nd run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
-    
-    if !module.hasStableValue(solver, resultCell) then
-      module.run(solver)
-      println(s"After 3rd run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
     
     // Check results
     val result = module.readStable(solver, resultCell)

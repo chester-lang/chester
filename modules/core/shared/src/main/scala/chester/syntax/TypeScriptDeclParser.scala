@@ -7,9 +7,9 @@ import chester.utils.WithUTF16
 import scala.collection.mutable
 
 /** Simple parser for TypeScript declaration files (.d.ts)
-  * 
-  * This parser provides basic support for parsing TypeScript declarations
-  * to enable binding generation for Chester code interacting with TypeScript libraries.
+  *
+  * This parser provides basic support for parsing TypeScript declarations to enable binding generation for Chester code interacting with TypeScript
+  * libraries.
   */
 class TypeScriptDeclParser(source: String, sourceRef: Source):
   private var pos = 0
@@ -24,8 +24,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
       if source.charAt(pos) == '\n' then
         line += 1
         column = 1
-      else
-        column += 1
+      else column += 1
       pos += 1
 
   private def skipWhitespace(): Unit =
@@ -39,19 +38,16 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     val start = pos
     if currentChar.exists(c => c.isLetter || c == '_' || c == '$') then
       advance()
-      while currentChar.exists(c => c.isLetterOrDigit || c == '_' || c == '$') do
-        advance()
+      while currentChar.exists(c => c.isLetterOrDigit || c == '_' || c == '$') do advance()
       Some(source.substring(start, pos))
-    else
-      None
+    else None
 
   private def expect(char: Char): Boolean =
     skipWhitespace()
     if currentChar.contains(char) then
       advance()
       true
-    else
-      false
+    else false
 
   private def peekWord(): Option[String] =
     val saved = pos
@@ -66,7 +62,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
   /** Parse a TypeScript declaration file into a TypeScriptAST.Program */
   def parse(): TypeScriptAST =
     val statements = mutable.ArrayBuffer[TypeScriptAST]()
-    
+
     skipWhitespace()
     while pos < source.length do
       peekWord() match
@@ -83,7 +79,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
         case _ =>
           parseIdentifier() // skip unknown tokens
       skipWhitespace()
-    
+
     val span = makeSpan(0, source.length)
     TypeScriptAST.Program(statements.toVector, span)
 
@@ -119,10 +115,8 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     val start = pos
     val name = parseIdentifier().getOrElse("any")
     val span = makeSpan(start, pos)
-    if Set("string", "number", "boolean", "void", "any", "unknown", "never").contains(name) then
-      TypeScriptType.PrimitiveType(name, span)
-    else
-      TypeScriptType.TypeReference(name, Vector.empty, span)
+    if Set("string", "number", "boolean", "void", "any", "unknown", "never").contains(name) then TypeScriptType.PrimitiveType(name, span)
+    else TypeScriptType.TypeReference(name, Vector.empty, span)
 
   private def parseTypeAlias(): TypeScriptAST =
     val start = pos
