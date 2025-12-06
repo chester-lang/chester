@@ -134,18 +134,45 @@ class ElaboratorDefTest extends munit.FunSuite {
     }
   }
 
-  test("elaborate id function application".ignore) {
+  test("elaborate id function application - inferred type argument") {
     val (ast, ty, errors) = elaborate("id(42)")
     
     assert(ast.isDefined, s"AST should be defined, errors: $errors")
     
     ast.get match {
       case AST.App(func, args, _) =>
-        assertEquals(args.length, 1, "Should have 1 argument")
+        // Should have 2 arguments: implicit type arg (inferred) + explicit arg
+        assertEquals(args.length, 2, "Should have 2 arguments (implicit type + explicit value)")
         func match {
           case AST.Ref(_, "id", _) => // OK
           case other => fail(s"Expected id reference, got: $func")
         }
+        // First arg should be a meta-variable (inferred type)
+        assert(args(0).value.isInstanceOf[AST.MetaCell], s"First arg should be MetaCell (inferred type), got: ${args(0).value}")
+        // Second arg should be the integer 42
+        assert(args(1).value.isInstanceOf[AST.IntLit], s"Second arg should be IntLit, got: ${args(1).value}")
+      case other =>
+        fail(s"Expected App, got: $other")
+    }
+  }
+
+  test("elaborate id function application - explicit type argument") {
+    val (ast, ty, errors) = elaborate("id[Type](42)")
+    
+    assert(ast.isDefined, s"AST should be defined, errors: $errors")
+    
+    ast.get match {
+      case AST.App(func, args, _) =>
+        // Should have 2 arguments: explicit type arg + explicit value arg
+        assertEquals(args.length, 2, "Should have 2 arguments (explicit type + explicit value)")
+        func match {
+          case AST.Ref(_, "id", _) => // OK
+          case other => fail(s"Expected id reference, got: $func")
+        }
+        // First arg should be Type reference (explicit type)
+        assert(args(0).value.isInstanceOf[AST.Ref], s"First arg should be Ref (Type), got: ${args(0).value}")
+        // Second arg should be the integer 42
+        assert(args(1).value.isInstanceOf[AST.IntLit], s"Second arg should be IntLit, got: ${args(1).value}")
       case other =>
         fail(s"Expected App, got: $other")
     }

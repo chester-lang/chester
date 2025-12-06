@@ -135,6 +135,8 @@ enum ElabConstraint:
   case AssembleApp(
       funcResult: CellR[AST],
       funcTy: CellR[AST],
+      explicitTypeArgResults: Vector[CellR[AST]],
+      explicitTypeArgTypes: Vector[CellR[AST]],
       argResults: Vector[CellR[AST]],
       argTypes: Vector[CellR[AST]],
       result: CellRW[AST],
@@ -458,19 +460,26 @@ class ElabHandler extends Handler[ElabConstraint]:
           val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
           Result.Done
-        // Check for function application: f(args) becomes SeqOf(f, Tuple(args))
+        // Check for function application patterns:
+        // f(args) becomes SeqOf(f, Tuple(args))
+        // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
         else if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
-          handleFunctionApplication(c, elems(0), elems(1).asInstanceOf[CST.Tuple], span)
+          // f(args) - no explicit type arguments
+          handleFunctionApplication(c, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
+        else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
+          // f[typeArgs](args) - explicit type arguments provided
+          handleFunctionApplication(c, elems(0), Some(elems(1).asInstanceOf[CST.ListLiteral]), elems(2).asInstanceOf[CST.Tuple], span)
         else
           // Default: treat as a block-like sequence
           val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
           module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
           Result.Done
 
-  /** Handle function application: f(args) */
+  /** Handle function application: f(args) or f[typeArgs](args) */
   private def handleFunctionApplication[M <: SolverModule](
       c: ElabConstraint.Infer,
       funcCst: CST,
+      explicitTypeArgs: Option[CST.ListLiteral],
       argsTuple: CST.Tuple,
       span: Option[Span]
   )(using module: M, solver: module.Solver[ElabConstraint]): Result =
@@ -481,7 +490,19 @@ class ElabHandler extends Handler[ElabConstraint]:
     val funcTy = module.newOnceCell[ElabConstraint, AST](solver)
     module.addConstraint(solver, ElabConstraint.Infer(funcCst, funcResult, funcTy, c.ctx))
 
-    // Elaborate arguments
+    // Elaborate explicit type arguments if provided
+    val typeArgPairs = explicitTypeArgs.map { typeArgsList =>
+      typeArgsList.elements.map { typeArg =>
+        val typeArgResult = module.newOnceCell[ElabConstraint, AST](solver)
+        val typeArgTy = module.newOnceCell[ElabConstraint, AST](solver)
+        module.addConstraint(solver, ElabConstraint.Infer(typeArg, typeArgResult, typeArgTy, c.ctx))
+        (typeArgResult, typeArgTy)
+      }
+    }.getOrElse(Vector.empty)
+    val typeArgResults = typeArgPairs.map(_._1)
+    val typeArgTypes = typeArgPairs.map(_._2)
+
+    // Elaborate regular arguments
     val argPairs = argsTuple.elements.map { arg =>
       val argResult = module.newOnceCell[ElabConstraint, AST](solver)
       val argTy = module.newOnceCell[ElabConstraint, AST](solver)
@@ -493,7 +514,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     // Add constraint to assemble application once all parts are elaborated
     module.addConstraint(solver, ElabConstraint.AssembleApp(
-      funcResult, funcTy, argResults, argTypes, c.result, c.inferredTy, span, c.ctx
+      funcResult, funcTy, typeArgResults, typeArgTypes, argResults, argTypes, c.result, c.inferredTy, span, c.ctx
     ))
 
     Result.Done
@@ -742,14 +763,15 @@ class ElabHandler extends Handler[ElabConstraint]:
     if !module.hasStableValue(solver, c.funcResult) then
       return Result.Waiting(c.funcResult)
     
+    if !c.explicitTypeArgResults.forall(module.hasStableValue(solver, _)) then
+      return Result.Waiting(c.explicitTypeArgResults.filter(!module.hasStableValue(solver, _))*)
+    
     if !c.argResults.forall(module.hasStableValue(solver, _)) then
       return Result.Waiting(c.argResults.filter(!module.hasStableValue(solver, _))*)
 
-    // Build application AST
     val func = module.readStable(solver, c.funcResult).get
-    val args = c.argResults.flatMap(module.readStable(solver, _))
-    val app = AST.App(func, args.map(Arg(None, _)), c.span)
-    module.fill(solver, c.result, app)
+    val explicitTypeArgs = c.explicitTypeArgResults.flatMap(module.readStable(solver, _))
+    val explicitArgs = c.argResults.flatMap(module.readStable(solver, _))
 
     // Type check: function type should be Pi
     if !module.hasStableValue(solver, c.funcTy) then
@@ -757,25 +779,56 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     module.readStable(solver, c.funcTy) match
       case Some(AST.Pi(telescopes, resultTy, _)) =>
-        val allParams = telescopes.flatMap(_.params)
+        // Separate implicit and explicit parameters
+        val implicitParams = telescopes.filter(_.implicitness == Implicitness.Implicit).flatMap(_.params)
+        val explicitParams = telescopes.filter(_.implicitness == Implicitness.Explicit).flatMap(_.params)
         
-        // Check arity matches
-        if allParams.size != args.size then
+        // Build arguments: use provided explicit type args for implicit params, create metas for rest
+        val implicitArgs = if explicitTypeArgs.nonEmpty then
+          // User provided explicit type arguments like id[String]
+          if explicitTypeArgs.size != implicitParams.size then
+            c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
+            module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+            return Result.Done
+          
+          // Type check explicit type arguments against implicit parameter types
+          implicitParams.zip(explicitTypeArgs).zip(c.explicitTypeArgTypes).foreach { case ((param, arg), argTy) =>
+            val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+            module.fill(solver, paramTyCell, param.ty)
+            module.addConstraint(solver, ElabConstraint.Unify(argTy, paramTyCell, c.span, c.ctx))
+          }
+          
+          explicitTypeArgs
+        else
+          // No explicit type arguments - create meta-variables for implicit parameters
+          implicitParams.map { param =>
+            val metaId = Uniqid.make[AST]
+            val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+            module.fill(solver, metaTy, param.ty)
+            AST.MetaCell(HoldNotReadable(metaTy), c.span)
+          }
+        
+        // Check explicit argument arity
+        if explicitArgs.size != explicitParams.size then
           c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
           module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
           return Result.Done
         
-        // Type check arguments against parameter types
-        allParams.zip(args).foreach { case (param, arg) =>
-          val argTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-          module.fill(solver, argTyCell, param.ty)
-          c.argTypes.lift(args.indexOf(arg)).foreach { argTy =>
-            module.addConstraint(solver, ElabConstraint.Unify(argTy, argTyCell, c.span, c.ctx))
-          }
+        // Type check explicit arguments against explicit parameter types
+        explicitParams.zip(explicitArgs).zip(c.argTypes).foreach { case ((param, arg), argTy) =>
+          val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+          module.fill(solver, paramTyCell, param.ty)
+          module.addConstraint(solver, ElabConstraint.Unify(argTy, paramTyCell, c.span, c.ctx))
         }
         
+        // Build final application with all arguments (implicit + explicit)
+        val allArgs = implicitArgs ++ explicitArgs
+        val app = AST.App(func, allArgs.map(Arg(None, _)), c.span)
+        module.fill(solver, c.result, app)
+        
         // Perform substitution: replace parameter references in result type with arguments
-        val substitutedTy = substituteInType(resultTy, allParams.map(_.id).zip(args).toMap)
+        val allParams = implicitParams ++ explicitParams
+        val substitutedTy = substituteInType(resultTy, allParams.map(_.id).zip(allArgs).toMap)
         module.fill(solver, c.inferredTy, substitutedTy)
         Result.Done
       case Some(ty) =>
