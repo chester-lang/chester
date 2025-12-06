@@ -42,8 +42,8 @@ object Parser {
     if (!state.hasNext) {
       // Return a dummy symbol for error recovery since SeqOf requires at least one element
       val dummySpan =
-        if (tokens.nonEmpty) tokens.last.span
-        else Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
+        if (tokens.nonEmpty) Some(tokens.last.span)
+        else Some(Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero)))
       return ParseResult(CST.Symbol("<empty>", dummySpan), state.getRest)
     }
 
@@ -70,23 +70,23 @@ object Parser {
           case Token.LBrace(span)   => parseBlock(state)
           case Token.StringLiteral(value, span) =>
             state.advance()
-            CST.StringLiteral(value.asString, span)
+            CST.StringLiteral(value.asString, Some(span))
           case Token.IntegerLiteral(value, span) =>
             state.advance()
-            CST.IntegerLiteral(BigInt(value.asString), span)
+            CST.IntegerLiteral(BigInt(value.asString), Some(span))
           case Token.SymbolLiteral(value, span) =>
             state.advance()
-            CST.Symbol(value.asString, span)
+            CST.Symbol(value.asString, Some(span))
           case Token.Identifier(parts, span) =>
             state.advance()
-            CST.Symbol(parts.map(_.text).mkString, span)
+            CST.Symbol(parts.map(_.text).mkString, Some(span))
           case _ =>
             // Error recovery: skip unexpected token and continue
             state.recordError(s"Unexpected token: ${token.tokenType}", token.span)
             state.advance()
             // Try to parse next atom
             if (state.hasNext) parseAtom(state)
-            else CST.Symbol("<error>", token.span)
+            else CST.Symbol("<error>", Some(token.span))
         }
       case None =>
         val lastSpan =
@@ -95,7 +95,7 @@ object Parser {
             Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
           }
         state.recordError("Unexpected end of input", lastSpan)
-        CST.Symbol("<error>", lastSpan)
+        CST.Symbol("<error>", Some(lastSpan))
     }
   }
 
@@ -105,14 +105,14 @@ object Parser {
       start: Span,
       isClosing: Token => Boolean,
       closingName: String,
-      build: (Vector[CST], Span) => CST
+      build: (Vector[CST], Option[Span]) => CST
   ): CST = {
     val elements = ArrayBuffer.empty[CST]
 
     def closeWithError(reason: String): CST = {
       state.recordError(s"Expected $closingName", start)
-      val endSpan = if (elements.nonEmpty) elements.last.span else start
-      build(elements.toVector, start.combine(endSpan))
+      val endSpan = if (elements.nonEmpty) elements.last.span.getOrElse(start) else start
+      build(elements.toVector, Some(start.combine(endSpan)))
     }
 
     while (state.hasNext && !state.is(isClosing)) {
@@ -137,7 +137,7 @@ object Parser {
     state.current match {
       case Some(tok) if isClosing(tok) =>
         state.advance()
-        build(elements.toVector, start.combine(tok.span))
+        build(elements.toVector, Some(start.combine(tok.span)))
       case _ => closeWithError("missing delimiter")
     }
   }
@@ -159,7 +159,8 @@ object Parser {
   /** Combine atoms into single CST - SeqOf if multiple, single atom if one */
   private def combineAtoms(atoms: Seq[CST]): CST =
     if (atoms.length == 1) atoms(0)
-    else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(atoms.toVector), atoms.head.span.combine(atoms.last.span))
+    else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(atoms.toVector), 
+      for { h <- atoms.head.span; l <- atoms.last.span } yield h.combine(l))
 
   /** Parse multiple atoms until hitting a block stop token */
   private def parseAtomSequence(state: ParserState): CST = {
@@ -170,7 +171,7 @@ object Parser {
     }
 
     if (atoms.isEmpty) {
-      val span = state.current.map(_.span).getOrElse(Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero)))
+      val span = state.current.map(_.span).orElse(Some(Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))))
       CST.Symbol("<error>", span)
     } else combineAtoms(atoms.toSeq)
   }
@@ -187,8 +188,8 @@ object Parser {
 
     def closeWithError(): CST = {
       state.recordError("Expected '}' to close block", start)
-      val endSpan = tail.map(_.span).orElse(elements.lastOption.map(_.span)).getOrElse(start)
-      CST.Block(elements.toVector, tail, start.combine(endSpan))
+      val endSpan = tail.flatMap(_.span).orElse(elements.lastOption.flatMap(_.span)).getOrElse(start)
+      CST.Block(elements.toVector, tail, Some(start.combine(endSpan)))
     }
 
     while (state.hasNext && !state.is(isRBrace) && !state.is(isRParen))
@@ -218,7 +219,7 @@ object Parser {
     state.current match {
       case Some(tok @ Token.RBrace(_)) =>
         state.advance()
-        CST.Block(elements.toVector, tail, start.combine(tok.span))
+        CST.Block(elements.toVector, tail, Some(start.combine(tok.span)))
       case Some(Token.RParen(_)) => closeWithError() // Wrong closing delimiter
       case _                     => closeWithError() // Missing closing delimiter
     }

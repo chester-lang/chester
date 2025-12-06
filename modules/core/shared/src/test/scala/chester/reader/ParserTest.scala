@@ -17,7 +17,7 @@ class ParserTest extends munit.FunSuite {
       tokens <- Tokenizer.tokenize(chars)
     } yield Parser.parse(tokens).cst
     
-    (result.getOrElse(CST.Symbol("<error>", dummySpan)), reporter.getReports)
+    (result.getOrElse(CST.Symbol("<error>", Some(dummySpan))), reporter.getReports)
   }
 
   // Helper assertions

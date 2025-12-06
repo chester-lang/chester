@@ -1,7 +1,7 @@
 package chester.core
 
 import scala.language.experimental.genericNumberLiterals
-import chester.error.Span
+import chester.error.{Span, SpanOptional}
 import chester.utils.doc.{*, given}
 import chester.utils.doc.Docs.*
 import upickle.default.*
@@ -9,16 +9,43 @@ import cats.data.NonEmptyVector
 import chester.utils.{*, given}
 import chester.uniqid.{UniqidOf, Uniqid, rwUniqIDOf, UniqidCollector, UniqidReplacer, ContainsUniqid, given}
 
-enum AST(val span: Span) extends ToDoc with ContainsUniqid derives ReadWriter:
-  case Ref(id: UniqidOf[AST], name: String, override val span: Span) extends AST(span)
-  case Tuple(elements: Vector[AST], override val span: Span) extends AST(span)
-  case ListLit(elements: Vector[AST], override val span: Span) extends AST(span)
-  case Block(elements: Vector[AST], override val span: Span) extends AST(span)
-  case StringLit(value: String, override val span: Span) extends AST(span)
-  case IntLit(value: BigInt, override val span: Span) extends AST(span)
-  case App(func: AST, args: Vector[AST], override val span: Span) extends AST(span)
-  case Lam(params: Vector[(UniqidOf[AST], String)], body: AST, override val span: Span) extends AST(span)
-  case Let(id: UniqidOf[AST], name: String, value: AST, body: AST, override val span: Span) extends AST(span)
+case class Param(
+  id: UniqidOf[AST],
+  name: String,
+  ty: AST,
+  default: Option[AST] = None
+) derives ReadWriter:
+  def collectUniqids(collector: UniqidCollector): Unit =
+    collector(id)
+    ty.collectUniqids(collector)
+    default.foreach(_.collectUniqids(collector))
+  
+  def mapUniqids(mapper: UniqidReplacer): Param =
+    Param(mapper(id), name, ty.mapUniqids(mapper), default.map(_.mapUniqids(mapper)))
+
+case class Arg(
+  name: Option[String],
+  value: AST
+) derives ReadWriter:
+  def collectUniqids(collector: UniqidCollector): Unit =
+    value.collectUniqids(collector)
+  
+  def mapUniqids(mapper: UniqidReplacer): Arg =
+    Arg(name, value.mapUniqids(mapper))
+
+enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOptional derives ReadWriter:
+  case Ref(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)
+  case Tuple(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
+  case ListLit(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
+  case Block(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
+  case StringLit(value: String, override val span: Option[Span]) extends AST(span)
+  case IntLit(value: BigInt, override val span: Option[Span]) extends AST(span)
+  case Universe(level: AST, override val span: Option[Span]) extends AST(span)
+  case Pi(params: Vector[Param], resultTy: AST, override val span: Option[Span]) extends AST(span)
+  case Lam(params: Vector[Param], body: AST, override val span: Option[Span]) extends AST(span)
+  case App(func: AST, args: Vector[Arg], override val span: Option[Span]) extends AST(span)
+  case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
+  case Ann(expr: AST, ty: AST, override val span: Option[Span]) extends AST(span)
 
   def toDoc(using options: DocConf): Doc = this match
     case AST.Ref(id, name, _) =>
@@ -34,12 +61,30 @@ enum AST(val span: Span) extends ToDoc with ContainsUniqid derives ReadWriter:
       text("\"") <> text(value) <> text("\"")
     case AST.IntLit(value, _) =>
       text(value.toString)
-    case AST.App(func, args, _) =>
-      func.toDoc <+> parens(hsep(args.map(_.toDoc), `,` <+> empty))
+    case AST.Universe(level, _) =>
+      text("Type") <> brackets(level.toDoc)
+    case AST.Pi(params, resultTy, _) =>
+      val paramsDoc = hsep(params.map(p => 
+        parens(text(p.name) <> text(":") <+> p.ty.toDoc <>
+          p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty))
+      ), empty)
+      paramsDoc <+> text("->") <+> resultTy.toDoc
     case AST.Lam(params, body, _) =>
-      text("λ") <> parens(hsep(params.map((_, name) => text(name)), `,` <+> empty)) <+> text("=>") <+> body.toDoc
-    case AST.Let(id, name, value, body, _) =>
-      text("let") <+> text(name) <+> text("=") <+> value.toDoc <+> text("in") <@@> body.toDoc.indented()
+      val paramsDoc = hsep(params.map(p =>
+        parens(text(p.name) <> text(":") <+> p.ty.toDoc <>
+          p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty))
+      ), empty)
+      text("λ") <> paramsDoc <+> text("=>") <+> body.toDoc
+    case AST.App(func, args, _) =>
+      val argsDoc = hsep(args.map(a =>
+        a.name.map(n => text(n) <> text(" = ") <> a.value.toDoc).getOrElse(a.value.toDoc)
+      ), `,` <+> empty)
+      func.toDoc <> parens(argsDoc)
+    case AST.Let(id, name, ty, value, body, _) =>
+      val tyDoc = ty.map(t => text(":") <+> t.toDoc).getOrElse(empty)
+      text("let") <+> text(name) <+> tyDoc <+> text("=") <+> value.toDoc <+> text("in") <@@> body.toDoc.indented()
+    case AST.Ann(expr, ty, _) =>
+      parens(expr.toDoc <+> text(":") <+> ty.toDoc)
 
   def collectUniqids(collector: UniqidCollector): Unit = this match
     case AST.Ref(id, _, _) =>
@@ -54,16 +99,33 @@ enum AST(val span: Span) extends ToDoc with ContainsUniqid derives ReadWriter:
       ()
     case AST.IntLit(_, _) =>
       ()
+    case AST.Universe(level, _) =>
+      level.collectUniqids(collector)
+    case AST.Pi(params, resultTy, _) =>
+      params.foreach { p =>
+        collector(p.id)
+        p.ty.collectUniqids(collector)
+        p.default.foreach(_.collectUniqids(collector))
+      }
+      resultTy.collectUniqids(collector)
+    case AST.Lam(params, body, _) =>
+      params.foreach { p =>
+        collector(p.id)
+        p.ty.collectUniqids(collector)
+        p.default.foreach(_.collectUniqids(collector))
+      }
+      body.collectUniqids(collector)
     case AST.App(func, args, _) =>
       func.collectUniqids(collector)
-      args.foreach(_.collectUniqids(collector))
-    case AST.Lam(params, body, _) =>
-      params.foreach((id, _) => collector(id))
-      body.collectUniqids(collector)
-    case AST.Let(id, _, value, body, _) =>
+      args.foreach(_.value.collectUniqids(collector))
+    case AST.Let(id, _, ty, value, body, _) =>
       collector(id)
+      ty.foreach(_.collectUniqids(collector))
       value.collectUniqids(collector)
       body.collectUniqids(collector)
+    case AST.Ann(expr, ty, _) =>
+      expr.collectUniqids(collector)
+      ty.collectUniqids(collector)
 
   def mapUniqids(mapper: UniqidReplacer): AST = this match
     case AST.Ref(id, name, span) =>
@@ -78,9 +140,27 @@ enum AST(val span: Span) extends ToDoc with ContainsUniqid derives ReadWriter:
       AST.StringLit(value, span)
     case AST.IntLit(value, span) =>
       AST.IntLit(value, span)
-    case AST.App(func, args, span) =>
-      AST.App(func.mapUniqids(mapper), args.map(_.mapUniqids(mapper)), span)
+    case AST.Universe(level, span) =>
+      AST.Universe(level.mapUniqids(mapper), span)
+    case AST.Pi(params, resultTy, span) =>
+      AST.Pi(
+        params.map(p => Param(mapper(p.id), p.name, p.ty.mapUniqids(mapper), p.default.map(_.mapUniqids(mapper)))),
+        resultTy.mapUniqids(mapper),
+        span
+      )
     case AST.Lam(params, body, span) =>
-      AST.Lam(params.map((id, name) => (mapper(id), name)), body.mapUniqids(mapper), span)
-    case AST.Let(id, name, value, body, span) =>
-      AST.Let(mapper(id), name, value.mapUniqids(mapper), body.mapUniqids(mapper), span)
+      AST.Lam(
+        params.map(p => Param(mapper(p.id), p.name, p.ty.mapUniqids(mapper), p.default.map(_.mapUniqids(mapper)))),
+        body.mapUniqids(mapper),
+        span
+      )
+    case AST.App(func, args, span) =>
+      AST.App(
+        func.mapUniqids(mapper),
+        args.map(a => Arg(a.name, a.value.mapUniqids(mapper))),
+        span
+      )
+    case AST.Let(id, name, ty, value, body, span) =>
+      AST.Let(mapper(id), name, ty.map(_.mapUniqids(mapper)), value.mapUniqids(mapper), body.mapUniqids(mapper), span)
+    case AST.Ann(expr, ty, span) =>
+      AST.Ann(expr.mapUniqids(mapper), ty.mapUniqids(mapper), span)

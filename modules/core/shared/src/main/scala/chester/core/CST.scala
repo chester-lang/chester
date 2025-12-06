@@ -1,32 +1,21 @@
 package chester.core
 
 import scala.language.experimental.genericNumberLiterals
-import chester.error.Span
+import chester.error.{Span, SpanOptional}
 import chester.utils.doc.{*, given}
 import chester.utils.doc.Docs.*
 import upickle.default.*
 import cats.data.NonEmptyVector
 import chester.utils.{*, given}
 
-/** Simple Concrete Syntax Tree using Scala 3 enum */
-enum CST(val span: Span) extends ToDoc derives ReadWriter:
-  /** A symbol reference */
-  case Symbol(name: String, override val span: Span) extends CST(span)
-
-  // (a,b)
-  case Tuple(elements: Vector[CST], override val span: Span) extends CST(span)
-  // [a,b]
-  case ListLiteral(elements: Vector[CST], override val span: Span) extends CST(span)
-  // {a;b;c} - elements are semicolon-separated, tail is optional final expression without semicolon
-  // {a;b} => elements=[a], tail=Some(b)
-  // {a;b;} => elements=[a,b], tail=None
-  case Block(elements: Vector[CST], tail: Option[CST], override val span: Span) extends CST(span)
-
-  case StringLiteral(value: String, override val span: Span) extends CST(span)
-  case IntegerLiteral(value: BigInt, override val span: Span) extends CST(span)
-
-// a b - requires at least one element
-  case SeqOf(elements: NonEmptyVector[CST], override val span: Span) extends CST(span)
+enum CST(val span: Option[Span]) extends ToDoc with SpanOptional derives ReadWriter:
+  case Symbol(name: String, override val span: Option[Span]) extends CST(span)
+  case Tuple(elements: Vector[CST], override val span: Option[Span]) extends CST(span)
+  case ListLiteral(elements: Vector[CST], override val span: Option[Span]) extends CST(span)
+  case Block(elements: Vector[CST], tail: Option[CST], override val span: Option[Span]) extends CST(span)
+  case StringLiteral(value: String, override val span: Option[Span]) extends CST(span)
+  case IntegerLiteral(value: BigInt, override val span: Option[Span]) extends CST(span)
+  case SeqOf(elements: NonEmptyVector[CST], override val span: Option[Span]) extends CST(span)
 
   def toDoc(using options: DocConf): Doc = this match
     case CST.Symbol(name, _) =>
