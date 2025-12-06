@@ -7,31 +7,35 @@ import chester.utils.doc.Docs.*
 import upickle.default.*
 import cats.data.NonEmptyVector
 import chester.utils.{*, given}
+import chester.utils.{HoldNotReadable, holdNotReadableRW}
 import chester.uniqid.{UniqidOf, Uniqid, rwUniqIDOf, UniqidCollector, UniqidReplacer, ContainsUniqid, given}
 
 case class Param(
-  id: UniqidOf[AST],
-  name: String,
-  ty: AST,
-  default: Option[AST] = None
+    id: UniqidOf[AST],
+    name: String,
+    ty: AST,
+    default: Option[AST] = None
 ) derives ReadWriter:
   def collectUniqids(collector: UniqidCollector): Unit =
     collector(id)
     ty.collectUniqids(collector)
     default.foreach(_.collectUniqids(collector))
-  
+
   def mapUniqids(mapper: UniqidReplacer): Param =
     Param(mapper(id), name, ty.mapUniqids(mapper), default.map(_.mapUniqids(mapper)))
 
 case class Arg(
-  name: Option[String],
-  value: AST
+    name: Option[String],
+    value: AST
 ) derives ReadWriter:
   def collectUniqids(collector: UniqidCollector): Unit =
     value.collectUniqids(collector)
-  
+
   def mapUniqids(mapper: UniqidReplacer): Arg =
     Arg(name, value.mapUniqids(mapper))
+
+// Ensure HoldNotReadable ReadWriter is in scope for MetaCell
+given [T]: ReadWriter[HoldNotReadable[T]] = holdNotReadableRW.asInstanceOf[ReadWriter[HoldNotReadable[T]]]
 
 enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOptional derives ReadWriter:
   case Ref(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)
@@ -46,6 +50,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case App(func: AST, args: Vector[Arg], override val span: Option[Span]) extends AST(span)
   case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
   case Ann(expr: AST, ty: AST, override val span: Option[Span]) extends AST(span)
+  case MetaCell(cell: HoldNotReadable[chester.utils.elab.CellRW[AST]], override val span: Option[Span]) extends AST(span)
 
   def toDoc(using options: DocConf): Doc = this match
     case AST.Ref(id, name, _) =>
@@ -64,27 +69,37 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
     case AST.Universe(level, _) =>
       text("Type") <> brackets(level.toDoc)
     case AST.Pi(params, resultTy, _) =>
-      val paramsDoc = hsep(params.map(p => 
-        parens(text(p.name) <> text(":") <+> p.ty.toDoc <>
-          p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty))
-      ), empty)
+      val paramsDoc = hsep(
+        params.map(p =>
+          parens(
+            text(p.name) <> text(":") <+> p.ty.toDoc <>
+              p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
+          )
+        ),
+        empty
+      )
       paramsDoc <+> text("->") <+> resultTy.toDoc
     case AST.Lam(params, body, _) =>
-      val paramsDoc = hsep(params.map(p =>
-        parens(text(p.name) <> text(":") <+> p.ty.toDoc <>
-          p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty))
-      ), empty)
+      val paramsDoc = hsep(
+        params.map(p =>
+          parens(
+            text(p.name) <> text(":") <+> p.ty.toDoc <>
+              p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
+          )
+        ),
+        empty
+      )
       text("λ") <> paramsDoc <+> text("=>") <+> body.toDoc
     case AST.App(func, args, _) =>
-      val argsDoc = hsep(args.map(a =>
-        a.name.map(n => text(n) <> text(" = ") <> a.value.toDoc).getOrElse(a.value.toDoc)
-      ), `,` <+> empty)
+      val argsDoc = hsep(args.map(a => a.name.map(n => text(n) <> text(" = ") <> a.value.toDoc).getOrElse(a.value.toDoc)), `,` <+> empty)
       func.toDoc <> parens(argsDoc)
     case AST.Let(id, name, ty, value, body, _) =>
       val tyDoc = ty.map(t => text(":") <+> t.toDoc).getOrElse(empty)
       text("let") <+> text(name) <+> tyDoc <+> text("=") <+> value.toDoc <+> text("in") <@@> body.toDoc.indented()
     case AST.Ann(expr, ty, _) =>
       parens(expr.toDoc <+> text(":") <+> ty.toDoc)
+    case AST.MetaCell(cell, _) =>
+      text("?") <> text(cell.toString)
 
   def collectUniqids(collector: UniqidCollector): Unit = this match
     case AST.Ref(id, _, _) =>
@@ -126,6 +141,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
     case AST.Ann(expr, ty, _) =>
       expr.collectUniqids(collector)
       ty.collectUniqids(collector)
+    case AST.MetaCell(_, _) =>
+      ()
 
   def mapUniqids(mapper: UniqidReplacer): AST = this match
     case AST.Ref(id, name, span) =>
@@ -164,3 +181,5 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.Let(mapper(id), name, ty.map(_.mapUniqids(mapper)), value.mapUniqids(mapper), body.mapUniqids(mapper), span)
     case AST.Ann(expr, ty, span) =>
       AST.Ann(expr.mapUniqids(mapper), ty.mapUniqids(mapper), span)
+    case AST.MetaCell(cell, span) =>
+      AST.MetaCell(cell, span)

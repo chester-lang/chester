@@ -159,8 +159,14 @@ object Parser {
   /** Combine atoms into single CST - SeqOf if multiple, single atom if one */
   private def combineAtoms(atoms: Seq[CST]): CST =
     if (atoms.length == 1) atoms(0)
-    else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(atoms.toVector), 
-      for { h <- atoms.head.span; l <- atoms.last.span } yield h.combine(l))
+    else
+      CST.SeqOf(
+        NonEmptyVector.fromVectorUnsafe(atoms.toVector),
+        for {
+          h <- atoms.head.span
+          l <- atoms.last.span
+        } yield h.combine(l)
+      )
 
   /** Parse multiple atoms until hitting a block stop token */
   private def parseAtomSequence(state: ParserState): CST = {
