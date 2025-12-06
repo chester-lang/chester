@@ -122,15 +122,6 @@ enum ElabConstraint:
       resultTy: CellRW[AST]
   )
 
-  /** Assemble a block from elaborated elements */
-  case AssembleBlock(
-      elemResults: Vector[CellR[AST]],
-      elemTypes: Vector[CellR[AST]],
-      result: CellRW[AST],
-      inferredTy: CellRW[AST],
-      span: Option[Span]
-  )
-
   /** Assemble a function application from elaborated function and arguments */
   case AssembleApp(
       funcResult: CellR[AST],
@@ -170,8 +161,8 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       AST.Tuple(elements.map(substituteInType(_, substitutions)), span)
     case AST.ListLit(elements, span) =>
       AST.ListLit(elements.map(substituteInType(_, substitutions)), span)
-    case AST.Block(elements, span) =>
-      AST.Block(elements.map(substituteInType(_, substitutions)), span)
+    case AST.Block(elements, tail, span) =>
+      AST.Block(elements.map(substituteInType(_, substitutions)), substituteInType(tail, substitutions), span)
     case AST.Universe(level, span) =>
       AST.Universe(substituteInType(level, substitutions), span)
     case AST.Pi(telescopes, resultTy, span) =>
@@ -241,7 +232,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       case c: ElabConstraint.Unify         => handleUnify(c)
       case c: ElabConstraint.IsUniverse    => handleIsUniverse(c)
       case c: ElabConstraint.IsPi          => handleIsPi(c)
-      case c: ElabConstraint.AssembleBlock => handleAssembleBlock(c)
       case c: ElabConstraint.AssembleApp   => handleAssembleApp(c)
       case c: ElabConstraint.AssembleDef   => handleAssembleDef(c)
 
@@ -412,78 +402,64 @@ class ElabHandler extends Handler[ElabConstraint]:
             c.ctx.reporter.report(ElabProblem.UnboundVariable("def statement not allowed in tail position", t.span))
         }
 
-        if elements.isEmpty && tail.isEmpty then
-          // Empty block
-          val unit = AST.Tuple(Vector.empty, span)
-          module.fill(solver, c.result, unit)
-          module.fill(solver, c.inferredTy, AST.Tuple(Vector.empty, None))
-          Result.Done
-        else
-          // TWO-PASS ELABORATION for forward references:
-          // Pass 1: Scan elements, collect all def declarations, create placeholder cells
-          var enrichedCtx = c.ctx
-          val defInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.OnceCell[AST])]
+        // TWO-PASS ELABORATION for forward references:
+        // Pass 1: Scan elements, collect all def declarations, create placeholder cells
+        var enrichedCtx = c.ctx
+        val defInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.OnceCell[AST])]
+        
+        elements.foreach {
+          case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
+            // Extract def name
+            val elems = seqElems.toVector
+            elems match
+              case _ +: CST.Symbol(name, _) +: _ =>
+                // Create unique ID and type cell for this def
+                val defId = Uniqid.make[AST]
+                val defTypeCell = module.newOnceCell[ElabConstraint, AST](solver)
+                // Add to context so it can be referenced (including by other defs)
+                enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell)
+                defInfoMap(elem) = (name, defId, defTypeCell)
+              case _ => ()
+          case _ => ()
+        }
+        
+        // Pass 2: Elaborate all elements with enriched context
+        val elaboratedElems = elements.map { elem =>
+          val elemResult = module.newOnceCell[ElabConstraint, AST](solver)
+          val elemType = module.newOnceCell[ElabConstraint, AST](solver)
           
-          elements.foreach {
-            case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
-              // Extract def name
+          // Check if this is a def statement
+          elem match
+            case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
+              // This is a def statement - elaborate with enriched context and pass def info
               val elems = seqElems.toVector
-              elems match
-                case _ +: CST.Symbol(name, _) +: _ =>
-                  // Create unique ID and type cell for this def
-                  val defId = Uniqid.make[AST]
-                  val defTypeCell = module.newOnceCell[ElabConstraint, AST](solver)
-                  // Add to context so it can be referenced (including by other defs)
-                  enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell)
-                  defInfoMap(elem) = (name, defId, defTypeCell)
-                case _ => ()
-            case _ => ()
-          }
+              val (name, defId, defTypeCell) = defInfoMap(elem)
+              val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, enrichedCtx)
+              handleDefStatement(defConstraint, elems, elem.span, defId, defTypeCell)(using module, solver)
+            case _ =>
+              // Regular element - elaborate with enriched context (can reference defs)
+              module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, enrichedCtx))
           
-          // Pass 2: Elaborate all elements with enriched context
-          val elemResults = elements.map { elem =>
-            val elemResult = module.newOnceCell[ElabConstraint, AST](solver)
-            val elemType = module.newOnceCell[ElabConstraint, AST](solver)
-            
-            // Check if this is a def statement
-            elem match
-              case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
-                // This is a def statement - elaborate with enriched context and pass def info
-                val elems = seqElems.toVector
-                val (name, defId, defTypeCell) = defInfoMap(elem)
-                val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, enrichedCtx)
-                handleDefStatement(defConstraint, elems, elem.span, defId, defTypeCell)(using module, solver)
-              case _ =>
-                // Regular element - elaborate with enriched context (can reference defs)
-                module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, enrichedCtx))
-            
-            (elemResult, elemType)
-          }
+          AST.MetaCell(HoldNotReadable(elemResult), elem.span)
+        }
 
-          // Elaborate tail with enriched context (cannot contain def statements, but can reference them)
-          val tailResults = tail.map { t =>
+        // Elaborate tail (or use empty tuple if None)
+        val elaboratedTail = tail match
+          case Some(t) =>
             val tailResult = module.newOnceCell[ElabConstraint, AST](solver)
-            val tailType = module.newOnceCell[ElabConstraint, AST](solver)
-            module.addConstraint(solver, ElabConstraint.Infer(t, tailResult, tailType, enrichedCtx))
-            (tailResult, tailType)
-          }.toVector
+            // Type of block is type of tail - use c.inferredTy directly
+            module.addConstraint(solver, ElabConstraint.Infer(t, tailResult, c.inferredTy, enrichedCtx))
+            AST.MetaCell(HoldNotReadable(tailResult), t.span)
+          case None =>
+            // Empty tail = unit type
+            val emptyTuple = AST.Tuple(Vector.empty, span)
+            module.fill(solver, c.inferredTy, AST.Tuple(Vector.empty, None))
+            emptyTuple
 
-          val allResults = elemResults ++ tailResults
-
-          // Add a helper constraint to assemble the block once all elements are elaborated
-          module.addConstraint(
-            solver,
-            ElabConstraint.AssembleBlock(
-              allResults.map(_._1),
-              allResults.map(_._2),
-              c.result,
-              c.inferredTy,
-              span
-            )
-          )
-
-          // Return Done - the AssembleBlock constraint will wait for the element cells
-          Result.Done
+        // Construct block directly with MetaCells - they'll be resolved by substituteSolutions
+        val block = AST.Block(elaboratedElems, elaboratedTail, span)
+        module.fill(solver, c.result, block)
+        Result.Done
 
       // SeqOf: could be function application or sequence (but NOT def - def only allowed in Block elements)
       case CST.SeqOf(elements, span) =>
@@ -652,8 +628,11 @@ class ElabHandler extends Handler[ElabConstraint]:
     Result.Done
 
   /** Parse a telescope from CST parameter list
-    * This creates a telescope with placeholder types that should be elaborated
-    * in a separate pass by the caller
+    * This creates a telescope with types as meta-cells that will be filled by constraints.
+    * 
+    * IMPORTANT: For dependent types, this progressively extends the context as it processes
+    * each parameter, so later parameters can reference earlier ones in their types.
+    * For example, in `def id[a: Type](x: a)`, the type of `x` references parameter `a`.
     */
   private def parseTelescopeFromCST[M <: SolverModule](
       params: Vector[CST],
@@ -662,22 +641,26 @@ class ElabHandler extends Handler[ElabConstraint]:
   )(using module: M, solver: module.Solver[ElabConstraint]): Telescope =
     import module.given
     
+    var currentCtx = ctx
     val parsedParams = params.flatMap {
       // Pattern: name : type
       case CST.SeqOf(elems, _) if elems.length == 3 =>
         (elems(0), elems(1), elems(2)) match
           case (CST.Symbol(name, _), CST.Symbol(":", _), typeCst) =>
             val paramId = Uniqid.make[AST]
-            // Elaborate the type
+            // Elaborate the type in the CURRENT context (which includes previous params)
             val tyResult = module.newOnceCell[ElabConstraint, AST](solver)
             val tyTy = module.newOnceCell[ElabConstraint, AST](solver)
-            module.addConstraint(solver, ElabConstraint.Infer(typeCst, tyResult, tyTy, ctx))
+            module.addConstraint(solver, ElabConstraint.Infer(typeCst, tyResult, tyTy, currentCtx))
             
-            // Get elaborated type or use placeholder
-            val paramTy = module.readStable(solver, tyResult).getOrElse(
-              AST.Ref(Uniqid.make, "Type", None)
-            )
-            Some(Param(paramId, name, paramTy, implicitness, None))
+            // Store cell reference as MetaCell - it will be resolved after constraints run
+            val paramTy = AST.MetaCell(HoldNotReadable(tyResult), None)
+            val param = Param(paramId, name, paramTy, implicitness, None)
+            
+            // Extend context for the next parameter
+            currentCtx = currentCtx.bind(name, paramId, tyResult)
+            
+            Some(param)
           case _ => None
       case CST.Symbol(name, _) =>
         // Just a name, type must be inferred
@@ -685,7 +668,12 @@ class ElabHandler extends Handler[ElabConstraint]:
         // Use a meta-variable for the type
         val tyCell = module.newOnceCell[ElabConstraint, AST](solver)
         val paramTy = AST.MetaCell(HoldNotReadable(tyCell), None)
-        Some(Param(paramId, name, paramTy, implicitness, None))
+        val param = Param(paramId, name, paramTy, implicitness, None)
+        
+        // Extend context for the next parameter
+        currentCtx = currentCtx.bind(name, paramId, tyCell)
+        
+        Some(param)
       case _ => None
     }
     Telescope(parsedParams, implicitness)
@@ -728,39 +716,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       case (AST.MetaCell(_, _), _) => true // Meta-variables unify with anything for now
       case (_, AST.MetaCell(_, _)) => true
       case _                       => false
-
-  private def handleAssembleBlock[M <: SolverModule](
-      c: ElabConstraint.AssembleBlock
-  )(using module: M, solver: module.Solver[ElabConstraint]): Result =
-    import module.given
-
-    // Check if all element results are filled
-    val allFilled = c.elemResults.forall(module.hasStableValue(solver, _))
-
-    if allFilled then
-      // All elements are elaborated, assemble the block
-      val astElems = c.elemResults.flatMap(module.readStable(solver, _))
-      if astElems.size == c.elemResults.size then
-        module.fill(solver, c.result, AST.Block(astElems, c.span))
-
-        // Block type is the type of the last element
-        if c.elemTypes.nonEmpty then
-          module.readStable(solver, c.elemTypes.last) match
-            case Some(ty) =>
-              module.fill(solver, c.inferredTy, ty)
-              Result.Done
-            case None =>
-              Result.Waiting(c.elemTypes.last)
-        else
-          // Empty block (shouldn't happen, but handle it)
-          module.fill(solver, c.inferredTy, AST.Tuple(Vector.empty, None))
-          Result.Done
-      else
-        // Some elements failed to elaborate
-        Result.Waiting(c.elemResults.filter(!module.hasStableValue(solver, _))*)
-    else
-      // Wait for all element results
-      Result.Waiting(c.elemResults.filter(!module.hasStableValue(solver, _))*)
 
   private def handleIsUniverse[M <: SolverModule](c: ElabConstraint.IsUniverse)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
@@ -914,6 +869,99 @@ class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabCons
   def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
     Some(handler)
 
+/** Substitute meta-cell solutions throughout an AST
+  * This resolves MetaCell nodes by reading their cell contents after constraint solving
+  * Also known as "zonking" in some type checkers
+  */
+def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: module.Solver[ElabConstraint]): AST =
+  import module.given
+  
+  ast match
+    case AST.MetaCell(HoldNotReadable(cell), span) =>
+      // Try to read the solution from the cell
+      module.readStable(solver, cell.asInstanceOf[module.CellR[AST]]) match
+        case Some(solution) =>
+          // Recursively substitute in the solution (it might contain more meta-cells)
+          substituteSolutions(solution)
+        case None =>
+          // Cell not filled - keep as meta-cell (shouldn't happen if solving succeeded)
+          ast
+    
+    case AST.Ref(id, name, span) => ast
+    
+    case AST.Tuple(elements, span) =>
+      AST.Tuple(elements.map(substituteSolutions), span)
+    
+    case AST.ListLit(elements, span) =>
+      AST.ListLit(elements.map(substituteSolutions), span)
+    
+    case AST.Block(elements, tail, span) =>
+      AST.Block(elements.map(substituteSolutions), substituteSolutions(tail), span)
+    
+    case AST.StringLit(value, span) => ast
+    case AST.IntLit(value, span) => ast
+    
+    case AST.Universe(level, span) =>
+      AST.Universe(substituteSolutions(level), span)
+    
+    case AST.Pi(telescopes, resultTy, span) =>
+      val newTelescopes = telescopes.map { tel =>
+        Telescope(
+          tel.params.map(p => 
+            Param(p.id, p.name, substituteSolutions(p.ty), p.implicitness, p.default.map(substituteSolutions))
+          ),
+          tel.implicitness
+        )
+      }
+      AST.Pi(newTelescopes, substituteSolutions(resultTy), span)
+    
+    case AST.Lam(telescopes, body, span) =>
+      val newTelescopes = telescopes.map { tel =>
+        Telescope(
+          tel.params.map(p => 
+            Param(p.id, p.name, substituteSolutions(p.ty), p.implicitness, p.default.map(substituteSolutions))
+          ),
+          tel.implicitness
+        )
+      }
+      AST.Lam(newTelescopes, substituteSolutions(body), span)
+    
+    case AST.App(func, args, span) =>
+      AST.App(
+        substituteSolutions(func),
+        args.map(arg => Arg(arg.name, substituteSolutions(arg.value))),
+        span
+      )
+    
+    case AST.Let(id, name, ty, value, body, span) =>
+      AST.Let(
+        id, name,
+        ty.map(substituteSolutions),
+        substituteSolutions(value),
+        substituteSolutions(body),
+        span
+      )
+    
+    case AST.Def(id, name, telescopes, resultTy, body, span) =>
+      val newTelescopes = telescopes.map { tel =>
+        Telescope(
+          tel.params.map(p => 
+            Param(p.id, p.name, substituteSolutions(p.ty), p.implicitness, p.default.map(substituteSolutions))
+          ),
+          tel.implicitness
+        )
+      }
+      AST.Def(
+        id, name,
+        newTelescopes,
+        resultTy.map(substituteSolutions),
+        substituteSolutions(body),
+        span
+      )
+    
+    case AST.Ann(expr, ty, span) =>
+      AST.Ann(substituteSolutions(expr), substituteSolutions(ty), span)
+
 /** Main elaborator object */
 object Elaborator:
   /** Elaborate a CST into an AST with type inference
@@ -956,7 +1004,11 @@ object Elaborator:
       .readStable(solver, typeCell)
       .getOrElse(throw new Exception(s"Failed to infer type for: $cst"))
 
-    (result, ty)
+    // Substitute all meta-cell solutions after constraint solving
+    val zonkedResult = substituteSolutions(result)(using module, solver)
+    val zonkedTy = substituteSolutions(ty)(using module, solver)
+
+    (zonkedResult, zonkedTy)
 
   /** Elaborate with default ProceduralSolver and new VectorReporter */
   def elaborate(cst: CST)(using Reporter[ElabProblem]): (AST, AST) =

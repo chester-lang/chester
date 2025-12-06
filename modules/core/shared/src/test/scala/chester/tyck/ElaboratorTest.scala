@@ -81,21 +81,21 @@ class ElaboratorTest extends FunSuite {
     // Run solver
     module.run(solver)
     
-    // Check results
-    val result = module.readStable(solver, resultCell)
-    val ty = module.readStable(solver, typeCell)
+    // Check results and resolve MetaCells
+    val result = module.readStable(solver, resultCell).map(r => substituteSolutions(r)(using module, solver))
+    val ty = module.readStable(solver, typeCell).map(t => substituteSolutions(t)(using module, solver))
     
     assert(result.isDefined, s"Result should be filled, but got: $result")
     assert(ty.isDefined, s"Type should be filled, but got: $ty")
     
     result.get match {
-      case AST.Block(elements, _) =>
-        assertEquals(elements.size, 1, "Block should have 1 element (the tail)")
-        elements.head match {
+      case AST.Block(elements, tail, _) =>
+        assertEquals(elements.size, 0, "Block should have 0 elements")
+        tail match {
           case AST.StringLit(value, _) =>
             assertEquals(value, "a", "Block tail should be 'a'")
           case other =>
-            fail(s"Expected StringLit in block, got $other")
+            fail(s"Expected StringLit in block tail, got $other")
         }
       case other =>
         fail(s"Expected Block, got $other")

@@ -57,7 +57,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case Ref(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)
   case Tuple(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
   case ListLit(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
-  case Block(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
+  case Block(elements: Vector[AST], tail: AST, override val span: Option[Span]) extends AST(span)
   case StringLit(value: String, override val span: Option[Span]) extends AST(span)
   case IntLit(value: BigInt, override val span: Option[Span]) extends AST(span)
   case Universe(level: AST, override val span: Option[Span]) extends AST(span)
@@ -76,9 +76,9 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       parens(hsep(elements.map(_.toDoc), `,` <+> empty))
     case AST.ListLit(elements, _) =>
       brackets(hsep(elements.map(_.toDoc), `,` <+> empty))
-    case AST.Block(elements, _) =>
-      if elements.isEmpty then braces(empty)
-      else braces(line <> ssep(elements.map(_.toDoc), `;` <> line).indented() <> line)
+    case AST.Block(elements, tail, _) =>
+      val elemsDoc = if elements.isEmpty then empty else ssep(elements.map(_.toDoc), `;` <> line) <> `;` <> line
+      braces(line <> (elemsDoc <> tail.toDoc).indented() <> line)
     case AST.StringLit(value, _) =>
       text("\"") <> text(value) <> text("\"")
     case AST.IntLit(value, _) =>
@@ -133,8 +133,9 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       elements.foreach(_.collectUniqids(collector))
     case AST.ListLit(elements, _) =>
       elements.foreach(_.collectUniqids(collector))
-    case AST.Block(elements, _) =>
+    case AST.Block(elements, tail, _) =>
       elements.foreach(_.collectUniqids(collector))
+      tail.collectUniqids(collector)
     case AST.StringLit(_, _) =>
       ()
     case AST.IntLit(_, _) =>
@@ -173,8 +174,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.Tuple(elements.map(_.mapUniqids(mapper)), span)
     case AST.ListLit(elements, span) =>
       AST.ListLit(elements.map(_.mapUniqids(mapper)), span)
-    case AST.Block(elements, span) =>
-      AST.Block(elements.map(_.mapUniqids(mapper)), span)
+    case AST.Block(elements, tail, span) =>
+      AST.Block(elements.map(_.mapUniqids(mapper)), tail.mapUniqids(mapper), span)
     case AST.StringLit(value, span) =>
       AST.StringLit(value, span)
     case AST.IntLit(value, span) =>

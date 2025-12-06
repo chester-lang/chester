@@ -43,7 +43,13 @@ class ElaboratorDefTest extends munit.FunSuite {
       // Run solver
       module.run(solver)
       
-      (module.readStable(solver, resultCell), module.readStable(solver, typeCell))
+      // Read results and apply substituteSolutions to resolve MetaCells
+      val result = module.readStable(solver, resultCell)
+      val ty = module.readStable(solver, typeCell)
+      val zonkedResult = result.map(r => substituteSolutions(r)(using module, solver))
+      val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
+      
+      (zonkedResult, zonkedTy)
     }
     
     result match {
@@ -147,8 +153,10 @@ class ElaboratorDefTest extends munit.FunSuite {
           case AST.Ref(_, "id", _) => // OK
           case other => fail(s"Expected id reference, got: $func")
         }
-        // First arg should be a meta-variable (inferred type)
-        assert(args(0).value.isInstanceOf[AST.MetaCell], s"First arg should be MetaCell (inferred type), got: ${args(0).value}")
+        // First arg should be the inferred type (resolved by substituteSolutions)
+        // For id(42), the type should be inferred from 42's type
+        assert(args(0).value.isInstanceOf[AST.Universe] || args(0).value.isInstanceOf[AST.Ref], 
+          s"First arg should be type (Universe or Ref), got: ${args(0).value}")
         // Second arg should be the integer 42
         assert(args(1).value.isInstanceOf[AST.IntLit], s"Second arg should be IntLit, got: ${args(1).value}")
       case other =>
@@ -194,20 +202,19 @@ class ElaboratorDefTest extends munit.FunSuite {
     assert(!errors.exists(_.toString.contains("def statement only allowed in block elements")), 
       s"Should not have error about def placement, got: $errors")
     
-    // The AST should be a Block containing a Def and an integer
+    // The AST should be a Block containing a Def in elements and 42 in tail
     ast match {
-      case Some(AST.Block(elements, _)) =>
-        assert(elements.length >= 2, s"Block should have at least 2 elements (def and 42), got: ${elements.length}")
+      case Some(AST.Block(elements, tail, _)) =>
+        assert(elements.length >= 1, s"Block should have at least 1 element (def), got: ${elements.length}")
         assert(elements.head.isInstanceOf[AST.Def], s"First element should be Def, got: ${elements.head}")
+        assert(tail.isInstanceOf[AST.IntLit], s"Tail should be IntLit, got: $tail")
       case other =>
         fail(s"Expected Block, got: $other")
     }
   }
 
-  test("def in block can be called".ignore) {
-    // TODO: This test currently fails due to solver not finishing constraints
-    // The forward reference works (no unbound variable error) but type elaboration
-    // creates a cyclic dependency that the solver can't resolve yet
+  test("def in block can be called") {
+    // Test that def in block can be referenced by later expressions
     val (ast, ty, errors) = elaborate("{ def id[a: Type](x: a) = x; id(42) }")
     
     // Should not have unbound variable error for id
