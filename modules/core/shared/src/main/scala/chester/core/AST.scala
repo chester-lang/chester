@@ -62,6 +62,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case IntLit(value: BigInt, override val span: Option[Span]) extends AST(span)
   case Universe(level: AST, override val span: Option[Span]) extends AST(span)
   case AnyType(override val span: Option[Span]) extends AST(span)
+  case StringType(override val span: Option[Span]) extends AST(span)
   case Pi(telescopes: Vector[Telescope], resultTy: AST, override val span: Option[Span]) extends AST(span)
   case Lam(telescopes: Vector[Telescope], body: AST, override val span: Option[Span]) extends AST(span)
   case App(func: AST, args: Vector[Arg], override val span: Option[Span]) extends AST(span)
@@ -88,6 +89,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("Type") <> brackets(level.toDoc)
     case AST.AnyType(_) =>
       text("Any")
+    case AST.StringType(_) =>
+      text("String")
     case AST.Pi(telescopes, resultTy, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
@@ -147,6 +150,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       level.collectUniqids(collector)
     case AST.AnyType(_) =>
       ()
+    case AST.StringType(_) =>
+      ()
     case AST.Pi(telescopes, resultTy, _) =>
       telescopes.foreach(_.collectUniqids(collector))
       resultTy.collectUniqids(collector)
@@ -189,6 +194,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.Universe(level.mapUniqids(mapper), span)
     case AST.AnyType(span) =>
       AST.AnyType(span)
+    case AST.StringType(span) =>
+      AST.StringType(span)
     case AST.Pi(telescopes, resultTy, span) =>
       AST.Pi(
         telescopes.map(_.mapUniqids(mapper)),

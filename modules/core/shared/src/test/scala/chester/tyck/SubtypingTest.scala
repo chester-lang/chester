@@ -139,3 +139,29 @@ class SubtypingTest extends FunSuite:
     assert(ty.isDefined, "Type should be defined")
   }
 
+  test("type check id(id)(\"a\") with type String".ignore) {
+    // id : [a: Type](x: a) -> a
+    // id(id) applies id to itself: id[([a:Type](x:a)->a)](id) : ([a:Type](x:a)->a)
+    // So id(id) returns id, and id(id)("a") should be the same as id("a")
+    // The type of "a" is String, so result should have type String
+    // 
+    // Currently hangs because:
+    // 1. Type checking id(id) requires reducing id applied to itself
+    // 2. Reduction is disabled in unify() to prevent infinite loops
+    // 3. Need to implement proper normalization strategy (Issue #3)
+    val (ast, ty, errors) = elaborate("""{
+      def id[a: Type](x: a) = x;
+      id(id)("a")
+    }""")
+    
+    assert(errors.isEmpty, s"Should have no errors, got: $errors")
+    assert(ast.isDefined, "AST should be defined")
+    assert(ty.isDefined, "Type should be defined")
+    
+    // The type should be String (the type of "a")
+    ty.get match {
+      case AST.StringType(_) => // OK - result type is String
+      case other => fail(s"Expected String type, got: $other")
+    }
+  }
+

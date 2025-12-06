@@ -155,6 +155,8 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       AST.Universe(substituteInType(level, substitutions), span)
     case AST.AnyType(span) =>
       AST.AnyType(span)
+    case AST.StringType(span) =>
+      AST.StringType(span)
     case AST.Pi(telescopes, resultTy, span) =>
       // Don't substitute bound variables
       val newTelescopes = telescopes.map { tel =>
@@ -281,13 +283,18 @@ class ElabHandler extends Handler[ElabConstraint]:
                 module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
                 Result.Done
           case None =>
-            // Check if it's a builtin
-            // Check for Any type
+            // Check if it's a builtin type
             if name == "Any" then
               val ast = AST.AnyType(span)
               module.fill(solver, c.result, ast)
               // Any has type Type[1]
               module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(1, None), None))
+              Result.Done
+            else if name == "String" then
+              val ast = AST.StringType(span)
+              module.fill(solver, c.result, ast)
+              // String has type Type[0]
+              module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
               Result.Done
             else if c.ctx.isBuiltin(name) then
               // Built-in: create a special reference
@@ -796,6 +803,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case (AST.Universe(l1, _), AST.Universe(l2, _)) => unify(l1, l2, span, ctx)
       
       case (AST.AnyType(_), AST.AnyType(_)) => UnifyResult.Success
+      case (AST.StringType(_), AST.StringType(_)) => UnifyResult.Success
       
       case (AST.Tuple(e1, _), AST.Tuple(e2, _)) =>
         if e1.size != e2.size then UnifyResult.Failure("Tuple arity mismatch")
@@ -861,6 +869,10 @@ class ElabHandler extends Handler[ElabConstraint]:
     if ty1.isInstanceOf[AST.AnyType] then
       return ty2.isInstanceOf[AST.AnyType]
     
+    // String is only a subtype of itself (and Any, handled above)
+    if ty1.isInstanceOf[AST.StringType] then
+      return ty2.isInstanceOf[AST.StringType]
+    
     // Reflexive case and unification fallback
     unify(ty1, ty2, span, ctx) match
       case UnifyResult.Success => true
@@ -900,7 +912,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.MetaCell(HoldNotReadable(c), _) =>
         if c == cell then true
         else module.readStable(solver, c).exists(occursIn(cell, _))
-      case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) | AST.AnyType(_) => false
+      case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) | AST.AnyType(_) | AST.StringType(_) => false
       case AST.Universe(level, _) => occursIn(cell, level)
       case AST.Tuple(elements, _) => elements.exists(occursIn(cell, _))
       case AST.ListLit(elements, _) => elements.exists(occursIn(cell, _))
@@ -1106,6 +1118,7 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
       AST.Universe(substituteSolutions(level), span)
     
     case AST.AnyType(span) => ast
+    case AST.StringType(span) => ast
     
     case AST.Pi(telescopes, resultTy, span) =>
       val newTelescopes = telescopes.map { tel =>
