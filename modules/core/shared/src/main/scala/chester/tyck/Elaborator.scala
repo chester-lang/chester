@@ -288,28 +288,45 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       // Block: infer each element
       case CST.Block(elements, tail, span) =>
-        val allElements = tail.map(elements :+ _).getOrElse(elements)
-        if allElements.isEmpty then
+        // Check if tail contains a def statement (which is not allowed)
+        tail.foreach { t =>
+          if isDefStatement(t) then
+            c.ctx.reporter.report(ElabProblem.UnboundVariable("def statement not allowed in tail position", t.span))
+        }
+
+        if elements.isEmpty && tail.isEmpty then
           // Empty block
           val unit = AST.Tuple(Vector.empty, span)
           module.fill(solver, c.result, unit)
           module.fill(solver, c.inferredTy, AST.Tuple(Vector.empty, None))
           Result.Done
         else
-          // Create cells for each element and add Infer constraints
-          val elemResults = allElements.map { elem =>
+          // Elaborate elements (can contain def statements)
+          val elemResults = elements.map { elem =>
             val elemResult = module.newOnceCell[ElabConstraint, AST](solver)
             val elemType = module.newOnceCell[ElabConstraint, AST](solver)
+            // Add constraint for all elements (including def statements)
+            // The Infer handler will properly handle def statements
             module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, c.ctx))
             (elemResult, elemType)
           }
+
+          // Elaborate tail (cannot contain def statements)
+          val tailResults = tail.map { t =>
+            val tailResult = module.newOnceCell[ElabConstraint, AST](solver)
+            val tailType = module.newOnceCell[ElabConstraint, AST](solver)
+            module.addConstraint(solver, ElabConstraint.Infer(t, tailResult, tailType, c.ctx))
+            (tailResult, tailType)
+          }.toVector
+
+          val allResults = elemResults ++ tailResults
 
           // Add a helper constraint to assemble the block once all elements are elaborated
           module.addConstraint(
             solver,
             ElabConstraint.AssembleBlock(
-              elemResults.map(_._1).toVector,
-              elemResults.map(_._2).toVector,
+              allResults.map(_._1),
+              allResults.map(_._2),
               c.result,
               c.inferredTy,
               span
@@ -485,6 +502,12 @@ class ElabHandler extends Handler[ElabConstraint]:
       case _ => None
     }
     Telescope(parsedParams, implicitness)
+
+  /** Check if a CST node is a def statement */
+  private def isDefStatement(cst: CST): Boolean = cst match
+    case CST.SeqOf(elements, _) =>
+      elements.headOption.exists { case CST.Symbol("def", _) => true; case _ => false }
+    case _ => false
 
   private def handleUnify[M <: SolverModule](c: ElabConstraint.Unify)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given

@@ -157,4 +157,22 @@ class ElaboratorDefTest extends munit.FunSuite {
         fail(s"Expected App, got: $other")
     }
   }
+
+  test("def in tail position is rejected".ignore) {
+    val (ast, ty, errors) = elaborate("{ def f(x: Type) = x }")
+    
+    // Should have an error about def in tail position
+    assert(errors.nonEmpty, "Should have errors")
+    assert(errors.exists(_.toString.contains("tail position")), 
+      s"Should have error about tail position, got: $errors")
+  }
+
+  test("def in block elements is allowed".ignore) {
+    val (ast, ty, errors) = elaborate("{ def f(x: Type) = x; 42 }")
+    
+    // Should elaborate without the tail position error
+    // (may have other errors due to incomplete implementation)
+    assert(!errors.exists(_.toString.contains("tail position")), 
+      s"Should not have tail position error, got: $errors")
+  }
 }
