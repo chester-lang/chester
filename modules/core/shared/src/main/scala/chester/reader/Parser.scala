@@ -179,6 +179,10 @@ object Parser {
         case Some(_: Token.Comma) =>
           state.advance()
           state.skipTrivia()
+          // Allow trailing comma: if we see closing delimiter after comma, exit loop
+          if (state.is(isClosing)) {
+            // Exit loop, closing will be handled after
+          }
         case Some(tok) if isClosing(tok) => // Done, will be handled after loop
         case _ if state.isEOF            => return closeWithError("EOF")
         case Some(_: Token.Semicolon)    => return closeWithError("semicolon in block context")

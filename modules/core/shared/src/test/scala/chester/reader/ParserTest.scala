@@ -369,4 +369,46 @@ class ParserTest extends munit.FunSuite {
     expectSymbol(elements(1), "b")
     expectSymbol(tail.get, "c")
   }
+
+  test("parse trailing commas in tuples") {
+    val (single, e1) = parse("(42,)")
+    assertNoErrors(e1)
+    val CST.Tuple(elems1, _) = single: @unchecked
+    assertEquals(elems1.length, 1)
+    expectInt(elems1(0), 42)
+
+    val (multi, e2) = parse("(1, 2, 3,)")
+    assertNoErrors(e2)
+    val CST.Tuple(elems2, _) = multi: @unchecked
+    assertEquals(elems2.length, 3)
+    elems2.zipWithIndex.foreach { case (e, i) => expectInt(e, i + 1) }
+
+    val (nested, e3) = parse("(1, (2, 3,),)")
+    assertNoErrors(e3)
+    val CST.Tuple(elems3, _) = nested: @unchecked
+    assertEquals(elems3.length, 2)
+    expectInt(elems3(0), 1)
+    assert(elems3(1).isInstanceOf[CST.Tuple])
+  }
+
+  test("parse trailing commas in lists") {
+    val (single, e1) = parse("[42,]")
+    assertNoErrors(e1)
+    val CST.ListLiteral(elems1, _) = single: @unchecked
+    assertEquals(elems1.length, 1)
+    expectInt(elems1(0), 42)
+
+    val (multi, e2) = parse("[1, 2, 3,]")
+    assertNoErrors(e2)
+    val CST.ListLiteral(elems2, _) = multi: @unchecked
+    assertEquals(elems2.length, 3)
+    elems2.zipWithIndex.foreach { case (e, i) => expectInt(e, i + 1) }
+
+    val (nested, e3) = parse("[1, [2, 3,],]")
+    assertNoErrors(e3)
+    val CST.ListLiteral(elems3, _) = nested: @unchecked
+    assertEquals(elems3.length, 2)
+    expectInt(elems3(0), 1)
+    assert(elems3(1).isInstanceOf[CST.ListLiteral])
+  }
 }
