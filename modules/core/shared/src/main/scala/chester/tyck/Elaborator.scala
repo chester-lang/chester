@@ -1,12 +1,13 @@
 package chester.tyck
 
 import scala.language.experimental.genericNumberLiterals
-import chester.core.{AST, CST, Param, Arg}
+import chester.core.{AST, CST, Param, Arg, Telescope, Implicitness}
 import chester.error.{Span, Problem, Reporter}
 import chester.uniqid.{UniqidOf, Uniqid}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{Doc, DocConf, DocOps, StringPrinter, given}
+import cats.data.NonEmptyVector
 import scala.collection.mutable
 
 /** Elaboration problems */
@@ -34,6 +35,7 @@ case class ElabContext(
     bindings: Map[String, UniqidOf[AST]], // Name -> variable ID mapping
     types: Map[UniqidOf[AST], CellRW[AST]], // Variable ID -> type cell mapping
     builtins: Set[String] = ElabContext.defaultBuiltins, // Built-in names
+    builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes, // Built-in types
     reporter: Reporter[ElabProblem] // Error reporter
 ):
   def bind(name: String, id: UniqidOf[AST], ty: CellRW[AST]): ElabContext =
@@ -42,6 +44,7 @@ case class ElabContext(
   def lookup(name: String): Option[UniqidOf[AST]] = bindings.get(name)
   def lookupType(id: UniqidOf[AST]): Option[CellRW[AST]] = types.get(id)
   def isBuiltin(name: String): Boolean = builtins.contains(name)
+  def lookupBuiltinType(name: String): Option[AST] = builtinTypes.get(name)
 
 object ElabContext:
   val defaultBuiltins: Set[String] = Set(
@@ -55,8 +58,30 @@ object ElabContext:
     "U",
     "Universe",
     "true",
-    "false"
+    "false",
+    "id"
   )
+
+  /** Built-in function types
+    * id : [a: Type] (x: a) -> a
+    */
+  val defaultBuiltinTypes: Map[String, AST] = {
+    val typeUniverse = AST.Universe(AST.IntLit(0, None), None)
+    val aId = Uniqid.make[AST]
+    val xId = Uniqid.make[AST]
+    val aRef = AST.Ref(aId, "a", None)
+    
+    Map(
+      "id" -> AST.Pi(
+        Vector(
+          Telescope(Vector(Param(aId, "a", typeUniverse, Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(Param(xId, "x", aRef, Implicitness.Explicit, None)), Implicitness.Explicit)
+        ),
+        aRef,
+        None
+      )
+    )
+  }
 
 /** All elaboration constraints */
 enum ElabConstraint:
@@ -93,7 +118,7 @@ enum ElabConstraint:
   /** Ensure ty is a Pi type */
   case IsPi(
       ty: CellR[AST],
-      params: CellRW[Vector[Param]],
+      telescopes: CellRW[Vector[Telescope]],
       resultTy: CellRW[AST]
   )
 
@@ -104,6 +129,17 @@ enum ElabConstraint:
       result: CellRW[AST],
       inferredTy: CellRW[AST],
       span: Option[Span]
+  )
+
+  /** Assemble a function application from elaborated function and arguments */
+  case AssembleApp(
+      funcResult: CellR[AST],
+      funcTy: CellR[AST],
+      argResults: Vector[CellR[AST]],
+      result: CellRW[AST],
+      inferredTy: CellRW[AST],
+      span: Option[Span],
+      ctx: ElabContext
   )
 
 /** Handler for elaboration constraints */
@@ -118,6 +154,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case c: ElabConstraint.IsUniverse    => handleIsUniverse(c)
       case c: ElabConstraint.IsPi          => handleIsPi(c)
       case c: ElabConstraint.AssembleBlock => handleAssembleBlock(c)
+      case c: ElabConstraint.AssembleApp   => handleAssembleApp(c)
 
   def canDefaulting(level: DefaultingLevel): Boolean = false
 
@@ -180,8 +217,13 @@ class ElabHandler extends Handler[ElabConstraint]:
               val metaId = Uniqid.make[AST]
               val ast = AST.Ref(metaId, name, span)
               module.fill(solver, c.result, ast)
-              // Built-ins have Universe(0) as type for now
-              module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+              // Look up builtin type
+              c.ctx.lookupBuiltinType(name) match
+                case Some(ty) =>
+                  module.fill(solver, c.inferredTy, ty)
+                case None =>
+                  // Default: Universe(0)
+                  module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
               Result.Done
             else
               // Unbound variable - report error and recover
@@ -277,11 +319,172 @@ class ElabHandler extends Handler[ElabConstraint]:
           // Return Done - the AssembleBlock constraint will wait for the element cells
           Result.Done
 
-      // SeqOf: for now, just elaborate as a Block
+      // SeqOf: could be function application, def statement, or sequence
       case CST.SeqOf(elements, span) =>
-        val blockCst = CST.Block(elements.toVector.dropRight(1), Some(elements.last), span)
-        module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
-        Result.Done
+        val elems = elements.toVector
+        
+        // Check for def statement: def name [implicit-params] (explicit-params) = body
+        if elems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } then
+          handleDefStatement(c, elems, span)
+        // Check for function application: f(args) becomes SeqOf(f, Tuple(args))
+        else if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
+          handleFunctionApplication(c, elems(0), elems(1).asInstanceOf[CST.Tuple], span)
+        else
+          // Default: treat as a block-like sequence
+          val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
+          module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
+          Result.Done
+
+  /** Handle function application: f(args) */
+  private def handleFunctionApplication[M <: SolverModule](
+      c: ElabConstraint.Infer,
+      funcCst: CST,
+      argsTuple: CST.Tuple,
+      span: Option[Span]
+  )(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    import module.given
+
+    // Elaborate function
+    val funcResult = module.newOnceCell[ElabConstraint, AST](solver)
+    val funcTy = module.newOnceCell[ElabConstraint, AST](solver)
+    module.addConstraint(solver, ElabConstraint.Infer(funcCst, funcResult, funcTy, c.ctx))
+
+    // Elaborate arguments
+    val argResults = argsTuple.elements.map { arg =>
+      val argResult = module.newOnceCell[ElabConstraint, AST](solver)
+      val argTy = module.newOnceCell[ElabConstraint, AST](solver)
+      module.addConstraint(solver, ElabConstraint.Infer(arg, argResult, argTy, c.ctx))
+      argResult
+    }
+
+    // Add constraint to assemble application once all parts are elaborated
+    module.addConstraint(solver, ElabConstraint.AssembleApp(
+      funcResult, funcTy, argResults, c.result, c.inferredTy, span, c.ctx
+    ))
+
+    Result.Done
+
+  /** Handle def statement: def name [implicit] (explicit) : resultTy = body */
+  private def handleDefStatement[M <: SolverModule](
+      c: ElabConstraint.Infer,
+      elems: Vector[CST],
+      span: Option[Span]
+  )(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    import module.given
+
+    // Parse: def name [telescope]* (telescope)* = body
+    // or:    def name [telescope]* (telescope)* : type = body
+    if elems.length < 4 then
+      c.ctx.reporter.report(ElabProblem.UnboundVariable("Invalid def syntax", span))
+      module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
+      module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+      return Result.Done
+
+    val name = elems(1) match
+      case CST.Symbol(n, _) => n
+      case _ =>
+        c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected name after def", span))
+        "<error>"
+
+    // Collect telescopes (lists for implicit, tuples for explicit)
+    var idx = 2
+    val telescopes = scala.collection.mutable.ArrayBuffer.empty[Telescope]
+    
+    while idx < elems.length && (elems(idx).isInstanceOf[CST.ListLiteral] || elems(idx).isInstanceOf[CST.Tuple]) do
+      elems(idx) match
+        case CST.ListLiteral(params, _) =>
+          telescopes += parseTelescopeFromCST(params, Implicitness.Implicit, c.ctx)
+          idx += 1
+        case CST.Tuple(params, _) =>
+          telescopes += parseTelescopeFromCST(params, Implicitness.Explicit, c.ctx)
+          idx += 1
+        case _ => ()
+
+    // Check for optional result type annotation
+    var resultTy: Option[AST] = None
+    if idx < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == ":" then
+      idx += 1
+      if idx < elems.length then
+        val resultTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+        val resultTyTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+        module.addConstraint(solver, ElabConstraint.Infer(elems(idx), resultTyCell, resultTyTyCell, c.ctx))
+        if !module.hasStableValue(solver, resultTyCell) then
+          return Result.Waiting(resultTyCell)
+        resultTy = module.readStable(solver, resultTyCell)
+        idx += 1
+
+    // Expect =
+    if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != "=" then
+      c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected = in def", span))
+      module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
+      module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+      return Result.Done
+
+    idx += 1
+
+    // Body is remaining elements
+    val bodyCst = if idx < elems.length then
+      if elems.length - idx == 1 then elems(idx)
+      else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems.drop(idx)), span)
+    else
+      c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected body in def", span))
+      CST.Symbol("<error>", span)
+
+    // Create extended context with parameters
+    var extCtx = c.ctx
+    for telescope <- telescopes; param <- telescope.params do
+      val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+      module.fill(solver, paramTyCell, param.ty)
+      extCtx = extCtx.bind(param.name, param.id, paramTyCell)
+
+    // Elaborate body
+    val bodyResult = module.newOnceCell[ElabConstraint, AST](solver)
+    val bodyTy = module.newOnceCell[ElabConstraint, AST](solver)
+    module.addConstraint(solver, ElabConstraint.Infer(bodyCst, bodyResult, bodyTy, extCtx))
+
+    if !module.hasStableValue(solver, bodyResult) then
+      return Result.Waiting(bodyResult)
+
+    val body = module.readStable(solver, bodyResult).get
+    val defId = Uniqid.make[AST]
+    val defAst = AST.Def(defId, name, telescopes.toVector, resultTy, body, span)
+    
+    module.fill(solver, c.result, defAst)
+    
+    // Type of def is Pi type
+    val piTy = resultTy match
+      case Some(rt) => AST.Pi(telescopes.toVector, rt, span)
+      case None =>
+        if module.hasStableValue(solver, bodyTy) then
+          AST.Pi(telescopes.toVector, module.readStable(solver, bodyTy).get, span)
+        else
+          return Result.Waiting(bodyTy)
+    
+    module.fill(solver, c.inferredTy, piTy)
+    Result.Done
+
+  /** Parse a telescope from CST parameter list */
+  private def parseTelescopeFromCST(
+      params: Vector[CST],
+      implicitness: Implicitness,
+      ctx: ElabContext
+  ): Telescope =
+    val parsedParams = params.flatMap {
+      // Pattern: name : type
+      case CST.SeqOf(elems, _) if elems.length == 3 =>
+        (elems(0), elems(1), elems(2)) match
+          case (CST.Symbol(name, _), CST.Symbol(":", _), typeCst) =>
+            val paramId = Uniqid.make[AST]
+            // For now, use a placeholder type - will be elaborated later
+            Some(Param(paramId, name, AST.Ref(Uniqid.make, "Type", None), implicitness, None))
+          case _ => None
+      case CST.Symbol(name, _) =>
+        // Just a name, infer type
+        val paramId = Uniqid.make[AST]
+        Some(Param(paramId, name, AST.Ref(Uniqid.make, "Type", None), implicitness, None))
+      case _ => None
+    }
+    Telescope(parsedParams, implicitness)
 
   private def handleUnify[M <: SolverModule](c: ElabConstraint.Unify)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
@@ -305,9 +508,12 @@ class ElabHandler extends Handler[ElabConstraint]:
       case (AST.Universe(l1, _), AST.Universe(l2, _))   => unifyTypes(l1, l2)
       case (AST.Tuple(e1, _), AST.Tuple(e2, _)) =>
         e1.size == e2.size && e1.zip(e2).forall((a, b) => unifyTypes(a, b))
-      case (AST.Pi(p1, r1, _), AST.Pi(p2, r2, _)) =>
-        p1.size == p2.size &&
-        p1.zip(p2).forall((a, b) => unifyTypes(a.ty, b.ty)) &&
+      case (AST.Pi(t1, r1, _), AST.Pi(t2, r2, _)) =>
+        t1.size == t2.size &&
+        t1.zip(t2).forall((a, b) => 
+          a.params.size == b.params.size &&
+          a.params.zip(b.params).forall((p1, p2) => unifyTypes(p1.ty, p2.ty))
+        ) &&
         unifyTypes(r1, r2)
       case (AST.MetaCell(_, _), _) => true // Meta-variables unify with anything for now
       case (_, AST.MetaCell(_, _)) => true
@@ -363,8 +569,8 @@ class ElabHandler extends Handler[ElabConstraint]:
     import module.given
 
     module.readStable(solver, c.ty) match
-      case Some(AST.Pi(params, resultTy, _)) =>
-        module.fill(solver, c.params, params)
+      case Some(AST.Pi(telescopes, resultTy, _)) =>
+        module.fill(solver, c.telescopes, telescopes)
         module.fill(solver, c.resultTy, resultTy)
         Result.Done
       case Some(_) =>
@@ -372,6 +578,45 @@ class ElabHandler extends Handler[ElabConstraint]:
         Result.Done
       case None =>
         Result.Waiting(c.ty)
+
+  private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    import module.given
+
+    // Wait for all parts to be elaborated
+    if !module.hasStableValue(solver, c.funcResult) then
+      return Result.Waiting(c.funcResult)
+    
+    if !c.argResults.forall(module.hasStableValue(solver, _)) then
+      return Result.Waiting(c.argResults.filter(!module.hasStableValue(solver, _))*)
+
+    // Build application AST
+    val func = module.readStable(solver, c.funcResult).get
+    val args = c.argResults.flatMap(module.readStable(solver, _))
+    val app = AST.App(func, args.map(Arg(None, _)), c.span)
+    module.fill(solver, c.result, app)
+
+    // Type check: function type should be Pi
+    if !module.hasStableValue(solver, c.funcTy) then
+      return Result.Waiting(c.funcTy)
+
+    module.readStable(solver, c.funcTy) match
+      case Some(AST.Pi(telescopes, resultTy, _)) =>
+        // Simple case: check arity and fill result type
+        val allParams = telescopes.flatMap(_.params)
+        if allParams.size == args.size then
+          // For now, just use the result type
+          module.fill(solver, c.inferredTy, resultTy)
+          Result.Done
+        else
+          c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
+          module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+          Result.Done
+      case Some(ty) =>
+        c.ctx.reporter.report(ElabProblem.NotAFunction(ty, c.span))
+        module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+        Result.Done
+      case None =>
+        Result.Waiting(c.funcTy)
 
 /** Handler configuration for elaboration */
 class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
@@ -403,7 +648,7 @@ object Elaborator:
     import module.given
 
     val elaborationContext = ctx.getOrElse(
-      ElabContext(Map.empty, Map.empty, ElabContext.defaultBuiltins, reporter)
+      ElabContext(Map.empty, Map.empty, ElabContext.defaultBuiltins, ElabContext.defaultBuiltinTypes, reporter)
     )
 
     val solver = module.makeSolver[ElabConstraint](new ElabHandlerConf(module))

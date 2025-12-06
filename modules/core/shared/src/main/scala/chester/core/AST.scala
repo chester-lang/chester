@@ -10,10 +10,15 @@ import chester.utils.{*, given}
 import chester.utils.{HoldNotReadable, holdNotReadableRW}
 import chester.uniqid.{UniqidOf, Uniqid, rwUniqIDOf, UniqidCollector, UniqidReplacer, ContainsUniqid, given}
 
+enum Implicitness derives ReadWriter:
+  case Implicit
+  case Explicit
+
 case class Param(
     id: UniqidOf[AST],
     name: String,
     ty: AST,
+    implicitness: Implicitness = Implicitness.Explicit,
     default: Option[AST] = None
 ) derives ReadWriter:
   def collectUniqids(collector: UniqidCollector): Unit =
@@ -22,7 +27,18 @@ case class Param(
     default.foreach(_.collectUniqids(collector))
 
   def mapUniqids(mapper: UniqidReplacer): Param =
-    Param(mapper(id), name, ty.mapUniqids(mapper), default.map(_.mapUniqids(mapper)))
+    Param(mapper(id), name, ty.mapUniqids(mapper), implicitness, default.map(_.mapUniqids(mapper)))
+
+/** Telescope: a sequence of parameters with the same implicitness */
+case class Telescope(
+    params: Vector[Param],
+    implicitness: Implicitness
+) derives ReadWriter:
+  def collectUniqids(collector: UniqidCollector): Unit =
+    params.foreach(_.collectUniqids(collector))
+
+  def mapUniqids(mapper: UniqidReplacer): Telescope =
+    Telescope(params.map(_.mapUniqids(mapper)), implicitness)
 
 case class Arg(
     name: Option[String],
@@ -45,10 +61,11 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case StringLit(value: String, override val span: Option[Span]) extends AST(span)
   case IntLit(value: BigInt, override val span: Option[Span]) extends AST(span)
   case Universe(level: AST, override val span: Option[Span]) extends AST(span)
-  case Pi(params: Vector[Param], resultTy: AST, override val span: Option[Span]) extends AST(span)
-  case Lam(params: Vector[Param], body: AST, override val span: Option[Span]) extends AST(span)
+  case Pi(telescopes: Vector[Telescope], resultTy: AST, override val span: Option[Span]) extends AST(span)
+  case Lam(telescopes: Vector[Telescope], body: AST, override val span: Option[Span]) extends AST(span)
   case App(func: AST, args: Vector[Arg], override val span: Option[Span]) extends AST(span)
   case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
+  case Def(id: UniqidOf[AST], name: String, telescopes: Vector[Telescope], resultTy: Option[AST], body: AST, override val span: Option[Span]) extends AST(span)
   case Ann(expr: AST, ty: AST, override val span: Option[Span]) extends AST(span)
   case MetaCell(cell: HoldNotReadable[chester.utils.elab.CellRW[AST]], override val span: Option[Span]) extends AST(span)
 
@@ -68,34 +85,42 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text(value.toString)
     case AST.Universe(level, _) =>
       text("Type") <> brackets(level.toDoc)
-    case AST.Pi(params, resultTy, _) =>
-      val paramsDoc = hsep(
-        params.map(p =>
-          parens(
-            text(p.name) <> text(":") <+> p.ty.toDoc <>
-              p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
-          )
-        ),
-        empty
-      )
-      paramsDoc <+> text("->") <+> resultTy.toDoc
-    case AST.Lam(params, body, _) =>
-      val paramsDoc = hsep(
-        params.map(p =>
-          parens(
-            text(p.name) <> text(":") <+> p.ty.toDoc <>
-              p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
-          )
-        ),
-        empty
-      )
-      text("λ") <> paramsDoc <+> text("=>") <+> body.toDoc
+    case AST.Pi(telescopes, resultTy, _) =>
+      val telescopeDocs = telescopes.map { tel =>
+        val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
+        val paramsDoc = hsep(tel.params.map(p =>
+          text(p.name) <> text(":") <+> p.ty.toDoc <>
+            p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
+        ), `,` <+> empty)
+        bracket._1(paramsDoc)
+      }
+      hsep(telescopeDocs, empty) <+> text("->") <+> resultTy.toDoc
+    case AST.Lam(telescopes, body, _) =>
+      val telescopeDocs = telescopes.map { tel =>
+        val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
+        val paramsDoc = hsep(tel.params.map(p =>
+          text(p.name) <> text(":") <+> p.ty.toDoc <>
+            p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
+        ), `,` <+> empty)
+        bracket._1(paramsDoc)
+      }
+      text("λ") <> hsep(telescopeDocs, empty) <+> text("=>") <+> body.toDoc
     case AST.App(func, args, _) =>
       val argsDoc = hsep(args.map(a => a.name.map(n => text(n) <> text(" = ") <> a.value.toDoc).getOrElse(a.value.toDoc)), `,` <+> empty)
       func.toDoc <> parens(argsDoc)
     case AST.Let(id, name, ty, value, body, _) =>
       val tyDoc = ty.map(t => text(":") <+> t.toDoc).getOrElse(empty)
       text("let") <+> text(name) <+> tyDoc <+> text("=") <+> value.toDoc <+> text("in") <@@> body.toDoc.indented()
+    case AST.Def(id, name, telescopes, resultTy, body, _) =>
+      val telescopeDocs = telescopes.map { tel =>
+        val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
+        val paramsDoc = hsep(tel.params.map(p =>
+          text(p.name) <> text(":") <+> p.ty.toDoc
+        ), `,` <+> empty)
+        bracket._1(paramsDoc)
+      }
+      val tyDoc = resultTy.map(t => text(":") <+> t.toDoc).getOrElse(empty)
+      text("def") <+> text(name) <> hsep(telescopeDocs, empty) <+> tyDoc <+> text("=") <+> body.toDoc
     case AST.Ann(expr, ty, _) =>
       parens(expr.toDoc <+> text(":") <+> ty.toDoc)
     case AST.MetaCell(cell, _) =>
@@ -116,19 +141,11 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
     case AST.Universe(level, _) =>
       level.collectUniqids(collector)
-    case AST.Pi(params, resultTy, _) =>
-      params.foreach { p =>
-        collector(p.id)
-        p.ty.collectUniqids(collector)
-        p.default.foreach(_.collectUniqids(collector))
-      }
+    case AST.Pi(telescopes, resultTy, _) =>
+      telescopes.foreach(_.collectUniqids(collector))
       resultTy.collectUniqids(collector)
-    case AST.Lam(params, body, _) =>
-      params.foreach { p =>
-        collector(p.id)
-        p.ty.collectUniqids(collector)
-        p.default.foreach(_.collectUniqids(collector))
-      }
+    case AST.Lam(telescopes, body, _) =>
+      telescopes.foreach(_.collectUniqids(collector))
       body.collectUniqids(collector)
     case AST.App(func, args, _) =>
       func.collectUniqids(collector)
@@ -137,6 +154,11 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       collector(id)
       ty.foreach(_.collectUniqids(collector))
       value.collectUniqids(collector)
+      body.collectUniqids(collector)
+    case AST.Def(id, _, telescopes, resultTy, body, _) =>
+      collector(id)
+      telescopes.foreach(_.collectUniqids(collector))
+      resultTy.foreach(_.collectUniqids(collector))
       body.collectUniqids(collector)
     case AST.Ann(expr, ty, _) =>
       expr.collectUniqids(collector)
@@ -159,15 +181,15 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.IntLit(value, span)
     case AST.Universe(level, span) =>
       AST.Universe(level.mapUniqids(mapper), span)
-    case AST.Pi(params, resultTy, span) =>
+    case AST.Pi(telescopes, resultTy, span) =>
       AST.Pi(
-        params.map(p => Param(mapper(p.id), p.name, p.ty.mapUniqids(mapper), p.default.map(_.mapUniqids(mapper)))),
+        telescopes.map(_.mapUniqids(mapper)),
         resultTy.mapUniqids(mapper),
         span
       )
-    case AST.Lam(params, body, span) =>
+    case AST.Lam(telescopes, body, span) =>
       AST.Lam(
-        params.map(p => Param(mapper(p.id), p.name, p.ty.mapUniqids(mapper), p.default.map(_.mapUniqids(mapper)))),
+        telescopes.map(_.mapUniqids(mapper)),
         body.mapUniqids(mapper),
         span
       )
@@ -179,6 +201,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       )
     case AST.Let(id, name, ty, value, body, span) =>
       AST.Let(mapper(id), name, ty.map(_.mapUniqids(mapper)), value.mapUniqids(mapper), body.mapUniqids(mapper), span)
+    case AST.Def(id, name, telescopes, resultTy, body, span) =>
+      AST.Def(mapper(id), name, telescopes.map(_.mapUniqids(mapper)), resultTy.map(_.mapUniqids(mapper)), body.mapUniqids(mapper), span)
     case AST.Ann(expr, ty, span) =>
       AST.Ann(expr.mapUniqids(mapper), ty.mapUniqids(mapper), span)
     case AST.MetaCell(cell, span) =>
