@@ -178,10 +178,11 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       val boundIds = telescopes.flatMap(_.params.map(_.id)).toSet
       val filteredSubs = substitutions.filterNot { case (id, _) => boundIds.contains(id) }
       AST.Lam(newTelescopes, substituteInType(body, filteredSubs), span)
-    case AST.App(func, args, span) =>
+    case AST.App(func, args, implicitArgs, span) =>
       AST.App(
         substituteInType(func, substitutions),
-        args.map(a => Arg(a.name, substituteInType(a.value, substitutions))),
+        args.map(a => Arg(substituteInType(a.value, substitutions), a.implicitness)),
+        implicitArgs,
         span
       )
     case AST.Let(id, name, ty, value, body, span) =>
@@ -382,7 +383,8 @@ class ElabHandler extends Handler[ElabConstraint]:
                 // Type is List applied to element type (represented as App for now)
                 val listTy = AST.App(
                   AST.Ref(Uniqid.make, "List", None),
-                  Vector(Arg(None, elemTy)),
+                  Vector(Arg(elemTy, Implicitness.Explicit)),
+                  implicitArgs = false,
                   None
                 )
                 module.fill(solver, c.inferredTy, listTy)
@@ -390,7 +392,8 @@ class ElabHandler extends Handler[ElabConstraint]:
                 // Empty list - use polymorphic type
                 module.fill(solver, c.inferredTy, AST.App(
                   AST.Ref(Uniqid.make, "List", None),
-                  Vector(Arg(None, AST.MetaCell(HoldNotReadable(module.newOnceCell[ElabConstraint, AST](solver)), None))),
+                  Vector(Arg(AST.MetaCell(HoldNotReadable(module.newOnceCell[ElabConstraint, AST](solver)), None), Implicitness.Explicit)),
+                  implicitArgs = false,
                   None
                 ))
               Result.Done
@@ -729,7 +732,7 @@ class ElabHandler extends Handler[ElabConstraint]:
           case _ => term
       
       // Beta-reduction: (λ params. body) args -> body[params := args]
-      case AST.App(func, args, span) =>
+      case AST.App(func, args, implicitArgs, span) =>
         reduce(func, depth + 1) match
           case AST.Lam(telescopes, body, _) =>
             val allParams = telescopes.flatMap(_.params)
@@ -921,7 +924,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, resultTy)
       case AST.Lam(telescopes, body, _) =>
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, body)
-      case AST.App(func, args, _) =>
+      case AST.App(func, args, _, _) =>
         occursIn(cell, func) || args.exists(a => occursIn(cell, a.value))
       case AST.Let(_, _, ty, value, body, _) =>
         ty.exists(occursIn(cell, _)) || occursIn(cell, value) || occursIn(cell, body)
@@ -1022,13 +1025,23 @@ class ElabHandler extends Handler[ElabConstraint]:
           module.addConstraint(solver, ElabConstraint.Unify(argTy, paramTyCell, c.span, c.ctx))
         }
         
-        // Build final application with all arguments (implicit + explicit)
-        val allArgs = implicitArgs ++ explicitArgs
-        val app = AST.App(func, allArgs.map(Arg(None, _)), c.span)
+        // Build application - nest two Apps if we have both implicit and explicit args
+        val app = if implicitArgs.nonEmpty && explicitArgs.nonEmpty then
+          // Nested: func[implicitArgs](explicitArgs)
+          val implicitApp = AST.App(func, implicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
+          AST.App(implicitApp, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
+        else if implicitArgs.nonEmpty then
+          // Only implicit: func[implicitArgs]
+          AST.App(func, implicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
+        else
+          // Only explicit: func(explicitArgs)
+          AST.App(func, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
+        
         module.fill(solver, c.result, app)
         
         // Perform substitution: replace parameter references in result type with arguments
         val allParams = implicitParams ++ explicitParams
+        val allArgs = implicitArgs ++ explicitArgs
         val substitutedTy = substituteInType(resultTy, allParams.map(_.id).zip(allArgs).toMap)
         module.fill(solver, c.inferredTy, substitutedTy)
         Result.Done
@@ -1142,10 +1155,11 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
       }
       AST.Lam(newTelescopes, substituteSolutions(body), span)
     
-    case AST.App(func, args, span) =>
+    case AST.App(func, args, implicitArgs, span) =>
       AST.App(
         substituteSolutions(func),
-        args.map(arg => Arg(arg.name, substituteSolutions(arg.value))),
+        args.map(arg => Arg(substituteSolutions(arg.value), arg.implicitness)),
+        implicitArgs,
         span
       )
     

@@ -41,14 +41,14 @@ case class Telescope(
     Telescope(params.map(_.mapUniqids(mapper)), implicitness)
 
 case class Arg(
-    name: Option[String],
-    value: AST
+    value: AST,
+    implicitness: Implicitness = Implicitness.Explicit
 ) derives ReadWriter:
   def collectUniqids(collector: UniqidCollector): Unit =
     value.collectUniqids(collector)
 
   def mapUniqids(mapper: UniqidReplacer): Arg =
-    Arg(name, value.mapUniqids(mapper))
+    Arg(value.mapUniqids(mapper), implicitness)
 
 // Ensure HoldNotReadable ReadWriter is in scope for MetaCell
 given [T]: ReadWriter[HoldNotReadable[T]] = holdNotReadableRW.asInstanceOf[ReadWriter[HoldNotReadable[T]]]
@@ -65,7 +65,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case StringType(override val span: Option[Span]) extends AST(span)
   case Pi(telescopes: Vector[Telescope], resultTy: AST, override val span: Option[Span]) extends AST(span)
   case Lam(telescopes: Vector[Telescope], body: AST, override val span: Option[Span]) extends AST(span)
-  case App(func: AST, args: Vector[Arg], override val span: Option[Span]) extends AST(span)
+  case App(func: AST, args: Vector[Arg], implicitArgs: Boolean, override val span: Option[Span]) extends AST(span)
   case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
   case Def(id: UniqidOf[AST], name: String, telescopes: Vector[Telescope], resultTy: Option[AST], body: AST, override val span: Option[Span]) extends AST(span)
   case Ann(expr: AST, ty: AST, override val span: Option[Span]) extends AST(span)
@@ -111,9 +111,10 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
         bracket._1(paramsDoc)
       }
       text("λ") <> hsep(telescopeDocs, empty) <+> text("=>") <+> body.toDoc
-    case AST.App(func, args, _) =>
-      val argsDoc = hsep(args.map(a => a.name.map(n => text(n) <> text(" = ") <> a.value.toDoc).getOrElse(a.value.toDoc)), `,` <+> empty)
-      func.toDoc <> parens(argsDoc)
+    case AST.App(func, args, implicitArgs, _) =>
+      val bracket = if implicitArgs then (brackets, brackets) else (parens, parens)
+      val argsDoc = hsep(args.map(_.value.toDoc), `,` <+> empty)
+      func.toDoc <> bracket._1(argsDoc)
     case AST.Let(id, name, ty, value, body, _) =>
       val tyDoc = ty.map(t => text(":") <+> t.toDoc).getOrElse(empty)
       text("let") <+> text(name) <+> tyDoc <+> text("=") <+> value.toDoc <+> text("in") <@@> body.toDoc.indented()
@@ -158,9 +159,9 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
     case AST.Lam(telescopes, body, _) =>
       telescopes.foreach(_.collectUniqids(collector))
       body.collectUniqids(collector)
-    case AST.App(func, args, _) =>
+    case AST.App(func, args, _, _) =>
       func.collectUniqids(collector)
-      args.foreach(_.value.collectUniqids(collector))
+      args.foreach(_.collectUniqids(collector))
     case AST.Let(id, _, ty, value, body, _) =>
       collector(id)
       ty.foreach(_.collectUniqids(collector))
@@ -208,10 +209,11 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
         body.mapUniqids(mapper),
         span
       )
-    case AST.App(func, args, span) =>
+    case AST.App(func, args, implicitArgs, span) =>
       AST.App(
         func.mapUniqids(mapper),
-        args.map(a => Arg(a.name, a.value.mapUniqids(mapper))),
+        args.map(_.mapUniqids(mapper)),
+        implicitArgs,
         span
       )
     case AST.Let(id, name, ty, value, body, span) =>

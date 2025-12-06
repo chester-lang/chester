@@ -65,7 +65,7 @@ class ElaboratorDefTest extends munit.FunSuite {
     assert(ast.isDefined, "AST should be defined even with errors")
     
     ast.get match {
-      case AST.App(func, args, _) =>
+      case AST.App(func, args, _, _) =>
         assertEquals(args.length, 1, "Should have 1 argument")
       case other =>
         fail(s"Expected App, got: $other")
@@ -78,7 +78,7 @@ class ElaboratorDefTest extends munit.FunSuite {
     assert(ast.isDefined, "AST should be defined")
     
     ast.get match {
-      case AST.App(func, args, _) =>
+      case AST.App(func, args, _, _) =>
         assertEquals(args.length, 3, "Should have 3 arguments")
       case other =>
         fail(s"Expected App, got: $other")
