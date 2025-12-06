@@ -1,0 +1,133 @@
+package chester.tyck
+
+import munit.FunSuite
+import chester.core.{CST, AST}
+import chester.error.{Reporter, Problem}
+import chester.utils.elab.*
+import scala.collection.mutable
+import scala.language.experimental.genericNumberLiterals
+
+class ElaboratorTest extends FunSuite {
+  
+  class VectorReporter[P <: Problem] extends Reporter[P]:
+    private val problems = mutable.ArrayBuffer[P]()
+    def report(problem: P): Unit = problems += problem
+    def getProblems: Vector[P] = problems.toVector
+  
+  case class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
+    override def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
+      Some(new ElabHandler)
+  
+  test("elaborate string literal directly") {
+    val reporter = new VectorReporter[ElabProblem]()
+    val ctx = ElabContext(Map.empty, Map.empty, reporter = reporter)
+    
+    given module: ProceduralSolverModule.type = ProceduralSolverModule
+    import module.given
+    val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
+    
+    val cst = CST.StringLiteral("a", None)
+    val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
+    val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
+    
+    // Add single Infer constraint
+    module.addConstraint(solver, ElabConstraint.Infer(cst, resultCell, typeCell, ctx))
+    
+    // Run once
+    module.run(solver)
+    
+    // Check results
+    val result = module.readStable(solver, resultCell)
+    val ty = module.readStable(solver, typeCell)
+    
+    assert(result.isDefined, "Result should be filled")
+    assert(ty.isDefined, "Type should be filled")
+    
+    result.get match {
+      case AST.StringLit(value, _) =>
+        assertEquals(value, "a", "String value should be 'a'")
+      case other =>
+        fail(s"Expected StringLit, got $other")
+    }
+    
+    assertEquals(reporter.getProblems.size, 0, "Should have no errors")
+  }
+  
+  test("CST structure - string literal") {
+    val cst = CST.StringLiteral("a", None)
+    
+    cst match {
+      case CST.StringLiteral(value, _) =>
+        assertEquals(value, "a", "String value should be 'a'")
+      case other =>
+        fail(s"Expected StringLiteral, got $other")
+    }
+  }
+  
+  test("elaborate block with string literal tail") {
+    val reporter = new VectorReporter[ElabProblem]()
+    val ctx = ElabContext(Map.empty, Map.empty, reporter = reporter)
+    
+    given module: ProceduralSolverModule.type = ProceduralSolverModule
+    import module.given
+    val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
+    
+    val cst = CST.Block(Vector.empty, Some(CST.StringLiteral("a", None)), None)
+    val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
+    val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
+    
+    module.addConstraint(solver, ElabConstraint.Infer(cst, resultCell, typeCell, ctx))
+    
+    println(s"Before run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
+    module.run(solver)
+    println(s"After 1st run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
+    
+    // The block handler creates nested constraints, so we might need more runs
+    if !module.hasStableValue(solver, resultCell) then
+      module.run(solver)
+      println(s"After 2nd run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
+    
+    if !module.hasStableValue(solver, resultCell) then
+      module.run(solver)
+      println(s"After 3rd run: result=${module.readStable(solver, resultCell)}, type=${module.readStable(solver, typeCell)}")
+    
+    // Check results
+    val result = module.readStable(solver, resultCell)
+    val ty = module.readStable(solver, typeCell)
+    
+    assert(result.isDefined, s"Result should be filled, but got: $result")
+    assert(ty.isDefined, s"Type should be filled, but got: $ty")
+    
+    result.get match {
+      case AST.Block(elements, _) =>
+        assertEquals(elements.size, 1, "Block should have 1 element (the tail)")
+        elements.head match {
+          case AST.StringLit(value, _) =>
+            assertEquals(value, "a", "Block tail should be 'a'")
+          case other =>
+            fail(s"Expected StringLit in block, got $other")
+        }
+      case other =>
+        fail(s"Expected Block, got $other")
+    }
+    
+    assertEquals(reporter.getProblems.size, 0, "Should have no errors")
+  }
+  
+  test("CST structure - block with string literal tail") {
+    val cst = CST.Block(Vector.empty, Some(CST.StringLiteral("a", None)), None)
+    
+    cst match {
+      case CST.Block(elements, tail, _) =>
+        assertEquals(elements.size, 0, "Block should have no body elements")
+        tail match {
+          case Some(CST.StringLiteral(value, _)) =>
+            assertEquals(value, "a", "Block tail should be 'a'")
+          case other =>
+            fail(s"Expected StringLiteral in tail, got $other")
+        }
+      case other =>
+        fail(s"Expected Block, got $other")
+    }
+  }
+}

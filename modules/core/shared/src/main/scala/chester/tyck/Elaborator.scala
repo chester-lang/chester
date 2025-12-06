@@ -88,6 +88,15 @@ enum ElabConstraint:
     params: CellRW[Vector[Param]],
     resultTy: CellRW[AST]
   )
+  
+  /** Assemble a block from elaborated elements */
+  case AssembleBlock(
+    elemResults: Vector[CellR[AST]],
+    elemTypes: Vector[CellR[AST]],
+    result: CellRW[AST],
+    inferredTy: CellRW[AST],
+    span: Option[Span]
+  )
 
 /** Handler for elaboration constraints */
 class ElabHandler extends Handler[ElabConstraint]:
@@ -100,6 +109,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case c: ElabConstraint.Unify => handleUnify(c)
       case c: ElabConstraint.IsUniverse => handleIsUniverse(c)
       case c: ElabConstraint.IsPi => handleIsPi(c)
+      case c: ElabConstraint.AssembleBlock => handleAssembleBlock(c)
   
   def canDefaulting(level: DefaultingLevel): Boolean = false
   
@@ -242,29 +252,25 @@ class ElabHandler extends Handler[ElabConstraint]:
           module.fill(solver, c.inferredTy, AST.Tuple(Vector.empty, None))
           Result.Done
         else
-          val elemResults = allElements.map(_ => module.newOnceCell[ElabConstraint, AST](solver))
-          val elemTypes = allElements.map(_ => module.newOnceCell[ElabConstraint, AST](solver))
-          
-          allElements.zip(elemResults).zip(elemTypes).foreach { case ((cstElem, resultCell), tyCell) =>
-            module.addConstraint(solver, ElabConstraint.Infer(cstElem, resultCell, tyCell, c.ctx))
+          // Create cells for each element and add Infer constraints
+          val elemResults = allElements.map { elem =>
+            val elemResult = module.newOnceCell[ElabConstraint, AST](solver)
+            val elemType = module.newOnceCell[ElabConstraint, AST](solver)
+            module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, c.ctx))
+            (elemResult, elemType)
           }
           
-          val allFilled = elemResults.forall(module.hasStableValue(solver, _))
-          if allFilled then
-            val astElems = elemResults.flatMap(module.readStable(solver, _))
-            if astElems.size == allElements.size then
-              module.fill(solver, c.result, AST.Block(astElems, span))
-              // Block type is the type of the last element
-              module.readStable(solver, elemTypes.last) match
-                case Some(lastTy) =>
-                  module.fill(solver, c.inferredTy, lastTy)
-                  Result.Done
-                case None =>
-                  Result.Waiting(elemTypes.last)
-            else
-              Result.Waiting(elemResults.filter(!module.hasStableValue(solver, _))*)
-          else
-            Result.Waiting(elemResults.filter(!module.hasStableValue(solver, _))*)
+          // Add a helper constraint to assemble the block once all elements are elaborated
+          module.addConstraint(solver, ElabConstraint.AssembleBlock(
+            elemResults.map(_._1).toVector,
+            elemResults.map(_._2).toVector,
+            c.result,
+            c.inferredTy,
+            span
+          ))
+          
+          // Return Done - the AssembleBlock constraint will wait for the element cells
+          Result.Done
       
       // SeqOf: for now, just elaborate as a Block
       case CST.SeqOf(elements, span) =>
@@ -302,6 +308,37 @@ class ElabHandler extends Handler[ElabConstraint]:
       case (AST.MetaCell(_, _), _) => true  // Meta-variables unify with anything for now
       case (_, AST.MetaCell(_, _)) => true
       case _ => false
+  
+  private def handleAssembleBlock[M <: SolverModule](c: ElabConstraint.AssembleBlock)(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    import module.given
+    
+    // Check if all element results are filled
+    val allFilled = c.elemResults.forall(module.hasStableValue(solver, _))
+    
+    if allFilled then
+      // All elements are elaborated, assemble the block
+      val astElems = c.elemResults.flatMap(module.readStable(solver, _))
+      if astElems.size == c.elemResults.size then
+        module.fill(solver, c.result, AST.Block(astElems, c.span))
+        
+        // Block type is the type of the last element
+        if c.elemTypes.nonEmpty then
+          module.readStable(solver, c.elemTypes.last) match
+            case Some(ty) =>
+              module.fill(solver, c.inferredTy, ty)
+              Result.Done
+            case None =>
+              Result.Waiting(c.elemTypes.last)
+        else
+          // Empty block (shouldn't happen, but handle it)
+          module.fill(solver, c.inferredTy, AST.Tuple(Vector.empty, None))
+          Result.Done
+      else
+        // Some elements failed to elaborate
+        Result.Waiting(c.elemResults.filter(!module.hasStableValue(solver, _))*)
+    else
+      // Wait for all element results
+      Result.Waiting(c.elemResults.filter(!module.hasStableValue(solver, _))*)
   
   private def handleIsUniverse[M <: SolverModule](c: ElabConstraint.IsUniverse)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
