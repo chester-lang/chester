@@ -35,11 +35,10 @@ object Parser {
     }
   }
 
-  /** Parse a complete file as a block (without braces).
-    * All tokens must be consumed; any remaining tokens result in a parse error.
-    * Returns a Block CST where:
-    * - elements: statements terminated by semicolons
-    * - tail: final expression (no semicolon after it)
+  /** Parse a complete file as a block (without braces). All tokens must be consumed; any remaining tokens result in a parse error. Returns a Block
+    * CST where:
+    *   - elements: statements terminated by semicolons
+    *   - tail: final expression (no semicolon after it)
     */
   def parseFile(tokens: Seq[Token])(using reporter: Reporter[ParseError]): CST = {
     val state = new ParserState(tokens, reporter)
@@ -58,7 +57,7 @@ object Parser {
     var tail: Option[CST] = None
 
     // Parse statements like a block (without braces)
-    while (state.hasNext && !state.isEOF) {
+    while (state.hasNext && !state.isEOF)
       if (state.isSemicolon) {
         state.advance() // Skip empty statement
         state.skipTrivia()
@@ -82,7 +81,6 @@ object Parser {
           state.skipTrivia()
         }
       }
-    }
 
     // Ensure all tokens consumed
     if (!state.isEOF && state.hasNext) {
