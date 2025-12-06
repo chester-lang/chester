@@ -9,56 +9,56 @@ import upickle.default.*
 /** TypeScript AST representation for code generation */
 enum TypeScriptAST derives ReadWriter {
   // Literals
-  case NumberLiteral(value: String, span: Span)
-  case StringLiteral(value: String, span: Span)
-  case BooleanLiteral(value: Boolean, span: Span)
-  case NullLiteral(span: Span)
-  case UndefinedLiteral(span: Span)
+  case NumberLiteral(value: String, span: Option[Span])
+  case StringLiteral(value: String, span: Option[Span])
+  case BooleanLiteral(value: Boolean, span: Option[Span])
+  case NullLiteral(span: Option[Span])
+  case UndefinedLiteral(span: Option[Span])
 
   // Identifiers and References
-  case Identifier(name: String, span: Span)
-  case PropertyAccess(obj: TypeScriptAST, property: String, span: Span)
-  case ElementAccess(obj: TypeScriptAST, index: TypeScriptAST, span: Span)
+  case Identifier(name: String, span: Option[Span])
+  case PropertyAccess(obj: TypeScriptAST, property: String, span: Option[Span])
+  case ElementAccess(obj: TypeScriptAST, index: TypeScriptAST, span: Option[Span])
 
   // Expressions
-  case BinaryOp(left: TypeScriptAST, op: String, right: TypeScriptAST, span: Span)
-  case UnaryOp(op: String, operand: TypeScriptAST, span: Span)
-  case Call(callee: TypeScriptAST, args: Vector[TypeScriptAST], span: Span)
-  case New(constructor: TypeScriptAST, args: Vector[TypeScriptAST], span: Span)
-  case Arrow(params: Vector[Parameter], body: TypeScriptAST, span: Span)
-  case Function(name: Option[String], params: Vector[Parameter], returnType: Option[TypeScriptType], body: TypeScriptAST, span: Span)
-  case Conditional(condition: TypeScriptAST, thenExpr: TypeScriptAST, elseExpr: TypeScriptAST, span: Span)
-  case Object(properties: Vector[ObjectProperty], span: Span)
-  case Array(elements: Vector[TypeScriptAST], span: Span)
-  case Template(parts: Vector[String], expressions: Vector[TypeScriptAST], span: Span)
-  case Await(expr: TypeScriptAST, span: Span)
-  case Yield(expr: Option[TypeScriptAST], span: Span)
-  case This(span: Span)
-  case Super(span: Span)
-  case Spread(expr: TypeScriptAST, span: Span)
-  case Cast(expr: TypeScriptAST, targetType: TypeScriptType, span: Span)
-  case NonNull(expr: TypeScriptAST, span: Span)
-  case Parenthesized(expr: TypeScriptAST, span: Span)
+  case BinaryOp(left: TypeScriptAST, op: String, right: TypeScriptAST, span: Option[Span])
+  case UnaryOp(op: String, operand: TypeScriptAST, span: Option[Span])
+  case Call(callee: TypeScriptAST, args: Vector[TypeScriptAST], span: Option[Span])
+  case New(constructor: TypeScriptAST, args: Vector[TypeScriptAST], span: Option[Span])
+  case Arrow(params: Vector[Parameter], body: TypeScriptAST, span: Option[Span])
+  case Function(name: Option[String], params: Vector[Parameter], returnType: Option[TypeScriptType], body: TypeScriptAST, span: Option[Span])
+  case Conditional(condition: TypeScriptAST, thenExpr: TypeScriptAST, elseExpr: TypeScriptAST, span: Option[Span])
+  case Object(properties: Vector[ObjectProperty], span: Option[Span])
+  case Array(elements: Vector[TypeScriptAST], span: Option[Span])
+  case Template(parts: Vector[String], expressions: Vector[TypeScriptAST], span: Option[Span])
+  case Await(expr: TypeScriptAST, span: Option[Span])
+  case Yield(expr: Option[TypeScriptAST], span: Option[Span])
+  case This(span: Option[Span])
+  case Super(span: Option[Span])
+  case Spread(expr: TypeScriptAST, span: Option[Span])
+  case Cast(expr: TypeScriptAST, targetType: TypeScriptType, span: Option[Span])
+  case NonNull(expr: TypeScriptAST, span: Option[Span])
+  case Parenthesized(expr: TypeScriptAST, span: Option[Span])
 
   // Statements
-  case Block(statements: Vector[TypeScriptAST], span: Span)
-  case VariableDeclaration(kind: VarKind, declarations: Vector[VariableDeclarator], span: Span)
-  case ExpressionStatement(expr: TypeScriptAST, span: Span)
-  case If(condition: TypeScriptAST, thenStmt: TypeScriptAST, elseStmt: Option[TypeScriptAST], span: Span)
-  case While(condition: TypeScriptAST, body: TypeScriptAST, span: Span)
-  case DoWhile(body: TypeScriptAST, condition: TypeScriptAST, span: Span)
-  case For(init: Option[TypeScriptAST], condition: Option[TypeScriptAST], update: Option[TypeScriptAST], body: TypeScriptAST, span: Span)
-  case ForOf(variable: TypeScriptAST, iterable: TypeScriptAST, body: TypeScriptAST, span: Span)
-  case ForIn(variable: TypeScriptAST, obj: TypeScriptAST, body: TypeScriptAST, span: Span)
-  case Switch(discriminant: TypeScriptAST, cases: Vector[SwitchCase], span: Span)
-  case Return(expr: Option[TypeScriptAST], span: Span)
-  case Throw(expr: TypeScriptAST, span: Span)
-  case Try(block: TypeScriptAST, handler: Option[CatchClause], finalizer: Option[TypeScriptAST], span: Span)
-  case Break(label: Option[String], span: Span)
-  case Continue(label: Option[String], span: Span)
-  case Labeled(label: String, statement: TypeScriptAST, span: Span)
-  case Empty(span: Span)
-  case Debugger(span: Span)
+  case Block(statements: Vector[TypeScriptAST], span: Option[Span])
+  case VariableDeclaration(kind: VarKind, declarations: Vector[VariableDeclarator], span: Option[Span])
+  case ExpressionStatement(expr: TypeScriptAST, span: Option[Span])
+  case If(condition: TypeScriptAST, thenStmt: TypeScriptAST, elseStmt: Option[TypeScriptAST], span: Option[Span])
+  case While(condition: TypeScriptAST, body: TypeScriptAST, span: Option[Span])
+  case DoWhile(body: TypeScriptAST, condition: TypeScriptAST, span: Option[Span])
+  case For(init: Option[TypeScriptAST], condition: Option[TypeScriptAST], update: Option[TypeScriptAST], body: TypeScriptAST, span: Option[Span])
+  case ForOf(variable: TypeScriptAST, iterable: TypeScriptAST, body: TypeScriptAST, span: Option[Span])
+  case ForIn(variable: TypeScriptAST, obj: TypeScriptAST, body: TypeScriptAST, span: Option[Span])
+  case Switch(discriminant: TypeScriptAST, cases: Vector[SwitchCase], span: Option[Span])
+  case Return(expr: Option[TypeScriptAST], span: Option[Span])
+  case Throw(expr: TypeScriptAST, span: Option[Span])
+  case Try(block: TypeScriptAST, handler: Option[CatchClause], finalizer: Option[TypeScriptAST], span: Option[Span])
+  case Break(label: Option[String], span: Option[Span])
+  case Continue(label: Option[String], span: Option[Span])
+  case Labeled(label: String, statement: TypeScriptAST, span: Option[Span])
+  case Empty(span: Option[Span])
+  case Debugger(span: Option[Span])
 
   // Declarations
   case FunctionDeclaration(
@@ -67,7 +67,7 @@ enum TypeScriptAST derives ReadWriter {
       returnType: Option[TypeScriptType],
       body: TypeScriptAST,
       modifiers: Vector[Modifier],
-      span: Span
+      span: Option[Span]
   )
   case ClassDeclaration(
       name: String,
@@ -76,31 +76,31 @@ enum TypeScriptAST derives ReadWriter {
       implements: Vector[TypeScriptType],
       members: Vector[ClassMember],
       modifiers: Vector[Modifier],
-      span: Span
+      span: Option[Span]
   )
   case InterfaceDeclaration(
       name: String,
       typeParams: Vector[TypeParameter],
       extendsTypes: Vector[TypeScriptType],
       members: Vector[InterfaceMember],
-      span: Span
+      span: Option[Span]
   )
-  case TypeAliasDeclaration(name: String, typeParams: Vector[TypeParameter], aliasType: TypeScriptType, span: Span)
-  case EnumDeclaration(name: String, members: Vector[EnumMember], isConst: Boolean, span: Span)
-  case NamespaceDeclaration(name: String, body: Vector[TypeScriptAST], span: Span)
+  case TypeAliasDeclaration(name: String, typeParams: Vector[TypeParameter], aliasType: TypeScriptType, span: Option[Span])
+  case EnumDeclaration(name: String, members: Vector[EnumMember], isConst: Boolean, span: Option[Span])
+  case NamespaceDeclaration(name: String, body: Vector[TypeScriptAST], span: Option[Span])
 
   // Module system
-  case ImportDeclaration(specifiers: Vector[ImportSpecifier], source: String, span: Span)
+  case ImportDeclaration(specifiers: Vector[ImportSpecifier], source: String, span: Option[Span])
   case ExportDeclaration(
       declaration: Option[TypeScriptAST],
       specifiers: Vector[ExportSpecifier],
       source: Option[String],
       isDefault: Boolean,
-      span: Span
+      span: Option[Span]
   )
 
   // Program root
-  case Program(statements: Vector[TypeScriptAST], span: Span)
+  case Program(statements: Vector[TypeScriptAST], span: Option[Span])
 
   def toDoc(using DocConf): Doc = TypeScriptAST.toDoc(this)
 }
@@ -412,14 +412,14 @@ case class Parameter(
     paramType: Option[TypeScriptType],
     defaultValue: Option[TypeScriptAST],
     isRest: Boolean,
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 case class VariableDeclarator(
     name: String,
     varType: Option[TypeScriptType],
     init: Option[TypeScriptAST],
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 case class ObjectProperty(
@@ -427,41 +427,41 @@ case class ObjectProperty(
     value: TypeScriptAST,
     isShorthand: Boolean,
     isMethod: Boolean,
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 case class SwitchCase(
     test: Option[TypeScriptAST], // None for default case
     consequent: Vector[TypeScriptAST],
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 case class CatchClause(
     param: Option[String],
     body: TypeScriptAST,
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 enum ClassMember derives ReadWriter {
-  case Constructor(params: Vector[Parameter], body: TypeScriptAST, span: Span)
+  case Constructor(params: Vector[Parameter], body: TypeScriptAST, span: Option[Span])
   case Method(
       name: String,
       params: Vector[Parameter],
       returnType: Option[TypeScriptType],
       body: TypeScriptAST,
       modifiers: Vector[Modifier],
-      span: Span
+      span: Option[Span]
   )
-  case Property(name: String, propertyType: Option[TypeScriptType], init: Option[TypeScriptAST], modifiers: Vector[Modifier], span: Span)
-  case Getter(name: String, returnType: Option[TypeScriptType], body: TypeScriptAST, modifiers: Vector[Modifier], span: Span)
-  case Setter(name: String, param: Parameter, body: TypeScriptAST, modifiers: Vector[Modifier], span: Span)
-  case Index(params: Vector[Parameter], returnType: TypeScriptType, span: Span)
+  case Property(name: String, propertyType: Option[TypeScriptType], init: Option[TypeScriptAST], modifiers: Vector[Modifier], span: Option[Span])
+  case Getter(name: String, returnType: Option[TypeScriptType], body: TypeScriptAST, modifiers: Vector[Modifier], span: Option[Span])
+  case Setter(name: String, param: Parameter, body: TypeScriptAST, modifiers: Vector[Modifier], span: Option[Span])
+  case Index(params: Vector[Parameter], returnType: TypeScriptType, span: Option[Span])
 }
 
 case class InterfaceMember(
     name: String,
     memberType: InterfaceMemberType,
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 enum InterfaceMemberType derives ReadWriter {
@@ -475,19 +475,19 @@ enum InterfaceMemberType derives ReadWriter {
 case class EnumMember(
     name: String,
     value: Option[TypeScriptAST],
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 enum ImportSpecifier derives ReadWriter {
-  case Default(local: String, span: Span)
-  case Namespace(local: String, span: Span)
-  case Named(imported: String, local: Option[String], span: Span)
+  case Default(local: String, span: Option[Span])
+  case Namespace(local: String, span: Option[Span])
+  case Named(imported: String, local: Option[String], span: Option[Span])
 }
 
 enum ExportSpecifier derives ReadWriter {
-  case Named(local: String, exported: Option[String], span: Span)
-  case Default(span: Span)
-  case All(exported: Option[String], span: Span)
+  case Named(local: String, exported: Option[String], span: Option[Span])
+  case Default(span: Option[Span])
+  case All(exported: Option[String], span: Option[Span])
 }
 
 enum Modifier derives ReadWriter {
@@ -507,26 +507,26 @@ case class TypeParameter(
     name: String,
     constraint: Option[TypeScriptType],
     default: Option[TypeScriptType],
-    span: Span
+    span: Option[Span]
 ) derives ReadWriter
 
 /** TypeScript type system */
 enum TypeScriptType derives ReadWriter {
-  case PrimitiveType(name: String, span: Span) // string, number, boolean, void, any, unknown, never, etc.
-  case TypeReference(name: String, typeArgs: Vector[TypeScriptType], span: Span)
-  case ArrayType(elementType: TypeScriptType, span: Span)
-  case TupleType(elements: Vector[TypeScriptType], span: Span)
-  case UnionType(types: Vector[TypeScriptType], span: Span)
-  case IntersectionType(types: Vector[TypeScriptType], span: Span)
-  case FunctionType(params: Vector[Parameter], returnType: TypeScriptType, span: Span)
-  case ObjectType(members: Vector[InterfaceMember], span: Span)
-  case LiteralType(value: TypeScriptAST, span: Span)
-  case KeyofType(objectType: TypeScriptType, span: Span)
-  case TypeofType(expr: TypeScriptAST, span: Span)
-  case IndexedAccessType(objectType: TypeScriptType, indexType: TypeScriptType, span: Span)
-  case MappedType(typeParam: TypeParameter, nameType: Option[TypeScriptType], objectType: TypeScriptType, span: Span)
-  case ConditionalType(checkType: TypeScriptType, extendsType: TypeScriptType, trueType: TypeScriptType, falseType: TypeScriptType, span: Span)
-  case InferType(typeParam: TypeParameter, span: Span)
-  case TemplateLiteralType(parts: Vector[String], types: Vector[TypeScriptType], span: Span)
-  case ParenthesizedType(innerType: TypeScriptType, span: Span)
+  case PrimitiveType(name: String, span: Option[Span]) // string, number, boolean, void, any, unknown, never, etc.
+  case TypeReference(name: String, typeArgs: Vector[TypeScriptType], span: Option[Span])
+  case ArrayType(elementType: TypeScriptType, span: Option[Span])
+  case TupleType(elements: Vector[TypeScriptType], span: Option[Span])
+  case UnionType(types: Vector[TypeScriptType], span: Option[Span])
+  case IntersectionType(types: Vector[TypeScriptType], span: Option[Span])
+  case FunctionType(params: Vector[Parameter], returnType: TypeScriptType, span: Option[Span])
+  case ObjectType(members: Vector[InterfaceMember], span: Option[Span])
+  case LiteralType(value: TypeScriptAST, span: Option[Span])
+  case KeyofType(objectType: TypeScriptType, span: Option[Span])
+  case TypeofType(expr: TypeScriptAST, span: Option[Span])
+  case IndexedAccessType(objectType: TypeScriptType, indexType: TypeScriptType, span: Option[Span])
+  case MappedType(typeParam: TypeParameter, nameType: Option[TypeScriptType], objectType: TypeScriptType, span: Option[Span])
+  case ConditionalType(checkType: TypeScriptType, extendsType: TypeScriptType, trueType: TypeScriptType, falseType: TypeScriptType, span: Option[Span])
+  case InferType(typeParam: TypeParameter, span: Option[Span])
+  case TemplateLiteralType(parts: Vector[String], types: Vector[TypeScriptType], span: Option[Span])
+  case ParenthesizedType(innerType: TypeScriptType, span: Option[Span])
 }
