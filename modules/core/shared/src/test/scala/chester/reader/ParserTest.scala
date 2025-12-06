@@ -280,4 +280,93 @@ class ParserTest extends munit.FunSuite {
     assert(blockElems(0).isInstanceOf[CST.SeqOf])
     expectSymbol(blockTail.get, "b")
   }
+
+  // Helper for parseFile tests
+  private def parseFile(input: String): (CST, Vector[ParseError]) = {
+    given reporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
+    val source = Source(FileNameAndContent("test.chester", input))
+    val dummySpan = Span(source, SpanInFile(Pos.zero, Pos.zero))
+    
+    // Handle empty file specially since tokenizer rejects empty input
+    if (input.trim.isEmpty) {
+      val emptyTokens = Vector(Token.EOF(dummySpan))
+      return (Parser.parseFile(emptyTokens), reporter.getReports)
+    }
+    
+    val result = for {
+      chars <- CharReader.read(source)
+      tokens <- Tokenizer.tokenize(chars)
+    } yield Parser.parseFile(tokens)
+    
+    (result.getOrElse(CST.Symbol("<error>", Some(dummySpan))), reporter.getReports)
+  }
+
+  test("parseFile - empty file") {
+    val (cst, errors) = parseFile("")
+    assertNoErrors(errors)
+    val CST.Block(elements, tail, _) = cst: @unchecked
+    assertEquals(elements.length, 0)
+    assertEquals(tail, None)
+  }
+
+  test("parseFile - single expression") {
+    val (cst, errors) = parseFile("42")
+    assertNoErrors(errors)
+    val CST.Block(elements, tail, _) = cst: @unchecked
+    assertEquals(elements.length, 0)
+    expectInt(tail.get, 42)
+  }
+
+  test("parseFile - statements with semicolons") {
+    val (cst, errors) = parseFile("a; b; c")
+    assertNoErrors(errors)
+    val CST.Block(elements, tail, _) = cst: @unchecked
+    assertEquals(elements.length, 2)
+    expectSymbol(elements(0), "a")
+    expectSymbol(elements(1), "b")
+    expectSymbol(tail.get, "c")
+  }
+
+  test("parseFile - all statements end with semicolon") {
+    val (cst, errors) = parseFile("a; b; c;")
+    assertNoErrors(errors)
+    val CST.Block(elements, tail, _) = cst: @unchecked
+    assertEquals(elements.length, 3)
+    expectSymbol(elements(0), "a")
+    expectSymbol(elements(1), "b")
+    expectSymbol(elements(2), "c")
+    assertEquals(tail, None)
+  }
+
+  test("parseFile - complex expressions") {
+    val (cst, errors) = parseFile("f(x); {a; b}; 42")
+    assertNoErrors(errors)
+    val CST.Block(elements, tail, _) = cst: @unchecked
+    assertEquals(elements.length, 2)
+    assert(elements(0).isInstanceOf[CST.SeqOf])
+    assert(elements(1).isInstanceOf[CST.Block])
+    expectInt(tail.get, 42)
+  }
+
+  test("parseFile - error recovery: unexpected token after file end") {
+    // This test is tricky since all tokens should be part of the file
+    // The error would occur if parseFile somehow doesn't consume all tokens
+    val (cst, errors) = parseFile("a;; b")
+    // Double semicolon creates empty statement (which is valid)
+    assertNoErrors(errors)
+    val CST.Block(elements, tail, _) = cst: @unchecked
+    assertEquals(elements.length, 1)
+    expectSymbol(elements(0), "a")
+    expectSymbol(tail.get, "b")
+  }
+
+  test("parseFile - whitespace and comments") {
+    val (cst, errors) = parseFile("a; /* comment */ b; // line comment\nc")
+    assertNoErrors(errors)
+    val CST.Block(elements, tail, _) = cst: @unchecked
+    assertEquals(elements.length, 2)
+    expectSymbol(elements(0), "a")
+    expectSymbol(elements(1), "b")
+    expectSymbol(tail.get, "c")
+  }
 }

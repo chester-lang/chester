@@ -35,6 +35,64 @@ object Parser {
     }
   }
 
+  /** Parse a complete file as a block (without braces).
+    * All tokens must be consumed; any remaining tokens result in a parse error.
+    * Returns a Block CST where:
+    * - elements: statements terminated by semicolons
+    * - tail: final expression (no semicolon after it)
+    */
+  def parseFile(tokens: Seq[Token])(using reporter: Reporter[ParseError]): CST = {
+    val state = new ParserState(tokens, reporter)
+    state.skipTrivia()
+
+    // Handle empty file
+    if (!state.hasNext) {
+      val dummySpan =
+        if (tokens.nonEmpty) Some(tokens.last.span)
+        else Some(Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero)))
+      return CST.Block(Vector.empty, None, dummySpan)
+    }
+
+    val startSpan = state.current.get.span
+    val elements = ArrayBuffer.empty[CST]
+    var tail: Option[CST] = None
+
+    // Parse statements like a block (without braces)
+    while (state.hasNext && !state.isEOF) {
+      if (state.isSemicolon) {
+        state.advance() // Skip empty statement
+        state.skipTrivia()
+      } else {
+        val statement = parseAtomSequence(state)
+        state.skipTrivia()
+
+        if (state.isSemicolon) {
+          elements += statement
+          state.advance()
+          state.skipTrivia()
+        } else if (state.isEOF) {
+          // Last statement with no semicolon becomes tail
+          tail = Some(statement)
+        } else {
+          // Unexpected token - recover by treating as statement and continuing
+          state.recordError(s"Expected ';' or end of file, got: ${state.current.get.tokenType}", state.current.get.span)
+          elements += statement
+          // Skip the problematic token to continue parsing
+          state.advance()
+          state.skipTrivia()
+        }
+      }
+    }
+
+    // Ensure all tokens consumed
+    if (!state.isEOF && state.hasNext) {
+      state.recordError(s"Unexpected token at end of file: ${state.current.get.tokenType}", state.current.get.span)
+    }
+
+    val endSpan = tail.flatMap(_.span).orElse(elements.lastOption.flatMap(_.span)).getOrElse(startSpan)
+    CST.Block(elements.toVector, tail, Some(startSpan.combine(endSpan)))
+  }
+
   def parse(tokens: Seq[Token])(using reporter: Reporter[ParseError]): ParseResult = {
     val state = new ParserState(tokens, reporter)
     state.skipTrivia()
