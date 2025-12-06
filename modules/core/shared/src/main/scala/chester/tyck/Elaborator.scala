@@ -684,38 +684,129 @@ class ElabHandler extends Handler[ElabConstraint]:
       elements.headOption.exists { case CST.Symbol("def", _) => true; case _ => false }
     case _ => false
 
+  /** Unification result following the paper's architecture */
+  private enum UnifyResult:
+    case Success
+    case Failure(message: String)
+
   private def handleUnify[M <: SolverModule](c: ElabConstraint.Unify)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
 
     (module.readStable(solver, c.ty1), module.readStable(solver, c.ty2)) match
       case (Some(t1), Some(t2)) =>
-        // Simple structural unification
-        if unifyTypes(t1, t2) then Result.Done
-        else
-          // Types don't unify - report error and continue (error recovery)
-          c.ctx.reporter.report(ElabProblem.TypeMismatch(t1, t2, c.span))
-          Result.Done
+        // Proper unification with occurs check and meta-variable solving
+        unify(t1, t2, c.span, c.ctx)(using module, solver) match
+          case UnifyResult.Success => Result.Done
+          case UnifyResult.Failure(msg) =>
+            c.ctx.reporter.report(ElabProblem.TypeMismatch(t1, t2, c.span))
+            Result.Done
       case (None, _) => Result.Waiting(c.ty1)
       case (_, None) => Result.Waiting(c.ty2)
 
-  private def unifyTypes(t1: AST, t2: AST): Boolean =
+  /** Unify two types with occurs check and meta-variable solving.
+    * Following the paper's architecture, this acts as a specialized unification solver.
+    */
+  private def unify[M <: SolverModule](
+      t1: AST, 
+      t2: AST, 
+      span: Option[Span],
+      ctx: ElabContext
+  )(using module: M, solver: module.Solver[ElabConstraint]): UnifyResult =
+    import module.given
+    
     (t1, t2) match
-      case (AST.IntLit(v1, _), AST.IntLit(v2, _))       => v1 == v2
-      case (AST.StringLit(v1, _), AST.StringLit(v2, _)) => v1 == v2
-      case (AST.Ref(id1, _, _), AST.Ref(id2, _, _))     => id1 == id2
-      case (AST.Universe(l1, _), AST.Universe(l2, _))   => unifyTypes(l1, l2)
+      // Identical terms
+      case _ if t1 == t2 => UnifyResult.Success
+      
+      // Meta-variable cases - solve by unification (following paper's "Solver U1")
+      case (AST.MetaCell(HoldNotReadable(cell1), _), ty2) =>
+        module.readStable(solver, cell1) match
+          case Some(solved1) => unify(solved1, ty2, span, ctx)
+          case None =>
+            // Solve: ?α := ty2 with occurs check
+            if occursIn(cell1, ty2)(using module, solver) then
+              UnifyResult.Failure(s"Occurs check failed: infinite type")
+            else
+              module.fill(solver, cell1, ty2)
+              UnifyResult.Success
+              
+      case (ty1, AST.MetaCell(HoldNotReadable(cell2), _)) =>
+        module.readStable(solver, cell2) match
+          case Some(solved2) => unify(ty1, solved2, span, ctx)
+          case None =>
+            // Solve: ?β := ty1 with occurs check
+            if occursIn(cell2, ty1)(using module, solver) then
+              UnifyResult.Failure(s"Occurs check failed: infinite type")
+            else
+              module.fill(solver, cell2, ty1)
+              UnifyResult.Success
+      
+      // Structural unification
+      case (AST.IntLit(v1, _), AST.IntLit(v2, _)) => 
+        if v1 == v2 then UnifyResult.Success else UnifyResult.Failure("Integer literals differ")
+      
+      case (AST.StringLit(v1, _), AST.StringLit(v2, _)) => 
+        if v1 == v2 then UnifyResult.Success else UnifyResult.Failure("String literals differ")
+      
+      case (AST.Ref(id1, _, _), AST.Ref(id2, _, _)) => 
+        if id1 == id2 then UnifyResult.Success else UnifyResult.Failure("Different variables")
+      
+      case (AST.Universe(l1, _), AST.Universe(l2, _)) => unify(l1, l2, span, ctx)
+      
       case (AST.Tuple(e1, _), AST.Tuple(e2, _)) =>
-        e1.size == e2.size && e1.zip(e2).forall((a, b) => unifyTypes(a, b))
-      case (AST.Pi(t1, r1, _), AST.Pi(t2, r2, _)) =>
-        t1.size == t2.size &&
-        t1.zip(t2).forall((a, b) => 
-          a.params.size == b.params.size &&
-          a.params.zip(b.params).forall((p1, p2) => unifyTypes(p1.ty, p2.ty))
-        ) &&
-        unifyTypes(r1, r2)
-      case (AST.MetaCell(_, _), _) => true // Meta-variables unify with anything for now
-      case (_, AST.MetaCell(_, _)) => true
-      case _                       => false
+        if e1.size != e2.size then UnifyResult.Failure("Tuple arity mismatch")
+        else unifyAll(e1.zip(e2), span, ctx)
+      
+      case (AST.Pi(tel1, r1, _), AST.Pi(tel2, r2, _)) =>
+        if tel1.size != tel2.size then UnifyResult.Failure("Function arity mismatch")
+        else
+          val paramPairs = tel1.zip(tel2).flatMap { case (t1, t2) =>
+            t1.params.zip(t2.params).map((p1, p2) => (p1.ty, p2.ty))
+          }
+          unifyAll(paramPairs, span, ctx) match
+            case UnifyResult.Success => unify(r1, r2, span, ctx)
+            case failure => failure
+      
+      case _ => UnifyResult.Failure(s"Type mismatch: ${t1.getClass.getSimpleName} vs ${t2.getClass.getSimpleName}")
+
+  /** Unify a list of type pairs */
+  private def unifyAll[M <: SolverModule](
+      pairs: Vector[(AST, AST)],
+      span: Option[Span],
+      ctx: ElabContext
+  )(using module: M, solver: module.Solver[ElabConstraint]): UnifyResult =
+    pairs.foldLeft(UnifyResult.Success: UnifyResult) { case (acc, (a, b)) =>
+      acc match
+        case UnifyResult.Success => unify(a, b, span, ctx)
+        case failure => failure
+    }
+
+  /** Occurs check: does a meta-variable cell occur in a type? */
+  private def occursIn[M <: SolverModule](
+      cell: Any,  // The cell we're checking for (stored in HoldNotReadable)
+      ty: AST
+  )(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
+    ty match
+      case AST.MetaCell(HoldNotReadable(c), _) =>
+        if c == cell then true
+        else module.readStable(solver, c).exists(occursIn(cell, _))
+      case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) => false
+      case AST.Universe(level, _) => occursIn(cell, level)
+      case AST.Tuple(elements, _) => elements.exists(occursIn(cell, _))
+      case AST.ListLit(elements, _) => elements.exists(occursIn(cell, _))
+      case AST.Block(elements, tail, _) => elements.exists(occursIn(cell, _)) || occursIn(cell, tail)
+      case AST.Pi(telescopes, resultTy, _) =>
+        telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, resultTy)
+      case AST.Lam(telescopes, body, _) =>
+        telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, body)
+      case AST.App(func, args, _) =>
+        occursIn(cell, func) || args.exists(a => occursIn(cell, a.value))
+      case AST.Let(_, _, ty, value, body, _) =>
+        ty.exists(occursIn(cell, _)) || occursIn(cell, value) || occursIn(cell, body)
+      case AST.Def(_, _, telescopes, resultTy, body, _) =>
+        telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || 
+        resultTy.exists(occursIn(cell, _)) || occursIn(cell, body)
+      case AST.Ann(expr, ty, _) => occursIn(cell, expr) || occursIn(cell, ty)
 
   private def handleIsUniverse[M <: SolverModule](c: ElabConstraint.IsUniverse)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
