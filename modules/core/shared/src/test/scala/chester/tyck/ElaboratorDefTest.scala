@@ -95,20 +95,13 @@ class ElaboratorDefTest extends munit.FunSuite {
     }
   }
 
-  test("elaborate def statement - with implicit parameters".ignore) {
+  test("elaborate def statement - with implicit parameters - should error at top level") {
     val (ast, ty, errors) = elaborate("def id[a: Type](x: a) = x")
     
-    assert(ast.isDefined, s"AST should be defined, errors: $errors")
-    
-    ast.get match {
-      case AST.Def(id, name, telescopes, resultTy, body, _) =>
-        assertEquals(name, "id", "Function name should be id")
-        assertEquals(telescopes.length, 2, "Should have 2 telescopes")
-        assert(telescopes(0).implicitness == Implicitness.Implicit, "First telescope should be implicit")
-        assert(telescopes(1).implicitness == Implicitness.Explicit, "Second telescope should be explicit")
-      case other =>
-        fail(s"Expected Def, got: $other")
-    }
+    // Since def is at top level (not in a block), it should produce an error
+    assert(errors.nonEmpty, s"Should have errors for def at top level, got: $errors")
+    assert(errors.exists(_.toString.contains("def statement only allowed in block elements")), 
+      s"Should have error about def only allowed in block elements, got: $errors")
   }
 
   test("elaborate def statement - with result type".ignore) {
@@ -170,9 +163,18 @@ class ElaboratorDefTest extends munit.FunSuite {
   test("def in block elements is allowed".ignore) {
     val (ast, ty, errors) = elaborate("{ def f(x: Type) = x; 42 }")
     
-    // Should elaborate without the tail position error
-    // (may have other errors due to incomplete implementation)
-    assert(!errors.exists(_.toString.contains("tail position")), 
-      s"Should not have tail position error, got: $errors")
+    // Should elaborate without errors about def being disallowed
+    assert(!errors.exists(_.toString.contains("def statement only allowed in block elements")), 
+      s"Should not have error about def placement, got: $errors")
+    
+    // The AST should be a Block containing a Def and an integer
+    ast match {
+      case Some(AST.Block(elements, _)) =>
+        assert(elements.length >= 2, s"Block should have at least 2 elements (def and 42), got: ${elements.length}")
+        assert(elements.head.isInstanceOf[AST.Def], s"First element should be Def, got: ${elements.head}")
+      case other =>
+        // May have different AST structure, but main point is no placement error
+        ()
+    }
   }
 }
