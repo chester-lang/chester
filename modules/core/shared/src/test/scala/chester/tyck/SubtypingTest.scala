@@ -108,3 +108,12 @@ class SubtypingTest extends FunSuite:
     assert(!errors.exists(_.toString.contains("Type mismatch")), 
       s"Should not have type mismatch, got: $errors")
   }
+
+  test("reduce function implemented for future use".ignore) {
+    // Reduction is implemented but currently disabled in unification to avoid infinite loops
+    // id : [a: Type](x: a) -> a
+    // Future: id[Type](String) should work where String : Type
+    // Future: id(x) where x is an application should reduce x first
+    assert(true)
+  }
+

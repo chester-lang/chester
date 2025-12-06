@@ -721,8 +721,44 @@ class ElabHandler extends Handler[ElabConstraint]:
       case (None, _) => Result.Waiting(c.ty1)
       case (_, None) => Result.Waiting(c.ty2)
 
+  /** Reduce (normalize) a term by performing beta-reduction.
+    * Following the paper's recommendation (Section 7.5), we reduce before unification.
+    * This handles function applications like id(x) -> x.
+    * 
+    * NOTE: Currently simplified to avoid infinite loops - only handles built-in id function.
+    */
+  private def reduce[M <: SolverModule](
+      term: AST,
+      depth: Int = 0
+  )(using module: M, solver: module.Solver[ElabConstraint]): AST =
+    import module.given
+    
+    // Depth limit to prevent infinite recursion
+    if depth > 100 then return term
+    
+    term match
+      // Resolve MetaCells first (but don't recurse if it leads back to a MetaCell)
+      case AST.MetaCell(HoldNotReadable(cell), span) =>
+        module.readStable(solver, cell) match
+          case Some(solved) if !solved.isInstanceOf[AST.MetaCell] => reduce(solved, depth + 1)
+          case _ => term
+      
+      // Beta-reduction for built-in id function only
+      case AST.App(func, args, span) =>
+        func match
+          // Built-in identity function: id[a](x) -> x
+          case AST.Ref(_, "id", _) if args.length == 2 =>
+            // id has signature: [a: Type](x: a) -> a
+            // So id[typeArg](value) reduces to value
+            args(1).value
+          case _ => term
+      
+      // For all other constructs, no reduction
+      case _ => term
+
   /** Unify two types with occurs check and meta-variable solving.
     * Following the paper's architecture, this acts as a specialized unification solver.
+    * TODO: Add reduction before unification (paper Section 7.5) - currently disabled to avoid infinite loops
     */
   private def unify[M <: SolverModule](
       t1: AST, 
@@ -731,6 +767,10 @@ class ElabHandler extends Handler[ElabConstraint]:
       ctx: ElabContext
   )(using module: M, solver: module.Solver[ElabConstraint]): UnifyResult =
     import module.given
+    
+    // TODO: Reduce both terms before unification (currently causes infinite loops)
+    // val r1 = reduce(t1)
+    // val r2 = reduce(t2)
     
     (t1, t2) match
       // Identical terms
