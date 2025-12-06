@@ -7,7 +7,7 @@ import chester.utils.doc.Docs.*
 import upickle.default.*
 import cats.data.NonEmptyVector
 import chester.utils.{*, given}
-import chester.uniqid.{UniqidOf, Uniqid, rwUniqIDOf, UCollector, UReplacer, ContainsUniqid, given}
+import chester.uniqid.{UniqidOf, Uniqid, rwUniqIDOf, UniqidCollector, UniqidReplacer, ContainsUniqid, given}
 
 enum AST(val span: Span) extends ToDoc with ContainsUniqid derives ReadWriter:
   case Ref(id: UniqidOf[AST], name: String, override val span: Span) extends AST(span)
@@ -41,46 +41,46 @@ enum AST(val span: Span) extends ToDoc with ContainsUniqid derives ReadWriter:
     case AST.Let(id, name, value, body, _) =>
       text("let") <+> text(name) <+> text("=") <+> value.toDoc <+> text("in") <@@> body.toDoc.indented()
 
-  def collectU(collector: UCollector): Unit = this match
+  def collectUniqids(collector: UniqidCollector): Unit = this match
     case AST.Ref(id, _, _) =>
       collector(id)
     case AST.Tuple(elements, _) =>
-      elements.foreach(_.collectU(collector))
+      elements.foreach(_.collectUniqids(collector))
     case AST.ListLit(elements, _) =>
-      elements.foreach(_.collectU(collector))
+      elements.foreach(_.collectUniqids(collector))
     case AST.Block(elements, _) =>
-      elements.foreach(_.collectU(collector))
+      elements.foreach(_.collectUniqids(collector))
     case AST.StringLit(_, _) =>
       ()
     case AST.IntLit(_, _) =>
       ()
     case AST.App(func, args, _) =>
-      func.collectU(collector)
-      args.foreach(_.collectU(collector))
+      func.collectUniqids(collector)
+      args.foreach(_.collectUniqids(collector))
     case AST.Lam(params, body, _) =>
       params.foreach((id, _) => collector(id))
-      body.collectU(collector)
+      body.collectUniqids(collector)
     case AST.Let(id, _, value, body, _) =>
       collector(id)
-      value.collectU(collector)
-      body.collectU(collector)
+      value.collectUniqids(collector)
+      body.collectUniqids(collector)
 
-  def replaceU(reranger: UReplacer): AST = this match
+  def mapUniqids(mapper: UniqidReplacer): AST = this match
     case AST.Ref(id, name, span) =>
-      AST.Ref(reranger(id), name, span)
+      AST.Ref(mapper(id), name, span)
     case AST.Tuple(elements, span) =>
-      AST.Tuple(elements.map(_.replaceU(reranger)), span)
+      AST.Tuple(elements.map(_.mapUniqids(mapper)), span)
     case AST.ListLit(elements, span) =>
-      AST.ListLit(elements.map(_.replaceU(reranger)), span)
+      AST.ListLit(elements.map(_.mapUniqids(mapper)), span)
     case AST.Block(elements, span) =>
-      AST.Block(elements.map(_.replaceU(reranger)), span)
+      AST.Block(elements.map(_.mapUniqids(mapper)), span)
     case AST.StringLit(value, span) =>
       AST.StringLit(value, span)
     case AST.IntLit(value, span) =>
       AST.IntLit(value, span)
     case AST.App(func, args, span) =>
-      AST.App(func.replaceU(reranger), args.map(_.replaceU(reranger)), span)
+      AST.App(func.mapUniqids(mapper), args.map(_.mapUniqids(mapper)), span)
     case AST.Lam(params, body, span) =>
-      AST.Lam(params.map((id, name) => (reranger(id), name)), body.replaceU(reranger), span)
+      AST.Lam(params.map((id, name) => (mapper(id), name)), body.mapUniqids(mapper), span)
     case AST.Let(id, name, value, body, span) =>
-      AST.Let(reranger(id), name, value.replaceU(reranger), body.replaceU(reranger), span)
+      AST.Let(mapper(id), name, value.mapUniqids(mapper), body.mapUniqids(mapper), span)

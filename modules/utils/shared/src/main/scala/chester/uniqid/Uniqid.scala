@@ -46,23 +46,23 @@ extension [T](x: UniqidOf[T]) {
   }
 }
 
-trait UCollector {
+trait UniqidCollector {
   def apply[T](x: UniqidOf[T]): Unit = ()
 }
 
-trait CollectUniqId extends Any {
-  def collectU(collector: UCollector): Unit
+trait SupportsUniqidCollection extends Any {
+  def collectUniqids(collector: UniqidCollector): Unit
 }
 
-trait UReplacer {
+trait UniqidReplacer {
   def apply[T](x: UniqidOf[T]): UniqidOf[T] = x
 }
 
-trait RerangeUniqid extends Any {
-  def replaceU(reranger: UReplacer): Any
+trait SupportsUniqidMapping extends Any {
+  def mapUniqids(mapper: UniqidReplacer): Any
 }
 
-trait ContainsUniqid extends Any with CollectUniqId with RerangeUniqid {
+trait ContainsUniqid extends Any with SupportsUniqidCollection with SupportsUniqidMapping {
   lazy val uniqIdRange: UniqIdRange = Uniqid.calculateRange(this)
 }
 
@@ -97,11 +97,11 @@ object Uniqid {
 
   def calculateRange[T <: ContainsUniqid](x: T): UniqIdRange = {
     val currentRangeCollect = new mutable.ArrayDeque[Uniqid]()
-    val collecter: UCollector = new UCollector {
+    val collector: UniqidCollector = new UniqidCollector {
       override def apply[T](id: UniqidOf[T]): Unit =
         currentRangeCollect.append(id)
     }
-    x.collectU(collecter)
+    x.collectUniqids(collector)
     import spire.compat.ordering
     if (currentRangeCollect.isEmpty) UniqIdRange(currentOffset(), currentOffset())
     else UniqIdRange(currentRangeCollect.map(_.id).min, currentRangeCollect.map(_.id).max + (1: Natural))
@@ -118,10 +118,10 @@ object Uniqid {
   ): GiveNewRangeResult[T] = {
     val currentRange = x.uniqIdRange
     val newRange = requireRange(currentRange.size)
-    val reranger: UReplacer = new UReplacer {
+    val mapper: UniqidReplacer = new UniqidReplacer {
       override def apply[U](id: UniqidOf[U]): UniqidOf[U] =
         id.rerange(currentRange, newRange)
     }
-    GiveNewRangeResult(currentRange, newRange, x.replaceU(reranger).asInstanceOf[T])
+    GiveNewRangeResult(currentRange, newRange, x.mapUniqids(mapper).asInstanceOf[T])
   }
 }
