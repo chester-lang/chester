@@ -58,30 +58,10 @@ object ElabContext:
     "U",
     "Universe",
     "true",
-    "false",
-    "id"
+    "false"
   )
 
-  /** Built-in function types
-    * id : [a: Type] (x: a) -> a
-    */
-  val defaultBuiltinTypes: Map[String, AST] = {
-    val typeUniverse = AST.Universe(AST.IntLit(0, None), None)
-    val aId = Uniqid.make[AST]
-    val xId = Uniqid.make[AST]
-    val aRef = AST.Ref(aId, "a", None)
-    
-    Map(
-      "id" -> AST.Pi(
-        Vector(
-          Telescope(Vector(Param(aId, "a", typeUniverse, Implicitness.Implicit, None)), Implicitness.Implicit),
-          Telescope(Vector(Param(xId, "x", aRef, Implicitness.Explicit, None)), Implicitness.Explicit)
-        ),
-        aRef,
-        None
-      )
-    )
-  }
+  val defaultBuiltinTypes: Map[String, AST] = Map.empty
 
 /** All elaboration constraints */
 enum ElabConstraint:
@@ -723,9 +703,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
   /** Reduce (normalize) a term by performing beta-reduction.
     * Following the paper's recommendation (Section 7.5), we reduce before unification.
-    * This handles function applications like id(x) -> x.
-    * 
-    * NOTE: Currently simplified to avoid infinite loops - only handles built-in id function.
+    * This handles lambda applications.
     */
   private def reduce[M <: SolverModule](
       term: AST,
@@ -743,14 +721,20 @@ class ElabHandler extends Handler[ElabConstraint]:
           case Some(solved) if !solved.isInstanceOf[AST.MetaCell] => reduce(solved, depth + 1)
           case _ => term
       
-      // Beta-reduction for built-in id function only
+      // Beta-reduction: (λ params. body) args -> body[params := args]
       case AST.App(func, args, span) =>
-        func match
-          // Built-in identity function: id[a](x) -> x
-          case AST.Ref(_, "id", _) if args.length == 2 =>
-            // id has signature: [a: Type](x: a) -> a
-            // So id[typeArg](value) reduces to value
-            args(1).value
+        reduce(func, depth + 1) match
+          case AST.Lam(telescopes, body, _) =>
+            val allParams = telescopes.flatMap(_.params)
+            if allParams.size == args.size then
+              // Full application - substitute all params with args
+              val substMap = allParams.zip(args).map { case (param, arg) =>
+                param.id -> arg.value
+              }.toMap
+              reduce(substituteInType(body, substMap), depth + 1)
+            else
+              // Partial or over-application - no reduction
+              term
           case _ => term
       
       // For all other constructs, no reduction
@@ -758,7 +742,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
   /** Unify two types with occurs check and meta-variable solving.
     * Following the paper's architecture, this acts as a specialized unification solver.
-    * TODO: Add reduction before unification (paper Section 7.5) - currently disabled to avoid infinite loops
+    * TODO: Enable reduction before unification (paper Section 7.5) after fixing infinite loops.
     */
   private def unify[M <: SolverModule](
       t1: AST, 
@@ -768,7 +752,7 @@ class ElabHandler extends Handler[ElabConstraint]:
   )(using module: M, solver: module.Solver[ElabConstraint]): UnifyResult =
     import module.given
     
-    // TODO: Reduce both terms before unification (currently causes infinite loops)
+    // TODO: Enable reduction - currently causes hangs
     // val r1 = reduce(t1)
     // val r2 = reduce(t2)
     
