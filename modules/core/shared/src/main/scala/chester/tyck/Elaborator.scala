@@ -109,6 +109,14 @@ enum ElabConstraint:
       ctx: ElabContext
   )
 
+  /** Check subtyping: ty1 <: ty2 */
+  case Subtype(
+      ty1: CellR[AST],
+      ty2: CellR[AST],
+      span: Option[Span],
+      ctx: ElabContext
+  )
+
   /** Ensure ty is a universe type */
   case IsUniverse(
       ty: CellR[AST],
@@ -165,6 +173,8 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       AST.Block(elements.map(substituteInType(_, substitutions)), substituteInType(tail, substitutions), span)
     case AST.Universe(level, span) =>
       AST.Universe(substituteInType(level, substitutions), span)
+    case AST.AnyType(span) =>
+      AST.AnyType(span)
     case AST.Pi(telescopes, resultTy, span) =>
       // Don't substitute bound variables
       val newTelescopes = telescopes.map { tel =>
@@ -230,6 +240,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case c: ElabConstraint.Check         => handleCheck(c)
       case c: ElabConstraint.Infer         => handleInfer(c)
       case c: ElabConstraint.Unify         => handleUnify(c)
+      case c: ElabConstraint.Subtype       => handleSubtype(c)
       case c: ElabConstraint.IsUniverse    => handleIsUniverse(c)
       case c: ElabConstraint.IsPi          => handleIsPi(c)
       case c: ElabConstraint.AssembleApp   => handleAssembleApp(c)
@@ -291,7 +302,14 @@ class ElabHandler extends Handler[ElabConstraint]:
                 Result.Done
           case None =>
             // Check if it's a builtin
-            if c.ctx.isBuiltin(name) then
+            // Check for Any type
+            if name == "Any" then
+              val ast = AST.AnyType(span)
+              module.fill(solver, c.result, ast)
+              // Any has type Type[1]
+              module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(1, None), None))
+              Result.Done
+            else if c.ctx.isBuiltin(name) then
               // Built-in: create a special reference
               val metaId = Uniqid.make[AST]
               val ast = AST.Ref(metaId, name, span)
@@ -753,6 +771,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       
       case (AST.Universe(l1, _), AST.Universe(l2, _)) => unify(l1, l2, span, ctx)
       
+      case (AST.AnyType(_), AST.AnyType(_)) => UnifyResult.Success
+      
       case (AST.Tuple(e1, _), AST.Tuple(e2, _)) =>
         if e1.size != e2.size then UnifyResult.Failure("Tuple arity mismatch")
         else unifyAll(e1.zip(e2), span, ctx)
@@ -781,6 +801,72 @@ class ElabHandler extends Handler[ElabConstraint]:
         case failure => failure
     }
 
+  /** Handle subtyping constraint: ty1 <: ty2 */
+  private def handleSubtype[M <: SolverModule](c: ElabConstraint.Subtype)(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    import module.given
+
+    (module.readStable(solver, c.ty1), module.readStable(solver, c.ty2)) match
+      case (Some(t1), Some(t2)) =>
+        if isSubtype(t1, t2, c.span, c.ctx)(using module, solver) then Result.Done
+        else
+          c.ctx.reporter.report(ElabProblem.TypeMismatch(t1, t2, c.span))
+          Result.Done
+      case (None, _) => Result.Waiting(c.ty1)
+      case (_, None) => Result.Waiting(c.ty2)
+
+  /** Check if ty1 is a subtype of ty2
+    * 
+    * Subtyping rules:
+    * - Everything is a subtype of Any
+    * - Reflexive: T <: T
+    * - Function subtyping: contravariant in parameters, covariant in result
+    * - Structural for tuples, etc.
+    */
+  private def isSubtype[M <: SolverModule](
+      ty1: AST,
+      ty2: AST,
+      span: Option[Span],
+      ctx: ElabContext
+  )(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
+    import module.given
+    
+    // Everything is a subtype of Any
+    if ty2.isInstanceOf[AST.AnyType] then return true
+    
+    // Any is only a subtype of itself
+    if ty1.isInstanceOf[AST.AnyType] then
+      return ty2.isInstanceOf[AST.AnyType]
+    
+    // Reflexive case and unification fallback
+    unify(ty1, ty2, span, ctx) match
+      case UnifyResult.Success => true
+      case UnifyResult.Failure(_) =>
+        // Check structural subtyping
+        (ty1, ty2) match
+          // Function subtyping: contravariant in parameters, covariant in result
+          // (A -> B) <: (A' -> B') if A' <: A and B <: B'
+          case (AST.Pi(tel1, r1, _), AST.Pi(tel2, r2, _)) =>
+            if tel1.size != tel2.size then false
+            else
+              // Parameters are contravariant
+              val paramsOk = tel1.zip(tel2).forall { case (t1, t2) =>
+                if t1.params.size != t2.params.size then false
+                else t1.params.zip(t2.params).forall { case (p1, p2) =>
+                  // p2.ty <: p1.ty (contravariant!)
+                  isSubtype(p2.ty, p1.ty, span, ctx)
+                }
+              }
+              // Result is covariant
+              paramsOk && isSubtype(r1, r2, span, ctx)
+          
+          // Tuple subtyping: covariant in all components
+          case (AST.Tuple(e1, _), AST.Tuple(e2, _)) =>
+            e1.size == e2.size && e1.zip(e2).forall { case (a, b) =>
+              isSubtype(a, b, span, ctx)
+            }
+          
+          case _ => false
+
   /** Occurs check: does a meta-variable cell occur in a type? */
   private def occursIn[M <: SolverModule](
       cell: Any,  // The cell we're checking for (stored in HoldNotReadable)
@@ -790,7 +876,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.MetaCell(HoldNotReadable(c), _) =>
         if c == cell then true
         else module.readStable(solver, c).exists(occursIn(cell, _))
-      case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) => false
+      case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) | AST.AnyType(_) => false
       case AST.Universe(level, _) => occursIn(cell, level)
       case AST.Tuple(elements, _) => elements.exists(occursIn(cell, _))
       case AST.ListLit(elements, _) => elements.exists(occursIn(cell, _))
@@ -994,6 +1080,8 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     
     case AST.Universe(level, span) =>
       AST.Universe(substituteSolutions(level), span)
+    
+    case AST.AnyType(span) => ast
     
     case AST.Pi(telescopes, resultTy, span) =>
       val newTelescopes = telescopes.map { tel =>
