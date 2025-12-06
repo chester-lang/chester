@@ -187,7 +187,7 @@ class ElaboratorDefTest extends munit.FunSuite {
       s"Should have error about tail position, got: $errors")
   }
 
-  test("def in block elements is allowed".ignore) {
+  test("def in block elements simple") {
     val (ast, ty, errors) = elaborate("{ def f(x: Type) = x; 42 }")
     
     // Should elaborate without errors about def being disallowed
@@ -200,8 +200,18 @@ class ElaboratorDefTest extends munit.FunSuite {
         assert(elements.length >= 2, s"Block should have at least 2 elements (def and 42), got: ${elements.length}")
         assert(elements.head.isInstanceOf[AST.Def], s"First element should be Def, got: ${elements.head}")
       case other =>
-        // May have different AST structure, but main point is no placement error
-        ()
+        fail(s"Expected Block, got: $other")
     }
+  }
+
+  test("def in block can be called".ignore) {
+    // TODO: This test currently fails due to solver not finishing constraints
+    // The forward reference works (no unbound variable error) but type elaboration
+    // creates a cyclic dependency that the solver can't resolve yet
+    val (ast, ty, errors) = elaborate("{ def id[a: Type](x: a) = x; id(42) }")
+    
+    // Should not have unbound variable error for id
+    assert(!errors.exists(_.toString.contains("Unbound variable")), 
+      s"Should not have unbound variable error for id, got: $errors")
   }
 }
