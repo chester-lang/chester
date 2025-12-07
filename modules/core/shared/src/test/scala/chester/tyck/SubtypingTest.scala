@@ -163,7 +163,7 @@ class SubtypingTest extends FunSuite:
     // id : [a: Type](x: a) -> a
     // id(id) applies id to itself: id[([a:Type](x:a)->a)](id) : ([a:Type](x:a)->a)
     // So id(id) returns id, and id(id)("a") should be the same as id("a")
-    // The type of "a" is String, so result should have type String
+    // The type of "a") is String, so result should have type String
     val (ast, ty, errors) = elaborate("""{
       def id[a: Type](x: a) = x;
       id(id)("a")

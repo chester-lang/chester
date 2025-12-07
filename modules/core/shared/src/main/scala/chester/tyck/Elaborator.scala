@@ -247,6 +247,10 @@ class ElabHandler extends Handler[ElabConstraint]:
 
   private def handleInfer[M <: SolverModule](c: ElabConstraint.Infer)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
+    
+    // Check if we've already filled the result and type - if so, we're done (avoid re-processing)
+    if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then
+      return Result.Done
 
     c.cst match
       // Integer literal: type is Universe(0)
@@ -989,6 +993,10 @@ class ElabHandler extends Handler[ElabConstraint]:
 
   private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
+    
+    // Check if we've already filled BOTH result and inferredTy - if so, we're done (avoid re-processing)
+    if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then
+      return Result.Done
 
     // Wait for all parts to be elaborated
     if !module.hasStableValue(solver, c.funcResult) then
@@ -1053,19 +1061,8 @@ class ElabHandler extends Handler[ElabConstraint]:
           module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
           return Result.Done
         
-        // Build application - nest two Apps if we have both implicit and explicit args
-        val app = if implicitArgs.nonEmpty && explicitArgs.nonEmpty then
-          // Nested: func[implicitArgs](explicitArgs)
-          val implicitApp = AST.App(func, implicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
-          AST.App(implicitApp, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
-        else if implicitArgs.nonEmpty then
-          // Only implicit: func[implicitArgs]
-          AST.App(func, implicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
-        else
-          // Only explicit: func(explicitArgs)
-          AST.App(func, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
-        
         // Type check arguments synchronously (not via constraints to avoid loops)
+        // This may fill the implicit arg MetaCells through unification
         val implicitSubst = implicitParams.map(_.id).zip(implicitArgs).toMap
         val allTypeChecksPassed = explicitParams.zip(c.argTypes).forall { case (param, argTyCell) =>
           val expectedParamTy = substituteInType(param.ty, implicitSubst)
@@ -1089,11 +1086,30 @@ class ElabHandler extends Handler[ElabConstraint]:
           module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
           return Result.Done
         
+        // After type checking, resolve any MetaCells in implicit args that may have been filled
+        val resolvedImplicitArgs = implicitArgs.map {
+          case AST.MetaCell(HoldNotReadable(cell), span) =>
+            module.readStable(solver, cell).getOrElse(AST.MetaCell(HoldNotReadable(cell), span))
+          case arg => arg
+        }
+        
+        // Build application - nest two Apps if we have both implicit and explicit args
+        val app = if resolvedImplicitArgs.nonEmpty && explicitArgs.nonEmpty then
+          // Nested: func[implicitArgs](explicitArgs)
+          val implicitApp = AST.App(func, resolvedImplicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
+          AST.App(implicitApp, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
+        else if resolvedImplicitArgs.nonEmpty then
+          // Only implicit: func[implicitArgs]
+          AST.App(func, resolvedImplicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
+        else
+          // Only explicit: func(explicitArgs)
+          AST.App(func, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
+        
         module.fill(solver, c.result, app)
         
-        // Perform substitution: replace parameter references in result type with arguments
+        // Perform substitution: replace parameter references in result type with resolved arguments
         val allParams = implicitParams ++ explicitParams
-        val allArgs = implicitArgs ++ explicitArgs
+        val allArgs = resolvedImplicitArgs ++ explicitArgs
         val substitutedTy = substituteInType(resolvedResultTy, allParams.map(_.id).zip(allArgs).toMap)
         module.fill(solver, c.inferredTy, substitutedTy)
         Result.Done
