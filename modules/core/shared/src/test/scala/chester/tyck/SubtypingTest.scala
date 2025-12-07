@@ -7,8 +7,13 @@ import chester.reader.{Source, FileNameAndContent, CharReader, Tokenizer, Parser
 import chester.utils.elab.*
 import chester.utils.doc.{DocConf, DocOps, given}
 import munit.FunSuite
+import scala.concurrent.duration.*
+import scala.concurrent.{ Future, ExecutionContext }
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class SubtypingTest extends FunSuite:
+
+  override val munitTimeout: FiniteDuration = 10.seconds
 
   def elaborate(input: String): (Option[AST], Option[AST], Vector[ElabProblem]) =
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
@@ -159,7 +164,9 @@ class SubtypingTest extends FunSuite:
     }
   }
 
-  test("type check id(id)(\"a\") with type String".ignore) {
+  test("type check id(id)(\"a\") with type String") {
+    // timeout only applies to async (Future)
+    Future {
     // id : [a: Type](x: a) -> a
     // id(id) applies id to itself: id[([a:Type](x:a)->a)](id) : ([a:Type](x:a)->a)
     // So id(id) returns id, and id(id)("a") should be the same as id("a")
@@ -178,5 +185,5 @@ class SubtypingTest extends FunSuite:
       case AST.StringType(_) => // OK - result type is String
       case other => fail(s"Expected String type, got: $other")
     }
+    }
   }
-

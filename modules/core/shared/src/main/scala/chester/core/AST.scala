@@ -67,7 +67,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case Lam(telescopes: Vector[Telescope], body: AST, override val span: Option[Span]) extends AST(span)
   case App(func: AST, args: Vector[Arg], implicitArgs: Boolean, override val span: Option[Span]) extends AST(span)
   case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
-  case Def(id: UniqidOf[AST], name: String, telescopes: Vector[Telescope], resultTy: Option[AST], body: AST, override val span: Option[Span]) extends AST(span)
+  case Def(id: UniqidOf[AST], name: String, telescopes: Vector[Telescope], resultTy: Option[AST], body: AST, override val span: Option[Span])
+      extends AST(span)
   case Ann(expr: AST, ty: AST, override val span: Option[Span]) extends AST(span)
   case MetaCell(cell: HoldNotReadable[chester.utils.elab.CellRW[AST]], override val span: Option[Span]) extends AST(span)
 
@@ -94,20 +95,26 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
     case AST.Pi(telescopes, resultTy, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
-        val paramsDoc = hsep(tel.params.map(p =>
-          text(p.name) <> text(":") <+> p.ty.toDoc <>
-            p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
-        ), `,` <+> empty)
+        val paramsDoc = hsep(
+          tel.params.map(p =>
+            text(p.name) <> text(":") <+> p.ty.toDoc <>
+              p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
+          ),
+          `,` <+> empty
+        )
         bracket._1(paramsDoc)
       }
       hsep(telescopeDocs, empty) <+> text("->") <+> resultTy.toDoc
     case AST.Lam(telescopes, body, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
-        val paramsDoc = hsep(tel.params.map(p =>
-          text(p.name) <> text(":") <+> p.ty.toDoc <>
-            p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
-        ), `,` <+> empty)
+        val paramsDoc = hsep(
+          tel.params.map(p =>
+            text(p.name) <> text(":") <+> p.ty.toDoc <>
+              p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
+          ),
+          `,` <+> empty
+        )
         bracket._1(paramsDoc)
       }
       text("λ") <> hsep(telescopeDocs, empty) <+> text("=>") <+> body.toDoc
@@ -121,9 +128,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
     case AST.Def(id, name, telescopes, resultTy, body, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
-        val paramsDoc = hsep(tel.params.map(p =>
-          text(p.name) <> text(":") <+> p.ty.toDoc
-        ), `,` <+> empty)
+        val paramsDoc = hsep(tel.params.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
         bracket._1(paramsDoc)
       }
       val tyDoc = resultTy.map(t => text(":") <+> t.toDoc).getOrElse(empty)

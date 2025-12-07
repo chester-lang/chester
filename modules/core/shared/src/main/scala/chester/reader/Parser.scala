@@ -178,17 +178,19 @@ object Parser {
         sequenceAtoms += parseAtom(state)
         state.skipTrivia()
       }
-      
+
       if (sequenceAtoms.nonEmpty) {
         // Combine into SeqOf if multiple atoms, or keep single atom
-        val element = if (sequenceAtoms.length == 1) sequenceAtoms(0)
-        else CST.SeqOf(
-          NonEmptyVector.fromVectorUnsafe(sequenceAtoms.toVector),
-          for {
-            h <- sequenceAtoms.head.span
-            l <- sequenceAtoms.last.span
-          } yield h.combine(l)
-        )
+        val element =
+          if (sequenceAtoms.length == 1) sequenceAtoms(0)
+          else
+            CST.SeqOf(
+              NonEmptyVector.fromVectorUnsafe(sequenceAtoms.toVector),
+              for {
+                h <- sequenceAtoms.head.span
+                l <- sequenceAtoms.last.span
+              } yield h.combine(l)
+            )
         elements += element
       }
 
@@ -203,7 +205,7 @@ object Parser {
         case Some(tok) if isClosing(tok) => // Done, will be handled after loop
         case _ if state.isEOF            => return closeWithError("EOF")
         case Some(_: Token.Semicolon)    => return closeWithError("semicolon in block context")
-        case None => return closeWithError("unexpected end")
+        case None                        => return closeWithError("unexpected end")
       }
     }
 

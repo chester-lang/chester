@@ -159,9 +159,7 @@ object ProceduralSolverModule extends SolverModule {
     }
     if (defaults.isEmpty && nothingChanged && solver.todo.isEmpty) {
       if (stable(solver)) return
-      val waitingInfo = solver.delayedConstraints.map { wc =>
-        s"  - ${wc.constraint} waiting on ${wc.vars.size} cells"
-      }.mkString("\n")
+      val waitingInfo = solver.delayedConstraints.map(wc => s"  - ${wc.constraint} waiting on ${wc.vars.size} cells").mkString("\n")
       throw new IllegalStateException(s"cannot finish some constraints. ${solver.delayedConstraints.size} waiting:\n$waitingInfo")
     }
     val _ = solver.delayedConstraints.filterInPlace { c =>
