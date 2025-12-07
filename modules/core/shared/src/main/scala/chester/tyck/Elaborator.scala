@@ -1001,18 +1001,6 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     module.readStable(solver, c.funcTy) match
       case Some(AST.Pi(telescopes, resultTy, _)) =>
-        println(s"[AssembleApp] Function type is Pi: ${telescopes.map(t => s"${t.implicitness}(${t.params.size})")}")
-        
-        // Check if all parameter type cells are stable - wait if not
-        val allParamTyCells = telescopes.flatMap(_.params).flatMap {
-          case Param(_, _, AST.MetaCell(HoldNotReadable(cell), _), _, _) => Some(cell)
-          case _ => None
-        }
-        
-        if !allParamTyCells.forall(module.hasStableValue(solver, _)) then
-          println(s"[AssembleApp] Waiting for ${allParamTyCells.count(!module.hasStableValue(solver, _))} parameter type cells")
-          return Result.Waiting(allParamTyCells.filter(!module.hasStableValue(solver, _))*)
-        
         // Resolve MetaCells in telescopes (parameter types may contain unresolved cells)
         val resolvedTelescopes = telescopes.map { tel =>
           tel.copy(params = tel.params.map { param =>
@@ -1067,6 +1055,30 @@ class ElabHandler extends Handler[ElabConstraint]:
         else
           // Only explicit: func(explicitArgs)
           AST.App(func, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
+        
+        // Type check arguments synchronously (not via constraints to avoid loops)
+        val implicitSubst = implicitParams.map(_.id).zip(implicitArgs).toMap
+        val allTypeChecksPassed = explicitParams.zip(c.argTypes).forall { case (param, argTyCell) =>
+          val expectedParamTy = substituteInType(param.ty, implicitSubst)
+          module.readStable(solver, argTyCell) match
+            case Some(actualArgTy) =>
+              // Try unification first (for implicit argument inference), then subtyping
+              unify(expectedParamTy, actualArgTy, c.span, c.ctx) match
+                case UnifyResult.Success => true
+                case UnifyResult.Failure(_) =>
+                  // Unification failed, try subtyping: actualArgTy <: expectedParamTy
+                  if isSubtype(actualArgTy, expectedParamTy, c.span, c.ctx) then
+                    true
+                  else
+                    c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
+                    false
+            case None => true // Not stable yet, will be checked later
+        }
+        
+        if !allTypeChecksPassed then
+          module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
+          module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+          return Result.Done
         
         module.fill(solver, c.result, app)
         

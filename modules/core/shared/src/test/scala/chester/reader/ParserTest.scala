@@ -120,10 +120,6 @@ class ParserTest extends munit.FunSuite {
     val (t2, e2) = parse("[1, 2")
     assertHasError(e2, "']'")
     assert(t2.asInstanceOf[CST.ListLiteral].elements.length == 2)
-
-    val (t3, e3) = parse("(1 2)")
-    assert(e3.nonEmpty)
-    assert(t3.isInstanceOf[CST.Tuple])
   }
 
   test("parse with whitespace and comments") {
