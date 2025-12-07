@@ -297,6 +297,15 @@ class ElabHandler extends Handler[ElabConstraint]:
               // String has type Type[0]
               module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
               Result.Done
+            else if name == "Type" then
+              // Type is Universe with a meta-variable level
+              val levelCell = module.newOnceCell[ElabConstraint, AST](solver)
+              val ast = AST.Universe(AST.MetaCell(HoldNotReadable(levelCell), span), span)
+              module.fill(solver, c.result, ast)
+              // Type has type Type[level+1]
+              val nextLevelCell = module.newOnceCell[ElabConstraint, AST](solver)
+              module.fill(solver, c.inferredTy, AST.Universe(AST.MetaCell(HoldNotReadable(nextLevelCell), span), None))
+              Result.Done
             else if c.ctx.isBuiltin(name) then
               // Built-in: create a special reference
               val metaId = Uniqid.make[AST]

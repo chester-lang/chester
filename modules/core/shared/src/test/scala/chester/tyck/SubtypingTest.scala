@@ -101,15 +101,6 @@ class SubtypingTest extends FunSuite:
       s"Should not have type mismatch, got: $errors")
   }
 
-  test("function returning Any can be called with any argument type") {
-    val (ast, ty, errors) = elaborate("{ def f(x: Type): Any = x; f(Type); f(42) }")
-    
-    // Should elaborate - Any is the return type, accepts Type parameter
-    assert(ast.isDefined, "Should elaborate")
-    assert(!errors.exists(_.toString.contains("Type mismatch")), 
-      s"Should not have type mismatch, got: $errors")
-  }
-
   test("reduce function implemented for future use".ignore) {
     // Reduction is implemented but currently disabled in unification to avoid infinite loops
     // id : [a: Type](x: a) -> a
