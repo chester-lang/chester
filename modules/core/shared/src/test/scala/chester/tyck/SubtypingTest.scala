@@ -5,6 +5,7 @@ import chester.core.{AST, CST}
 import chester.error.VectorReporter
 import chester.reader.{Source, FileNameAndContent, CharReader, Tokenizer, Parser, ParseError}
 import chester.utils.elab.*
+import chester.utils.doc.{DocConf, DocOps, given}
 import munit.FunSuite
 
 class SubtypingTest extends FunSuite:
@@ -137,6 +138,34 @@ class SubtypingTest extends FunSuite:
     assert(errors.isEmpty, s"Should type check with reduction, got errors: $errors")
     assert(ast.isDefined, "AST should be defined")
     assert(ty.isDefined, "Type should be defined")
+  }
+
+  test("type check id(42) first") {
+    // Simpler test: just id(42)
+    val (ast, ty, errors) = elaborate("""{
+      def id[a: Type](x: a) = x;
+      id(42)
+    }""")
+    
+    assert(errors.isEmpty, s"Should have no errors, got: $errors")
+    assert(ty.isDefined, "Type should be defined")
+  }
+
+  test("type check id(id) returns id") {
+    // Simpler test: just id(id) without the second application
+    val (ast, ty, errors) = elaborate("""{
+      def id[a: Type](x: a) = x;
+      id(id)
+    }""")
+    
+    assert(errors.isEmpty, s"Should have no errors, got: $errors")
+    assert(ty.isDefined, "Type should be defined")
+    
+    // The type should be [a: Type](x: a) -> a
+    ty.get match {
+      case AST.Pi(_, _, _) => // OK - result type is a function type
+      case other => fail(s"Expected Pi type, got: $other")
+    }
   }
 
   test("type check id(id)(\"a\") with type String".ignore) {

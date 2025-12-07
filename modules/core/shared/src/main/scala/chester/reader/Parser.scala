@@ -172,8 +172,25 @@ object Parser {
     }
 
     while (state.hasNext && !state.is(isClosing)) {
-      elements += parseAtom(state)
-      state.skipTrivia()
+      // Parse a sequence of atoms until comma or closing delimiter
+      val sequenceAtoms = ArrayBuffer.empty[CST]
+      while (state.hasNext && !state.is(isClosing) && !state.current.exists(_.isInstanceOf[Token.Comma])) {
+        sequenceAtoms += parseAtom(state)
+        state.skipTrivia()
+      }
+      
+      if (sequenceAtoms.nonEmpty) {
+        // Combine into SeqOf if multiple atoms, or keep single atom
+        val element = if (sequenceAtoms.length == 1) sequenceAtoms(0)
+        else CST.SeqOf(
+          NonEmptyVector.fromVectorUnsafe(sequenceAtoms.toVector),
+          for {
+            h <- sequenceAtoms.head.span
+            l <- sequenceAtoms.last.span
+          } yield h.combine(l)
+        )
+        elements += element
+      }
 
       state.current match {
         case Some(_: Token.Comma) =>
@@ -186,10 +203,6 @@ object Parser {
         case Some(tok) if isClosing(tok) => // Done, will be handled after loop
         case _ if state.isEOF            => return closeWithError("EOF")
         case Some(_: Token.Semicolon)    => return closeWithError("semicolon in block context")
-        case Some(other) =>
-          state.recordError(s"Expected ',' or $closingName but got ${other.tokenType}", other.span)
-          state.advance()
-          state.skipTrivia()
         case None => return closeWithError("unexpected end")
       }
     }
