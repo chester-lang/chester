@@ -1025,9 +1025,12 @@ class ElabHandler extends Handler[ElabConstraint]:
   private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
 
-    // Check if we've already filled BOTH result and inferredTy - if so, we're done (avoid re-processing)
-    if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then return Result.Done
+    // Check if we've already filled the result - if so, we're done (avoid re-processing)
+    if module.hasStableValue(solver, c.result) then return Result.Done
 
+    // Wait for function type to be ready first (most important dependency)
+    if !module.hasStableValue(solver, c.funcTy) then return Result.Waiting(c.funcTy)
+    
     // Wait for all parts to be elaborated
     if !module.hasStableValue(solver, c.funcResult) then return Result.Waiting(c.funcResult)
 
@@ -1035,13 +1038,17 @@ class ElabHandler extends Handler[ElabConstraint]:
       return Result.Waiting(c.explicitTypeArgResults.filter(!module.hasStableValue(solver, _))*)
 
     if !c.argResults.forall(module.hasStableValue(solver, _)) then return Result.Waiting(c.argResults.filter(!module.hasStableValue(solver, _))*)
+    
+    // Wait for all argument types to be inferred
+    if !c.argTypes.forall(module.hasStableValue(solver, _)) then return Result.Waiting(c.argTypes.filter(!module.hasStableValue(solver, _))*)
+    
+    // Wait for all explicit type argument types to be inferred
+    if !c.explicitTypeArgTypes.forall(module.hasStableValue(solver, _)) then return Result.Waiting(c.explicitTypeArgTypes.filter(!module.hasStableValue(solver, _))*)
 
+    // All prerequisites are ready - we're committed to processing now
     val func = module.readStable(solver, c.funcResult).get
     val explicitTypeArgs = c.explicitTypeArgResults.flatMap(module.readStable(solver, _))
     val explicitArgs = c.argResults.flatMap(module.readStable(solver, _))
-
-    // Type check: function type should be Pi
-    if !module.hasStableValue(solver, c.funcTy) then return Result.Waiting(c.funcTy)
 
     module.readStable(solver, c.funcTy) match
       case Some(AST.Pi(telescopes, resultTy, _)) =>
@@ -1058,15 +1065,26 @@ class ElabHandler extends Handler[ElabConstraint]:
           // User provided explicit type arguments like id[String]
           if explicitTypeArgs.size != implicitParams.size then
             c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
+            module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
             module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
             return Result.Done
 
-          // Type check explicit type arguments against implicit parameter types
-          implicitParams.zip(explicitTypeArgs).zip(c.explicitTypeArgTypes).foreach { case ((param, arg), argTy) =>
-            val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-            module.fill(solver, paramTyCell, param.ty)
-            module.addConstraint(solver, ElabConstraint.Unify(argTy, paramTyCell, c.span, c.ctx))
+          // Type check explicit type arguments against implicit parameter types synchronously
+          val typeArgsOk = implicitParams.zip(explicitTypeArgs).zip(c.explicitTypeArgTypes).forall { case ((param, arg), argTyCell) =>
+            module.readStable(solver, argTyCell) match
+              case Some(actualTy) =>
+                unify(param.ty, actualTy, c.span, c.ctx) match
+                  case UnifyResult.Success => true
+                  case UnifyResult.Failure(_) =>
+                    c.ctx.reporter.report(ElabProblem.TypeMismatch(param.ty, actualTy, c.span))
+                    false
+              case None => true // Not stable yet
           }
+
+          if !typeArgsOk then
+            module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
+            module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+            return Result.Done
 
           explicitTypeArgs
         else
