@@ -1587,16 +1587,26 @@ class ElabHandler extends Handler[ElabConstraint]:
     // Result cell carries the elaborated body to resolve block placeholders
     module.fill(solver, c.result, body)
 
-    // Compute required effects by scanning the body for builtin calls with effectful Pi types
+    def effectsFromRef(ref: AST.Ref): Set[String] =
+      // Prefer user-defined types in context; fall back to builtin signatures
+      val fromCtx = c.ctx
+        .lookupType(ref.id)
+        .flatMap(cell => module.readStable(solver, cell.asInstanceOf[module.CellR[AST]]))
+        .collect { case AST.Pi(_, _, effs, _) => effs.toSet }
+        .getOrElse(Set.empty[String])
+      if fromCtx.nonEmpty then fromCtx
+      else
+        ElabContext.defaultBuiltinTypes.get(ref.name) match
+          case Some(AST.Pi(_, _, effs, _)) => effs.toSet
+          case _                           => Set.empty[String]
+
+    // Compute required effects by scanning the body for calls whose types carry effect rows
     def gatherEffects(ast: AST): Set[String] =
       ast match
         case AST.App(func, args, _, _) =>
           val fromFuncType = func match
-            case AST.Ref(_, name, _) =>
-              ElabContext.defaultBuiltinTypes.get(name) match
-                case Some(AST.Pi(_, _, effs, _)) => effs.toSet
-                case _                           => Set.empty[String]
-            case _ => Set.empty[String]
+            case r: AST.Ref => effectsFromRef(r)
+            case _          => Set.empty[String]
           fromFuncType ++ gatherEffects(func) ++ args.flatMap(a => gatherEffects(a.value))
         case AST.Block(elements, tail, _) =>
           elements.flatMap(gatherEffectsStmt).toSet ++ gatherEffects(tail)
