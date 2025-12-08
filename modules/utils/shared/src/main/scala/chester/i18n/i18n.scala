@@ -1,5 +1,7 @@
 package chester.i18n
 
+import chester.utils.doc.{<>, Doc, DocConf, ToDoc}
+
 case class Language(tag: LanguageTag, region: RegionTag) {
   def name: String = s"${tag.name}_${region.name}"
 
@@ -81,6 +83,13 @@ case class TranslationTable(table: Map[LanguageTag, RegionTable]) {
 }
 
 object Template {
+  sealed trait DocTemplatePart
+  object DocTemplatePart {
+    case class Literal(value: String) extends DocTemplatePart
+    case class Placeholder(index: Int) extends DocTemplatePart
+  }
+  import DocTemplatePart.*
+
   def stringContextToString(sc: StringContext): String = {
 
     val stringbuilder = new StringBuilder()
@@ -117,4 +126,66 @@ object Template {
     }
     result.replace("$$", "$")
   }
+
+  def renderDocFromStringContext(parts: Vector[String], args: Vector[ToDoc])(using DocConf): Doc =
+    if parts.length != args.length + 1 then
+      throw new IllegalArgumentException(s"Invalid string context: ${parts.length} parts for ${args.length} args")
+    val literalDocs =
+      parts.iterator.map(part => if part.isEmpty then None else Some(Doc.text(part))).toVector
+    val combined = Vector.newBuilder[Doc]
+    var idx = 0
+    while idx < args.length do
+      literalDocs(idx).foreach(combined += _)
+      combined += args(idx).toDoc
+      idx += 1
+    literalDocs.lastOption.flatten.foreach(combined += _)
+    concatenateDocs(combined.result())
+
+  def docPartsFromTemplate(template: String): Vector[DocTemplatePart] =
+    val builder = Vector.newBuilder[DocTemplatePart]
+    val literal = new StringBuilder
+    var idx = 0
+    def flushLiteral(): Unit =
+      if literal.nonEmpty then
+        builder += Literal(literal.result())
+        literal.clear()
+    while idx < template.length do
+      val ch = template.charAt(idx)
+      if ch == '$' && idx + 1 < template.length then
+        template.charAt(idx + 1) match
+          case '$' =>
+            literal.append('$')
+            idx += 2
+          case d if d.isDigit =>
+            flushLiteral()
+            val placeholderIndex = d.asDigit
+            builder += Placeholder(placeholderIndex)
+            idx += 2
+          case other =>
+            literal.append(ch)
+            idx += 1
+      else
+        literal.append(ch)
+        idx += 1
+    flushLiteral()
+    builder.result()
+
+  def renderDocFromTemplateParts(parts: Vector[DocTemplatePart], args: Vector[ToDoc])(using DocConf): Doc =
+    val docs = Vector.newBuilder[Doc]
+    parts.foreach {
+      case Literal(value) if value.nonEmpty =>
+        docs += Doc.text(value)
+      case Literal(_) => // drop empty literal
+      case Placeholder(index) =>
+        val zeroIdx = index - 1
+        if zeroIdx < 0 || zeroIdx >= args.length then
+          throw new IllegalArgumentException(s"Missing argument $index in template")
+        docs += args(zeroIdx).toDoc
+    }
+    concatenateDocs(docs.result())
+
+  private def concatenateDocs(docs: Vector[Doc])(using DocConf): Doc =
+    docs.headOption match
+      case Some(head) => docs.tail.foldLeft(head)((acc, doc) => acc <> doc)
+      case None       => Doc.empty
 }

@@ -1,14 +1,24 @@
 package chester.i18n
 
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
+import chester.utils.doc.{Doc, DocConf, ToDoc}
 import scala.language.implicitConversions
 import scala.quoted.*
 import scala.util.control.NonFatal
-import upickle.default.*
 
 trait T {
   def t(args: Any*): String
 }
+
+trait D:
+  def d(args: ToDoc*)(using DocConf): Doc
+
+trait DT:
+  def dt(args: ToDoc*)(using DocConf): Doc
+
+implicit inline def d(inline sc: StringContext): D = ${ dMacro('sc) }
+implicit inline def t(inline sc: StringContext): T = ${ tMacro('sc) }
+implicit inline def dt(inline sc: StringContext): DT = ${ dtMacro('sc) }
 
 private object TranslationRepository:
   private var cachedTranslations: Option[Map[String, Map[String, String]]] = None
@@ -27,7 +37,7 @@ private object TranslationRepository:
     val resolved = resolveTemplate(template)
     resolved
 
-  private def resolveTemplate(template: String)(using Quotes): String =
+  private def resolveTemplate(template: String): String =
     val lang = detectLanguage()
     val locales = Seq(
       s"${lang.tag.name}_${lang.region.name}",
@@ -76,7 +86,7 @@ private object TranslationRepository:
         languagePart.toLowerCase
       case _ => raw.toLowerCase
 
-  private def loadTranslations()(using Quotes): Map[String, Map[String, String]] =
+  private def loadTranslations(): Map[String, Map[String, String]] =
     val path = translationFile
     val content =
       try Files.readString(path)
@@ -114,7 +124,7 @@ private object TranslationRepository:
       cachedTranslations = Some(Map.empty)
     target
 
-  def ensureTemplateRegistered(template: String)(using Quotes): Unit =
+  def ensureTemplateRegistered(template: String): Unit =
     val translations = loadTranslations()
     val missingLocales = LanguageTag.values.map(localeKeyFor).filter { locale =>
       translations.get(locale).forall(!_.contains(template))
@@ -153,6 +163,20 @@ private object TranslationRepository:
   private def localeKeyFor(tag: LanguageTag): String =
     normalizeLocaleKey(s"${tag.name}_${tag.defaultRegion.name}")
 
+private def dMacro(scExpr: Expr[StringContext])(using Quotes): Expr[D] =
+  val parts = scExpr match
+    case '{ StringContext(${Varargs(ps)}*) } => ps.map(_.valueOrAbort).toVector
+    case _ =>
+      quotes.reflect.report.error("d interpolator requires literal StringContext")
+      Vector.empty
+  val partsExpr = Expr.ofSeq(parts.map(Expr(_)))
+  '{
+    new D {
+      def d(args: ToDoc*)(using DocConf): Doc =
+        Template.renderDocFromStringContext($partsExpr.toVector, args.toVector)
+    }
+  }
+
 private def tMacro(sc: Expr[StringContext])(using Quotes): Expr[T] =
   val resolvedTemplate = TranslationRepository.translationTemplate(sc)
   TranslationRepository.ensureTemplateRegistered(resolvedTemplate)
@@ -164,4 +188,19 @@ private def tMacro(sc: Expr[StringContext])(using Quotes): Expr[T] =
     }
   }
 
-implicit inline def t(inline sc: StringContext): T = ${ tMacro('sc) }
+private def dtMacro(sc: Expr[StringContext])(using Quotes): Expr[DT] =
+  val resolvedTemplate = TranslationRepository.translationTemplate(sc)
+  TranslationRepository.ensureTemplateRegistered(resolvedTemplate)
+  val parts = Template.docPartsFromTemplate(resolvedTemplate)
+  val partsExpr = Expr.ofSeq(parts.map {
+    case Template.DocTemplatePart.Literal(value) =>
+      '{ Template.DocTemplatePart.Literal(${Expr(value)}) }
+    case Template.DocTemplatePart.Placeholder(index) =>
+      '{ Template.DocTemplatePart.Placeholder(${Expr(index)}) }
+  })
+  '{
+    new DT {
+      def dt(args: ToDoc*)(using DocConf): Doc =
+        Template.renderDocFromTemplateParts($partsExpr.toVector, args.toVector)
+    }
+  }

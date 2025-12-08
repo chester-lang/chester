@@ -3,8 +3,8 @@ package chester.error
 import chester.utils.doc.*
 import upickle.default.*
 import chester.i18n.*
-import chester.utils.Nat
 
+import scala.annotation.unused
 import scala.language.experimental.genericNumberLiterals
 
 object Problem {
@@ -70,7 +70,9 @@ private def renderFullDescription(desc: FullDescription)(using options: DocConf,
     val elemDoc = elem.doc.toDoc
     elem.span0.flatMap(sourceReader.apply) match {
       case Some(lines) =>
-        val sourceLines = lines.map((lineNumber, line) => Doc.text(t"$lineNumber") <+> Doc.text(line, Styling.BoldOn))
+        val sourceLines = lines.map { (lineNumber, line) =>
+          dt"${Doc.text(lineNumber.toString)}" <+> Doc.text(line, Styling.BoldOn)
+        }
         val codeBlock = Doc.group(Doc.concat(sourceLines.map(_.end)*))
         elemDoc </> codeBlock
       case None => elemDoc
@@ -89,26 +91,28 @@ private def renderFullDescription(desc: FullDescription)(using options: DocConf,
 
 private def renderToDocWithSource(p: Problem)(using options: DocConf, sourceReader: SourceReader): Doc = {
   val severityDoc = p.severity match {
-    case Problem.Severity.Error   => Doc.text(t"Error")
-    case Problem.Severity.Warning => Doc.text(t"Warning")
-    case Problem.Severity.Goal    => Doc.text(t"Goal")
-    case Problem.Severity.Info    => Doc.text(t"Info")
+    case Problem.Severity.Error   => dt"Error"
+    case Problem.Severity.Warning => dt"Warning"
+    case Problem.Severity.Goal    => dt"Goal"
+    case Problem.Severity.Info    => dt"Info"
   }
 
   val baseDoc = severityDoc <+> p.toDoc
 
   p.span0 match {
     case Some(pos) =>
-      val locationHeader = Doc.text(t"Location") <+>
-        Doc.text(
-          t"${pos.fileName} [${pos.range.start.line + 1}:${pos.range.start.column.unicode + 1}] to [${pos.range.end.line + 1}:${pos.range.end.column.unicode + 1}]",
-          Styling.BoldOn
-        )
+      val fileNameDoc = Doc.text(pos.fileName)
+      val startLineDoc = Doc.text((pos.range.start.line + 1).toString)
+      val startColumnDoc = Doc.text((pos.range.start.column.unicode + 1).toString)
+      val endLineDoc = Doc.text((pos.range.end.line + 1).toString)
+      val endColumnDoc = Doc.text((pos.range.end.column.unicode + 1).toString)
+      val locationHeader = dt"Location" <+>
+        dt"$fileNameDoc [$startLineDoc:$startColumnDoc] to [$endLineDoc:$endColumnDoc]".styled(Styling.BoldOn)
 
       val sourceLines = sourceReader(pos)
         .map {
           _.map { case (lineNumber, line) =>
-            Doc.text(t"$lineNumber") <+> Doc.text(line, Styling.BoldOn)
+            dt"${Doc.text(lineNumber.toString)}" <+> Doc.text(line, Styling.BoldOn)
           }
         }
         .getOrElse(Vector.empty)
@@ -135,7 +139,7 @@ case class SourceReader(readSource: Span => Option[Vector[(Int, String)]]) {
 }
 
 object SourceReader {
-  def fromFileContent(content: FileContent): SourceReader =
+  def fromFileContent(@unused content: FileContent): SourceReader =
     SourceReader(_.getLinesInRange)
 
   def default: SourceReader = SourceReader(_.getLinesInRange)
