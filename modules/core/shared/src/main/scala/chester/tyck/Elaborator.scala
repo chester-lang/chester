@@ -427,9 +427,10 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       // Block: infer each element with two-pass elaboration for defs
       case CST.Block(elements, tail, span) =>
-        // Check if tail contains a def statement (which is not allowed)
+        // Check if tail contains a def/let statement (which is not allowed)
         tail.foreach { t =>
           if isDefStatement(t) then c.ctx.reporter.report(ElabProblem.UnboundVariable("def statement not allowed in tail position", t.span))
+          if isLetStatement(t) then c.ctx.reporter.report(ElabProblem.UnboundVariable("let statement not allowed in tail position", t.span))
         }
 
         // TWO-PASS ELABORATION for forward references:
@@ -455,35 +456,40 @@ class ElabHandler extends Handler[ElabConstraint]:
           case _ => ()
         }
 
-        // Pass 2: Elaborate all elements with enriched context
-        val elaboratedElems = elements.map { elem =>
+        // Pass 2: Elaborate all elements with enriched context and sequential lets
+        val elaboratedElemsBuffer = scala.collection.mutable.ArrayBuffer.empty[AST]
+        var currentCtx = enrichedCtx
+
+        elements.foreach { elem =>
           val elemResult =
             defInfoMap.get(elem) match
               case Some((_, _, _, defCell)) => defCell
               case None                     => module.newOnceCell[ElabConstraint, AST](solver)
           val elemType = module.newOnceCell[ElabConstraint, AST](solver)
 
-          // Check if this is a def statement
           elem match
             case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
-              // This is a def statement - elaborate with enriched context and pass def info
               val elems = seqElems.toVector
               val (_, defId, defTypeCell, _) = defInfoMap(elem)
-              val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, enrichedCtx)
-              handleDefStatement(defConstraint, elems, elem.span, defId, defTypeCell)(using module, solver)
+              val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, currentCtx)
+              handleDefStatement(defConstraint, elems, elem.span, defId, defTypeCell, currentCtx)(using module, solver)
+            case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("let", _) => true; case _ => false } =>
+              val elems = seqElems.toVector
+              currentCtx = handleLetStatement(c, elems, elem.span, currentCtx, elemResult, elemType)(using module, solver)
             case _ =>
-              // Regular element - elaborate with enriched context (can reference defs)
-              module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, enrichedCtx))
+              module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, currentCtx))
 
-          AST.MetaCell(HoldNotReadable(elemResult), elem.span)
+          elaboratedElemsBuffer += AST.MetaCell(HoldNotReadable(elemResult), elem.span)
         }
+
+        val elaboratedElems = elaboratedElemsBuffer.toVector
 
         // Elaborate tail (or use empty tuple if None)
         val elaboratedTail = tail match
           case Some(t) =>
             val tailResult = module.newOnceCell[ElabConstraint, AST](solver)
             // Type of block is type of tail - use c.inferredTy directly
-            module.addConstraint(solver, ElabConstraint.Infer(t, tailResult, c.inferredTy, enrichedCtx))
+            module.addConstraint(solver, ElabConstraint.Infer(t, tailResult, c.inferredTy, currentCtx))
             AST.MetaCell(HoldNotReadable(tailResult), t.span)
           case None =>
             // Empty tail = unit type
@@ -500,12 +506,20 @@ class ElabHandler extends Handler[ElabConstraint]:
       case CST.SeqOf(elements, span) =>
         val elems = elements.toVector
 
-        // Report error if this looks like a def statement (only allowed in Block elements)
+        // Report error if this looks like a def/let statement (only allowed in Block elements)
         if elems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } then
           c.ctx.reporter.report(ElabProblem.UnboundVariable("def statement only allowed in block elements, not at top level or in expressions", span))
           // Error recovery: treat as unbound variable reference to "def"
           val metaId = Uniqid.make[AST]
           val ast = AST.Ref(metaId, "def", span)
+          module.fill(solver, c.result, ast)
+          val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+          module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
+          Result.Done
+        else if elems.headOption.exists { case CST.Symbol("let", _) => true; case _ => false } then
+          c.ctx.reporter.report(ElabProblem.UnboundVariable("let statement only allowed in block elements, not at top level or in expressions", span))
+          val metaId = Uniqid.make[AST]
+          val ast = AST.Ref(metaId, "let", span)
           module.fill(solver, c.result, ast)
           val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
@@ -695,14 +709,15 @@ class ElabHandler extends Handler[ElabConstraint]:
       elems: Vector[CST],
       span: Option[Span],
       defId: UniqidOf[AST],
-      defTypeCell: CellRW[AST]
+      defTypeCell: CellRW[AST],
+      ctx: ElabContext
   )(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
 
     // Parse: def name [telescope]* (telescope)* = body
     // or:    def name [telescope]* (telescope)* : type = body
     if elems.length < 4 then
-      c.ctx.reporter.report(ElabProblem.UnboundVariable("Invalid def syntax", span))
+      ctx.reporter.report(ElabProblem.UnboundVariable("Invalid def syntax", span))
       module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
       module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
       module.fill(solver, defTypeCell, AST.Universe(AST.IntLit(0, None), None))
@@ -711,14 +726,14 @@ class ElabHandler extends Handler[ElabConstraint]:
     val name = elems(1) match
       case CST.Symbol(n, _) => n
       case _ =>
-        c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected name after def", span))
+        ctx.reporter.report(ElabProblem.UnboundVariable("Expected name after def", span))
         "<error>"
 
     // Collect telescopes (lists for implicit, tuples for explicit)
     // IMPORTANT: We need to accumulate context as we go, so later telescopes can reference earlier parameters
     var idx = 2
     val telescopes = scala.collection.mutable.ArrayBuffer.empty[Telescope]
-    var accumulatedCtx = c.ctx
+    var accumulatedCtx = ctx
 
     while idx < elems.length && (elems(idx).isInstanceOf[CST.ListLiteral] || elems(idx).isInstanceOf[CST.Tuple]) do
       elems(idx) match
@@ -751,13 +766,13 @@ class ElabHandler extends Handler[ElabConstraint]:
       idx += 1
       if idx < elems.length then
         val resultTyTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-        module.addConstraint(solver, ElabConstraint.Infer(elems(idx), resultTyCell, resultTyTyCell, c.ctx))
+        module.addConstraint(solver, ElabConstraint.Infer(elems(idx), resultTyCell, resultTyTyCell, ctx))
         hasResultTy = true
         idx += 1
 
     // Expect =
     if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != "=" then
-      c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected = in def", span))
+      ctx.reporter.report(ElabProblem.UnboundVariable("Expected = in def", span))
       module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
       module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
       module.fill(solver, defTypeCell, AST.Universe(AST.IntLit(0, None), None))
@@ -771,11 +786,11 @@ class ElabHandler extends Handler[ElabConstraint]:
         if elems.length - idx == 1 then elems(idx)
         else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems.drop(idx)), span)
       else
-        c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected body in def", span))
+        ctx.reporter.report(ElabProblem.UnboundVariable("Expected body in def", span))
         CST.Symbol("<error>", span)
 
     // Create extended context with parameters
-    var extCtx = c.ctx
+    var extCtx = ctx
     for telescope <- telescopes; param <- telescope.params do
       val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
       module.fill(solver, paramTyCell, param.ty)
@@ -804,6 +819,81 @@ class ElabHandler extends Handler[ElabConstraint]:
     )
 
     Result.Done
+
+  private def handleLetStatement[M <: SolverModule](
+      c: ElabConstraint.Infer,
+      elems: Vector[CST],
+      span: Option[Span],
+      ctx: ElabContext,
+      resultCell: CellRW[AST],
+      elemTypeCell: CellRW[AST]
+  )(using module: M, solver: module.Solver[ElabConstraint]): ElabContext =
+    import module.given
+
+    def fail(message: String): ElabContext =
+      ctx.reporter.report(ElabProblem.UnboundVariable(message, span))
+      module.fill(solver, resultCell, AST.Ref(Uniqid.make, "<error>", span))
+      module.fill(solver, elemTypeCell, AST.Universe(AST.IntLit(0, None), None))
+      ctx
+
+    if elems.length < 4 then return fail("Invalid let syntax")
+
+    val name = elems(1) match
+      case CST.Symbol(n, _) => n
+      case _ =>
+        ctx.reporter.report(ElabProblem.UnboundVariable("Expected name after let", span))
+        "<error>"
+
+    val letId = Uniqid.make[AST]
+    val letTypeCell = module.newOnceCell[ElabConstraint, AST](solver)
+
+    var idx = 2
+    var hasAnnotation = false
+    var annotationSpan: Option[Span] = None
+
+    if idx < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == ":" then
+      hasAnnotation = true
+      idx += 1
+      if idx >= elems.length then return fail("Expected type annotation after colon in let")
+      val annotationCst = elems(idx)
+      annotationSpan = annotationCst.span
+      val annotationTyTy = module.newOnceCell[ElabConstraint, AST](solver)
+      module.addConstraint(solver, ElabConstraint.Infer(annotationCst, letTypeCell, annotationTyTy, ctx))
+      idx += 1
+
+    if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != "=" then
+      return fail("Expected = in let")
+
+    idx += 1
+
+    val valueCst =
+      if idx < elems.length then
+        if elems.length - idx == 1 then elems(idx)
+        else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems.drop(idx)), span)
+      else
+        ctx.reporter.report(ElabProblem.UnboundVariable("Expected value in let", span))
+        CST.Symbol("<error>", span)
+
+    val valueResult = module.newOnceCell[ElabConstraint, AST](solver)
+
+    if hasAnnotation then
+      module.addConstraint(solver, ElabConstraint.Check(valueCst, letTypeCell, valueResult, ctx))
+    else
+      val valueTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+      module.addConstraint(solver, ElabConstraint.Infer(valueCst, valueResult, valueTyCell, ctx))
+      module.fill(solver, letTypeCell, AST.MetaCell(HoldNotReadable(valueTyCell), valueCst.span))
+
+    val valueAst = AST.MetaCell(HoldNotReadable(valueResult), valueCst.span)
+    val tyAstOpt =
+      if hasAnnotation then Some(AST.MetaCell(HoldNotReadable(letTypeCell), annotationSpan))
+      else None
+    val bodyAst = AST.Ref(letId, name, valueCst.span.orElse(span))
+    val letAst = AST.Let(letId, name, tyAstOpt, valueAst, bodyAst, span)
+
+    module.fill(solver, resultCell, letAst)
+    module.fill(solver, elemTypeCell, AST.MetaCell(HoldNotReadable(letTypeCell), span))
+
+    ctx.bind(name, letId, letTypeCell)
 
   /** Parse a telescope from CST parameter list This creates a telescope with types as meta-cells that will be filled by constraints.
     *
@@ -860,6 +950,11 @@ class ElabHandler extends Handler[ElabConstraint]:
   private def isDefStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>
       elements.headOption.exists { case CST.Symbol("def", _) => true; case _ => false }
+    case _ => false
+
+  private def isLetStatement(cst: CST): Boolean = cst match
+    case CST.SeqOf(elements, _) =>
+      elements.headOption.exists { case CST.Symbol("let", _) => true; case _ => false }
     case _ => false
 
   /** Unification result following the paper's architecture */

@@ -242,3 +242,62 @@ class SubtypingTest extends FunSuite:
       }
     }
   }
+
+  test("let binding is sequential") {
+    runAsync {
+      val (_, ty, errors) = elaborate("""{
+        let x = 42;
+        x
+      }""")
+
+      assert(errors.isEmpty, s"Should have no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+
+      ty.get match
+        case AST.IntegerType(_) => ()
+        case other              => fail(s"Expected Integer type, got: $other")
+    }
+  }
+
+  test("let binding supports shadowing") {
+    runAsync {
+      val (_, ty, errors) = elaborate("""{
+        let x = 42;
+        let x = "shadow";
+        x
+      }""")
+
+      assert(errors.isEmpty, s"Should have no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+      ty.get match
+        case AST.StringType(_) => ()
+        case other             => fail(s"Expected String type, got: $other")
+    }
+  }
+
+  test("let binding respects annotations") {
+    runAsync {
+      val (_, ty, errors) = elaborate("""{
+        let greeting: String = "hello";
+        greeting
+      }""")
+
+      assert(errors.isEmpty, s"Should have no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+      ty.get match
+        case AST.StringType(_) => ()
+        case other             => fail(s"Expected String type, got: $other")
+    }
+  }
+
+  test("let bindings cannot reference future declarations") {
+    runAsync {
+      val (_, _, errors) = elaborate("""{
+        let y = x;
+        let x = 42;
+        y
+      }""")
+
+      assert(errors.exists(_.toString.contains("Unbound variable")), s"Should report unbound variable, got: $errors")
+    }
+  }
