@@ -71,8 +71,8 @@ object Main {
           Left(s"Unknown compile option: $opt")
         case value :: tail =>
           input match {
-            case None       => loop(tail, output, Some(value))
-            case Some(_)    => Left("compile accepts only one input file")
+            case None    => loop(tail, output, Some(value))
+            case Some(_) => Left("compile accepts only one input file")
           }
       }
 

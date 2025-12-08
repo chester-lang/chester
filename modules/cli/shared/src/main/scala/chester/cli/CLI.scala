@@ -71,9 +71,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
   }
 
   private def printLines(lines: Seq[String], toStderr: Boolean): F[Unit] =
-    lines.foldLeft(Runner.pure[F, Unit](())) { (acc, line) =>
-      acc.flatMap(_ => IO.println(line, toStderr))
-    }
+    lines.foldLeft(Runner.pure[F, Unit](()))((acc, line) => acc.flatMap(_ => IO.println(line, toStderr)))
 
   private def formatAst(ast: AST, ty: Option[AST]): String = {
     val astDoc = ast.toDoc.toString

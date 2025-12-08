@@ -134,7 +134,8 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
   private def parseStatement(): Option[TypeScriptAST] =
     if eof then None
     else
-      consumeKeyword("interface", skip = true).map { case (start, _) => parseInterface(start) }
+      consumeKeyword("interface", skip = true)
+        .map { case (start, _) => parseInterface(start) }
         .orElse(consumeKeyword("type", skip = true).map { case (start, _) => parseTypeAlias(start) })
         .orElse(consumeKeyword("declare", skip = true).map { case (start, _) => parseDeclaration(start) })
         .orElse(consumeKeyword("export", skip = true).map { case (start, _) => parseExport(start) })
@@ -189,8 +190,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
         case None                  => ("any", cursor)
     val baseSpan = spanFrom(startCursor, nameEnd)
     val base =
-      if Set("string", "number", "boolean", "void", "any", "unknown", "never").contains(name) then
-        TypeScriptType.PrimitiveType(name, baseSpan)
+      if Set("string", "number", "boolean", "void", "any", "unknown", "never").contains(name) then TypeScriptType.PrimitiveType(name, baseSpan)
       else TypeScriptType.TypeReference(name, Vector.empty, baseSpan)
     parseArraySuffix(base, startCursor)
 
