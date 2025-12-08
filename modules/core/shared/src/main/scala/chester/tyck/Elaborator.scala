@@ -158,8 +158,10 @@ enum ElabConstraint:
       result: CellRW[AST],
       inferredTy: CellRW[AST],
       effects: Vector[String],
+      effectAnnotated: Boolean,
       defTypeCell: CellRW[AST],
-      span: Option[Span]
+      span: Option[Span],
+      ctx: ElabContext
   )
 
 /** Substitute arguments for parameters in a type Replaces occurrences of parameter IDs with corresponding argument ASTs
@@ -815,6 +817,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     val resultTyCell = module.newOnceCell[ElabConstraint, AST](solver)
     var hasResultTy = false
     var annotatedEffects: Vector[String] = Vector.empty
+    var effectAnnotated = false
     if idx < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == ":" then
       idx += 1
       if idx < elems.length then
@@ -828,6 +831,7 @@ class ElabHandler extends Handler[ElabConstraint]:
           elems(idx + 1) match
             case list: CST.ListLiteral =>
               annotatedEffects = parseEffectNames(list)
+              effectAnnotated = true
               idx += 2
             case _ => ()
 
@@ -875,8 +879,10 @@ class ElabHandler extends Handler[ElabConstraint]:
         c.result,
         c.inferredTy,
         annotatedEffects,
+        effectAnnotated,
         defTypeCell,
-        span
+        span,
+        ctx
       )
     )
 
@@ -1501,6 +1507,31 @@ class ElabHandler extends Handler[ElabConstraint]:
     val defAst = AST.Def(c.defId, c.name, c.telescopes, resultTy, body, c.span)
     module.fill(solver, c.result, defAst)
 
+    // Compute required effects by scanning the body for builtin calls with effectful Pi types
+    def gatherEffects(ast: AST): Set[String] =
+      ast match
+        case AST.App(func, args, _, _) =>
+          val fromFuncType = func match
+            case AST.Ref(_, name, _) =>
+              ElabContext.defaultBuiltinTypes.get(name) match
+                case Some(AST.Pi(_, _, effs, _)) => effs.toSet
+                case _                           => Set.empty[String]
+            case _ => Set.empty[String]
+          fromFuncType ++ gatherEffects(func) ++ args.flatMap(a => gatherEffects(a.value))
+        case AST.Block(elements, tail, _) =>
+          elements.flatMap(gatherEffects).toSet ++ gatherEffects(tail)
+        case AST.Tuple(elements, _)   => elements.flatMap(gatherEffects).toSet
+        case AST.ListLit(elements, _) => elements.flatMap(gatherEffects).toSet
+        case AST.Lam(_, body, _)      => gatherEffects(body)
+        case AST.Let(_, _, ty, value, body, _) =>
+          ty.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(value) ++ gatherEffects(body)
+        case AST.Def(_, _, teles, resTy, b, _) =>
+          teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(b)
+        case AST.Ann(expr, ty, _) => gatherEffects(expr) ++ gatherEffects(ty)
+        case _                    => Set.empty
+
+    val requiredEffects = gatherEffects(body)
+
     // Compute def type (Pi type)
     val finalResultTy = resultTy match
       case Some(rt) => rt
@@ -1508,6 +1539,16 @@ class ElabHandler extends Handler[ElabConstraint]:
         // Infer from body type
         if !module.hasStableValue(solver, c.bodyTy) then return Result.Waiting(c.bodyTy)
         module.readStable(solver, c.bodyTy).get
+
+    // If an effect row was annotated, ensure it covers required effects
+    if c.effectAnnotated && !requiredEffects.subsetOf(c.effects.toSet) then
+      c.ctx.reporter.report(
+        ElabProblem.TypeMismatch(
+          AST.Pi(c.telescopes, finalResultTy, c.effects, c.span),
+          AST.Pi(c.telescopes, finalResultTy, requiredEffects.toVector, c.span),
+          c.span
+        )
+      )
 
     val piTy = AST.Pi(c.telescopes, finalResultTy, c.effects, c.span)
     module.fill(solver, c.inferredTy, piTy)

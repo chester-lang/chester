@@ -282,6 +282,17 @@ class SubtypingTest extends FunSuite:
     }
   }
 
+  test("println cannot be used where no effects are allowed") {
+    runAsync {
+      val (_, _, errors) = elaborate("""{
+        def bad(msg: String): () / [] = println(msg);
+        bad("oops")
+      }""")
+
+      assert(errors.nonEmpty, "Expected error when using println in effect-free function")
+    }
+  }
+
   test("let binding is sequential") {
     runAsync {
       val (_, ty, errors) = elaborate("""{
