@@ -124,6 +124,15 @@ enum ElabConstraint:
       ctx: ElabContext
   )
 
+  /** Assemble an annotated expression expr: Type */
+  case AssembleAnn(
+      exprResult: CellR[AST],
+      annotationTy: CellR[AST],
+      result: CellRW[AST],
+      inferredTy: CellRW[AST],
+      span: Option[Span]
+  )
+
   /** Assemble a def statement once body is elaborated */
   case AssembleDef(
       defId: UniqidOf[AST],
@@ -235,6 +244,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case c: ElabConstraint.IsUniverse  => handleIsUniverse(c)
       case c: ElabConstraint.IsPi        => handleIsPi(c)
       case c: ElabConstraint.AssembleApp => handleAssembleApp(c)
+      case c: ElabConstraint.AssembleAnn => handleAssembleAnn(c)
       case c: ElabConstraint.AssembleDef => handleAssembleDef(c)
 
   def canDefaulting(level: DefaultingLevel): Boolean = false
@@ -505,27 +515,31 @@ class ElabHandler extends Handler[ElabConstraint]:
           val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
           Result.Done
-        // Normalize chained applications like f(a)(b) or f[a](b)(c)
         else
-          normalizeApplicationSeq(elems) match
-            case Some(normalized) =>
-              module.addConstraint(solver, ElabConstraint.Infer(normalized, c.result, c.inferredTy, c.ctx))
-              Result.Done
+          annotationPattern(elems) match
+            case Some((exprCst, typeCst)) =>
+              handleAnnotatedExpression(c, exprCst, typeCst, span)
             case None =>
-              // Check for function application patterns:
-              // f(args) becomes SeqOf(f, Tuple(args))
-              // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
-              if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
-                // f(args) - no explicit type arguments
-                handleFunctionApplication(c, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
-              else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
-                // f[typeArgs](args) - explicit type arguments provided
-                handleFunctionApplication(c, elems(0), Some(elems(1).asInstanceOf[CST.ListLiteral]), elems(2).asInstanceOf[CST.Tuple], span)
-              else
-                // Default: treat as a block-like sequence
-                val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
-                module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
-                Result.Done
+              // Normalize chained applications like f(a)(b) or f[a](b)(c)
+              normalizeApplicationSeq(elems) match
+                case Some(normalized) =>
+                  module.addConstraint(solver, ElabConstraint.Infer(normalized, c.result, c.inferredTy, c.ctx))
+                  Result.Done
+                case None =>
+                  // Check for function application patterns:
+                  // f(args) becomes SeqOf(f, Tuple(args))
+                  // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
+                  if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
+                    // f(args) - no explicit type arguments
+                    handleFunctionApplication(c, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
+                  else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
+                    // f[typeArgs](args) - explicit type arguments provided
+                    handleFunctionApplication(c, elems(0), Some(elems(1).asInstanceOf[CST.ListLiteral]), elems(2).asInstanceOf[CST.Tuple], span)
+                  else
+                    // Default: treat as a block-like sequence
+                    val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
+                    module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
+                    Result.Done
 
   /** Handle function application: f(args) or f[typeArgs](args) */
   private def handleFunctionApplication[M <: SolverModule](
@@ -580,6 +594,48 @@ class ElabHandler extends Handler[ElabConstraint]:
         c.inferredTy,
         span,
         c.ctx
+      )
+    )
+
+    Result.Done
+
+  private def annotationPattern(elems: Vector[CST]): Option[(CST, CST)] =
+    if elems.length >= 3 then
+      elems(elems.length - 2) match
+        case CST.Symbol(":", _) =>
+          val exprElems = elems.dropRight(2)
+          if exprElems.isEmpty then None
+          else
+            val expr =
+              if exprElems.length == 1 then exprElems.head
+              else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(exprElems), combinedSpan(exprElems))
+            Some((expr, elems.last))
+        case _ => None
+    else None
+
+  private def handleAnnotatedExpression[M <: SolverModule](
+      c: ElabConstraint.Infer,
+      exprCst: CST,
+      typeCst: CST,
+      span: Option[Span]
+  )(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    import module.given
+
+    val annotationTy = module.newOnceCell[ElabConstraint, AST](solver)
+    val annotationTyTy = module.newOnceCell[ElabConstraint, AST](solver)
+    module.addConstraint(solver, ElabConstraint.Infer(typeCst, annotationTy, annotationTyTy, c.ctx))
+
+    val exprResult = module.newOnceCell[ElabConstraint, AST](solver)
+    module.addConstraint(solver, ElabConstraint.Check(exprCst, annotationTy, exprResult, c.ctx))
+
+    module.addConstraint(
+      solver,
+      ElabConstraint.AssembleAnn(
+        exprResult,
+        annotationTy,
+        c.result,
+        c.inferredTy,
+        span
       )
     )
 
@@ -1210,6 +1266,22 @@ class ElabHandler extends Handler[ElabConstraint]:
         Result.Done
       case None =>
         Result.Waiting(c.funcTy)
+
+  private def handleAssembleAnn[M <: SolverModule](c: ElabConstraint.AssembleAnn)(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    import module.given
+
+    if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then return Result.Done
+
+    if !module.hasStableValue(solver, c.exprResult) then return Result.Waiting(c.exprResult)
+    if !module.hasStableValue(solver, c.annotationTy) then return Result.Waiting(c.annotationTy)
+
+    val exprAst = module.readStable(solver, c.exprResult).get
+    val tyAst = module.readStable(solver, c.annotationTy).get
+
+    module.fill(solver, c.result, AST.Ann(exprAst, tyAst, c.span))
+    module.fill(solver, c.inferredTy, tyAst)
+
+    Result.Done
 
   private def handleAssembleDef[M <: SolverModule](c: ElabConstraint.AssembleDef)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
