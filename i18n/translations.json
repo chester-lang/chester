@@ -1,5 +1,5 @@
 {
-  "default": {
+  "en_NZ": {
     "$1": "$1",
     "$1 [$2:$3] to [$4:$5]": "$1 [$2:$3] to [$4:$5]",
     "$1 cannot be filled": "$1 cannot be filled",
@@ -40,11 +40,43 @@
     "whitespace": "whitespace"
   },
   "zh_TW": {
-    "Error": "錯誤",
-    "Goal": "目標",
-    "Info": "資訊",
-    "Location": "位置",
-    "Warning": "警告",
-    "end of file": "檔案結束"
+    "$1": "$1",
+    "$1 [$2:$3] to [$4:$5]": "$1 [$2:$3] to [$4:$5]",
+    "$1 cannot be filled": "$1 cannot be filled",
+    "$1 is not stable": "$1 is not stable",
+    "Empty symbol literal": "Empty symbol literal",
+    "Error": "Error",
+    "Goal": "Goal",
+    "Info": "Info",
+    "Invalid escape sequence: \\\\$1 (using literal)": "Invalid escape sequence: \\\\$1 (using literal)",
+    "Invalid identifier: cannot end with '$1' (accepted anyway)": "Invalid identifier: cannot end with '$1' (accepted anyway)",
+    "Invalid line range: startLine=$1, endLine=$2, totalLines=$3": "Invalid line range: startLine=$1, endLine=$2, totalLines=$3",
+    "Location": "Location",
+    "Span(\\\"$1\\\",$2)": "Span(\\\"$1\\\",$2)",
+    "Unclosed block comment (closed at end of file)": "Unclosed block comment (closed at end of file)",
+    "Unclosed string literal (closed at newline)": "Unclosed string literal (closed at newline)",
+    "Unclosed string literal at end of file": "Unclosed string literal at end of file",
+    "Unexpected character: '$1'": "Unexpected character: '$1'",
+    "Unexpected end of string after backslash": "Unexpected end of string after backslash",
+    "Warning": "Warning",
+    "at '@'": "at '@'",
+    "comma ','": "comma ','",
+    "comment": "comment",
+    "dot '.'": "dot '.'",
+    "end of file": "end of file",
+    "hash '#' ": "hash '#' ",
+    "identifier": "identifier",
+    "integer literal": "integer literal",
+    "left brace '{'": "left brace '{'",
+    "left bracket '['": "left bracket '['",
+    "left parenthesis '('": "left parenthesis '('",
+    "rational literal": "rational literal",
+    "right brace '}'": "right brace '}'",
+    "right bracket ']": "right bracket ']",
+    "right parenthesis ')'": "right parenthesis ')'",
+    "semicolon ';'": "semicolon ';'",
+    "string literal": "string literal",
+    "symbol literal": "symbol literal",
+    "whitespace": "whitespace"
   }
 }

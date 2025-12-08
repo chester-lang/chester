@@ -31,8 +31,7 @@ private object TranslationRepository:
     val lang = detectLanguage()
     val locales = Seq(
       s"${lang.tag.name}_${lang.region.name}",
-      lang.tag.name,
-      "default"
+      lang.tag.name
     ).map(normalizeLocaleKey).distinct
     val translations = loadTranslations()
     locales
@@ -117,16 +116,16 @@ private object TranslationRepository:
 
   def ensureTemplateRegistered(template: String)(using Quotes): Unit =
     val translations = loadTranslations()
-    val defaultLocale = "default"
-    val needsWrite = translations
-      .get(defaultLocale)
-      .forall(!_.contains(template))
-    if needsWrite then
-      val updated = updateTranslationFile(defaultLocale, template, template)
+    val missingLocales = LanguageTag.values.map(localeKeyFor).filter { locale =>
+      translations.get(locale).forall(!_.contains(template))
+    }
+    if missingLocales.nonEmpty then
+      val updates = missingLocales.map(locale => locale -> Map(template -> template)).toMap
+      val updated = updateTranslationFile(updates)
       cachedFileSnapshot = Some(updated._1)
       cachedTranslations = Some(updated._2)
 
-  private def updateTranslationFile(locale: String, key: String, value: String): (String, Map[String, Map[String, String]]) =
+  private def updateTranslationFile(newEntries: Map[String, Map[String, String]]): (String, Map[String, Map[String, String]]) =
     val path = translationFile
     val currentContent =
       cachedFileSnapshot.orElse {
@@ -134,8 +133,10 @@ private object TranslationRepository:
         catch case NonFatal(_) => None
       }.getOrElse("{}")
     val parsed = parseTranslationContent(currentContent)
-    val updatedLocaleMap = parsed.getOrElse(locale, Map.empty) + (key -> value)
-    val updatedAll = parsed + (locale -> updatedLocaleMap)
+    val updatedAll = newEntries.foldLeft(parsed) { case (acc, (locale, entries)) =>
+      val localeMap = acc.getOrElse(locale, Map.empty)
+      acc + (locale -> (localeMap ++ entries))
+    }
 
     val jsonObj = ujson.Obj()
     updatedAll.toSeq.sortBy(_._1).foreach { case (loc, entries) =>
@@ -148,6 +149,9 @@ private object TranslationRepository:
     val rendered = jsonObj.render(2) + "\n"
     Files.writeString(path, rendered, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
     (rendered, updatedAll)
+
+  private def localeKeyFor(tag: LanguageTag): String =
+    normalizeLocaleKey(s"${tag.name}_${tag.defaultRegion.name}")
 
 private def tMacro(sc: Expr[StringContext])(using Quotes): Expr[T] =
   val resolvedTemplate = TranslationRepository.translationTemplate(sc)
