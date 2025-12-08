@@ -95,8 +95,7 @@ object Template {
     val stringbuilder = new StringBuilder()
     val parts = sc.parts.iterator
     var index = 1
-    if parts.hasNext then
-      stringbuilder.append(parts.next().replace("$", "$$"))
+    if parts.hasNext then stringbuilder.append(parts.next().replace("$", "$$"))
     while parts.hasNext do
       stringbuilder.append(s"$$$index")
       stringbuilder.append(parts.next().replace("$", "$$"))
@@ -178,8 +177,7 @@ object Template {
       case Literal(_) => // drop empty literal
       case Placeholder(index) =>
         val zeroIdx = index - 1
-        if zeroIdx < 0 || zeroIdx >= args.length then
-          throw new IllegalArgumentException(s"Missing argument $index in template")
+        if zeroIdx < 0 || zeroIdx >= args.length then throw new IllegalArgumentException(s"Missing argument $index in template")
         docs += args(zeroIdx).toDoc
     }
     concatenateDocs(docs.result())

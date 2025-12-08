@@ -33,7 +33,7 @@ private object TranslationRepository:
 
   def translationTemplate(scExpr: Expr[StringContext])(using Quotes): String =
     val sc = scExpr match
-      case '{ StringContext(${Varargs(parts)}*) } =>
+      case '{ StringContext(${ Varargs(parts) }*) } =>
         val evaluated = parts.map(_.valueOrAbort)
         new StringContext(evaluated*)
       case _ =>
@@ -55,22 +55,23 @@ private object TranslationRepository:
       s"${lang.tag.name}_${lang.region.name}",
       lang.tag.name
     ).map(normalizeLocaleKey).distinct
-    locales
-      .iterator
+    locales.iterator
       .flatMap(locale => translations.get(locale).flatMap(_.get(template)))
       .nextOption()
       .getOrElse(template)
 
   private def detectLanguage(): Language =
-    localePreference.getOption.orElse {
-      val env = sys.env
-      val rawLocale = env
-        .get("CHESTER_I18N_LOCALE")
-        .orElse(env.get("LC_ALL"))
-        .orElse(env.get("LANG"))
-        .orElse(env.get("LANGUAGE"))
-      rawLocale.flatMap(parseLanguage)
-    }.getOrElse(defaultLanguage)
+    localePreference.getOption
+      .orElse {
+        val env = sys.env
+        val rawLocale = env
+          .get("CHESTER_I18N_LOCALE")
+          .orElse(env.get("LC_ALL"))
+          .orElse(env.get("LANG"))
+          .orElse(env.get("LANGUAGE"))
+        rawLocale.flatMap(parseLanguage)
+      }
+      .getOrElse(defaultLanguage)
 
   private def parseLanguage(raw: String): Option[Language] =
     val sanitized = raw
@@ -105,8 +106,7 @@ private object TranslationRepository:
       try Files.readString(path)
       catch case NonFatal(_) => "{}"
 
-    if cachedFileSnapshot.contains(content) then
-      cachedTranslations.getOrElse(Map.empty)
+    if cachedFileSnapshot.contains(content) then cachedTranslations.getOrElse(Map.empty)
     else
       val parsed = parseTranslationContent(content)
       cachedFileSnapshot = Some(content)
@@ -122,8 +122,7 @@ private object TranslationRepository:
           normalizeLocaleKey(locale) -> entries
         }
       }.toMap
-    catch
-      case NonFatal(_) => Map.empty
+    catch case NonFatal(_) => Map.empty
 
   private def translationFile: Path =
     val envPath = sys.env.get("CHESTER_I18N_FILE").map(Paths.get(_))
@@ -139,9 +138,7 @@ private object TranslationRepository:
 
   def ensureTemplateRegistered(template: String)(using Quotes): Unit =
     val translations = loadTranslations()
-    val missingLocales = LanguageTag.values.map(localeKeyFor).filter { locale =>
-      translations.get(locale).forall(!_.contains(template))
-    }
+    val missingLocales = LanguageTag.values.map(localeKeyFor).filter(locale => translations.get(locale).forall(!_.contains(template)))
     if missingLocales.nonEmpty then
       val updates = missingLocales.map(locale => locale -> Map(template -> template)).toMap
       val updated = updateTranslationFile(updates)
@@ -151,10 +148,12 @@ private object TranslationRepository:
   private def updateTranslationFile(newEntries: Map[String, Map[String, String]]): (String, Map[String, Map[String, String]]) =
     val path = translationFile
     val currentContent =
-      cachedFileSnapshot.orElse {
-        try Some(Files.readString(path))
-        catch case NonFatal(_) => None
-      }.getOrElse("{}")
+      cachedFileSnapshot
+        .orElse {
+          try Some(Files.readString(path))
+          catch case NonFatal(_) => None
+        }
+        .getOrElse("{}")
     val parsed = parseTranslationContent(currentContent)
     val updatedAll = newEntries.foldLeft(parsed) { case (acc, (locale, entries)) =>
       val localeMap = acc.getOrElse(locale, Map.empty)
@@ -186,14 +185,14 @@ private object TranslationRepository:
 
   private def liftTranslations(map: Map[String, Map[String, String]])(using Quotes): Expr[Map[String, Map[String, String]]] =
     val localeEntries: List[Expr[(String, Map[String, String])]] = map.toList.map { case (k, v) =>
-      val inner: List[Expr[(String, String)]] = v.toList.map { case (ik, iv) => '{ ${Expr(ik)} -> ${Expr(iv)} } }
-      '{ ${Expr(k)} -> Map[String, String](${Expr.ofList(inner)}*) }
+      val inner: List[Expr[(String, String)]] = v.toList.map { case (ik, iv) => '{ ${ Expr(ik) } -> ${ Expr(iv) } } }
+      '{ ${ Expr(k) } -> Map[String, String](${ Expr.ofList(inner) }*) }
     }
-    '{ Map[String, Map[String, String]](${Expr.ofList(localeEntries)}*) }
+    '{ Map[String, Map[String, String]](${ Expr.ofList(localeEntries) }*) }
 
 private def dMacro(scExpr: Expr[StringContext])(using Quotes): Expr[D] =
   val parts = scExpr match
-    case '{ StringContext(${Varargs(ps)}*) } => ps.map(_.valueOrAbort).toVector
+    case '{ StringContext(${ Varargs(ps) }*) } => ps.map(_.valueOrAbort).toVector
     case _ =>
       quotes.reflect.report.error("d interpolator requires literal StringContext")
       Vector.empty

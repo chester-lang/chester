@@ -18,7 +18,7 @@ lazy val commonSettings = Seq(
     "-language:implicitConversions",
     "-unchecked",
     "-deprecation",
-    "-Wunused:all", // for scalafix
+    // "-Wunused:all", // for scalafix
     // experiemntal:
     "-Yexplicit-nulls"
   ),
