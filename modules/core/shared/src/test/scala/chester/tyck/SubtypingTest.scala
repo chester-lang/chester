@@ -84,6 +84,16 @@ class SubtypingTest extends FunSuite:
       case Left(err)        => (None, None, Vector(ElabProblem.UnboundVariable(err.toString, None)))
     }
 
+  /** Normalize a type enough to extract the element type of a list, even if wrapped in simple lambdas/apps. */
+  private def listElemOf(ty: AST): Option[AST] =
+    ty match
+      case AST.ListType(elem, _)                  => Some(elem)
+      case AST.Lam(_, body, _)                    => listElemOf(body)
+      case AST.App(func, args, _, _) if args.nonEmpty =>
+        listElemOf(func).orElse(args.reverseIterator.flatMap(a => listElemOf(a.value)).toSeq.headOption)
+      case AST.Ann(expr, annTy, _)                => listElemOf(expr).orElse(listElemOf(annTy))
+      case _                                      => None
+
   test("Any type has type Type[1]") {
     runAsync {
       val (ast, ty, errors) = elaborate("Any")
@@ -156,14 +166,9 @@ class SubtypingTest extends FunSuite:
       assert(ast.isDefined, "AST should be defined")
       assert(ty.isDefined, "Type should be defined")
 
-      ty.get match {
-        case AST.ListType(element, _) =>
-          element match {
-            case AST.IntegerType(_) => ()
-            case other              => fail(s"Expected Integer element type, got: $other")
-          }
-        case other => fail(s"Expected List type, got: $other")
-      }
+      normalizeType(ty.get) match
+        case AST.ListType(elem, _) => assert(elem.isInstanceOf[AST.IntegerType], s"Expected Integer element type, got: $elem")
+        case other                 => fail(s"Expected List type, got: $other")
     }
   }
 
@@ -175,14 +180,9 @@ class SubtypingTest extends FunSuite:
       assert(ast.isDefined, "AST should be defined")
       assert(ty.isDefined, "Type should be defined")
 
-      ty.get match {
-        case AST.ListType(element, _) =>
-          element match {
-            case AST.StringType(_) => ()
-            case other             => fail(s"Expected String element type, got: $other")
-          }
-        case other => fail(s"Expected List type, got: $other")
-      }
+      normalizeType(ty.get) match
+        case AST.ListType(elem, _) => assert(elem.isInstanceOf[AST.StringType], s"Expected String element type, got: $elem")
+        case other                 => fail(s"Expected List type, got: $other")
     }
   }
 

@@ -176,17 +176,6 @@ private case class DefInfo(
     span: Option[Span] = None
 )
 
-private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): StmtAST =
-  stmt match
-    case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteSolutions(expr), span)
-    case StmtAST.Def(id, name, teles, resTy, body, span) =>
-      val newTeles = teles.map(t =>
-        t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions))))
-      )
-      StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span)
-    case StmtAST.Pkg(name, body, span) =>
-      StmtAST.Pkg(name, substituteSolutions(body), span)
-
 /** Substitute arguments for parameters in a type Replaces occurrences of parameter IDs with corresponding argument ASTs
   */
 def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
@@ -635,7 +624,9 @@ class ElabHandler extends Handler[ElabConstraint]:
             val bodyTy = module.newOnceCell[ElabConstraint, AST](solver)
             module.addConstraint(solver, ElabConstraint.Infer(bodyCst, bodyResult, bodyTy, c.ctx))
 
-            module.fill(solver, c.result, AST.Pkg(pkgName, AST.MetaCell(HoldNotReadable(bodyResult), span), span))
+            val pkgStmt = StmtAST.Pkg(pkgName, AST.MetaCell(HoldNotReadable(bodyResult), span), span)
+            val block = AST.Block(Vector(pkgStmt), AST.MetaCell(HoldNotReadable(bodyResult), span), span)
+            module.fill(solver, c.result, block)
             module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(bodyTy), span))
             Result.Done
         else
@@ -1168,14 +1159,14 @@ class ElabHandler extends Handler[ElabConstraint]:
               else reduce(substitutedBody, ctx, depth + 1)
             else term
           case AST.Ref(id, _, _) =>
-            ctx.lookupDefBody(id) match
-              case Some(defCell) =>
-                module.readStable(solver, defCell) match
-                  case Some(AST.Def(_, _, telescopes, _, body, defSpan)) =>
-                    val lam = AST.Lam(telescopes, body, defSpan)
+            (ctx.lookupDefBody(id), ctx.lookupType(id)) match
+              case (Some(bodyCell), Some(defTyCell)) =>
+                (module.readStable(solver, bodyCell), module.readStable(solver, defTyCell)) match
+                  case (Some(bodyAst), Some(AST.Pi(teles, _, _, defSpan))) =>
+                    val lam = AST.Lam(teles, bodyAst, defSpan)
                     reduce(AST.App(lam, args, implicitArgs, span), ctx, depth + 1)
                   case _ => term
-              case None => term
+              case _ => term
           case _ => term
 
       // For all other constructs, no reduction
@@ -1363,7 +1354,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.Tuple(elements, _)       => elements.exists(occursIn(cell, _))
       case AST.ListLit(elements, _)     => elements.exists(occursIn(cell, _))
       case AST.Block(elements, tail, _) => elements.exists(occursInStmt(cell, _)) || occursIn(cell, tail)
-      case AST.Pkg(_, body, _)      => occursIn(cell, body)
       case AST.Pi(telescopes, resultTy, _, _) =>
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, resultTy)
       case AST.Lam(telescopes, body, _) =>
@@ -1372,10 +1362,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         occursIn(cell, func) || args.exists(a => occursIn(cell, a.value))
       case AST.Let(_, _, ty, value, body, _) =>
         ty.exists(occursIn(cell, _)) || occursIn(cell, value) || occursIn(cell, body)
-      case AST.Def(_, _, telescopes, resultTy, body, _) =>
-        telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) ||
-        resultTy.exists(occursIn(cell, _)) || occursIn(cell, body)
       case AST.Ann(expr, ty, _) => occursIn(cell, expr) || occursIn(cell, ty)
+      case _ => false
 
   private def occursInStmt[M <: SolverModule](cell: Any, stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
     stmt match
@@ -1451,7 +1439,9 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       case Some(piTy @ AST.Pi(telescopes, resultTy, _, _)) =>
         // Resolve MetaCells in telescopes (parameter types may contain unresolved cells)
-        val resolvedTelescopes = telescopes.map(tel => tel.copy(params = tel.params.map(param => param.copy(ty = substituteSolutions(param.ty)))))
+        val resolvedTelescopes = telescopes.map(tel =>
+          tel.copy(params = tel.params.map(param => param.copy(ty = substituteSolutions(param.ty))))
+        )
         val resolvedResultTy = substituteSolutions(resultTy)
 
         // Separate implicit and explicit parameters
@@ -1550,7 +1540,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         val allArgs = resolvedImplicitArgs ++ explicitArgs
         val substitutedTy = substituteInType(resolvedResultTy, allParams.map(_.id).zip(allArgs).toMap)
         val normalizedTy = reduce(substitutedTy, c.ctx)
-        module.fill(solver, c.inferredTy, normalizedTy)
+
+        module.fill(solver, c.inferredTy, normalizeType(normalizedTy))
         Result.Done
       case Some(ty) =>
         c.ctx.reporter.report(ElabProblem.NotAFunction(ty, c.span))
@@ -1591,9 +1582,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         module.readStable(solver, rtCell)
       case None => None
 
-    // Build def AST
-    val defAst = AST.Def(c.defId, c.name, c.telescopes, resultTy, body, c.span)
-    module.fill(solver, c.result, defAst)
+    // Result cell carries the elaborated body to resolve block placeholders
+    module.fill(solver, c.result, body)
 
     // Compute required effects by scanning the body for builtin calls with effectful Pi types
     def gatherEffects(ast: AST): Set[String] =
@@ -1608,15 +1598,11 @@ class ElabHandler extends Handler[ElabConstraint]:
           fromFuncType ++ gatherEffects(func) ++ args.flatMap(a => gatherEffects(a.value))
         case AST.Block(elements, tail, _) =>
           elements.flatMap(gatherEffectsStmt).toSet ++ gatherEffects(tail)
-        case AST.Pkg(_, body, _) =>
-          gatherEffects(body)
         case AST.Tuple(elements, _)   => elements.flatMap(gatherEffects).toSet
         case AST.ListLit(elements, _) => elements.flatMap(gatherEffects).toSet
         case AST.Lam(_, body, _)      => gatherEffects(body)
         case AST.Let(_, _, ty, value, body, _) =>
           ty.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(value) ++ gatherEffects(body)
-        case AST.Def(_, _, teles, resTy, b, _) =>
-          teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(b)
         case AST.Ann(expr, ty, _) => gatherEffects(expr) ++ gatherEffects(ty)
         case _                    => Set.empty
 
@@ -1647,8 +1633,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       )
 
     val piTy = AST.Pi(c.telescopes, finalResultTy, if c.effectAnnotated then c.effects else requiredEffects.toVector, c.span)
-    module.fill(solver, c.inferredTy, piTy)
-    module.fill(solver, c.defTypeCell, piTy)
+    module.fill(solver, c.inferredTy, normalizeType(piTy))
+    module.fill(solver, c.defTypeCell, normalizeType(piTy))
 
     Result.Done
 
@@ -1685,8 +1671,7 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
 
     case AST.Block(elements, tail, span) =>
       AST.Block(elements.map(substituteSolutionsStmt), substituteSolutions(tail), span)
-    case AST.Pkg(name, body, span) =>
-      AST.Pkg(name, substituteSolutions(body), span)
+    case other => other
 
     case AST.StringLit(value, span) => ast
     case AST.IntLit(value, span)    => ast
@@ -1748,24 +1733,54 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
         span
       )
 
-    case AST.Def(id, name, telescopes, resultTy, body, span) =>
-      val newTelescopes = telescopes.map { tel =>
-        Telescope(
-          tel.params.map(p => Param(p.id, p.name, substituteSolutions(p.ty), p.implicitness, p.default.map(substituteSolutions))),
-          tel.implicitness
-        )
-      }
-      AST.Def(
-        id,
-        name,
-        newTelescopes,
-        resultTy.map(substituteSolutions),
-        substituteSolutions(body),
-        span
-      )
-
     case AST.Ann(expr, ty, span) =>
       AST.Ann(substituteSolutions(expr), substituteSolutions(ty), span)
+    case other => other
+
+/** Normalize a type AST with shallow beta-reduction of type-level lambdas/applications. */
+private[tyck] def normalizeType(ast: AST): AST =
+  ast match
+    case AST.App(func, args, implicitArgs, span) =>
+      val nFunc = normalizeType(func)
+      val nArgs = args.map(a => Arg(normalizeType(a.value), a.implicitness))
+      nFunc match
+        case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == nArgs.length =>
+          val subst = teles.flatMap(_.params).map(_.id).zip(nArgs.map(_.value)).toMap
+          normalizeType(substituteInType(body, subst))
+        case _ => AST.App(nFunc, nArgs, implicitArgs, span)
+    case AST.Lam(teles, body, span) =>
+      val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
+      AST.Lam(nTeles, normalizeType(body), span)
+    case AST.Pi(teles, resultTy, effs, span) =>
+      val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
+      AST.Pi(nTeles, normalizeType(resultTy), effs, span)
+    case AST.ListType(elem, span)   => AST.ListType(normalizeType(elem), span)
+    case AST.Tuple(elems, span)     => AST.Tuple(elems.map(normalizeType), span)
+    case AST.ListLit(elems, span)   => AST.ListLit(elems.map(normalizeType), span)
+    case AST.Let(id, name, ty, value, body, span) =>
+      AST.Let(id, name, ty.map(normalizeType), normalizeType(value), normalizeType(body), span)
+    case AST.Ann(expr, ty, span)    => AST.Ann(normalizeType(expr), normalizeType(ty), span)
+    case AST.Block(elems, tail, span) => AST.Block(elems.map(normalizeTypeStmt), normalizeType(tail), span)
+    case other => other
+
+private def normalizeTypeStmt(stmt: StmtAST): StmtAST =
+  stmt match
+    case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(normalizeType(expr), span)
+    case StmtAST.Def(id, name, teles, resTy, body, span) =>
+      val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
+      StmtAST.Def(id, name, nTeles, resTy.map(normalizeType), normalizeType(body), span)
+    case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, normalizeType(body), span)
+
+private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): StmtAST =
+  stmt match
+    case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteSolutions(expr), span)
+    case StmtAST.Def(id, name, teles, resTy, body, span) =>
+      val newTeles = teles.map(t =>
+        t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions))))
+      )
+      StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span)
+    case StmtAST.Pkg(name, body, span) =>
+      StmtAST.Pkg(name, substituteSolutions(body), span)
 
 /** Main elaborator object */
 object Elaborator:
