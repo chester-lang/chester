@@ -1080,7 +1080,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     // Wait for function type to be ready first (most important dependency)
     if !module.hasStableValue(solver, c.funcTy) then return Result.Waiting(c.funcTy)
-    
+
     // Wait for all parts to be elaborated
     if !module.hasStableValue(solver, c.funcResult) then return Result.Waiting(c.funcResult)
 
@@ -1088,12 +1088,13 @@ class ElabHandler extends Handler[ElabConstraint]:
       return Result.Waiting(c.explicitTypeArgResults.filter(!module.hasStableValue(solver, _))*)
 
     if !c.argResults.forall(module.hasStableValue(solver, _)) then return Result.Waiting(c.argResults.filter(!module.hasStableValue(solver, _))*)
-    
+
     // Wait for all argument types to be inferred
     if !c.argTypes.forall(module.hasStableValue(solver, _)) then return Result.Waiting(c.argTypes.filter(!module.hasStableValue(solver, _))*)
-    
+
     // Wait for all explicit type argument types to be inferred
-    if !c.explicitTypeArgTypes.forall(module.hasStableValue(solver, _)) then return Result.Waiting(c.explicitTypeArgTypes.filter(!module.hasStableValue(solver, _))*)
+    if !c.explicitTypeArgTypes.forall(module.hasStableValue(solver, _)) then
+      return Result.Waiting(c.explicitTypeArgTypes.filter(!module.hasStableValue(solver, _))*)
 
     // All prerequisites are ready - we're committed to processing now
     val func = module.readStable(solver, c.funcResult).get
