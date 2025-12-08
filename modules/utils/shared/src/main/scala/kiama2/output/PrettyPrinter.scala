@@ -875,7 +875,7 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
     )
 
   def insert(len: Int, entry: Entry): Doc =
-    new Doc((iw: IW) => {
+    new Doc((_: IW) => {
       val out =
         (_: Horizontal) => (o: Out) => Done((r: Remaining) => output(o, r - len, entry))
       scan(len, out)
@@ -943,14 +943,14 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
           for {
             c2 <- d(iw)(leave(c1))
           } yield (p: PPosition, dq: Dq) => {
-            val n = (h: Horizontal) => (o: Out) => Done(o)
+            val n = (_: Horizontal) => (o: Out) => Done(o)
             c2(p, dq :+ ((p, n)))
           }
         )
     )
 
   def emptyDoc: Doc =
-    new Doc((iw: IW) => (c: TreeCont) => Done(c))
+    new Doc((_: IW) => (c: TreeCont) => Done(c))
 
   def nest(d: Doc, j: Indent = defaultIndent): Doc =
     new Doc({ case (i, w) =>
@@ -1002,7 +1002,7 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
 
     val initBuffer = Seq[Entry]()
     val cend =
-      (p: PPosition, dq: Dq) => Done((r: Remaining) => Done(initBuffer))
+      (_: PPosition, _: Dq) => Done((_: Remaining) => Done(initBuffer))
     val finalBufferComputation =
       for {
         c <- d((0, w))(cend)

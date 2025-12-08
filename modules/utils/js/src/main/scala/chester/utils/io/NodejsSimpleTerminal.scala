@@ -27,7 +27,7 @@ class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future
       }
     }
 
-  rl.on("close", x => closeCallback())
+  rl.on("close", _ => closeCallback())
 
   override def readALine(prompt: fansi.Str): Future[String] = {
     assert(reading == null)

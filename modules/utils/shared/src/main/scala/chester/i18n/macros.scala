@@ -1,7 +1,8 @@
 package chester.i18n
 
-import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 import chester.utils.doc.{Doc, DocConf, ToDoc}
+
+import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 import scala.language.implicitConversions
 import scala.quoted.*
 import scala.util.control.NonFatal

@@ -1313,7 +1313,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         else
           // No explicit type arguments - create meta-variables for implicit parameters
           // These will be solved through unification when we check explicit argument types
-          implicitParams.map { param =>
+          implicitParams.map { _ =>
             val metaCell = module.newOnceCell[ElabConstraint, AST](solver)
             AST.MetaCell(HoldNotReadable(metaCell), c.span)
           }

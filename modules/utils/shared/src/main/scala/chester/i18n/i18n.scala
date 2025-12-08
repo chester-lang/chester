@@ -161,7 +161,7 @@ object Template {
             val placeholderIndex = d.asDigit
             builder += Placeholder(placeholderIndex)
             idx += 2
-          case other =>
+          case _ =>
             literal.append(ch)
             idx += 1
       else
