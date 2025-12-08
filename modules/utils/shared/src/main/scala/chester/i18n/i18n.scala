@@ -84,12 +84,14 @@ object Template {
   def stringContextToString(sc: StringContext): String = {
 
     val stringbuilder = new StringBuilder()
-    for (part <- sc.parts)
-      if (part.isEmpty) {
-        stringbuilder.append("s$$${count}")
-      } else {
-        stringbuilder.append(part.replace("$", "$$"))
-      }
+    val parts = sc.parts.iterator
+    var index = 1
+    if parts.hasNext then
+      stringbuilder.append(parts.next().replace("$", "$$"))
+    while parts.hasNext do
+      stringbuilder.append(s"$$$index")
+      stringbuilder.append(parts.next().replace("$", "$$"))
+      index += 1
     stringbuilder.result()
   }
 
