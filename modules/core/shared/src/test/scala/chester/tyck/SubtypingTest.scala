@@ -166,7 +166,7 @@ class SubtypingTest extends FunSuite:
       assert(ast.isDefined, "AST should be defined")
       assert(ty.isDefined, "Type should be defined")
 
-      normalizeType(ty.get) match
+      Elaborator.normalizeType(ty.get) match
         case AST.ListType(elem, _) => assert(elem.isInstanceOf[AST.IntegerType], s"Expected Integer element type, got: $elem")
         case other                 => fail(s"Expected List type, got: $other")
     }
@@ -180,7 +180,7 @@ class SubtypingTest extends FunSuite:
       assert(ast.isDefined, "AST should be defined")
       assert(ty.isDefined, "Type should be defined")
 
-      normalizeType(ty.get) match
+      Elaborator.normalizeType(ty.get) match
         case AST.ListType(elem, _) => assert(elem.isInstanceOf[AST.StringType], s"Expected String element type, got: $elem")
         case other                 => fail(s"Expected List type, got: $other")
     }

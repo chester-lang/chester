@@ -6,6 +6,9 @@ import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
+import scala.language.experimental.genericNumberLiterals
+import chester.tyck.CoreTypeChecker.normalizeType
+import scala.language.experimental.genericNumberLiterals
 import cats.data.NonEmptyVector
 
 import scala.language.experimental.genericNumberLiterals
@@ -1719,9 +1722,8 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
               case AST.Ref(id, _, _) if id == param.id =>
                 return AST.ListType(normalizedArgs.head.value, span.orElse(bodySpan))
               case _ => ()
-          AST.App(normalizedFunc, normalizedArgs, implicitArgs, span)
-        case _ =>
-          AST.App(normalizedFunc, normalizedArgs, implicitArgs, span)
+        case _ => ()
+      AST.App(normalizedFunc, normalizedArgs, implicitArgs, span)
 
     case AST.Let(id, name, ty, value, body, span) =>
       AST.Let(
@@ -1736,40 +1738,6 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.Ann(expr, ty, span) =>
       AST.Ann(substituteSolutions(expr), substituteSolutions(ty), span)
     case other => other
-
-/** Normalize a type AST with shallow beta-reduction of type-level lambdas/applications. */
-private[tyck] def normalizeType(ast: AST): AST =
-  ast match
-    case AST.App(func, args, implicitArgs, span) =>
-      val nFunc = normalizeType(func)
-      val nArgs = args.map(a => Arg(normalizeType(a.value), a.implicitness))
-      nFunc match
-        case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == nArgs.length =>
-          val subst = teles.flatMap(_.params).map(_.id).zip(nArgs.map(_.value)).toMap
-          normalizeType(substituteInType(body, subst))
-        case _ => AST.App(nFunc, nArgs, implicitArgs, span)
-    case AST.Lam(teles, body, span) =>
-      val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
-      AST.Lam(nTeles, normalizeType(body), span)
-    case AST.Pi(teles, resultTy, effs, span) =>
-      val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
-      AST.Pi(nTeles, normalizeType(resultTy), effs, span)
-    case AST.ListType(elem, span)   => AST.ListType(normalizeType(elem), span)
-    case AST.Tuple(elems, span)     => AST.Tuple(elems.map(normalizeType), span)
-    case AST.ListLit(elems, span)   => AST.ListLit(elems.map(normalizeType), span)
-    case AST.Let(id, name, ty, value, body, span) =>
-      AST.Let(id, name, ty.map(normalizeType), normalizeType(value), normalizeType(body), span)
-    case AST.Ann(expr, ty, span)    => AST.Ann(normalizeType(expr), normalizeType(ty), span)
-    case AST.Block(elems, tail, span) => AST.Block(elems.map(normalizeTypeStmt), normalizeType(tail), span)
-    case other => other
-
-private def normalizeTypeStmt(stmt: StmtAST): StmtAST =
-  stmt match
-    case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(normalizeType(expr), span)
-    case StmtAST.Def(id, name, teles, resTy, body, span) =>
-      val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
-      StmtAST.Def(id, name, nTeles, resTy.map(normalizeType), normalizeType(body), span)
-    case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, normalizeType(body), span)
 
 private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): StmtAST =
   stmt match
@@ -1901,3 +1869,6 @@ object Elaborator:
   /** Elaborate with custom context */
   def elaborate(cst: CST, ctx: ElabContext): (AST, AST) =
     elaborate(cst, ctx.reporter, Some(ctx))(using ProceduralSolverModule)
+
+  /** Expose normalizeType for tests and downstream utilities. */
+  def normalizeType(ast: AST): AST = CoreTypeChecker.normalizeType(ast)
