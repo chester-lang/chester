@@ -100,13 +100,26 @@ object ProceduralSolverModule extends SolverModule {
   override def stable[C](solver: Solver[C]): Boolean =
     solver.delayedConstraints.isEmpty && solver.todo.isEmpty
 
+  private val IterationLimit = 200000
+  private val EnableIterationLimit = true
+  private val EnableDebugLogging = false
+
   @tailrec
   override def run[C](solver: Solver[C]): Unit = {
+    var iterations = 0
     while (solver.todo.nonEmpty) {
       var heuristics: Int = 1
       while (solver.todo.nonEmpty && heuristics < 32) {
+        iterations += 1
+        if (EnableIterationLimit && iterations > IterationLimit) {
+          val pending = solver.todo.headOption.map(_.toString).getOrElse("<empty>")
+          throw new IllegalStateException(s"procedural solver exceeded iteration budget ($IterationLimit); next constraint: $pending")
+        }
         heuristics += 1
         val c = solver.todo.dequeue()
+        if (EnableDebugLogging && iterations <= 50) {
+          println(s"[solver] processing: $c")
+        }
         val handler = solver.conf.getHandler(c).getOrElse(throw new IllegalStateException("no handler"))
         val result = handler.run(c)(using this, solver)
         result match {

@@ -59,6 +59,9 @@ trait NoFill[+A, -B] extends CellContent[A, B] {
 
 trait MapCellContent[A, B] extends UnstableCellContent[Map[A, B], Map[A, B]] with BaseMapCell[A, B] with NoFill[Map[A, B], Map[A, B]] {}
 
+object OnceCellContent:
+  private val EnableDiagnostics = false
+
 case class OnceCellContent[T](
     value: Option[T] = None,
     override val default: Option[T] = None
@@ -67,6 +70,9 @@ case class OnceCellContent[T](
 
   override def fill(newValue: T): OnceCellContent[T] = {
     if (value.contains(newValue)) return this
+    if (value.nonEmpty && OnceCellContent.EnableDiagnostics) {
+      println(s"[diag] conflicting fill: existing=${value.get} new=$newValue")
+    }
     require(value.isEmpty, s"OnceCellContent can only be filled once, but was already filled with ${value.get} and now with $newValue")
     copy(value = Some(newValue))
   }
