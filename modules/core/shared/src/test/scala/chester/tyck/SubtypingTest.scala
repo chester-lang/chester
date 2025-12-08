@@ -106,35 +106,7 @@ class SubtypingTest extends FunSuite:
       s"Should not have type mismatch, got: $errors")
   }
 
-  test("reduce function implemented for future use".ignore) {
-    // Reduction is implemented but currently disabled in unification to avoid infinite loops
-    // id : [a: Type](x: a) -> a
-    // Future: id[Type](String) should work where String : Type
-    // Future: id(x) where x is an application should reduce x first
-    assert(true)
-  }
-
-  test("type check id[id(String)](\"a\") - requires reduction".ignore) {
-    // TODO: This test requires reduction to work properly
-    // Define id and use it with reduction
-    // id : [a: Type](x: a) -> a
-    // id(String) has type Type and value String (dependent types!)
-    // id[id(String)]("a") means id[String]("a") after reduction
-    // This should type check: "a" : String
-    //
-    // Currently fails because:
-    // 1. Reduction is disabled in unify() to avoid infinite loops
-    // 2. Need to fix the feedback loop between reduce() and constraint solving
-    val (ast, ty, errors) = elaborate("""{
-      def id[a: Type](x: a) = x;
-      id[id(String)]("a")
-    }""")
-    
-    // Should have no errors once reduction works
-    assert(errors.isEmpty, s"Should type check with reduction, got errors: $errors")
-    assert(ast.isDefined, "AST should be defined")
-    assert(ty.isDefined, "Type should be defined")
-  }
+  // Removed obsolete ignored tests that depended on reduction being re-enabled in the future.
 
   test("type check id(42) first") {
     // Simpler test: just id(42)

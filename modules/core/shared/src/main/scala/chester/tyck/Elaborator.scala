@@ -1262,6 +1262,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         Result.Done
       case Some(ty) =>
         c.ctx.reporter.report(ElabProblem.NotAFunction(ty, c.span))
+        module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
         module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
         Result.Done
       case None =>

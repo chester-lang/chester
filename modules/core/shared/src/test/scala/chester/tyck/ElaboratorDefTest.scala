@@ -58,49 +58,6 @@ class ElaboratorDefTest extends munit.FunSuite {
     }
   }
 
-  test("elaborate function application - simple".ignore) {
-    val (ast, ty, errors) = elaborate("f(x)")
-    
-    // For now, expect errors since f is unbound
-    assert(ast.isDefined, "AST should be defined even with errors")
-    
-    ast.get match {
-      case AST.App(func, args, _, _) =>
-        assertEquals(args.length, 1, "Should have 1 argument")
-      case other =>
-        fail(s"Expected App, got: $other")
-    }
-  }
-
-  test("elaborate function application - multiple args".ignore) {
-    val (ast, ty, errors) = elaborate("f(x, y, z)")
-    
-    assert(ast.isDefined, "AST should be defined")
-    
-    ast.get match {
-      case AST.App(func, args, _, _) =>
-        assertEquals(args.length, 3, "Should have 3 arguments")
-      case other =>
-        fail(s"Expected App, got: $other")
-    }
-  }
-
-  test("elaborate def statement - simple".ignore) {
-    val (ast, ty, errors) = elaborate("def f(x: Type) = x")
-    
-    assert(ast.isDefined, s"AST should be defined, errors: $errors")
-    
-    ast.get match {
-      case AST.Def(id, name, telescopes, resultTy, body, _) =>
-        assertEquals(name, "f", "Function name should be f")
-        assertEquals(telescopes.length, 1, "Should have 1 telescope")
-        assert(telescopes(0).implicitness == Implicitness.Explicit, "Should be explicit")
-        assertEquals(telescopes(0).params.length, 1, "Should have 1 parameter")
-      case other =>
-        fail(s"Expected Def, got: $other")
-    }
-  }
-
   test("elaborate def statement - with implicit parameters - should error at top level") {
     val (ast, ty, errors) = elaborate("def id[a: Type](x: a) = x")
     
@@ -108,20 +65,6 @@ class ElaboratorDefTest extends munit.FunSuite {
     assert(errors.nonEmpty, s"Should have errors for def at top level, got: $errors")
     assert(errors.exists(_.toString.contains("def statement only allowed in block elements")), 
       s"Should have error about def only allowed in block elements, got: $errors")
-  }
-
-  test("elaborate def statement - with result type".ignore) {
-    val (ast, ty, errors) = elaborate("def f(x: Type) : Type = x")
-    
-    assert(ast.isDefined, s"AST should be defined, errors: $errors")
-    
-    ast.get match {
-      case AST.Def(id, name, telescopes, Some(resultTy), body, _) =>
-        assertEquals(name, "f", "Function name should be f")
-        assert(resultTy.isInstanceOf[AST.Ref], "Result type should be specified")
-      case other =>
-        fail(s"Expected Def with result type, got: $other")
-    }
   }
 
   test("user-defined id function type") {
@@ -172,7 +115,7 @@ class ElaboratorDefTest extends munit.FunSuite {
     }
   }
 
-  test("def in tail position is rejected".ignore) {
+  test("def in tail position is rejected") {
     val (ast, ty, errors) = elaborate("{ def f(x: Type) = x }")
     
     // Should have an error about def in tail position
