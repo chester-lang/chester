@@ -418,9 +418,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
         if elemTypes.nonEmpty then
           val baseTy = elemTypes.head
-          elemTypes.tail.foreach { tyCell =>
-            module.addConstraint(solver, ElabConstraint.Unify(baseTy, tyCell, span, c.ctx))
-          }
+          elemTypes.tail.foreach(tyCell => module.addConstraint(solver, ElabConstraint.Unify(baseTy, tyCell, span, c.ctx)))
           module.fill(solver, c.inferredTy, AST.ListType(AST.MetaCell(HoldNotReadable(baseTy), span), span))
         else
           val elemMeta = module.newOnceCell[ElabConstraint, AST](solver)
@@ -1111,10 +1109,10 @@ class ElabHandler extends Handler[ElabConstraint]:
         else module.readStable(solver, c).exists(occursIn(cell, _))
       case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) | AST.AnyType(_) | AST.StringType(_) | AST.IntegerType(_) =>
         false
-      case AST.ListType(element, _) => occursIn(cell, element)
-      case AST.Universe(level, _)                                                                         => occursIn(cell, level)
-      case AST.Tuple(elements, _)                                                                         => elements.exists(occursIn(cell, _))
-      case AST.ListLit(elements, _)                                                                       => elements.exists(occursIn(cell, _))
+      case AST.ListType(element, _)     => occursIn(cell, element)
+      case AST.Universe(level, _)       => occursIn(cell, level)
+      case AST.Tuple(elements, _)       => elements.exists(occursIn(cell, _))
+      case AST.ListLit(elements, _)     => elements.exists(occursIn(cell, _))
       case AST.Block(elements, tail, _) => elements.exists(occursIn(cell, _)) || occursIn(cell, tail)
       case AST.Pi(telescopes, resultTy, _) =>
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, resultTy)
@@ -1387,8 +1385,8 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.Universe(level, span) =>
       AST.Universe(substituteSolutions(level), span)
 
-    case AST.AnyType(span)    => ast
-    case AST.StringType(span) => ast
+    case AST.AnyType(span)     => ast
+    case AST.StringType(span)  => ast
     case AST.IntegerType(span) => ast
     case AST.ListType(element, span) =>
       AST.ListType(substituteSolutions(element), span)
