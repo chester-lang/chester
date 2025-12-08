@@ -1,112 +1,100 @@
 package chester.tyck
 
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 import scala.language.experimental.genericNumberLiterals
 
 import munit.FunSuite
-import cats.data.NonEmptyVector
-import chester.core.{AST, CST}
-import chester.error.Reporter
-import chester.uniqid.Uniqid
+import chester.core.AST
+import chester.error.VectorReporter
+import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.utils.elab.*
 
 class ElaboratorEffectTest extends FunSuite {
+  private def runAsync(body: => Unit): Future[Unit] = Future(body)
 
-  private class VectorReporter[P] extends Reporter[P]:
-    private val buf = scala.collection.mutable.ArrayBuffer.empty[P]
-    def report(problem: P): Unit = buf += problem
-    def getReports: Vector[P] = buf.toVector
+  private def elaborate(input: String): (Option[AST], Option[AST], Vector[ElabProblem]) =
+    given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
+    given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
 
-  private case class TestHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
-    def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] = Some(new ElabHandler)
+    val source = Source(FileNameAndContent("effect.chester", input))
 
-  private def emptyTuple(span: Option[chester.error.Span]) = CST.Tuple(Vector.empty, span)
+    val result = for
+      chars <- CharReader.read(source)
+      tokens <- Tokenizer.tokenize(chars)
+    yield
+      val parsed = Parser.parseFile(tokens)
+
+      given module: ProceduralSolverModule.type = ProceduralSolverModule
+      val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
+
+      val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
+      val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
+
+      module.addConstraint(solver, ElabConstraint.Infer(parsed, resultCell, typeCell, ElabContext(Map.empty, Map.empty, reporter = elabReporter)))
+      module.run(solver)
+
+      val result = module.readStable(solver, resultCell)
+      val ty = module.readStable(solver, typeCell)
+      val zonkedResult = result.map(r => substituteSolutions(r)(using module, solver))
+      val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
+      (zonkedResult, zonkedTy)
+
+    result match
+      case Right((ast, ty)) => (ast, ty, elabReporter.getReports)
+      case Left(err)        => (None, None, Vector(ElabProblem.UnboundVariable(err.toString, None)))
 
   test("propagates user defined effect rows through calls") {
-    given module: ProceduralSolverModule.type = ProceduralSolverModule
-    val solver = module.makeSolver[ElabConstraint](TestHandlerConf(module))
-    val reporter = new VectorReporter[ElabProblem]()
+    runAsync {
+      val code =
+        """{
+          |  def foo(): Integer / [magic] = 1;
+          |  def bar(): Integer = foo();
+          |  bar
+          |}""".stripMargin
 
-    // Pretend there is a previously defined effectful function: def foo(): Integer / [magic]
-    val fooId = Uniqid.make[AST]
-    val fooTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-    module.fill(solver, fooTyCell, AST.Pi(Vector.empty, AST.IntegerType(None), Vector("magic"), None))
+      val (_, barTy, errors) = elaborate(code)
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
 
-    // Pre-register the target def so we can observe its inferred type cell
-    val barId = Uniqid.make[AST]
-    val barTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-
-    val ctx = ElabContext(
-      bindings = Map("foo" -> fooId, "bar" -> barId),
-      types = Map(fooId -> fooTyCell, barId -> barTyCell),
-      reporter = reporter
-    )
-
-    val fooCall = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(Vector(CST.Symbol("foo", None), emptyTuple(None))), None)
-    val defBarElems = Vector(CST.Symbol("def", None), CST.Symbol("bar", None), CST.Symbol("=", None), fooCall)
-    val defBar = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(defBarElems), None)
-    val block = CST.Block(Vector(defBar), None, None)
-
-    val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
-    val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
-    module.addConstraint(solver, ElabConstraint.Infer(block, resultCell, typeCell, ctx))
-
-    module.run(solver)
-
-    val barTy = module.readStable(solver, barTyCell).getOrElse(fail("bar type missing"))
-    barTy match
-      case AST.Pi(_, resTy, effects, _) =>
-        assertEquals(effects.toSet, Set("magic"), clue = s"expected magic effect, got $effects; resultTy=$resTy")
-      case other =>
-        fail(s"expected Pi type for bar, got $other")
-
-    assertEquals(reporter.getReports.size, 0)
+      barTy match
+        case Some(AST.Pi(_, _, effects, _)) =>
+          assertEquals(effects.toSet, Set("magic"), clue = s"bar should propagate foo's effect, got $effects")
+        case other =>
+          fail(s"Expected Pi type for bar reference, got: $other")
+    }
   }
 
-  test("explicit annotation must include required effects") {
-    given module: ProceduralSolverModule.type = ProceduralSolverModule
-    val solver = module.makeSolver[ElabConstraint](TestHandlerConf(module))
-    val reporter = new VectorReporter[ElabProblem]()
+  test("annotated function must include required effects") {
+    runAsync {
+      val code =
+        """{
+          |  def foo(): Integer / [magic] = 1;
+          |  def bad(): Integer / [] = foo();
+          |  bad
+          |}""".stripMargin
 
-    val fooId = Uniqid.make[AST]
-    val fooTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-    module.fill(solver, fooTyCell, AST.Pi(Vector.empty, AST.IntegerType(None), Vector("magic"), None))
+      val (_, _, errors) = elaborate(code)
+      assert(errors.nonEmpty, "Expected error when annotated effects do not cover required effects")
+    }
+  }
 
-    val handledId = Uniqid.make[AST]
-    val handledTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+  test("annotation that lists required effect type-checks") {
+    runAsync {
+      val code =
+        """{
+          |  def foo(): Integer / [magic] = 1;
+          |  def ok(): Integer / [magic] = foo();
+          |  ok
+          |}""".stripMargin
 
-    val ctx = ElabContext(
-      bindings = Map("foo" -> fooId, "handled" -> handledId),
-      types = Map(fooId -> fooTyCell, handledId -> handledTyCell),
-      reporter = reporter
-    )
+      val (_, okTy, errors) = elaborate(code)
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
 
-    val fooCall = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(Vector(CST.Symbol("foo", None), emptyTuple(None))), None)
-    val handledElems = Vector(
-      CST.Symbol("def", None),
-      CST.Symbol("handled", None),
-      CST.Symbol(":", None),
-      CST.Symbol("Integer", None),
-      CST.Symbol("/", None),
-      CST.ListLiteral(Vector(CST.Symbol("magic", None)), None),
-      CST.Symbol("=", None),
-      fooCall
-    )
-    val handledDef = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(handledElems), None)
-    val block = CST.Block(Vector(handledDef), None, None)
-
-    val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
-    val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
-    module.addConstraint(solver, ElabConstraint.Infer(block, resultCell, typeCell, ctx))
-
-    module.run(solver)
-
-    val handledTy = module.readStable(solver, handledTyCell).getOrElse(fail("handled type missing"))
-    handledTy match
-      case AST.Pi(_, _, effects, _) =>
-        assertEquals(effects.toSet, Set("magic"), clue = s"expected magic effect to be required, got $effects")
-      case other =>
-        fail(s"expected Pi type for handled, got $other")
-
-    assertEquals(reporter.getReports.size, 0)
+      okTy match
+        case Some(AST.Pi(_, _, effects, _)) =>
+          assertEquals(effects.toSet, Set("magic"), clue = s"ok should retain declared effect row, got $effects")
+        case other =>
+          fail(s"Expected Pi type for ok reference, got: $other")
+    }
   }
 }
