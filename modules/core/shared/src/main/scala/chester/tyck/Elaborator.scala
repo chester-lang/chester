@@ -65,10 +65,17 @@ object ElabContext:
     "Universe",
     "true",
     "false",
-    "List"
+    "List",
+    "println"
   )
 
-  val defaultBuiltinTypes: Map[String, AST] = Map.empty
+  val defaultBuiltinTypes: Map[String, AST] = {
+    val stringParam = Param(Uniqid.make, "value", AST.StringType(None), Implicitness.Explicit, None)
+    val tele = Vector(Telescope(Vector(stringParam), Implicitness.Explicit))
+    val unitTy = AST.Tuple(Vector.empty, None)
+    val printlnTy = AST.Pi(tele, unitTy, Vector("io"), None)
+    Map("println" -> printlnTy)
+  }
 
 /** All elaboration constraints */
 enum ElabConstraint:
@@ -150,6 +157,7 @@ enum ElabConstraint:
       bodyTy: CellR[AST],
       result: CellRW[AST],
       inferredTy: CellRW[AST],
+      effects: Vector[String],
       defTypeCell: CellRW[AST],
       span: Option[Span]
   )
@@ -180,7 +188,7 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       AST.IntegerType(span)
     case AST.ListType(element, span) =>
       AST.ListType(substituteInType(element, substitutions), span)
-    case AST.Pi(telescopes, resultTy, span) =>
+    case AST.Pi(telescopes, resultTy, effects, span) =>
       // Don't substitute bound variables
       val newTelescopes = telescopes.map { tel =>
         Telescope(
@@ -192,7 +200,7 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       }
       val boundIds = telescopes.flatMap(_.params.map(_.id)).toSet
       val filteredSubs = substitutions.filterNot { case (id, _) => boundIds.contains(id) }
-      AST.Pi(newTelescopes, substituteInType(resultTy, filteredSubs), span)
+      AST.Pi(newTelescopes, substituteInType(resultTy, filteredSubs), effects, span)
     case AST.Lam(telescopes, body, span) =>
       val newTelescopes = telescopes.map { tel =>
         Telescope(
@@ -383,6 +391,7 @@ class ElabHandler extends Handler[ElabConstraint]:
               val typeOfType = AST.Pi(
                 levelTele,
                 AST.TypeOmega(AST.IntLit(0, None), None),
+                Vector.empty,
                 span
               )
               module.fill(solver, c.inferredTy, typeOfType)
@@ -399,7 +408,7 @@ class ElabHandler extends Handler[ElabConstraint]:
               val typeParamId = Uniqid.make[AST]
               val typeParam = Param(typeParamId, "A", paramTy, Implicitness.Explicit, None)
               val typeTele = Vector(Telescope(Vector(typeParam), Implicitness.Explicit))
-              val lamType = AST.Pi(typeTele, AST.Type(AST.IntLit(1, None), None), span)
+              val lamType = AST.Pi(typeTele, AST.Type(AST.IntLit(1, None), None), Vector.empty, span)
               module.fill(solver, c.inferredTy, lamType)
               Result.Done
             else if c.ctx.isBuiltin(name) then
@@ -805,13 +814,22 @@ class ElabHandler extends Handler[ElabConstraint]:
     // Check for optional result type annotation
     val resultTyCell = module.newOnceCell[ElabConstraint, AST](solver)
     var hasResultTy = false
+    var annotatedEffects: Vector[String] = Vector.empty
     if idx < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == ":" then
       idx += 1
       if idx < elems.length then
         val resultTyTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-        module.addConstraint(solver, ElabConstraint.Infer(elems(idx), resultTyCell, resultTyTyCell, ctx))
+        val baseTyCst = elems(idx)
+        module.addConstraint(solver, ElabConstraint.Infer(baseTyCst, resultTyCell, resultTyTyCell, ctx))
         hasResultTy = true
         idx += 1
+        // Optional effect row after type: / [e1, e2]
+        if idx + 1 < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == "/" then
+          elems(idx + 1) match
+            case list: CST.ListLiteral =>
+              annotatedEffects = parseEffectNames(list)
+              idx += 2
+            case _ => ()
 
     // Expect =
     if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != "=" then
@@ -856,6 +874,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         bodyTy,
         c.result,
         c.inferredTy,
+        annotatedEffects,
         defTypeCell,
         span
       )
@@ -998,6 +1017,19 @@ class ElabHandler extends Handler[ElabConstraint]:
       elements.headOption.exists { case CST.Symbol("let", _) => true; case _ => false }
     case _ => false
 
+  private def parseEffectNames(list: CST.ListLiteral): Vector[String] =
+    list.elements.collect { case CST.Symbol(name, _) => name }
+
+  /** Extract a base type and an optional effect list from `Type / [e1, e2]` forms. */
+  private def extractEffectAnnotation(cst: CST): (CST, Vector[String]) = cst match
+    case CST.SeqOf(elements, _) if elements.length == 3 =>
+      val elems = elements.toVector
+      elems match
+        case Vector(base, CST.Symbol("/", _), list: CST.ListLiteral) =>
+          (base, parseEffectNames(list))
+        case _ => (cst, Vector.empty)
+    case _ => (cst, Vector.empty)
+
   /** Unification result following the paper's architecture */
   private enum UnifyResult:
     case Success
@@ -1131,14 +1163,16 @@ class ElabHandler extends Handler[ElabConstraint]:
         if e1.size != e2.size then UnifyResult.Failure("Tuple arity mismatch")
         else unifyAll(e1.zip(e2), span, ctx)
 
-      case (AST.Pi(tel1, r1, _), AST.Pi(tel2, r2, _)) =>
+      case (AST.Pi(tel1, r1, eff1, _), AST.Pi(tel2, r2, eff2, _)) =>
         if tel1.size != tel2.size then UnifyResult.Failure("Function arity mismatch")
         else
           val paramPairs = tel1.zip(tel2).flatMap { case (t1, t2) =>
             t1.params.zip(t2.params).map((p1, p2) => (p1.ty, p2.ty))
           }
           unifyAll(paramPairs, span, ctx) match
-            case UnifyResult.Success => unify(r1, r2, span, ctx)
+            case UnifyResult.Success =>
+              if eff1.toSet == eff2.toSet then unify(r1, r2, span, ctx)
+              else UnifyResult.Failure("Effect mismatch")
             case failure             => failure
 
       case _ => UnifyResult.Failure(s"Type mismatch: ${t1.getClass.getSimpleName} vs ${t2.getClass.getSimpleName}")
@@ -1206,7 +1240,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         (normTy1, normTy2) match
           // Function subtyping: contravariant in parameters, covariant in result
           // (A -> B) <: (A' -> B') if A' <: A and B <: B'
-          case (AST.Pi(tel1, r1, _), AST.Pi(tel2, r2, _)) =>
+          case (AST.Pi(tel1, r1, eff1, _), AST.Pi(tel2, r2, eff2, _)) =>
             if tel1.size != tel2.size then false
             else
               // Parameters are contravariant
@@ -1218,8 +1252,8 @@ class ElabHandler extends Handler[ElabConstraint]:
                     isSubtype(p2.ty, p1.ty, span, ctx)
                   }
               }
-              // Result is covariant
-              paramsOk && isSubtype(r1, r2, span, ctx)
+              // Result is covariant; effects must be subsets (fewer requirements is more specific)
+              paramsOk && isSubtype(r1, r2, span, ctx) && eff1.toSet.subsetOf(eff2.toSet)
 
           // Tuple subtyping: covariant in all components
           case (AST.Tuple(e1, _), AST.Tuple(e2, _)) =>
@@ -1251,7 +1285,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.Tuple(elements, _)       => elements.exists(occursIn(cell, _))
       case AST.ListLit(elements, _)     => elements.exists(occursIn(cell, _))
       case AST.Block(elements, tail, _) => elements.exists(occursIn(cell, _)) || occursIn(cell, tail)
-      case AST.Pi(telescopes, resultTy, _) =>
+      case AST.Pi(telescopes, resultTy, _, _) =>
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, resultTy)
       case AST.Lam(telescopes, body, _) =>
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, body)
@@ -1281,7 +1315,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     import module.given
 
     module.readStable(solver, c.ty) match
-      case Some(AST.Pi(telescopes, resultTy, _)) =>
+      case Some(AST.Pi(telescopes, resultTy, _, _)) =>
         module.fill(solver, c.telescopes, telescopes)
         module.fill(solver, c.resultTy, resultTy)
         Result.Done
@@ -1321,7 +1355,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     val explicitArgs = c.argResults.flatMap(module.readStable(solver, _))
 
     module.readStable(solver, c.funcTy) match
-      case Some(AST.Pi(telescopes, resultTy, _)) =>
+      case Some(AST.Pi(telescopes, resultTy, _, _)) =>
         // Resolve MetaCells in telescopes (parameter types may contain unresolved cells)
         val resolvedTelescopes = telescopes.map(tel => tel.copy(params = tel.params.map(param => param.copy(ty = substituteSolutions(param.ty)))))
         val resolvedResultTy = substituteSolutions(resultTy)
@@ -1475,7 +1509,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         if !module.hasStableValue(solver, c.bodyTy) then return Result.Waiting(c.bodyTy)
         module.readStable(solver, c.bodyTy).get
 
-    val piTy = AST.Pi(c.telescopes, finalResultTy, c.span)
+    val piTy = AST.Pi(c.telescopes, finalResultTy, c.effects, c.span)
     module.fill(solver, c.inferredTy, piTy)
     module.fill(solver, c.defTypeCell, piTy)
 
@@ -1530,14 +1564,14 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.ListType(element, span) =>
       AST.ListType(substituteSolutions(element), span)
 
-    case AST.Pi(telescopes, resultTy, span) =>
+    case AST.Pi(telescopes, resultTy, effects, span) =>
       val newTelescopes = telescopes.map { tel =>
         Telescope(
           tel.params.map(p => Param(p.id, p.name, substituteSolutions(p.ty), p.implicitness, p.default.map(substituteSolutions))),
           tel.implicitness
         )
       }
-      AST.Pi(newTelescopes, substituteSolutions(resultTy), span)
+      AST.Pi(newTelescopes, substituteSolutions(resultTy), effects, span)
 
     case AST.Lam(telescopes, body, span) =>
       val newTelescopes = telescopes.map { tel =>

@@ -68,7 +68,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case NaturalType(override val span: Option[Span]) extends AST(span)
   case IntegerType(override val span: Option[Span]) extends AST(span)
   case ListType(element: AST, override val span: Option[Span]) extends AST(span)
-  case Pi(telescopes: Vector[Telescope], resultTy: AST, override val span: Option[Span]) extends AST(span)
+  case Pi(telescopes: Vector[Telescope], resultTy: AST, effects: Vector[String], override val span: Option[Span]) extends AST(span)
   case Lam(telescopes: Vector[Telescope], body: AST, override val span: Option[Span]) extends AST(span)
   case App(func: AST, args: Vector[Arg], implicitArgs: Boolean, override val span: Option[Span]) extends AST(span)
   case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
@@ -105,7 +105,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("Integer")
     case AST.ListType(element, _) =>
       text("List") <> brackets(element.toDoc)
-    case AST.Pi(telescopes, resultTy, _) =>
+    case AST.Pi(telescopes, resultTy, effects, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
         val paramsDoc = hsep(
@@ -117,7 +117,10 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
         )
         bracket._1(paramsDoc)
       }
-      hsep(telescopeDocs, empty) <+> text("->") <+> resultTy.toDoc
+      val effDoc =
+        if effects.isEmpty then empty
+        else text(" / ") <> brackets(hsep(effects.map(text(_)), `,` <+> empty))
+      hsep(telescopeDocs, empty) <+> text("->") <+> resultTy.toDoc <> effDoc
     case AST.Lam(telescopes, body, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
@@ -179,7 +182,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
     case AST.ListType(element, _) =>
       element.collectUniqids(collector)
-    case AST.Pi(telescopes, resultTy, _) =>
+    case AST.Pi(telescopes, resultTy, _, _) =>
       telescopes.foreach(_.collectUniqids(collector))
       resultTy.collectUniqids(collector)
     case AST.Lam(telescopes, body, _) =>
@@ -231,10 +234,11 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.IntegerType(span)
     case AST.ListType(element, span) =>
       AST.ListType(element.mapUniqids(mapper), span)
-    case AST.Pi(telescopes, resultTy, span) =>
+    case AST.Pi(telescopes, resultTy, effects, span) =>
       AST.Pi(
         telescopes.map(_.mapUniqids(mapper)),
         resultTy.mapUniqids(mapper),
+        effects,
         span
       )
     case AST.Lam(telescopes, body, span) =>

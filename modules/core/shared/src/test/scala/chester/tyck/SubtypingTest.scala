@@ -217,7 +217,7 @@ class SubtypingTest extends FunSuite:
 
       // The type should be [a: Type](x: a) -> a
       ty.get match {
-        case AST.Pi(_, _, _) => // OK - result type is a function type
+        case AST.Pi(_, _, _, _) => // OK - result type is a function type
         case other           => fail(s"Expected Pi type, got: $other")
       }
     }
@@ -261,6 +261,24 @@ class SubtypingTest extends FunSuite:
         case AST.StringType(_) => // expected
         case other             => fail(s"Expected String type, got: $other")
       }
+    }
+  }
+
+  test("builtin println carries io effect and can be used in annotated function") {
+    runAsync {
+      val (_, printlnTy, printlnErrors) = elaborate("println")
+      assert(printlnErrors.isEmpty, s"println lookup should be error free, got: $printlnErrors")
+
+      printlnTy match
+        case Some(AST.Pi(_, _, effects, _)) =>
+          assert(effects.contains("io"), s"Expected io effect in println type, got: $effects")
+        case other => fail(s"Expected println to have function type, got: $other")
+
+      val (_, _, defErrors) = elaborate("""{
+        def log(msg: String): () / [io] = println(msg);
+        log("hi")
+      }""")
+      assert(defErrors.isEmpty, s"Function using println should elaborate without errors, got: $defErrors")
     }
   }
 
