@@ -1,6 +1,6 @@
 package chester.tyck
 
-import chester.core.{AST, Arg, CST, Implicitness, Param, Telescope}
+import chester.core.{AST, Arg, CST, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Problem, Reporter, Span, VectorReporter}
 import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
@@ -164,6 +164,29 @@ enum ElabConstraint:
       ctx: ElabContext
   )
 
+private case class DefInfo(
+    name: String,
+    id: UniqidOf[AST],
+    tyCell: CellRW[AST],
+    resultCell: CellRW[AST],
+    telescopes: Vector[Telescope] = Vector.empty,
+    resultTyCell: Option[CellRW[AST]] = None,
+    effects: Vector[String] = Vector.empty,
+    effectAnnotated: Boolean = false,
+    span: Option[Span] = None
+)
+
+private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): StmtAST =
+  stmt match
+    case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteSolutions(expr), span)
+    case StmtAST.Def(id, name, teles, resTy, body, span) =>
+      val newTeles = teles.map(t =>
+        t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions))))
+      )
+      StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span)
+    case StmtAST.Pkg(name, body, span) =>
+      StmtAST.Pkg(name, substituteSolutions(body), span)
+
 /** Substitute arguments for parameters in a type Replaces occurrences of parameter IDs with corresponding argument ASTs
   */
 def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
@@ -175,9 +198,7 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
     case AST.ListLit(elements, span) =>
       AST.ListLit(elements.map(substituteInType(_, substitutions)), span)
     case AST.Block(elements, tail, span) =>
-      AST.Block(elements.map(substituteInType(_, substitutions)), substituteInType(tail, substitutions), span)
-    case AST.Package(name, body, span) =>
-      AST.Package(name, substituteInType(body, substitutions), span)
+      AST.Block(elements.map(substituteStmtInType(_, substitutions)), substituteInType(tail, substitutions), span)
     case AST.Type(level, span) =>
       AST.Type(substituteInType(level, substitutions), span)
     case AST.TypeOmega(level, span) =>
@@ -234,29 +255,27 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
         substituteInType(body, filteredSubs),
         span
       )
-    case AST.Def(id, name, telescopes, resultTy, body, span) =>
-      val newTelescopes = telescopes.map { tel =>
-        Telescope(
-          tel.params.map(p =>
-            Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
-          ),
-          tel.implicitness
-        )
-      }
-      val boundIds = id +: telescopes.flatMap(_.params.map(_.id))
-      val filteredSubs = substitutions.filterNot { case (id, _) => boundIds.contains(id) }
-      AST.Def(
-        id,
-        name,
-        newTelescopes,
-        resultTy.map(substituteInType(_, filteredSubs)),
-        substituteInType(body, filteredSubs),
-        span
-      )
     case AST.Ann(expr, ty, span) =>
       AST.Ann(substituteInType(expr, substitutions), substituteInType(ty, substitutions), span)
-    case other @ (AST.StringLit(_, _) | AST.IntLit(_, _) | AST.MetaCell(_, _)) =>
-      other
+    case other => other
+
+private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST], AST]): StmtAST = stmt match
+  case StmtAST.ExprStmt(expr, span) =>
+    StmtAST.ExprStmt(substituteInType(expr, substitutions), span)
+  case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
+    val newTelescopes = telescopes.map { tel =>
+      Telescope(
+        tel.params.map(p =>
+          Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
+        ),
+        tel.implicitness
+      )
+    }
+    val boundIds = telescopes.flatMap(_.params.map(_.id)).toSet + id
+    val filteredSubs = substitutions.filterNot { case (i, _) => boundIds.contains(i) }
+    StmtAST.Def(id, name, newTelescopes, resultTy.map(substituteInType(_, filteredSubs)), substituteInType(body, filteredSubs), span)
+  case StmtAST.Pkg(name, body, span) =>
+    StmtAST.Pkg(name, substituteInType(body, substitutions), span)
 
 /** Handler for elaboration constraints */
 class ElabHandler extends Handler[ElabConstraint]:
@@ -494,8 +513,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         // TWO-PASS ELABORATION for forward references:
         // Pass 1: Scan elements, collect all def declarations, create placeholder cells (reusing any pre-bound ones)
         var enrichedCtx = c.ctx
-        val defInfoMap =
-          scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], CellRW[AST], CellRW[AST])]
+        val defInfoMap = scala.collection.mutable.Map.empty[CST, DefInfo]
 
         elements.foreach {
           case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
@@ -515,35 +533,40 @@ class ElabHandler extends Handler[ElabConstraint]:
                 val defResultCell = module.newOnceCell[ElabConstraint, AST](solver)
                 // Add to context so it can be referenced (including by other defs)
                 enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell).registerDefBody(defId, defResultCell)
-                defInfoMap(elem) = (name, defId, defTypeCell, defResultCell)
+                defInfoMap(elem) = DefInfo(name, defId, defTypeCell, defResultCell, span = elem.span)
               case _ => ()
           case _ => ()
         }
 
         // Pass 2: Elaborate all elements with enriched context and sequential lets
-        val elaboratedElemsBuffer = scala.collection.mutable.ArrayBuffer.empty[AST]
+        val elaboratedElemsBuffer = scala.collection.mutable.ArrayBuffer.empty[StmtAST]
         var currentCtx = enrichedCtx
 
         elements.foreach { elem =>
           val elemResult =
             defInfoMap.get(elem) match
-              case Some((_, _, _, defCell)) => defCell
-              case None                     => module.newOnceCell[ElabConstraint, AST](solver)
+              case Some(info) => info.resultCell
+              case None       => module.newOnceCell[ElabConstraint, AST](solver)
           val elemType = module.newOnceCell[ElabConstraint, AST](solver)
 
           elem match
             case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
               val elems = seqElems.toVector
-              val (_, defId, defTypeCell, _) = defInfoMap(elem)
+              val info = defInfoMap(elem)
               val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, currentCtx)
-              handleDefStatement(defConstraint, elems, elem.span, defId, defTypeCell, currentCtx)(using module, solver)
+              handleDefStatement(defConstraint, elems, elem.span, info.id, info.tyCell, currentCtx, defInfoMap)(using module, solver)
+              // Construct a Stmt placeholder with MetaCells for body/result type
+              val bodyAst = AST.MetaCell(HoldNotReadable(elemResult), elem.span)
+              val resTyAst = info.resultTyCell.map(c => AST.MetaCell(HoldNotReadable(c), elem.span))
+              val stmt = StmtAST.Def(info.id, info.name, info.telescopes, resTyAst, bodyAst, elem.span)
+              elaboratedElemsBuffer += stmt
             case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("let", _) => true; case _ => false } =>
               val elems = seqElems.toVector
               currentCtx = handleLetStatement(c, elems, elem.span, currentCtx, elemResult, elemType)(using module, solver)
+              elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), elem.span), elem.span)
             case _ =>
               module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, currentCtx))
-
-          elaboratedElemsBuffer += AST.MetaCell(HoldNotReadable(elemResult), elem.span)
+              elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), elem.span), elem.span)
         }
 
         val elaboratedElems = elaboratedElemsBuffer.toVector
@@ -612,7 +635,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             val bodyTy = module.newOnceCell[ElabConstraint, AST](solver)
             module.addConstraint(solver, ElabConstraint.Infer(bodyCst, bodyResult, bodyTy, c.ctx))
 
-            module.fill(solver, c.result, AST.Package(pkgName, AST.MetaCell(HoldNotReadable(bodyResult), span), span))
+            module.fill(solver, c.result, AST.Pkg(pkgName, AST.MetaCell(HoldNotReadable(bodyResult), span), span))
             module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(bodyTy), span))
             Result.Done
         else
@@ -799,7 +822,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       span: Option[Span],
       defId: UniqidOf[AST],
       defTypeCell: CellRW[AST],
-      ctx: ElabContext
+      ctx: ElabContext,
+      defInfoMap: scala.collection.mutable.Map[CST, DefInfo]
   )(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
 
@@ -869,6 +893,19 @@ class ElabHandler extends Handler[ElabConstraint]:
               effectAnnotated = true
               idx += 2
             case _ => ()
+
+    // Update stored def info with parsed metadata
+    defInfoMap.get(c.cst).foreach { info =>
+      defInfoMap.update(
+        c.cst,
+        info.copy(
+          telescopes = telescopes.toVector,
+          resultTyCell = if hasResultTy then Some(resultTyCell) else None,
+          effects = annotatedEffects,
+          effectAnnotated = effectAnnotated
+        )
+      )
+    }
 
     // Expect =
     if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != "=" then
@@ -1325,8 +1362,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.TypeOmega(level, _)      => occursIn(cell, level)
       case AST.Tuple(elements, _)       => elements.exists(occursIn(cell, _))
       case AST.ListLit(elements, _)     => elements.exists(occursIn(cell, _))
-      case AST.Block(elements, tail, _) => elements.exists(occursIn(cell, _)) || occursIn(cell, tail)
-      case AST.Package(_, body, _)      => occursIn(cell, body)
+      case AST.Block(elements, tail, _) => elements.exists(occursInStmt(cell, _)) || occursIn(cell, tail)
+      case AST.Pkg(_, body, _)      => occursIn(cell, body)
       case AST.Pi(telescopes, resultTy, _, _) =>
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, resultTy)
       case AST.Lam(telescopes, body, _) =>
@@ -1339,6 +1376,13 @@ class ElabHandler extends Handler[ElabConstraint]:
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) ||
         resultTy.exists(occursIn(cell, _)) || occursIn(cell, body)
       case AST.Ann(expr, ty, _) => occursIn(cell, expr) || occursIn(cell, ty)
+
+  private def occursInStmt[M <: SolverModule](cell: Any, stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
+    stmt match
+      case StmtAST.ExprStmt(expr, _) => occursIn(cell, expr)
+      case StmtAST.Def(_, _, teles, resTy, body, _) =>
+        teles.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || resTy.exists(occursIn(cell, _)) || occursIn(cell, body)
+      case StmtAST.Pkg(_, body, _) => occursIn(cell, body)
 
   private def handleIsUniverse[M <: SolverModule](c: ElabConstraint.IsUniverse)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
@@ -1563,8 +1607,8 @@ class ElabHandler extends Handler[ElabConstraint]:
             case _ => Set.empty[String]
           fromFuncType ++ gatherEffects(func) ++ args.flatMap(a => gatherEffects(a.value))
         case AST.Block(elements, tail, _) =>
-          elements.flatMap(gatherEffects).toSet ++ gatherEffects(tail)
-        case AST.Package(_, body, _) =>
+          elements.flatMap(gatherEffectsStmt).toSet ++ gatherEffects(tail)
+        case AST.Pkg(_, body, _) =>
           gatherEffects(body)
         case AST.Tuple(elements, _)   => elements.flatMap(gatherEffects).toSet
         case AST.ListLit(elements, _) => elements.flatMap(gatherEffects).toSet
@@ -1575,6 +1619,12 @@ class ElabHandler extends Handler[ElabConstraint]:
           teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(b)
         case AST.Ann(expr, ty, _) => gatherEffects(expr) ++ gatherEffects(ty)
         case _                    => Set.empty
+
+    def gatherEffectsStmt(stmt: StmtAST): Set[String] = stmt match
+      case StmtAST.ExprStmt(expr, _) => gatherEffects(expr)
+      case StmtAST.Def(_, _, teles, resTy, body, _) =>
+        teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(body)
+      case StmtAST.Pkg(_, body, _) => gatherEffects(body)
 
     val requiredEffects = gatherEffects(body)
 
@@ -1634,9 +1684,9 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
       AST.ListLit(elements.map(substituteSolutions), span)
 
     case AST.Block(elements, tail, span) =>
-      AST.Block(elements.map(substituteSolutions), substituteSolutions(tail), span)
-    case AST.Package(name, body, span) =>
-      AST.Package(name, substituteSolutions(body), span)
+      AST.Block(elements.map(substituteSolutionsStmt), substituteSolutions(tail), span)
+    case AST.Pkg(name, body, span) =>
+      AST.Pkg(name, substituteSolutions(body), span)
 
     case AST.StringLit(value, span) => ast
     case AST.IntLit(value, span)    => ast

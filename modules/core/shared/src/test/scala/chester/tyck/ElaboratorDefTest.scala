@@ -1,6 +1,6 @@
 package chester.tyck
 
-import chester.core.{AST, CST, Implicitness, Param, Telescope}
+import chester.core.{AST, CST, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Pos, Span, SpanInFile, VectorReporter}
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.uniqid.Uniqid
@@ -138,7 +138,7 @@ class ElaboratorDefTest extends munit.FunSuite {
     ast match {
       case Some(AST.Block(elements, tail, _)) =>
         assert(elements.length >= 1, s"Block should have at least 1 element (def), got: ${elements.length}")
-        assert(elements.head.isInstanceOf[AST.Def], s"First element should be Def, got: ${elements.head}")
+        assert(elements.head.isInstanceOf[StmtAST.Def], s"First element should be Def, got: ${elements.head}")
         assert(tail.isInstanceOf[AST.IntLit], s"Tail should be IntLit, got: $tail")
       case other =>
         fail(s"Expected Block, got: $other")
