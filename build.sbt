@@ -118,7 +118,9 @@ lazy val root = project
     KiamaJVM,
     KiamaJS,
     KiamaNative,
-    jsTypingsJS
+    jsTypingsJS,
+    cliJVM,
+    cliJS
   )
   .settings(
     name := "chester",
@@ -239,3 +241,19 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
 lazy val utilsJVM = utils.jvm
 lazy val utilsJS = utils.js
 lazy val utilsNative = utils.native
+
+lazy val cli = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Full)
+  .in(file("modules/cli"))
+  .dependsOn(core, utils)
+  .settings(
+    commonSettings,
+    name := "chester-cli",
+    Compile / mainClass := Some("chester.cli.Main")
+  )
+  .jsSettings(
+    scalaJSUseMainModuleInitializer := true
+  )
+
+lazy val cliJVM = cli.jvm
+lazy val cliJS = cli.js
