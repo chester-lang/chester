@@ -34,6 +34,7 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
 case class ElabContext(
     bindings: Map[String, UniqidOf[AST]], // Name -> variable ID mapping
     types: Map[UniqidOf[AST], CellRW[AST]], // Variable ID -> type cell mapping
+    defBodies: Map[UniqidOf[AST], CellRW[AST]] = Map.empty, // Definition ID -> AST cell mapping
     builtins: Set[String] = ElabContext.defaultBuiltins, // Built-in names
     builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes, // Built-in types
     reporter: Reporter[ElabProblem] // Error reporter
@@ -41,8 +42,12 @@ case class ElabContext(
   def bind(name: String, id: UniqidOf[AST], ty: CellRW[AST]): ElabContext =
     copy(bindings = bindings + (name -> id), types = types + (id -> ty))
 
+  def registerDefBody(id: UniqidOf[AST], cell: CellRW[AST]): ElabContext =
+    copy(defBodies = defBodies + (id -> cell))
+
   def lookup(name: String): Option[UniqidOf[AST]] = bindings.get(name)
   def lookupType(id: UniqidOf[AST]): Option[CellRW[AST]] = types.get(id)
+  def lookupDefBody(id: UniqidOf[AST]): Option[CellRW[AST]] = defBodies.get(id)
   def isBuiltin(name: String): Boolean = builtins.contains(name)
   def lookupBuiltinType(name: String): Option[AST] = builtinTypes.get(name)
 
@@ -445,7 +450,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         // TWO-PASS ELABORATION for forward references:
         // Pass 1: Scan elements, collect all def declarations, create placeholder cells
         var enrichedCtx = c.ctx
-        val defInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.OnceCell[AST])]
+        val defInfoMap =
+          scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.OnceCell[AST], CellRW[AST])]
 
         elements.foreach {
           case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
@@ -456,16 +462,20 @@ class ElabHandler extends Handler[ElabConstraint]:
                 // Create unique ID and type cell for this def
                 val defId = Uniqid.make[AST]
                 val defTypeCell = module.newOnceCell[ElabConstraint, AST](solver)
+                val defResultCell = module.newOnceCell[ElabConstraint, AST](solver)
                 // Add to context so it can be referenced (including by other defs)
-                enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell)
-                defInfoMap(elem) = (name, defId, defTypeCell)
+                enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell).registerDefBody(defId, defResultCell)
+                defInfoMap(elem) = (name, defId, defTypeCell, defResultCell)
               case _ => ()
           case _ => ()
         }
 
         // Pass 2: Elaborate all elements with enriched context
         val elaboratedElems = elements.map { elem =>
-          val elemResult = module.newOnceCell[ElabConstraint, AST](solver)
+          val elemResult =
+            defInfoMap.get(elem) match
+              case Some((_, _, _, defCell)) => defCell
+              case None                     => module.newOnceCell[ElabConstraint, AST](solver)
           val elemType = module.newOnceCell[ElabConstraint, AST](solver)
 
           // Check if this is a def statement
@@ -473,7 +483,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
               // This is a def statement - elaborate with enriched context and pass def info
               val elems = seqElems.toVector
-              val (name, defId, defTypeCell) = defInfoMap(elem)
+              val (_, defId, defTypeCell, _) = defInfoMap(elem)
               val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, enrichedCtx)
               handleDefStatement(defConstraint, elems, elem.span, defId, defTypeCell)(using module, solver)
             case _ =>
@@ -886,6 +896,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     */
   private def reduce[M <: SolverModule](
       term: AST,
+      ctx: ElabContext,
       depth: Int = 0
   )(using module: M, solver: module.Solver[ElabConstraint]): AST =
     import module.given
@@ -897,26 +908,38 @@ class ElabHandler extends Handler[ElabConstraint]:
       // Resolve MetaCells first (but don't recurse if it leads back to a MetaCell)
       case AST.MetaCell(HoldNotReadable(cell), span) =>
         module.readStable(solver, cell) match
-          case Some(solved) if !solved.isInstanceOf[AST.MetaCell] => reduce(solved, depth + 1)
+          case Some(solved) if !solved.isInstanceOf[AST.MetaCell] => reduce(solved, ctx, depth + 1)
           case _                                                  => term
 
       // Beta-reduction: (λ params. body) args -> body[params := args]
       case AST.App(func, args, implicitArgs, span) =>
-        reduce(func, depth + 1) match
-          case AST.Lam(telescopes, body, _) =>
-            val allParams = telescopes.flatMap(_.params)
-            if allParams.size == args.size then
-              // Full application - substitute all params with args
-              val substMap = allParams
+        reduce(func, ctx, depth + 1) match
+          case AST.Lam(telescopes, body, lamSpan) =>
+            val targetImplicitness =
+              if implicitArgs then Implicitness.Implicit else Implicitness.Explicit
+            val (appliedTelescopes, remainingTelescopes) =
+              telescopes.span(_.implicitness == targetImplicitness)
+            val paramsToApply = appliedTelescopes.flatMap(_.params)
+            if paramsToApply.size == args.size then
+              val substMap = paramsToApply
                 .zip(args)
-                .map { case (param, arg) =>
-                  param.id -> arg.value
-                }
+                .map { case (param, arg) => param.id -> arg.value }
                 .toMap
-              reduce(substituteInType(body, substMap), depth + 1)
-            else
-              // Partial or over-application - no reduction
-              term
+              val substitutedBody = substituteInType(body, substMap)
+              if remainingTelescopes.nonEmpty then
+                val newLam = AST.Lam(remainingTelescopes, substitutedBody, lamSpan)
+                reduce(newLam, ctx, depth + 1)
+              else reduce(substitutedBody, ctx, depth + 1)
+            else term
+          case AST.Ref(id, _, _) =>
+            ctx.lookupDefBody(id) match
+              case Some(defCell) =>
+                module.readStable(solver, defCell) match
+                  case Some(AST.Def(_, _, telescopes, _, body, defSpan)) =>
+                    val lam = AST.Lam(telescopes, body, defSpan)
+                    reduce(AST.App(lam, args, implicitArgs, span), ctx, depth + 1)
+                  case _ => term
+              case None => term
           case _ => term
 
       // For all other constructs, no reduction
@@ -933,13 +956,12 @@ class ElabHandler extends Handler[ElabConstraint]:
   )(using module: M, solver: module.Solver[ElabConstraint]): UnifyResult =
     import module.given
 
-    // TODO: Enable reduction - currently causes hangs
-    // val r1 = reduce(t1)
-    // val r2 = reduce(t2)
+    val r1 = reduce(t1, ctx)
+    val r2 = reduce(t2, ctx)
 
-    (t1, t2) match
+    (r1, r2) match
       // Identical terms
-      case _ if t1 == t2 => UnifyResult.Success
+      case _ if r1 == r2 => UnifyResult.Success
 
       // Meta-variable cases - solve by unification (following paper's "Solver U1")
       case (AST.MetaCell(HoldNotReadable(cell1), _), ty2) =>
@@ -1034,21 +1056,24 @@ class ElabHandler extends Handler[ElabConstraint]:
   )(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
     import module.given
 
+    val normTy1 = reduce(ty1, ctx)
+    val normTy2 = reduce(ty2, ctx)
+
     // Everything is a subtype of Any
-    if ty2.isInstanceOf[AST.AnyType] then return true
+    if normTy2.isInstanceOf[AST.AnyType] then return true
 
     // Any is only a subtype of itself
-    if ty1.isInstanceOf[AST.AnyType] then return ty2.isInstanceOf[AST.AnyType]
+    if normTy1.isInstanceOf[AST.AnyType] then return normTy2.isInstanceOf[AST.AnyType]
 
     // String is only a subtype of itself (and Any, handled above)
-    if ty1.isInstanceOf[AST.StringType] then return ty2.isInstanceOf[AST.StringType]
+    if normTy1.isInstanceOf[AST.StringType] then return normTy2.isInstanceOf[AST.StringType]
 
     // Reflexive case and unification fallback
-    unify(ty1, ty2, span, ctx) match
+    unify(normTy1, normTy2, span, ctx) match
       case UnifyResult.Success    => true
       case UnifyResult.Failure(_) =>
         // Check structural subtyping
-        (ty1, ty2) match
+        (normTy1, normTy2) match
           // Function subtyping: contravariant in parameters, covariant in result
           // (A -> B) <: (A' -> B') if A' <: A and B <: B'
           case (AST.Pi(tel1, r1, _), AST.Pi(tel2, r2, _)) =>
@@ -1258,7 +1283,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         val allParams = implicitParams ++ explicitParams
         val allArgs = resolvedImplicitArgs ++ explicitArgs
         val substitutedTy = substituteInType(resolvedResultTy, allParams.map(_.id).zip(allArgs).toMap)
-        module.fill(solver, c.inferredTy, substitutedTy)
+        val normalizedTy = reduce(substitutedTy, c.ctx)
+        module.fill(solver, c.inferredTy, normalizedTy)
         Result.Done
       case Some(ty) =>
         c.ctx.reporter.report(ElabProblem.NotAFunction(ty, c.span))
@@ -1439,7 +1465,13 @@ object Elaborator:
     import module.given
 
     val elaborationContext = ctx.getOrElse(
-      ElabContext(Map.empty, Map.empty, ElabContext.defaultBuiltins, ElabContext.defaultBuiltinTypes, reporter)
+      ElabContext(
+        bindings = Map.empty,
+        types = Map.empty,
+        builtins = ElabContext.defaultBuiltins,
+        builtinTypes = ElabContext.defaultBuiltinTypes,
+        reporter = reporter
+      )
     )
 
     val solver = module.makeSolver[ElabConstraint](new ElabHandlerConf(module))

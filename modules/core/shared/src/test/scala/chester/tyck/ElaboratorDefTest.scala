@@ -22,7 +22,7 @@ class ElaboratorDefTest extends munit.FunSuite {
       val parsed = Parser.parse(tokens).cst
       
       // Create elaborator
-      val ctx = ElabContext(Map.empty, Map.empty, reporter = elabReporter)
+      val ctx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = elabReporter)
       
       given module: ProceduralSolverModule.type = ProceduralSolverModule
       import module.given

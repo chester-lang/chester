@@ -28,7 +28,7 @@ class SubtypingTest extends FunSuite:
       val parsed = Parser.parse(tokens).cst
       
       // Create elaborator
-      val ctx = ElabContext(Map.empty, Map.empty, reporter = elabReporter)
+      val ctx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = elabReporter)
       
       given module: ProceduralSolverModule.type = ProceduralSolverModule
       import module.given
@@ -106,7 +106,23 @@ class SubtypingTest extends FunSuite:
       s"Should not have type mismatch, got: $errors")
   }
 
-  // Removed obsolete ignored tests that depended on reduction being re-enabled in the future.
+  test("type check id[id(String)](\"a\") reduces implicit type argument") {
+    Future {
+      val (ast, ty, errors) = elaborate("""{
+        def id[a: Type](x: a) = x;
+        id[id(String)]("a")
+      }""")
+
+      assert(errors.isEmpty, s"Should type check with reduction, got errors: $errors")
+      assert(ast.isDefined, "AST should be defined")
+      assert(ty.isDefined, "Type should be defined")
+
+      ty.get match {
+        case AST.StringType(_) => // expected
+        case other             => fail(s"Expected String type, got: $other")
+      }
+    }
+  }
 
   test("type check id(42) first") {
     // Simpler test: just id(42)

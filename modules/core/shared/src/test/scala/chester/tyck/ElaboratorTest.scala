@@ -20,7 +20,7 @@ class ElaboratorTest extends FunSuite {
   
   test("elaborate string literal directly") {
     val reporter = new VectorReporter[ElabProblem]()
-    val ctx = ElabContext(Map.empty, Map.empty, reporter = reporter)
+    val ctx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = reporter)
     
     given module: ProceduralSolverModule.type = ProceduralSolverModule
     import module.given
@@ -66,7 +66,7 @@ class ElaboratorTest extends FunSuite {
   
   test("elaborate block with string literal tail") {
     val reporter = new VectorReporter[ElabProblem]()
-    val ctx = ElabContext(Map.empty, Map.empty, reporter = reporter)
+    val ctx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = reporter)
     
     given module: ProceduralSolverModule.type = ProceduralSolverModule
     import module.given
