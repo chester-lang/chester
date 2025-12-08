@@ -1,7 +1,7 @@
 package chester.tyck
 
 import chester.core.{AST, Arg, CST, Implicitness, Param, Telescope}
-import chester.error.{Problem, Reporter, Span}
+import chester.error.{Problem, Reporter, Span, VectorReporter}
 import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
@@ -176,6 +176,8 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       AST.ListLit(elements.map(substituteInType(_, substitutions)), span)
     case AST.Block(elements, tail, span) =>
       AST.Block(elements.map(substituteInType(_, substitutions)), substituteInType(tail, substitutions), span)
+    case AST.Package(name, body, span) =>
+      AST.Package(name, substituteInType(body, substitutions), span)
     case AST.Type(level, span) =>
       AST.Type(substituteInType(level, substitutions), span)
     case AST.TypeOmega(level, span) =>
@@ -490,10 +492,10 @@ class ElabHandler extends Handler[ElabConstraint]:
         }
 
         // TWO-PASS ELABORATION for forward references:
-        // Pass 1: Scan elements, collect all def declarations, create placeholder cells
+        // Pass 1: Scan elements, collect all def declarations, create placeholder cells (reusing any pre-bound ones)
         var enrichedCtx = c.ctx
         val defInfoMap =
-          scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.OnceCell[AST], CellRW[AST])]
+          scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], CellRW[AST], CellRW[AST])]
 
         elements.foreach {
           case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
@@ -501,9 +503,15 @@ class ElabHandler extends Handler[ElabConstraint]:
             val elems = seqElems.toVector
             elems match
               case _ +: CST.Symbol(name, _) +: _ =>
-                // Create unique ID and type cell for this def
-                val defId = Uniqid.make[AST]
-                val defTypeCell = module.newOnceCell[ElabConstraint, AST](solver)
+                // Reuse existing binding if present (for cross-file/module pre-pass), otherwise create new
+                val (defId, defTypeCell) = enrichedCtx.lookup(name) match
+                  case Some(existingId) =>
+                    val cell = enrichedCtx.lookupType(existingId).getOrElse(module.newOnceCell[ElabConstraint, AST](solver))
+                    (existingId, cell)
+                  case None =>
+                    val newId = Uniqid.make[AST]
+                    val cell = module.newOnceCell[ElabConstraint, AST](solver)
+                    (newId, cell)
                 val defResultCell = module.newOnceCell[ElabConstraint, AST](solver)
                 // Add to context so it can be referenced (including by other defs)
                 enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell).registerDefBody(defId, defResultCell)
@@ -580,6 +588,33 @@ class ElabHandler extends Handler[ElabConstraint]:
           val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
           Result.Done
+        else if elems.headOption.exists { case CST.Symbol("package", _) => true; case _ => false } then
+          // package name [body...]
+          if elems.length < 2 then
+            c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected package name", span))
+            module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
+            module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
+            Result.Done
+          else
+            val pkgName = elems(1) match
+              case CST.Symbol(n, _) => n
+              case _ =>
+                c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected package name", span))
+                "<error>"
+            val bodyCst =
+              if elems.length > 2 then
+                val rest = elems.drop(2)
+                if rest.length == 1 then rest.head
+                else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(rest), combinedSpan(rest))
+              else CST.Block(Vector.empty, None, span)
+
+            val bodyResult = module.newOnceCell[ElabConstraint, AST](solver)
+            val bodyTy = module.newOnceCell[ElabConstraint, AST](solver)
+            module.addConstraint(solver, ElabConstraint.Infer(bodyCst, bodyResult, bodyTy, c.ctx))
+
+            module.fill(solver, c.result, AST.Package(pkgName, AST.MetaCell(HoldNotReadable(bodyResult), span), span))
+            module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(bodyTy), span))
+            Result.Done
         else
           annotationPattern(elems) match
             case Some((exprCst, typeCst)) =>
@@ -1291,6 +1326,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.Tuple(elements, _)       => elements.exists(occursIn(cell, _))
       case AST.ListLit(elements, _)     => elements.exists(occursIn(cell, _))
       case AST.Block(elements, tail, _) => elements.exists(occursIn(cell, _)) || occursIn(cell, tail)
+      case AST.Package(_, body, _)      => occursIn(cell, body)
       case AST.Pi(telescopes, resultTy, _, _) =>
         telescopes.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || occursIn(cell, resultTy)
       case AST.Lam(telescopes, body, _) =>
@@ -1361,7 +1397,15 @@ class ElabHandler extends Handler[ElabConstraint]:
     val explicitArgs = c.argResults.flatMap(module.readStable(solver, _))
 
     module.readStable(solver, c.funcTy) match
-      case Some(AST.Pi(telescopes, resultTy, _, _)) =>
+      case Some(AST.MetaCell(HoldNotReadable(cell), _)) =>
+        // Wait until the referenced type is available
+        if module.hasStableValue(solver, cell.asInstanceOf[module.CellAny]) then
+          // Try again with substituted solution
+          module.fill(solver, c.funcTy.asInstanceOf[module.CellRW[AST]], substituteSolutions(AST.MetaCell(HoldNotReadable(cell), None)))
+          Result.Waiting(cell.asInstanceOf[module.CellAny])
+        else Result.Waiting(cell.asInstanceOf[module.CellAny])
+
+      case Some(piTy @ AST.Pi(telescopes, resultTy, _, _)) =>
         // Resolve MetaCells in telescopes (parameter types may contain unresolved cells)
         val resolvedTelescopes = telescopes.map(tel => tel.copy(params = tel.params.map(param => param.copy(ty = substituteSolutions(param.ty)))))
         val resolvedResultTy = substituteSolutions(resultTy)
@@ -1520,6 +1564,8 @@ class ElabHandler extends Handler[ElabConstraint]:
           fromFuncType ++ gatherEffects(func) ++ args.flatMap(a => gatherEffects(a.value))
         case AST.Block(elements, tail, _) =>
           elements.flatMap(gatherEffects).toSet ++ gatherEffects(tail)
+        case AST.Package(_, body, _) =>
+          gatherEffects(body)
         case AST.Tuple(elements, _)   => elements.flatMap(gatherEffects).toSet
         case AST.ListLit(elements, _) => elements.flatMap(gatherEffects).toSet
         case AST.Lam(_, body, _)      => gatherEffects(body)
@@ -1550,7 +1596,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         )
       )
 
-    val piTy = AST.Pi(c.telescopes, finalResultTy, c.effects, c.span)
+    val piTy = AST.Pi(c.telescopes, finalResultTy, if c.effectAnnotated then c.effects else requiredEffects.toVector, c.span)
     module.fill(solver, c.inferredTy, piTy)
     module.fill(solver, c.defTypeCell, piTy)
 
@@ -1589,6 +1635,8 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
 
     case AST.Block(elements, tail, span) =>
       AST.Block(elements.map(substituteSolutions), substituteSolutions(tail), span)
+    case AST.Package(name, body, span) =>
+      AST.Package(name, substituteSolutions(body), span)
 
     case AST.StringLit(value, span) => ast
     case AST.IntLit(value, span)    => ast
@@ -1671,6 +1719,65 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
 
 /** Main elaborator object */
 object Elaborator:
+  /** Pre-register top-level def names across multiple CSTs so they can mutually reference each other. */
+  def preRegisterDefs[M <: SolverModule](csts: Seq[CST], ctx: ElabContext)(using module: M, solver: module.Solver[ElabConstraint]): ElabContext =
+    csts.foldLeft(ctx) { (acc, cst) =>
+      cst match
+        case CST.Block(elements, _, _) =>
+          elements.foldLeft(acc) { (innerCtx, elem) =>
+            elem match
+              case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
+                seqElems.toVector match
+                  case _ +: CST.Symbol(name, _) +: _ =>
+                    if innerCtx.lookup(name).isEmpty then
+                      val defTypeCell = module.newOnceCell[ElabConstraint, AST](solver)
+                      val defId = Uniqid.make[AST]
+                      innerCtx.bind(name, defId, defTypeCell)
+                    else innerCtx
+                  case _ => innerCtx
+              case _ => innerCtx
+          }
+        case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("package", _) => true; case _ => false } =>
+          val elems = seqElems.toVector
+          val bodyOpt =
+            if elems.length > 2 then
+              val rest = elems.drop(2)
+              val span = rest.headOption.flatMap(_.span)
+              if rest.length == 1 then Some(rest.head)
+              else Some(CST.SeqOf(NonEmptyVector.fromVectorUnsafe(rest), span))
+            else None
+          bodyOpt.map(body => preRegisterDefs(Seq(body), acc)(using module, solver)).getOrElse(acc)
+        case _ => acc
+    }
+
+  /** Elaborate multiple files within one module, sharing a context and allowing cross-file def references. */
+  def elaborateModule[M <: SolverModule](
+      csts: Seq[CST],
+      reporter: Reporter[ElabProblem]
+  )(using module: M): Seq[(Option[AST], Option[AST], Vector[ElabProblem])] =
+    val baseCtx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = reporter)
+    val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
+    val preCtx = preRegisterDefs(csts, baseCtx)(using module, solver)
+
+    val results = csts.map { cst =>
+      val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
+      val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
+      module.addConstraint(solver, ElabConstraint.Infer(cst, resultCell, typeCell, preCtx))
+      (resultCell, typeCell)
+    }
+
+    module.run(solver)
+
+    val reports = reporter match
+      case vr: VectorReporter[ElabProblem] => vr.getReports
+      case _                               => Vector.empty
+
+    results.map { (resCell, tyCell) =>
+      val astOpt = module.readStable(solver, resCell).map(r => substituteSolutions(r)(using module, solver))
+      val tyOpt = module.readStable(solver, tyCell).map(t => substituteSolutions(t)(using module, solver))
+      (astOpt, tyOpt, reports)
+    }
+
   /** Elaborate a CST into an AST with type inference
     *
     * @param cst

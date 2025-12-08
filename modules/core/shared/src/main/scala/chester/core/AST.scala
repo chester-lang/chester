@@ -55,6 +55,7 @@ case class Arg(
 given [T]: ReadWriter[HoldNotReadable[T]] = holdNotReadableRW.asInstanceOf[ReadWriter[HoldNotReadable[T]]]
 
 enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOptional derives ReadWriter:
+  case Package(name: String, body: AST, override val span: Option[Span]) extends AST(span)
   case Ref(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)
   case Tuple(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
   case ListLit(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
@@ -78,6 +79,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case MetaCell(cell: HoldNotReadable[chester.utils.elab.CellRW[AST]], override val span: Option[Span]) extends AST(span)
 
   def toDoc(using options: DocConf): Doc = this match
+    case AST.Package(name, body, _) =>
+      text("package") <+> text(name) <@@> body.toDoc.indented()
     case AST.Ref(id, name, _) =>
       text(name)
     case AST.Tuple(elements, _) =>
@@ -155,6 +158,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("?") <> text(cell.toString)
 
   def collectUniqids(collector: UniqidCollector): Unit = this match
+    case AST.Package(_, body, _) =>
+      body.collectUniqids(collector)
     case AST.Ref(id, _, _) =>
       collector(id)
     case AST.Tuple(elements, _) =>
@@ -208,6 +213,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
 
   def mapUniqids(mapper: UniqidReplacer): AST = this match
+    case AST.Package(name, body, span) =>
+      AST.Package(name, body.mapUniqids(mapper), span)
     case AST.Ref(id, name, span) =>
       AST.Ref(mapper(id), name, span)
     case AST.Tuple(elements, span) =>

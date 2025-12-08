@@ -18,6 +18,25 @@ class SubtypingTest extends FunSuite:
 
   private def runAsync(body: => Unit): Future[Unit] = Future(body)
 
+  private def elaborateModule(inputs: Seq[String]): (Seq[Option[AST]], Seq[Option[AST]], Vector[ElabProblem]) =
+    given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
+    given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+
+    val csts = inputs.map { in =>
+      val source = Source(FileNameAndContent("test.chester", in))
+      val parsed = for {
+        chars <- CharReader.read(source)
+        tokens <- Tokenizer.tokenize(chars)
+      } yield Parser.parseFile(tokens)
+      parsed.toOption.get
+    }
+
+    given module: ProceduralSolverModule.type = ProceduralSolverModule
+    val results = Elaborator.elaborateModule(csts, elabReporter)
+    val asts = results.map(_._1)
+    val tys = results.map(_._2)
+    (asts, tys, elabReporter.getReports)
+
   def elaborate(input: String): (Option[AST], Option[AST], Vector[ElabProblem]) =
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
@@ -290,6 +309,19 @@ class SubtypingTest extends FunSuite:
       }""")
 
       assert(errors.nonEmpty, "Expected error when using println in effect-free function")
+    }
+  }
+
+  test("cross-file defs can reference each other") {
+    runAsync {
+      val (_, tys, errors) = elaborateModule(
+        Seq(
+          "package p; def f(x: String): String = g(x);",
+          "package p; def g(y: String): String = y; def main(): () / [io] = println(f(\"hi\"));"
+        )
+      )
+
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
     }
   }
 
