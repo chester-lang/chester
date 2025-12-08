@@ -1,12 +1,12 @@
 package chester.tyck
 
+import scala.collection.mutable
+import scala.language.experimental.genericNumberLiterals
+
 import munit.FunSuite
 import chester.core.{AST, CST}
 import chester.error.{Problem, Reporter}
 import chester.utils.elab.*
-
-import scala.collection.mutable
-import scala.language.experimental.genericNumberLiterals
 
 class ElaboratorTest extends FunSuite {
 

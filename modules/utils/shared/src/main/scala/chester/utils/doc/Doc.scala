@@ -1,12 +1,12 @@
 package chester.utils.doc
 
+import scala.annotation.targetName
+import scala.language.implicitConversions
+
 import chester.utils.{*, given}
 import kiama2.output.*
 import kiama2.output.PrettyPrinterTypes.Width
 import upickle.default.*
-
-import scala.annotation.targetName
-import scala.language.implicitConversions
 
 type DocPrinter = ParenPrettyPrinter & StylePrettyPrinter
 

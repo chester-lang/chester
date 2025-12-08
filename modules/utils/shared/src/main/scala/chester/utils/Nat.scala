@@ -1,9 +1,9 @@
 package chester.utils
 
-import spire.math.Natural
-
 import scala.util.FromDigits
 import scala.util.FromDigits.NumberTooSmall
+
+import spire.math.Natural
 
 object Nat {
   def apply(n: Int): Natural = if (n >= 0) Natural.apply(n) else throw new IllegalArgumentException("Negative number not allowed")

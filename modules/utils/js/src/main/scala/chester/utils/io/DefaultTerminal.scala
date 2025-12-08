@@ -1,9 +1,9 @@
 package chester.utils.io
 
-import chester.utils.term.*
-
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
+
+import chester.utils.term.*
 
 given DefaultTerminal: Terminal[Future] {
   override def runTerminal[T](

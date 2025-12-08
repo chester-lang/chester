@@ -1,9 +1,9 @@
 package chester.utils
 
+import scala.language.implicitConversions
+
 import cats.data.*
 import upickle.default.*
-
-import scala.language.implicitConversions
 
 implicit inline def elimNonEmptySeq[T](x: NonEmptySeq[T]): Seq[T] = x.toSeq
 implicit inline def elimNonEmptyVector[T](x: NonEmptyVector[T]): Vector[T] =

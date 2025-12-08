@@ -1,9 +1,9 @@
 package chester.tyck
 
+import scala.language.experimental.genericNumberLiterals
+
 import chester.core.{AST, Arg, StmtAST, Telescope}
 import chester.utils.HoldNotReadable
-
-import scala.language.experimental.genericNumberLiterals
 
 /** Lightweight core type checker used to validate elaborated ASTs and normalize types. */
 object CoreTypeChecker:

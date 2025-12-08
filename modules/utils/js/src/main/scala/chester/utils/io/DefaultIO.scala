@@ -1,5 +1,12 @@
 package chester.utils.io.impl
 
+import scala.scalajs.js.Thenable.Implicits.*
+import scala.concurrent.{Future, Promise}
+import scala.scalajs.js
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.scalajs.js.typedarray.*
+import scala.scalajs.js.JSConverters.*
+
 import chester.utils.io.*
 import typings.node.bufferMod.global.BufferEncoding
 import typings.node.fsMod.MakeDirectoryOptions
@@ -9,14 +16,7 @@ import typings.std.global.fetch
 import chester.i18n.*
 import chester.utils.asInt
 import typings.node.nodeStrings.close
-
-import scala.scalajs.js.Thenable.Implicits.*
 import java.io.IOException
-import scala.concurrent.{Future, Promise}
-import scala.scalajs.js
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.scalajs.js.typedarray.*
-import scala.scalajs.js.JSConverters.*
 
 private val ExistsUseSync = false
 private val UseSpawnSync = false

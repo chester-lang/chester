@@ -1,13 +1,13 @@
 package chester.reader
 
+import scala.language.experimental.genericNumberLiterals
+import scala.collection.mutable.ArrayBuffer
+
 import chester.error.{Span, SpanInFile}
 import chester.i18n.*
 import chester.syntax.IdentifierRules
 import chester.utils.asInt
 import chester.utils.parse.Character
-
-import scala.language.experimental.genericNumberLiterals
-import scala.collection.mutable.ArrayBuffer
 
 /** Result of tokenization - either a token or an error with best-effort recovery */
 enum TokenResult {

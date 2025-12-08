@@ -1,13 +1,13 @@
 package chester.error
 
+import scala.language.experimental.genericNumberLiterals
+
 import spire.math.Natural
 import chester.reader.{Offset, Source}
 import chester.utils.{Nat, WithUTF16, asInt, encodeString, given}
 import fastparse.ParserInput
 import upickle.default.*
 import chester.i18n.*
-
-import scala.language.experimental.genericNumberLiterals
 
 case class Pos(index: WithUTF16, line: spire.math.Natural, column: WithUTF16) derives ReadWriter
 

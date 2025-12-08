@@ -1,13 +1,13 @@
 package chester.uniqid
 
+import scala.language.experimental.genericNumberLiterals
+import scala.collection.mutable
+import scala.language.strictEquality
+
 import upickle.default.*
 import spire.math.Natural
 import chester.utils.{Nat, asInt, given}
-
-import scala.language.experimental.genericNumberLiterals
 import java.util.concurrent.atomic.AtomicInteger
-import scala.collection.mutable
-import scala.language.strictEquality
 
 private val uniqIdCounter = new AtomicInteger(0)
 

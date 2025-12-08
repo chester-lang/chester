@@ -1,16 +1,16 @@
 package chester.tyck
 
+import scala.language.experimental.genericNumberLiterals
+import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext.Implicits.global
+
 import chester.core.{AST, CST}
 import chester.error.VectorReporter
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.utils.elab.*
 import chester.utils.doc.{DocConf, DocOps, given}
 import munit.FunSuite
-
-import scala.language.experimental.genericNumberLiterals
-import scala.concurrent.duration.*
-import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.ExecutionContext.Implicits.global
 
 class SubtypingTest extends FunSuite:
 

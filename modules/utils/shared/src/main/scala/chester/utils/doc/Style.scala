@@ -1,10 +1,10 @@
 package chester.utils.doc
 
+import scala.language.implicitConversions
+
 import spire.math.Trilean
 import upickle.default.*
 import chester.utils.given
-
-import scala.language.implicitConversions
 
 case class Style(
     foreground: Option[Foreground] = None,

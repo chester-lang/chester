@@ -1,11 +1,11 @@
 package chester.reader
 
+import scala.language.experimental.genericNumberLiterals
+
 import chester.error.*
 import chester.i18n.*
 import chester.utils.codepointToString
 import chester.utils.lenIsOne
-
-import scala.language.experimental.genericNumberLiterals
 
 type Text = Vector[StringChar]
 

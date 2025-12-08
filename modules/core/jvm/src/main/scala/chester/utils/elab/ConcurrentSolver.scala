@@ -1,4 +1,8 @@
 package chester.utils.elab
+import scala.language.implicitConversions
+import scala.util.boundary
+import scala.concurrent.stm.*
+
 import chester.utils.Parameter
 import chester.utils.cell.{
   CellContent,
@@ -9,11 +13,7 @@ import chester.utils.cell.{
   MutableCellContent,
   OnceCellContent
 }
-
 import java.util.concurrent.{ForkJoinPool, TimeUnit}
-import scala.language.implicitConversions
-import scala.util.boundary
-import scala.concurrent.stm.*
 
 final class ConcurrentCell[+A, -B, +C <: CellContent[A, B]](
     initialValue: C

@@ -1,9 +1,9 @@
 package chester.reader
+import scala.language.experimental.genericNumberLiterals
+
 import chester.error.{Pos, Span, SpanInFile}
 import chester.reader.{Offset, Source}
 import chester.utils.WithUTF16
-
-import scala.language.experimental.genericNumberLiterals
 class TokenizerTest extends munit.FunSuite {
 
   private def createTestSource(content: String): Source =

@@ -3,7 +3,6 @@ package chester.syntax
 import chester.utils.{codePointIsEmoji, getCodePoints}
 import chester.utils.parse.Character
 import chester.utils.asInt
-
 import java.lang.Character.{isDigit, isLetter}
 
 object IdentifierRules {

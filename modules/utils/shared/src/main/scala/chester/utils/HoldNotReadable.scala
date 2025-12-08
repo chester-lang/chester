@@ -1,8 +1,8 @@
 package chester.utils
 
-import upickle.default.*
-
 import scala.reflect.Selectable.reflectiveSelectable
+
+import upickle.default.*
 // allow to write, not allow read
 given holdNotReadableRW: ReadWriter[HoldNotReadable[?]] =
   readwriter[HoldNotReadableRW].bimap(

@@ -1,12 +1,12 @@
 package chester.tyck
 
+import scala.language.experimental.genericNumberLiterals
+
 import chester.core.{AST, CST, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Pos, Span, SpanInFile, VectorReporter}
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.uniqid.Uniqid
 import chester.utils.elab.*
-
-import scala.language.experimental.genericNumberLiterals
 
 class ElaboratorDefTest extends munit.FunSuite {
 

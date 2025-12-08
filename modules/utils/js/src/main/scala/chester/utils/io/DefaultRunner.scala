@@ -1,10 +1,10 @@
 package chester.utils.io.impl
 
-import chester.utils.io.*
-
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
+
+import chester.utils.io.*
 
 given DefaultRunner: Runner[Future] {
   override inline def doTry[T](IO: Future[T]): Future[Try[T]] =

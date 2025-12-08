@@ -1,9 +1,9 @@
 package chester.utils.io
 
-import cats.Monad
-
 import scala.language.implicitConversions
 import scala.util.Try
+
+import cats.Monad
 
 trait Spawn[F[_]] {
   def spawn(x: => F[Unit]): Unit

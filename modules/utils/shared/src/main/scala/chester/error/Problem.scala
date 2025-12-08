@@ -1,11 +1,11 @@
 package chester.error
 
+import scala.annotation.unused
+import scala.language.experimental.genericNumberLiterals
+
 import chester.utils.doc.*
 import upickle.default.*
 import chester.i18n.*
-
-import scala.annotation.unused
-import scala.language.experimental.genericNumberLiterals
 
 object Problem {
   enum Stage derives ReadWriter {

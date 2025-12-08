@@ -1,13 +1,13 @@
 package chester.reader
 
+import scala.language.experimental.genericNumberLiterals
+
 import upickle.default.*
 import chester.error.*
 import chester.utils.{Nat, WithUTF16, codepointToString, given}
 import chester.utils.doc.{Doc, DocConf}
 import spire.math.Natural
 import chester.utils.utf16Len
-
-import scala.language.experimental.genericNumberLiterals
 
 case class ParseError(message: String, span0: Option[Span] = None) extends Problem {
   override def severity: Problem.Severity = Problem.Severity.Error

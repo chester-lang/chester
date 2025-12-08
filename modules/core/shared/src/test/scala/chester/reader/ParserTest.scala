@@ -1,9 +1,9 @@
 package chester.reader
 
+import scala.language.experimental.genericNumberLiterals
+
 import chester.core.CST
 import chester.error.{Pos, Span, SpanInFile, VectorReporter}
-
-import scala.language.experimental.genericNumberLiterals
 
 class ParserTest extends munit.FunSuite {
 

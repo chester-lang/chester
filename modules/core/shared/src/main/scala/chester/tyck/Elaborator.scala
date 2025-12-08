@@ -1,16 +1,16 @@
 package chester.tyck
 
+import scala.language.experimental.genericNumberLiterals
+import scala.collection.mutable
+
 import chester.core.{AST, Arg, CST, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Problem, Reporter, Span, VectorReporter}
 import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
-import scala.language.experimental.genericNumberLiterals
 import chester.tyck.CoreTypeChecker.normalizeType
 import cats.data.NonEmptyVector
-
-import scala.collection.mutable
 
 /** Elaboration problems */
 enum ElabProblem(val span0: Option[Span]) extends Problem:

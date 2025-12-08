@@ -1,5 +1,7 @@
 package chester.utils.elab
 
+import scala.language.implicitConversions
+
 import chester.utils.cell.{
   CellContent,
   CellContentR,
@@ -10,8 +12,6 @@ import chester.utils.cell.{
   MutableCellContent,
   OnceCellContent
 }
-
-import scala.language.implicitConversions
 
 /** ML-style module signature for constraint solvers.
   *

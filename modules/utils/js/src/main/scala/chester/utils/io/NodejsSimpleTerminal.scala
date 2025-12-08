@@ -1,11 +1,11 @@
 package chester.utils.io
 
+import scala.concurrent.{Future, Promise}
+
 import chester.utils.io.impl.given
 import chester.utils.term.*
 import fansi.Str
 import typings.node.{processMod, readlineMod}
-
-import scala.concurrent.{Future, Promise}
 
 class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future] {
   private val rl = readlineMod.createInterface(

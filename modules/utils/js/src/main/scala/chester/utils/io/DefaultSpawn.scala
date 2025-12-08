@@ -1,10 +1,10 @@
 package chester.utils.io.impl
 
-import chester.utils.io.*
-import typings.node.processMod
-
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
+
+import chester.utils.io.*
+import typings.node.processMod
 
 given DefaultSpawn: Spawn[Future] {
   override inline def spawn(x: => Future[Unit]): Unit = x.recover { e =>

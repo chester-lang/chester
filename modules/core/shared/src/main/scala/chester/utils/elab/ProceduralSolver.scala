@@ -1,5 +1,11 @@
 package chester.utils.elab
 
+import scala.annotation.tailrec
+import scala.collection.mutable
+import scala.language.implicitConversions
+import scala.collection.mutable.Queue
+import scala.collection.mutable.ArrayBuffer
+
 import chester.utils.cell.{
   CellContent,
   CellContentR,
@@ -9,12 +15,6 @@ import chester.utils.cell.{
   MutableCellContent,
   OnceCellContent
 }
-
-import scala.annotation.tailrec
-import scala.collection.mutable
-import scala.language.implicitConversions
-import scala.collection.mutable.Queue
-import scala.collection.mutable.ArrayBuffer
 
 final class ProceduralCell[+A, -B, +C <: CellContent[A, B]](
     initialValue: C

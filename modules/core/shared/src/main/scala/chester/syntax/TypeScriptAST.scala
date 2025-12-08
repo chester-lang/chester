@@ -1,11 +1,11 @@
 package chester.syntax
 
+import scala.language.experimental.genericNumberLiterals
+
 import chester.error.Span
 import chester.utils.doc.{*, given}
 import chester.utils.doc.Docs.*
 import upickle.default.*
-
-import scala.language.experimental.genericNumberLiterals
 
 /** TypeScript AST representation for code generation */
 enum TypeScriptAST derives ReadWriter {

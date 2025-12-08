@@ -1,8 +1,8 @@
 package chester.utils
 
-import spire.math.Natural
-
 import scala.language.experimental.genericNumberLiterals
+
+import spire.math.Natural
 
 extension (text: String) {
   def utf16Len: Natural = Nat(text.length)

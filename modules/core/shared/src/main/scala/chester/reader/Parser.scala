@@ -1,11 +1,11 @@
 package chester.reader
 
+import scala.language.experimental.genericNumberLiterals
+import scala.collection.mutable.ArrayBuffer
+
 import chester.core.CST
 import chester.error.{Pos, Reporter, Span, SpanInFile}
 import cats.data.NonEmptyVector
-
-import scala.language.experimental.genericNumberLiterals
-import scala.collection.mutable.ArrayBuffer
 
 object Parser {
 

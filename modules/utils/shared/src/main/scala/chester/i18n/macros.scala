@@ -1,12 +1,12 @@
 package chester.i18n
 
-import chester.utils.Parameter
-import chester.utils.doc.{Doc, DocConf, ToDoc}
-
-import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 import scala.language.implicitConversions
 import scala.quoted.*
 import scala.util.control.NonFatal
+
+import chester.utils.Parameter
+import chester.utils.doc.{Doc, DocConf, ToDoc}
+import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 
 trait T {
   def t(args: Any*): String

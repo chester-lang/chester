@@ -1,9 +1,9 @@
 package chester.syntax
 
+import scala.language.experimental.genericNumberLiterals
+
 import munit.FunSuite
 import chester.reader.{FileNameAndContent, Source}
-
-import scala.language.experimental.genericNumberLiterals
 
 class TypeScriptDeclParserTest extends FunSuite {
   test("parse simple interface") {
