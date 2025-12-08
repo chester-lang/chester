@@ -174,7 +174,11 @@ object Parser {
     while (state.hasNext && !state.is(isClosing)) {
       // Parse a sequence of atoms until comma or closing delimiter
       val sequenceAtoms = ArrayBuffer.empty[CST]
-      while (state.hasNext && !state.is(isClosing) && !state.current.exists(_.isInstanceOf[Token.Comma])) {
+      while (
+        state.hasNext &&
+        !state.is(isClosing) &&
+        !state.current.exists(tok => tok.isInstanceOf[Token.Comma] || tok.isInstanceOf[Token.Semicolon])
+      ) {
         sequenceAtoms += parseAtom(state)
         state.skipTrivia()
       }
