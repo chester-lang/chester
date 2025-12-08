@@ -267,11 +267,11 @@ class ElabHandler extends Handler[ElabConstraint]:
         module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
         Result.Done
 
-      // String literal: type is Universe(0)
+      // String literal: type is the built-in String type
       case CST.StringLiteral(value, span) =>
         val ast = AST.StringLit(value, span)
         module.fill(solver, c.result, ast)
-        module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+        module.fill(solver, c.inferredTy, AST.StringType(span))
         Result.Done
 
       // Symbol: lookup in context
@@ -505,20 +505,27 @@ class ElabHandler extends Handler[ElabConstraint]:
           val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
           Result.Done
-        // Check for function application patterns:
-        // f(args) becomes SeqOf(f, Tuple(args))
-        // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
-        else if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
-          // f(args) - no explicit type arguments
-          handleFunctionApplication(c, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
-        else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
-          // f[typeArgs](args) - explicit type arguments provided
-          handleFunctionApplication(c, elems(0), Some(elems(1).asInstanceOf[CST.ListLiteral]), elems(2).asInstanceOf[CST.Tuple], span)
+        // Normalize chained applications like f(a)(b) or f[a](b)(c)
         else
-          // Default: treat as a block-like sequence
-          val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
-          module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
-          Result.Done
+          normalizeApplicationSeq(elems) match
+            case Some(normalized) =>
+              module.addConstraint(solver, ElabConstraint.Infer(normalized, c.result, c.inferredTy, c.ctx))
+              Result.Done
+            case None =>
+              // Check for function application patterns:
+              // f(args) becomes SeqOf(f, Tuple(args))
+              // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
+              if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
+                // f(args) - no explicit type arguments
+                handleFunctionApplication(c, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
+              else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
+                // f[typeArgs](args) - explicit type arguments provided
+                handleFunctionApplication(c, elems(0), Some(elems(1).asInstanceOf[CST.ListLiteral]), elems(2).asInstanceOf[CST.Tuple], span)
+              else
+                // Default: treat as a block-like sequence
+                val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
+                module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
+                Result.Done
 
   /** Handle function application: f(args) or f[typeArgs](args) */
   private def handleFunctionApplication[M <: SolverModule](
@@ -577,6 +584,49 @@ class ElabHandler extends Handler[ElabConstraint]:
     )
 
     Result.Done
+
+  /** Convert chained SeqOf expressions like f(a)(b) into nested SeqOf nodes we already know how to elaborate. */
+  private def normalizeApplicationSeq(elems: Vector[CST]): Option[CST] =
+    if elems.length <= 1 then None
+    else if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then None
+    else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then None
+    else
+      var idx = 1
+      var current = elems.head
+      var changed = false
+
+      while idx < elems.length do
+        elems(idx) match
+          case list: CST.ListLiteral =>
+            if idx + 1 >= elems.length then return None
+            elems(idx + 1) match
+              case tuple: CST.Tuple =>
+                current = buildSeqOf(current, Some(list), tuple)
+                idx += 2
+                changed = true
+              case _ => return None
+          case tuple: CST.Tuple =>
+            current = buildSeqOf(current, None, tuple)
+            idx += 1
+            changed = true
+          case _ => return None
+
+      if changed then Some(current) else None
+
+  private def buildSeqOf(func: CST, typeArgs: Option[CST.ListLiteral], tuple: CST.Tuple): CST =
+    val seqElems = typeArgs match
+      case Some(list) => Vector(func, list, tuple)
+      case None       => Vector(func, tuple)
+    CST.SeqOf(NonEmptyVector.fromVectorUnsafe(seqElems), combinedSpan(seqElems))
+
+  private def combinedSpan(elems: Seq[CST]): Option[Span] =
+    val spans = elems.iterator.flatMap(_.span)
+    if !spans.hasNext then None
+    else
+      val first = spans.next()
+      var last = first
+      while spans.hasNext do last = spans.next()
+      Some(first.combine(last))
 
   /** Handle def statement: def name [implicit] (explicit) : resultTy = body
     * @param defId
