@@ -174,6 +174,8 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       AST.AnyType(span)
     case AST.StringType(span) =>
       AST.StringType(span)
+    case AST.NaturalType(span) =>
+      AST.NaturalType(span)
     case AST.IntegerType(span) =>
       AST.IntegerType(span)
     case AST.ListType(element, span) =>
@@ -259,15 +261,42 @@ class ElabHandler extends Handler[ElabConstraint]:
       case c: ElabConstraint.AssembleAnn => handleAssembleAnn(c)
       case c: ElabConstraint.AssembleDef => handleAssembleDef(c)
 
-  def canDefaulting(level: DefaultingLevel): Boolean = false
+  def canDefaulting(level: DefaultingLevel): Boolean = true
+  override def defaulting[M <: SolverModule](constraint: ElabConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
+    level match
+      case DefaultingLevel.Lit =>
+        constraint match
+          case c: ElabConstraint.Infer =>
+            c.cst match
+              case CST.IntegerLiteral(value, span) =>
+                var changed = false
+                if !module.hasStableValue(solver, c.result) then
+                  module.fill(solver, c.result, AST.IntLit(value, span))
+                  changed = true
+                if !module.hasStableValue(solver, c.inferredTy) then
+                  module.fill(solver, c.inferredTy, AST.IntegerType(None))
+                  changed = true
+                changed
+              case _ => false
+          case _ => false
+      case _ => false
 
   private def handleCheck[M <: SolverModule](c: ElabConstraint.Check)(using module: M, solver: module.Solver[ElabConstraint]): Result =
     import module.given
 
-    // For now, convert Check to Infer + Unify
     module.readStable(solver, c.expectedTy) match
+      case Some(AST.NaturalType(_)) =>
+        c.cst match
+          case CST.IntegerLiteral(value, span) if value.sign >= 0 =>
+            module.fill(solver, c.result, AST.IntLit(value, span))
+            // No need to fill expectedTy (read-only); rely on unification to respect Natural
+            Result.Done
+          case _ =>
+            val inferredTy = module.newOnceCell[ElabConstraint, AST](solver)
+            module.addConstraint(solver, ElabConstraint.Infer(c.cst, c.result, inferredTy, c.ctx))
+            module.addConstraint(solver, ElabConstraint.Unify(inferredTy, c.expectedTy, c.cst.span, c.ctx))
+            Result.Done
       case Some(_) =>
-        // Infer the type and unify with expected
         val inferredTy = module.newOnceCell[ElabConstraint, AST](solver)
         module.addConstraint(solver, ElabConstraint.Infer(c.cst, c.result, inferredTy, c.ctx))
         module.addConstraint(solver, ElabConstraint.Unify(inferredTy, c.expectedTy, c.cst.span, c.ctx))
@@ -286,7 +315,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       case CST.IntegerLiteral(value, span) =>
         val ast = AST.IntLit(value, span)
         module.fill(solver, c.result, ast)
-        module.fill(solver, c.inferredTy, AST.IntegerType(None))
+        // Default to Integer, but allow unification to refine (e.g., Natural) via expected type
+        module.fill(solver, c.inferredTy, if value.sign >= 0 then AST.IntegerType(None) else AST.IntegerType(None))
         Result.Done
 
       // String literal: type is the built-in String type
@@ -328,6 +358,11 @@ class ElabHandler extends Handler[ElabConstraint]:
               val ast = AST.StringType(None)
               module.fill(solver, c.result, ast)
               // String has type Type(0)
+              module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
+              Result.Done
+            else if name == "Natural" then
+              val ast = AST.NaturalType(None)
+              module.fill(solver, c.result, ast)
               module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
               Result.Done
             else if name == "Integer" then
@@ -1209,6 +1244,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         else module.readStable(solver, c).exists(occursIn(cell, _))
       case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) | AST.AnyType(_) | AST.StringType(_) | AST.IntegerType(_) =>
         false
+      case AST.NaturalType(_)          => false
       case AST.ListType(element, _)     => occursIn(cell, element)
       case AST.Type(level, _)           => occursIn(cell, level)
       case AST.TypeOmega(level, _)      => occursIn(cell, level)

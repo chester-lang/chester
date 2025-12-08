@@ -65,6 +65,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case TypeOmega(level: AST, override val span: Option[Span]) extends AST(span)
   case AnyType(override val span: Option[Span]) extends AST(span)
   case StringType(override val span: Option[Span]) extends AST(span)
+  case NaturalType(override val span: Option[Span]) extends AST(span)
   case IntegerType(override val span: Option[Span]) extends AST(span)
   case ListType(element: AST, override val span: Option[Span]) extends AST(span)
   case Pi(telescopes: Vector[Telescope], resultTy: AST, override val span: Option[Span]) extends AST(span)
@@ -98,6 +99,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("Any")
     case AST.StringType(_) =>
       text("String")
+    case AST.NaturalType(_) =>
+      text("Natural")
     case AST.IntegerType(_) =>
       text("Integer")
     case AST.ListType(element, _) =>
@@ -170,6 +173,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
     case AST.StringType(_) =>
       ()
+    case AST.NaturalType(_) =>
+      ()
     case AST.IntegerType(_) =>
       ()
     case AST.ListType(element, _) =>
@@ -220,6 +225,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.AnyType(span)
     case AST.StringType(span) =>
       AST.StringType(span)
+    case AST.NaturalType(span) =>
+      AST.NaturalType(span)
     case AST.IntegerType(span) =>
       AST.IntegerType(span)
     case AST.ListType(element, span) =>
