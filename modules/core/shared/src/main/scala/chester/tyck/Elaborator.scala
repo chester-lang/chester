@@ -1523,9 +1523,10 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.TypeOmega(level, span) =>
       AST.TypeOmega(substituteSolutions(level), span)
 
-    case AST.AnyType(span)     => ast
-    case AST.StringType(span)  => ast
-    case AST.IntegerType(span) => ast
+    case AST.AnyType(span)      => ast
+    case AST.StringType(span)   => ast
+    case AST.IntegerType(span)  => ast
+    case AST.NaturalType(span)  => ast
     case AST.ListType(element, span) =>
       AST.ListType(substituteSolutions(element), span)
 

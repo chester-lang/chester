@@ -167,6 +167,30 @@ class SubtypingTest extends FunSuite:
     }
   }
 
+  test("integer literal defaults to Integer") {
+    runAsync {
+      val (_, ty, errors) = elaborate("42")
+      assert(errors.isEmpty, s"Should have no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+      ty.get match {
+        case AST.IntegerType(_) => ()
+        case other              => fail(s"Expected Integer type, got: $other")
+      }
+    }
+  }
+
+  test("annotated Natural literal is Natural") {
+    runAsync {
+      val (_, ty, errors) = elaborate("42: Natural")
+      assert(errors.isEmpty, s"Should have no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+      ty.get match {
+        case AST.NaturalType(_) => ()
+        case other              => fail(s"Expected Natural type, got: $other")
+      }
+    }
+  }
+
   test("type check id(42) first") {
     runAsync {
       // Simpler test: just id(42)
