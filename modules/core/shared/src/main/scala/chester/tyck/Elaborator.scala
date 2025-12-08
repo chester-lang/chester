@@ -8,10 +8,8 @@ import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
 import scala.language.experimental.genericNumberLiterals
 import chester.tyck.CoreTypeChecker.normalizeType
-import scala.language.experimental.genericNumberLiterals
 import cats.data.NonEmptyVector
 
-import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
 
 /** Elaboration problems */
@@ -285,7 +283,10 @@ class ElabHandler extends Handler[ElabConstraint]:
       case c: ElabConstraint.AssembleDef => handleAssembleDef(c)
 
   def canDefaulting(level: DefaultingLevel): Boolean = true
-  override def defaulting[M <: SolverModule](constraint: ElabConstraint, level: DefaultingLevel)(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
+  override def defaulting[M <: SolverModule](constraint: ElabConstraint, level: DefaultingLevel)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Boolean =
     level match
       case DefaultingLevel.Lit =>
         constraint match
@@ -1245,7 +1246,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             case UnifyResult.Success =>
               if eff1.toSet == eff2.toSet then unify(r1, r2, span, ctx)
               else UnifyResult.Failure("Effect mismatch")
-            case failure             => failure
+            case failure => failure
 
       case _ => UnifyResult.Failure(s"Type mismatch: ${t1.getClass.getSimpleName} vs ${t2.getClass.getSimpleName}")
 
@@ -1350,7 +1351,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         else module.readStable(solver, c).exists(occursIn(cell, _))
       case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) | AST.AnyType(_) | AST.StringType(_) | AST.IntegerType(_) =>
         false
-      case AST.NaturalType(_)          => false
+      case AST.NaturalType(_)           => false
       case AST.ListType(element, _)     => occursIn(cell, element)
       case AST.Type(level, _)           => occursIn(cell, level)
       case AST.TypeOmega(level, _)      => occursIn(cell, level)
@@ -1366,7 +1367,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.Let(_, _, ty, value, body, _) =>
         ty.exists(occursIn(cell, _)) || occursIn(cell, value) || occursIn(cell, body)
       case AST.Ann(expr, ty, _) => occursIn(cell, expr) || occursIn(cell, ty)
-      case _ => false
+      case _                    => false
 
   private def occursInStmt[M <: SolverModule](cell: Any, stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
     stmt match
@@ -1442,9 +1443,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       case Some(piTy @ AST.Pi(telescopes, resultTy, _, _)) =>
         // Resolve MetaCells in telescopes (parameter types may contain unresolved cells)
-        val resolvedTelescopes = telescopes.map(tel =>
-          tel.copy(params = tel.params.map(param => param.copy(ty = substituteSolutions(param.ty))))
-        )
+        val resolvedTelescopes = telescopes.map(tel => tel.copy(params = tel.params.map(param => param.copy(ty = substituteSolutions(param.ty)))))
         val resolvedResultTy = substituteSolutions(resultTy)
 
         // Separate implicit and explicit parameters
@@ -1612,7 +1611,9 @@ class ElabHandler extends Handler[ElabConstraint]:
     def gatherEffectsStmt(stmt: StmtAST): Set[String] = stmt match
       case StmtAST.ExprStmt(expr, _) => gatherEffects(expr)
       case StmtAST.Def(_, _, teles, resTy, body, _) =>
-        teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(body)
+        teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(
+          body
+        )
       case StmtAST.Pkg(_, body, _) => gatherEffects(body)
 
     val requiredEffects = gatherEffects(body)
@@ -1684,10 +1685,10 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.TypeOmega(level, span) =>
       AST.TypeOmega(substituteSolutions(level), span)
 
-    case AST.AnyType(span)      => ast
-    case AST.StringType(span)   => ast
-    case AST.IntegerType(span)  => ast
-    case AST.NaturalType(span)  => ast
+    case AST.AnyType(span)     => ast
+    case AST.StringType(span)  => ast
+    case AST.IntegerType(span) => ast
+    case AST.NaturalType(span) => ast
     case AST.ListType(element, span) =>
       AST.ListType(substituteSolutions(element), span)
 
@@ -1743,9 +1744,8 @@ private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using modu
   stmt match
     case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteSolutions(expr), span)
     case StmtAST.Def(id, name, teles, resTy, body, span) =>
-      val newTeles = teles.map(t =>
-        t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions))))
-      )
+      val newTeles =
+        teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
       StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span)
     case StmtAST.Pkg(name, body, span) =>
       StmtAST.Pkg(name, substituteSolutions(body), span)

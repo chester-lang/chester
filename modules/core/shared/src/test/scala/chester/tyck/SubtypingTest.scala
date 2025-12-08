@@ -87,12 +87,12 @@ class SubtypingTest extends FunSuite:
   /** Normalize a type enough to extract the element type of a list, even if wrapped in simple lambdas/apps. */
   private def listElemOf(ty: AST): Option[AST] =
     ty match
-      case AST.ListType(elem, _)                  => Some(elem)
-      case AST.Lam(_, body, _)                    => listElemOf(body)
+      case AST.ListType(elem, _) => Some(elem)
+      case AST.Lam(_, body, _)   => listElemOf(body)
       case AST.App(func, args, _, _) if args.nonEmpty =>
         listElemOf(func).orElse(args.reverseIterator.flatMap(a => listElemOf(a.value)).toSeq.headOption)
-      case AST.Ann(expr, annTy, _)                => listElemOf(expr).orElse(listElemOf(annTy))
-      case _                                      => None
+      case AST.Ann(expr, annTy, _) => listElemOf(expr).orElse(listElemOf(annTy))
+      case _                       => None
 
   test("Any type has type Type[1]") {
     runAsync {
@@ -237,7 +237,7 @@ class SubtypingTest extends FunSuite:
       // The type should be [a: Type](x: a) -> a
       ty.get match {
         case AST.Pi(_, _, _, _) => // OK - result type is a function type
-        case other           => fail(s"Expected Pi type, got: $other")
+        case other              => fail(s"Expected Pi type, got: $other")
       }
     }
   }
