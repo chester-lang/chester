@@ -78,9 +78,9 @@ class SubtypingTest extends FunSuite:
       }
 
       ty.get match {
-        case AST.Universe(AST.IntLit(level, _), _) =>
-          assertEquals(level, BigInt(1), "Any should have type Type[1]")
-        case other => fail(s"Expected Universe[1], got: $other")
+        case AST.Type(AST.IntLit(level, _), _) =>
+          assertEquals(level, BigInt(1), "Any should have type Type(1)")
+        case other => fail(s"Expected Type(1), got: $other")
       }
     }
   }

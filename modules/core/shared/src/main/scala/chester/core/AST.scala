@@ -61,7 +61,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case Block(elements: Vector[AST], tail: AST, override val span: Option[Span]) extends AST(span)
   case StringLit(value: String, override val span: Option[Span]) extends AST(span)
   case IntLit(value: BigInt, override val span: Option[Span]) extends AST(span)
-  case Universe(level: AST, override val span: Option[Span]) extends AST(span)
+  case Type(level: AST, override val span: Option[Span]) extends AST(span)
+  case TypeOmega(level: AST, override val span: Option[Span]) extends AST(span)
   case AnyType(override val span: Option[Span]) extends AST(span)
   case StringType(override val span: Option[Span]) extends AST(span)
   case IntegerType(override val span: Option[Span]) extends AST(span)
@@ -89,8 +90,10 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("\"") <> text(value) <> text("\"")
     case AST.IntLit(value, _) =>
       text(value.toString)
-    case AST.Universe(level, _) =>
-      text("Type") <> brackets(level.toDoc)
+    case AST.Type(level, _) =>
+      text("Type") <> parens(level.toDoc)
+    case AST.TypeOmega(level, _) =>
+      text("Typeω") <> parens(level.toDoc)
     case AST.AnyType(_) =>
       text("Any")
     case AST.StringType(_) =>
@@ -159,7 +162,9 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
     case AST.IntLit(_, _) =>
       ()
-    case AST.Universe(level, _) =>
+    case AST.Type(level, _) =>
+      level.collectUniqids(collector)
+    case AST.TypeOmega(level, _) =>
       level.collectUniqids(collector)
     case AST.AnyType(_) =>
       ()
@@ -207,8 +212,10 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.StringLit(value, span)
     case AST.IntLit(value, span) =>
       AST.IntLit(value, span)
-    case AST.Universe(level, span) =>
-      AST.Universe(level.mapUniqids(mapper), span)
+    case AST.Type(level, span) =>
+      AST.Type(level.mapUniqids(mapper), span)
+    case AST.TypeOmega(level, span) =>
+      AST.TypeOmega(level.mapUniqids(mapper), span)
     case AST.AnyType(span) =>
       AST.AnyType(span)
     case AST.StringType(span) =>

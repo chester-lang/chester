@@ -166,8 +166,10 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
       AST.ListLit(elements.map(substituteInType(_, substitutions)), span)
     case AST.Block(elements, tail, span) =>
       AST.Block(elements.map(substituteInType(_, substitutions)), substituteInType(tail, substitutions), span)
-    case AST.Universe(level, span) =>
-      AST.Universe(substituteInType(level, substitutions), span)
+    case AST.Type(level, span) =>
+      AST.Type(substituteInType(level, substitutions), span)
+    case AST.TypeOmega(level, span) =>
+      AST.TypeOmega(substituteInType(level, substitutions), span)
     case AST.AnyType(span) =>
       AST.AnyType(span)
     case AST.StringType(span) =>
@@ -280,7 +282,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then return Result.Done
 
     c.cst match
-      // Integer literal: type is Universe(0)
+      // Integer literal: type is Type(0)
       case CST.IntegerLiteral(value, span) =>
         val ast = AST.IntLit(value, span)
         module.fill(solver, c.result, ast)
@@ -319,32 +321,40 @@ class ElabHandler extends Handler[ElabConstraint]:
             if name == "Any" then
               val ast = AST.AnyType(None)
               module.fill(solver, c.result, ast)
-              // Any has type Type[1]
-              module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(1, None), None))
+              // Any has type Type(1)
+              module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(1, None), None))
               Result.Done
             else if name == "String" then
               val ast = AST.StringType(None)
               module.fill(solver, c.result, ast)
-              // String has type Type[0]
-              module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+              // String has type Type(0)
+              module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
               Result.Done
             else if name == "Integer" then
               val ast = AST.IntegerType(None)
               module.fill(solver, c.result, ast)
-              module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+              module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
               Result.Done
             else if name == "Type" then
-              // Type is Universe with a meta-variable level
-              val levelCell = module.newOnceCell[ElabConstraint, AST](solver)
-              val ast = AST.Universe(AST.MetaCell(HoldNotReadable(levelCell), span), span)
+              // Type is the universe at level 0; its type quantifies over a natural level and yields Typeω(0)
+              val ast = AST.Type(AST.IntLit(0, None), span)
               module.fill(solver, c.result, ast)
-              // Type has type Type[level+1]
-              val nextLevelCell = module.newOnceCell[ElabConstraint, AST](solver)
-              module.fill(solver, c.inferredTy, AST.Universe(AST.MetaCell(HoldNotReadable(nextLevelCell), span), None))
+
+              val levelParamId = Uniqid.make[AST]
+              val levelParamTy = AST.Type(AST.IntLit(0, None), None)
+              val levelParam = Param(levelParamId, "n", levelParamTy, Implicitness.Explicit, None)
+              val levelTele = Vector(Telescope(Vector(levelParam), Implicitness.Explicit))
+              // Treat the codomain as a higher "omega" universe approximation: Typeω(0)
+              val typeOfType = AST.Pi(
+                levelTele,
+                AST.TypeOmega(AST.IntLit(0, None), None),
+                span
+              )
+              module.fill(solver, c.inferredTy, typeOfType)
               Result.Done
             else if name == "List" then
               val elemParamId = Uniqid.make[AST]
-              val paramTy = AST.Universe(AST.IntLit(0, None), None)
+              val paramTy = AST.Type(AST.IntLit(0, None), None)
               val param = Param(elemParamId, "A", paramTy, Implicitness.Explicit, None)
               val lamTelescopes = Vector(Telescope(Vector(param), Implicitness.Explicit))
               val body = AST.ListType(AST.Ref(elemParamId, "A", span), span)
@@ -354,7 +364,7 @@ class ElabHandler extends Handler[ElabConstraint]:
               val typeParamId = Uniqid.make[AST]
               val typeParam = Param(typeParamId, "A", paramTy, Implicitness.Explicit, None)
               val typeTele = Vector(Telescope(Vector(typeParam), Implicitness.Explicit))
-              val lamType = AST.Pi(typeTele, AST.Universe(AST.IntLit(0, None), None), span)
+              val lamType = AST.Pi(typeTele, AST.Type(AST.IntLit(1, None), None), span)
               module.fill(solver, c.inferredTy, lamType)
               Result.Done
             else if c.ctx.isBuiltin(name) then
@@ -367,8 +377,8 @@ class ElabHandler extends Handler[ElabConstraint]:
                 case Some(ty) =>
                   module.fill(solver, c.inferredTy, ty)
                 case None =>
-                  // Default: Universe(0)
-                  module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+                  // Default: Type(0)
+                  module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
               Result.Done
             else
               // Unbound variable - report error and recover
@@ -717,8 +727,8 @@ class ElabHandler extends Handler[ElabConstraint]:
     if elems.length < 4 then
       ctx.reporter.report(ElabProblem.UnboundVariable("Invalid def syntax", span))
       module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
-      module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
-      module.fill(solver, defTypeCell, AST.Universe(AST.IntLit(0, None), None))
+      module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
+      module.fill(solver, defTypeCell, AST.Type(AST.IntLit(0, None), None))
       return Result.Done
 
     val name = elems(1) match
@@ -772,8 +782,8 @@ class ElabHandler extends Handler[ElabConstraint]:
     if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != "=" then
       ctx.reporter.report(ElabProblem.UnboundVariable("Expected = in def", span))
       module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
-      module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
-      module.fill(solver, defTypeCell, AST.Universe(AST.IntLit(0, None), None))
+      module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
+      module.fill(solver, defTypeCell, AST.Type(AST.IntLit(0, None), None))
       return Result.Done
 
     idx += 1
@@ -831,7 +841,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     def fail(message: String): ElabContext =
       ctx.reporter.report(ElabProblem.UnboundVariable(message, span))
       module.fill(solver, resultCell, AST.Ref(Uniqid.make, "<error>", span))
-      module.fill(solver, elemTypeCell, AST.Universe(AST.IntLit(0, None), None))
+      module.fill(solver, elemTypeCell, AST.Type(AST.IntLit(0, None), None))
       ctx
 
     if elems.length < 4 then return fail("Invalid let syntax")
@@ -1075,7 +1085,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case (AST.Ref(id1, _, _), AST.Ref(id2, _, _)) =>
         if id1 == id2 then UnifyResult.Success else UnifyResult.Failure("Different variables")
 
-      case (AST.Universe(l1, _), AST.Universe(l2, _)) => unify(l1, l2, span, ctx)
+      case (AST.Type(l1, _), AST.Type(l2, _)) => unify(l1, l2, span, ctx)
 
       case (AST.AnyType(_), AST.AnyType(_))           => UnifyResult.Success
       case (AST.StringType(_), AST.StringType(_))     => UnifyResult.Success
@@ -1200,7 +1210,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.Ref(_, _, _) | AST.StringLit(_, _) | AST.IntLit(_, _) | AST.AnyType(_) | AST.StringType(_) | AST.IntegerType(_) =>
         false
       case AST.ListType(element, _)     => occursIn(cell, element)
-      case AST.Universe(level, _)       => occursIn(cell, level)
+      case AST.Type(level, _)           => occursIn(cell, level)
+      case AST.TypeOmega(level, _)      => occursIn(cell, level)
       case AST.Tuple(elements, _)       => elements.exists(occursIn(cell, _))
       case AST.ListLit(elements, _)     => elements.exists(occursIn(cell, _))
       case AST.Block(elements, tail, _) => elements.exists(occursIn(cell, _)) || occursIn(cell, tail)
@@ -1221,7 +1232,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     import module.given
 
     module.readStable(solver, c.ty) match
-      case Some(AST.Universe(level, _)) =>
+      case Some(AST.Type(level, _)) =>
         module.fill(solver, c.level, level)
         Result.Done
       case Some(_) =>
@@ -1289,7 +1300,7 @@ class ElabHandler extends Handler[ElabConstraint]:
           if explicitTypeArgs.size != implicitParams.size then
             c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
             module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
-            module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+            module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
             return Result.Done
 
           // Type check explicit type arguments against implicit parameter types synchronously
@@ -1306,7 +1317,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
           if !typeArgsOk then
             module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
-            module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+            module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
             return Result.Done
 
           explicitTypeArgs
@@ -1322,7 +1333,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         if explicitArgs.size != explicitParams.size then
           c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
           module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
-          module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+          module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
           return Result.Done
 
         // Type check arguments synchronously (not via constraints to avoid loops)
@@ -1346,7 +1357,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
         if !allTypeChecksPassed then
           module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
-          module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+          module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
           return Result.Done
 
         // After type checking, resolve any MetaCells in implicit args that may have been filled
@@ -1380,7 +1391,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case Some(ty) =>
         c.ctx.reporter.report(ElabProblem.NotAFunction(ty, c.span))
         module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
-        module.fill(solver, c.inferredTy, AST.Universe(AST.IntLit(0, None), None))
+        module.fill(solver, c.inferredTy, AST.Type(AST.IntLit(0, None), None))
         Result.Done
       case None =>
         Result.Waiting(c.funcTy)
@@ -1471,8 +1482,10 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.StringLit(value, span) => ast
     case AST.IntLit(value, span)    => ast
 
-    case AST.Universe(level, span) =>
-      AST.Universe(substituteSolutions(level), span)
+    case AST.Type(level, span) =>
+      AST.Type(substituteSolutions(level), span)
+    case AST.TypeOmega(level, span) =>
+      AST.TypeOmega(substituteSolutions(level), span)
 
     case AST.AnyType(span)     => ast
     case AST.StringType(span)  => ast
