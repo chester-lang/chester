@@ -48,6 +48,7 @@ class ElaboratorEffectTest extends FunSuite {
     runAsync {
       val code =
         """{
+          |  effect magic;
           |  def foo(): Integer / [magic] = 1;
           |  def bar(): Integer = foo();
           |  bar
@@ -68,6 +69,7 @@ class ElaboratorEffectTest extends FunSuite {
     runAsync {
       val code =
         """{
+          |  effect magic;
           |  def foo(): Integer / [magic] = 1;
           |  def bad(): Integer / [] = foo();
           |  bad
@@ -82,6 +84,7 @@ class ElaboratorEffectTest extends FunSuite {
     runAsync {
       val code =
         """{
+          |  effect magic;
           |  def foo(): Integer / [magic] = 1;
           |  def ok(): Integer / [magic] = foo();
           |  ok
@@ -95,6 +98,19 @@ class ElaboratorEffectTest extends FunSuite {
           assertEquals(effects.toSet, Set("magic"), clue = s"ok should retain declared effect row, got $effects")
         case other =>
           fail(s"Expected Pi type for ok reference, got: $other")
+    }
+  }
+
+  test("using undeclared effect reports an error") {
+    runAsync {
+      val code =
+        """{
+          |  def sneaky(): Integer / [ghost] = 1;
+          |  sneaky
+          |}""".stripMargin
+
+      val (_, _, errors) = elaborate(code)
+      assert(errors.nonEmpty, "Expected error when using undeclared effect ghost")
     }
   }
 }

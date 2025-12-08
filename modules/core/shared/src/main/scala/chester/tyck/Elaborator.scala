@@ -18,6 +18,7 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
   case TypeMismatch(expected: AST, actual: AST, override val span0: Option[Span]) extends ElabProblem(span0)
   case NotAFunction(ty: AST, override val span0: Option[Span]) extends ElabProblem(span0)
   case NotAUniverse(ty: AST, override val span0: Option[Span]) extends ElabProblem(span0)
+  case UnknownEffect(name: String, override val span0: Option[Span]) extends ElabProblem(span0)
 
   override def stage: Problem.Stage = Problem.Stage.TYCK
   override def severity: Problem.Severity = Problem.Severity.Error
@@ -31,12 +32,15 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
       (Doc.text("Not a function type: "): ToDoc) <> ty.toDoc
     case ElabProblem.NotAUniverse(ty, _) =>
       (Doc.text("Not a universe type: "): ToDoc) <> ty.toDoc
+    case ElabProblem.UnknownEffect(name, _) =>
+      Doc.text(s"Unknown effect: $name")
 
 /** Elaboration context tracking bindings and types during CST to AST conversion */
 case class ElabContext(
     bindings: Map[String, UniqidOf[AST]], // Name -> variable ID mapping
     types: Map[UniqidOf[AST], CellRW[AST]], // Variable ID -> type cell mapping
     defBodies: Map[UniqidOf[AST], CellRW[AST]] = Map.empty, // Definition ID -> AST cell mapping
+    effects: Set[String] = ElabContext.defaultEffects, // Declared effects
     builtins: Set[String] = ElabContext.defaultBuiltins, // Built-in names
     builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes, // Built-in types
     reporter: Reporter[ElabProblem] // Error reporter
@@ -52,8 +56,11 @@ case class ElabContext(
   def lookupDefBody(id: UniqidOf[AST]): Option[CellRW[AST]] = defBodies.get(id)
   def isBuiltin(name: String): Boolean = builtins.contains(name)
   def lookupBuiltinType(name: String): Option[AST] = builtinTypes.get(name)
+  def declareEffect(name: String): ElabContext = copy(effects = effects + name)
+  def hasEffect(name: String): Boolean = effects.contains(name) || ElabContext.defaultEffects.contains(name)
 
 object ElabContext:
+  val defaultEffects: Set[String] = Set("io")
   val defaultBuiltins: Set[String] = Set(
     "Integer",
     "Int",
@@ -528,6 +535,11 @@ class ElabHandler extends Handler[ElabConstraint]:
                 enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell).registerDefBody(defId, defResultCell)
                 defInfoMap(elem) = DefInfo(name, defId, defTypeCell, defResultCell, span = elem.span)
               case _ => ()
+          case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } =>
+            seqElems.lift(1) match
+              case Some(CST.Symbol(name, _)) =>
+                enrichedCtx = enrichedCtx.declareEffect(name)
+              case _ => ()
           case _ => ()
         }
 
@@ -553,6 +565,16 @@ class ElabHandler extends Handler[ElabConstraint]:
               val resTyAst = info.resultTyCell.map(c => AST.MetaCell(HoldNotReadable(c), elem.span))
               val stmt = StmtAST.Def(info.id, info.name, info.telescopes, resTyAst, bodyAst, elem.span)
               elaboratedElemsBuffer += stmt
+            case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } =>
+              // effect declaration: just register and produce unit value
+              seqElems.lift(1) match
+                case Some(CST.Symbol(name, _)) =>
+                  currentCtx = currentCtx.declareEffect(name)
+                case _ =>
+                  ()
+              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+              module.fill(solver, elemType, AST.Tuple(Vector.empty, span))
+              elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), span), span)
             case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("let", _) => true; case _ => false } =>
               val elems = seqElems.toVector
               currentCtx = handleLetStatement(c, elems, elem.span, currentCtx, elemResult, elemType)(using module, solver)
@@ -600,6 +622,14 @@ class ElabHandler extends Handler[ElabConstraint]:
           c.ctx.reporter.report(ElabProblem.UnboundVariable("let statement only allowed in block elements, not at top level or in expressions", span))
           val metaId = Uniqid.make[AST]
           val ast = AST.Ref(metaId, "let", span)
+          module.fill(solver, c.result, ast)
+          val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+          module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
+          Result.Done
+        else if elems.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } then
+          c.ctx.reporter.report(ElabProblem.UnboundVariable("effect statement only allowed in block elements, not at top level or in expressions", span))
+          val metaId = Uniqid.make[AST]
+          val ast = AST.Ref(metaId, "effect", span)
           module.fill(solver, c.result, ast)
           val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
@@ -1627,6 +1657,13 @@ class ElabHandler extends Handler[ElabConstraint]:
       case StmtAST.Pkg(_, body, _) => gatherEffects(body)
 
     val requiredEffects = gatherEffects(body)
+
+    // Validate effects are declared
+    val declaredEffects = c.ctx.effects ++ ElabContext.defaultEffects
+    val unknownEffects =
+      (requiredEffects ++ c.effects.toSet).filterNot(declaredEffects.contains)
+    if unknownEffects.nonEmpty then
+      unknownEffects.foreach(e => c.ctx.reporter.report(ElabProblem.UnknownEffect(e, c.span)))
 
     // Compute def type (Pi type)
     val finalResultTy = resultTy match
