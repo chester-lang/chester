@@ -1,6 +1,5 @@
 package chester.core
 
-import scala.language.experimental.genericNumberLiterals
 import chester.error.{Span, SpanOptional}
 import chester.utils.doc.{*, given}
 import chester.utils.doc.Docs.*
@@ -8,7 +7,9 @@ import upickle.default.*
 import cats.data.NonEmptyVector
 import chester.utils.{*, given}
 import chester.utils.{HoldNotReadable, holdNotReadableRW}
-import chester.uniqid.{UniqidOf, Uniqid, rwUniqIDOf, UniqidCollector, UniqidReplacer, ContainsUniqid, given}
+import chester.uniqid.{ContainsUniqid, Uniqid, UniqidCollector, UniqidOf, UniqidReplacer, rwUniqIDOf, given}
+
+import scala.language.experimental.genericNumberLiterals
 
 enum Implicitness derives ReadWriter:
   case Implicit

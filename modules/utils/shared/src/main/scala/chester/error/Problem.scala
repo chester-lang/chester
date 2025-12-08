@@ -4,6 +4,7 @@ import chester.utils.doc.*
 import upickle.default.*
 import chester.i18n.*
 import chester.utils.Nat
+
 import scala.language.experimental.genericNumberLiterals
 
 object Problem {

@@ -1,6 +1,7 @@
 package chester.utils
 
 import spire.math.Natural
+
 import scala.language.experimental.genericNumberLiterals
 
 extension (text: String) {

@@ -1,7 +1,6 @@
 package chester.reader
-
-import chester.error.{Span, SpanInFile, Pos}
-import chester.reader.{Source, Offset}
+import chester.error.{Pos, Span, SpanInFile}
+import chester.reader.{Offset, Source}
 import chester.utils.WithUTF16
 
 import scala.language.experimental.genericNumberLiterals

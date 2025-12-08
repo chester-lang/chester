@@ -6,6 +6,7 @@ import chester.utils.{Nat, WithUTF16, codepointToString, given}
 import chester.utils.doc.{Doc, DocConf}
 import spire.math.Natural
 import chester.utils.utf16Len
+
 import scala.language.experimental.genericNumberLiterals
 
 case class ParseError(message: String, span0: Option[Span] = None) extends Problem {

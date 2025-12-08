@@ -1,7 +1,7 @@
 package chester.reader
 
 import chester.core.CST
-import chester.error.{Span, SpanInFile, Pos, VectorReporter}
+import chester.error.{Pos, Span, SpanInFile, VectorReporter}
 
 import scala.language.experimental.genericNumberLiterals
 
@@ -11,12 +11,12 @@ class ParserTest extends munit.FunSuite {
     given reporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     val source = Source(FileNameAndContent("test.chester", input))
     val dummySpan = Span(source, SpanInFile(Pos.zero, Pos.zero))
-    
+
     val result = for {
       chars <- CharReader.read(source)
       tokens <- Tokenizer.tokenize(chars)
     } yield Parser.parse(tokens).cst
-    
+
     (result.getOrElse(CST.Symbol("<error>", Some(dummySpan))), reporter.getReports)
   }
 
@@ -31,17 +31,17 @@ class ParserTest extends munit.FunSuite {
 
   private def expectSymbol(cst: CST, name: String): Unit = cst match {
     case CST.Symbol(n, _) => assertEquals(n, name)
-    case _ => fail(s"Expected Symbol($name), got: $cst")
+    case _                => fail(s"Expected Symbol($name), got: $cst")
   }
 
   private def expectInt(cst: CST, value: Int): Unit = cst match {
     case CST.IntegerLiteral(v, _) => assertEquals(v, BigInt(value))
-    case _ => fail(s"Expected IntegerLiteral($value), got: $cst")
+    case _                        => fail(s"Expected IntegerLiteral($value), got: $cst")
   }
 
   private def expectString(cst: CST, value: String): Unit = cst match {
     case CST.StringLiteral(v, _) => assertEquals(v, value)
-    case _ => fail(s"Expected StringLiteral($value), got: $cst")
+    case _                       => fail(s"Expected StringLiteral($value), got: $cst")
   }
 
   test("parse literals") {
@@ -282,18 +282,18 @@ class ParserTest extends munit.FunSuite {
     given reporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     val source = Source(FileNameAndContent("test.chester", input))
     val dummySpan = Span(source, SpanInFile(Pos.zero, Pos.zero))
-    
+
     // Handle empty file specially since tokenizer rejects empty input
     if (input.trim.isEmpty) {
       val emptyTokens = Vector(Token.EOF(dummySpan))
       return (Parser.parseFile(emptyTokens), reporter.getReports)
     }
-    
+
     val result = for {
       chars <- CharReader.read(source)
       tokens <- Tokenizer.tokenize(chars)
     } yield Parser.parseFile(tokens)
-    
+
     (result.getOrElse(CST.Symbol("<error>", Some(dummySpan))), reporter.getReports)
   }
 

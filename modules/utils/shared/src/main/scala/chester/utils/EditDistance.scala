@@ -13,7 +13,7 @@
 
 package chester.utils
 
-import java.lang.Character.{toLowerCase => lower}
+import java.lang.Character.toLowerCase as lower
 
 object EditDistance {
 

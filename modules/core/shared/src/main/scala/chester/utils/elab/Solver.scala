@@ -4,11 +4,11 @@ import chester.utils.cell.{
   CellContent,
   CellContentR,
   CellContentW,
-  OnceCellContent,
-  MutableCellContent,
   CollectionCellContent,
+  LiteralCellContent,
   MappingCellContent,
-  LiteralCellContent
+  MutableCellContent,
+  OnceCellContent
 }
 
 import scala.language.implicitConversions

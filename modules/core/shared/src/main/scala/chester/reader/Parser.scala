@@ -1,10 +1,10 @@
 package chester.reader
 
 import chester.core.CST
-import chester.error.{Span, SpanInFile, Pos, Reporter}
-import scala.language.experimental.genericNumberLiterals
+import chester.error.{Pos, Reporter, Span, SpanInFile}
 import cats.data.NonEmptyVector
 
+import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable.ArrayBuffer
 
 object Parser {
@@ -104,7 +104,7 @@ object Parser {
     }
 
     val elements = scala.collection.mutable.ArrayBuffer.empty[CST]
-    val startSpan = state.current.get.span
+    state.current.get.span
 
     while (state.hasNext) {
       elements += parseAtom(state)

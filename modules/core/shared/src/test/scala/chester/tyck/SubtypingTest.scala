@@ -1,14 +1,15 @@
 package chester.tyck
 
-import scala.language.experimental.genericNumberLiterals
 import chester.core.{AST, CST}
 import chester.error.VectorReporter
-import chester.reader.{Source, FileNameAndContent, CharReader, Tokenizer, Parser, ParseError}
+import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.utils.elab.*
 import chester.utils.doc.{DocConf, DocOps, given}
 import munit.FunSuite
+
+import scala.language.experimental.genericNumberLiterals
 import scala.concurrent.duration.*
-import scala.concurrent.{ Future, ExecutionContext }
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.ExecutionContext.Implicits.global
 
 class SubtypingTest extends FunSuite:
@@ -20,63 +21,62 @@ class SubtypingTest extends FunSuite:
   def elaborate(input: String): (Option[AST], Option[AST], Vector[ElabProblem]) =
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
-    
+
     val source = Source(FileNameAndContent("test.chester", input))
-    
+
     val result = for {
       chars <- CharReader.read(source)
       tokens <- Tokenizer.tokenize(chars)
     } yield {
       val parsed = Parser.parse(tokens).cst
-      
+
       // Create elaborator
       val ctx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = elabReporter)
-      
+
       given module: ProceduralSolverModule.type = ProceduralSolverModule
-      import module.given
-      
+
       case class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
         override def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
           Some(new ElabHandler)
-      
+
       val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
-      
+
       // Create result cells
       val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
       val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
-      
+
       // Add constraint to infer type
       module.addConstraint(solver, ElabConstraint.Infer(parsed, resultCell, typeCell, ctx))
-      
+
       // Run solver
       module.run(solver)
-      
+
       // Read results and apply substituteSolutions to resolve MetaCells
       val result = module.readStable(solver, resultCell)
       val ty = module.readStable(solver, typeCell)
       val zonkedResult = result.map(r => substituteSolutions(r)(using module, solver))
       val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
-      
+
       (zonkedResult, zonkedTy)
     }
-    
+
     result match {
       case Right((ast, ty)) => (ast, ty, elabReporter.getReports)
-      case Left(err) => (None, None, Vector(ElabProblem.UnboundVariable(err.toString, None)))
+      case Left(err)        => (None, None, Vector(ElabProblem.UnboundVariable(err.toString, None)))
     }
 
   test("Any type has type Type[1]") {
     runAsync {
       val (ast, ty, errors) = elaborate("Any")
-      
+
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
-      assert(ast.isDefined, s"AST should be defined")
-      
+      assert(ast.isDefined, "AST should be defined")
+
       ast.get match {
         case AST.AnyType(_) => // OK
-        case other => fail(s"Expected AnyType, got: $other")
+        case other          => fail(s"Expected AnyType, got: $other")
       }
-      
+
       ty.get match {
         case AST.Universe(AST.IntLit(level, _), _) =>
           assertEquals(level, BigInt(1), "Any should have type Type[1]")
@@ -88,18 +88,16 @@ class SubtypingTest extends FunSuite:
   test("Any type can be used in type position") {
     runAsync {
       val (ast, ty, errors) = elaborate("{ def f(x: Any) = x; 42 }")
-      
+
       // Should not have errors about def placement or type errors
-      assert(!errors.exists(_.toString.contains("def statement only allowed")), 
-        s"Should not have def placement error, got: $errors")
-      assert(!errors.exists(_.toString.contains("Type mismatch")), 
-        s"Should not have type errors with Any, got: $errors")
-      assert(ast.isDefined, s"AST should be defined")
-      
+      assert(!errors.exists(_.toString.contains("def statement only allowed")), s"Should not have def placement error, got: $errors")
+      assert(!errors.exists(_.toString.contains("Type mismatch")), s"Should not have type errors with Any, got: $errors")
+      assert(ast.isDefined, "AST should be defined")
+
       // Just verify it's a block - the Any type should work without errors
       ast.get match {
         case AST.Block(_, _, _) => // OK
-        case other => fail(s"Expected Block, got: $other")
+        case other              => fail(s"Expected Block, got: $other")
       }
     }
   }
@@ -107,10 +105,9 @@ class SubtypingTest extends FunSuite:
   test("Any can accept any value") {
     runAsync {
       val (ast, ty, errors) = elaborate("{ def f(x: Any) = x; f(42) }")
-      
+
       // Should elaborate without type errors
-      assert(!errors.exists(_.toString.contains("Type mismatch")), 
-        s"Should not have type mismatch, got: $errors")
+      assert(!errors.exists(_.toString.contains("Type mismatch")), s"Should not have type mismatch, got: $errors")
     }
   }
 
@@ -177,7 +174,7 @@ class SubtypingTest extends FunSuite:
         def id[a: Type](x: a) = x;
         id(42)
       }""")
-      
+
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ty.isDefined, "Type should be defined")
     }
@@ -190,14 +187,14 @@ class SubtypingTest extends FunSuite:
         def id[a: Type](x: a) = x;
         id(id)
       }""")
-      
+
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ty.isDefined, "Type should be defined")
-      
+
       // The type should be [a: Type](x: a) -> a
       ty.get match {
         case AST.Pi(_, _, _) => // OK - result type is a function type
-        case other => fail(s"Expected Pi type, got: $other")
+        case other           => fail(s"Expected Pi type, got: $other")
       }
     }
   }
@@ -212,15 +209,15 @@ class SubtypingTest extends FunSuite:
         def id[a: Type](x: a) = x;
         id(id)("a")
       }""")
-      
+
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ast.isDefined, "AST should be defined")
       assert(ty.isDefined, "Type should be defined")
-      
+
       // The type should be String (the type of "a")
       ty.get match {
         case AST.StringType(_) => // OK - result type is String
-        case other => fail(s"Expected String type, got: $other")
+        case other             => fail(s"Expected String type, got: $other")
       }
     }
   }

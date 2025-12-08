@@ -2,6 +2,7 @@ package chester.utils
 
 import spire.math.Natural
 import upickle.default.*
+
 import scala.language.experimental.genericNumberLiterals
 
 //given WithUTF16Codec: JsonValueCodec[WithUTF16] = JsonCodecMaker.make(CodecMakerConfig.withAllowRecursiveTypes(true))

@@ -1,13 +1,14 @@
 package chester.tyck
 
-import scala.language.experimental.genericNumberLiterals
-import chester.core.{AST, CST, Param, Arg, Telescope, Implicitness}
-import chester.error.{Span, Problem, Reporter}
-import chester.uniqid.{UniqidOf, Uniqid}
+import chester.core.{AST, Arg, CST, Implicitness, Param, Telescope}
+import chester.error.{Problem, Reporter, Span}
+import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
-import chester.utils.doc.{Doc, DocConf, DocOps, StringPrinter, ToDoc, <>, given}
+import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
 import cats.data.NonEmptyVector
+
+import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
 
 /** Elaboration problems */
@@ -245,7 +246,6 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
 class ElabHandler extends Handler[ElabConstraint]:
 
   def run[M <: SolverModule](constraint: ElabConstraint)(using module: M, solver: module.Solver[ElabConstraint]): Result =
-    import module.given
     constraint match
       case c: ElabConstraint.Check       => handleCheck(c)
       case c: ElabConstraint.Infer       => handleInfer(c)
@@ -264,7 +264,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     // For now, convert Check to Infer + Unify
     module.readStable(solver, c.expectedTy) match
-      case Some(expectedTy) =>
+      case Some(_) =>
         // Infer the type and unify with expected
         val inferredTy = module.newOnceCell[ElabConstraint, AST](solver)
         module.addConstraint(solver, ElabConstraint.Infer(c.cst, c.result, inferredTy, c.ctx))
@@ -558,7 +558,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       argsTuple: CST.Tuple,
       span: Option[Span]
   )(using module: M, solver: module.Solver[ElabConstraint]): Result =
-    import module.given
 
     // Elaborate function
     val funcResult = module.newOnceCell[ElabConstraint, AST](solver)
@@ -633,7 +632,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       typeCst: CST,
       span: Option[Span]
   )(using module: M, solver: module.Solver[ElabConstraint]): Result =
-    import module.given
 
     val annotationTy = module.newOnceCell[ElabConstraint, AST](solver)
     val annotationTyTy = module.newOnceCell[ElabConstraint, AST](solver)
@@ -876,8 +874,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     val valueResult = module.newOnceCell[ElabConstraint, AST](solver)
 
-    if hasAnnotation then
-      module.addConstraint(solver, ElabConstraint.Check(valueCst, letTypeCell, valueResult, ctx))
+    if hasAnnotation then module.addConstraint(solver, ElabConstraint.Check(valueCst, letTypeCell, valueResult, ctx))
     else
       val valueTyCell = module.newOnceCell[ElabConstraint, AST](solver)
       module.addConstraint(solver, ElabConstraint.Infer(valueCst, valueResult, valueTyCell, ctx))
@@ -905,7 +902,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       implicitness: Implicitness,
       ctx: ElabContext
   )(using module: M, solver: module.Solver[ElabConstraint]): Telescope =
-    import module.given
 
     var currentCtx = ctx
 
@@ -970,7 +966,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         // Proper unification with occurs check and meta-variable solving
         unify(t1, t2, c.span, c.ctx)(using module, solver) match
           case UnifyResult.Success => Result.Done
-          case UnifyResult.Failure(msg) =>
+          case UnifyResult.Failure(_) =>
             c.ctx.reporter.report(ElabProblem.TypeMismatch(t1, t2, c.span))
             Result.Done
       case (None, _) => Result.Waiting(c.ty1)
@@ -1054,7 +1050,7 @@ class ElabHandler extends Handler[ElabConstraint]:
           case Some(solved1) => unify(solved1, ty2, span, ctx)
           case None          =>
             // Solve: ?α := ty2 with occurs check
-            if occursIn(cell1, ty2)(using module, solver) then UnifyResult.Failure(s"Occurs check failed: infinite type")
+            if occursIn(cell1, ty2)(using module, solver) then UnifyResult.Failure("Occurs check failed: infinite type")
             else
               module.fill(solver, cell1, ty2)
               UnifyResult.Success
@@ -1064,7 +1060,7 @@ class ElabHandler extends Handler[ElabConstraint]:
           case Some(solved2) => unify(ty1, solved2, span, ctx)
           case None          =>
             // Solve: ?β := ty1 with occurs check
-            if occursIn(cell2, ty1)(using module, solver) then UnifyResult.Failure(s"Occurs check failed: infinite type")
+            if occursIn(cell2, ty1)(using module, solver) then UnifyResult.Failure("Occurs check failed: infinite type")
             else
               module.fill(solver, cell2, ty1)
               UnifyResult.Success
@@ -1141,7 +1137,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       span: Option[Span],
       ctx: ElabContext
   )(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
-    import module.given
 
     val normTy1 = reduce(ty1, ctx)
     val normTy2 = reduce(ty2, ctx)
@@ -1298,7 +1293,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             return Result.Done
 
           // Type check explicit type arguments against implicit parameter types synchronously
-          val typeArgsOk = implicitParams.zip(explicitTypeArgs).zip(c.explicitTypeArgTypes).forall { case ((param, arg), argTyCell) =>
+          val typeArgsOk = implicitParams.zip(explicitTypeArgs).zip(c.explicitTypeArgTypes).forall { case ((param, _), argTyCell) =>
             module.readStable(solver, argTyCell) match
               case Some(actualTy) =>
                 unify(param.ty, actualTy, c.span, c.ctx) match
@@ -1450,7 +1445,6 @@ class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabCons
   * as "zonking" in some type checkers
   */
 def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: module.Solver[ElabConstraint]): AST =
-  import module.given
 
   ast match
     case AST.MetaCell(HoldNotReadable(cell), span) =>
@@ -1570,7 +1564,6 @@ object Elaborator:
       reporter: Reporter[ElabProblem],
       ctx: Option[ElabContext] = None
   )(using module: M): (AST, AST) =
-    import module.given
 
     val elaborationContext = ctx.getOrElse(
       ElabContext(

@@ -3,11 +3,11 @@ package chester.utils.elab
 import chester.utils.cell.{
   CellContent,
   CellContentR,
-  OnceCellContent,
-  MutableCellContent,
   CollectionCellContent,
+  LiteralCellContent,
   MappingCellContent,
-  LiteralCellContent
+  MutableCellContent,
+  OnceCellContent
 }
 
 import scala.annotation.tailrec

@@ -1,14 +1,13 @@
 package chester.utils.elab
-
 import chester.utils.Parameter
 import chester.utils.cell.{
   CellContent,
   CellContentR,
-  OnceCellContent,
-  MutableCellContent,
   CollectionCellContent,
+  LiteralCellContent,
   MappingCellContent,
-  LiteralCellContent
+  MutableCellContent,
+  OnceCellContent
 }
 
 import java.util.concurrent.{ForkJoinPool, TimeUnit}
@@ -26,7 +25,7 @@ final class ConcurrentCell[+A, -B, +C <: CellContent[A, B]](
 // Solver instance - just holds state, parameterized by constraint type
 final class ConcurrentSolverInstance[C](val conf: HandlerConf[C, ConcurrentSolverModule.type]) {
   val pool = new ForkJoinPool()
-  val delayedConstraints = Ref(Vector[WaitingConstraint]())
+  val delayedConstraints: Ref[Vector[WaitingConstraint]] = Ref(Vector[WaitingConstraint]())
 }
 
 // ML-style module - implements all operations

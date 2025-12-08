@@ -1,9 +1,10 @@
 package chester.syntax
 
-import scala.language.experimental.genericNumberLiterals
-import chester.error.{Span, Pos, SpanInFile}
+import chester.error.{Pos, Span, SpanInFile}
 import chester.reader.Source
 import chester.utils.WithUTF16
+
+import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
 
 /** Simple parser for TypeScript declaration files (.d.ts)

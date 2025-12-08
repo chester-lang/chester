@@ -8,6 +8,8 @@ addCommandAlias("updates", "reload plugins; dependencyUpdates; reload return; de
 
 // Shared settings for all projects
 lazy val commonSettings = Seq(
+  semanticdbEnabled := true,
+  semanticdbVersion := scalafixSemanticdb.revision,
   scalaVersion := "3.7.4",
   scalacOptions ++= Seq(
     "-encoding",
@@ -16,7 +18,8 @@ lazy val commonSettings = Seq(
     "-language:implicitConversions",
     "-unchecked",
     "-deprecation",
-  // experiemntal:
+    "-Wunused:all", // for scalafix
+    // experiemntal:
     "-Yexplicit-nulls"
   ),
   // Workaround for Metals: disable BSP for native/js targets to prevent compilation issues
@@ -69,6 +72,7 @@ lazy val testingDependencies = Seq(
 lazy val vendoredKiama = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Full)
   .in(file("vendor/kiama"))
+  .disablePlugins(ScalafixPlugin)
   .settings(commonVendorSettings)
   .nativeSettings(commonNativeSettings)
   .jvmSettings(
@@ -83,6 +87,7 @@ lazy val KiamaNative = vendoredKiama.native
 lazy val jsTypings = crossProject(JSPlatform)
   .withoutSuffixFor(JSPlatform)
   .crossType(CrossType.Pure)
+  .disablePlugins(ScalafixPlugin)
   .in(file("js-typings"))
   .jsEnablePlugins(ScalablyTypedConverterPlugin)
   .settings(
@@ -162,6 +167,7 @@ lazy val genProductTypes = TaskKey[Seq[File]](
 lazy val vendoredSpire = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Full)
   .in(file("vendor/spire"))
+  .disablePlugins(ScalafixPlugin)
   .settings(
     name := "spire",
     commonVendorSettings,

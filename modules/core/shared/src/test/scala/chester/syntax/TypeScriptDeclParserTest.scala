@@ -1,7 +1,8 @@
 package chester.syntax
 
 import munit.FunSuite
-import chester.reader.{Source, FileNameAndContent}
+import chester.reader.{FileNameAndContent, Source}
+
 import scala.language.experimental.genericNumberLiterals
 
 class TypeScriptDeclParserTest extends FunSuite {
@@ -14,7 +15,7 @@ class TypeScriptDeclParserTest extends FunSuite {
     """
     val sourceRef = Source(FileNameAndContent("test.d.ts", source))
     val ast = TypeScriptDeclParser.parse(source, sourceRef)
-    
+
     ast match {
       case TypeScriptAST.Program(statements, _) =>
         assertEquals(statements.length, 1, "Should have one statement")
@@ -29,14 +30,14 @@ class TypeScriptDeclParserTest extends FunSuite {
         fail(s"Expected Program, got $other")
     }
   }
-  
+
   test("parse type alias") {
     val source = """
       type ID = string;
     """
     val sourceRef = Source(FileNameAndContent("test.d.ts", source))
     val ast = TypeScriptDeclParser.parse(source, sourceRef)
-    
+
     ast match {
       case TypeScriptAST.Program(statements, _) =>
         assertEquals(statements.length, 1, "Should have one statement")
@@ -56,12 +57,12 @@ class TypeScriptDeclParserTest extends FunSuite {
         fail(s"Expected Program, got $other")
     }
   }
-  
+
   test("parse empty file") {
     val source = ""
     val sourceRef = Source(FileNameAndContent("test.d.ts", source))
     val ast = TypeScriptDeclParser.parse(source, sourceRef)
-    
+
     ast match {
       case TypeScriptAST.Program(statements, _) =>
         assertEquals(statements.length, 0, "Should have no statements")
