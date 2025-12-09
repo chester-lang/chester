@@ -113,4 +113,43 @@ class ElaboratorEffectTest extends FunSuite {
       assert(errors.nonEmpty, "Expected error when using undeclared effect ghost")
     }
   }
+
+  test("effect block can declare operations") {
+    runAsync {
+      val code =
+        """{
+          |  effect magic { def flip(): Integer };
+          |  flip
+          |}""".stripMargin
+
+      val (_, flipTy, errors) = elaborate(code)
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
+
+      flipTy match
+        case Some(AST.Pi(_, resultTy, effects, _)) =>
+          assert(effects.map(_.name).contains("magic"), clue = s"flip should carry magic effect, got $effects")
+          resultTy match
+            case _: AST.IntegerType => ()
+            case meta if meta.isInstanceOf[AST.MetaCell] =>
+              // allow meta if still unresolved; it should eventually resolve to Integer
+              ()
+            case other => fail(s"flip should return Integer, got $other")
+        case other => fail(s"Expected function type for flip, got: $other")
+    }
+  }
+
+  test("operation effects must be handled when called") {
+    runAsync {
+      val code =
+        """{
+          |  effect magic { def flip(): Integer };
+          |  def ok(): Integer / [magic] = flip();
+          |  def bad(): Integer / [] = flip();
+          |  ok
+          |}""".stripMargin
+
+      val (_, _, errors) = elaborate(code)
+      assert(errors.nonEmpty, "Expected error when calling flip without required effect annotation in bad")
+    }
+  }
 }

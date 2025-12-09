@@ -607,10 +607,14 @@ class ElabHandler extends Handler[ElabConstraint]:
               val (maybeName, maybeBody) = (seqElems.lift(1), seqElems.lift(2))
               maybeName.collect { case CST.Symbol(name, _) => name } match
                 case Some(name) =>
-                  currentCtx = currentCtx.declareEffect(name)
-                  val bodyCst = maybeBody.collect { case b: CST.Block => b }.getOrElse(CST.Block(Vector.empty, None, span))
-                  // elaborate body under context that includes this effect
-                  module.addConstraint(solver, ElabConstraint.Infer(bodyCst, elemResult, elemType, currentCtx))
+                  // Declare the effect and elaborate its operation signatures (if any)
+                  val withEffectCtx = currentCtx.declareEffect(name)
+                  val effRef = withEffectCtx.lookupEffect(name).get
+                  val bodyCst: CST.Block = maybeBody.collect { case b: CST.Block => b }.getOrElse(CST.Block(Vector.empty, None, span))
+                  currentCtx = processEffectBody(bodyCst, effRef, withEffectCtx)
+                  // The effect declaration itself evaluates to unit
+                  module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+                  module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
                 case None =>
                   module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
                   module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
@@ -876,6 +880,79 @@ class ElabHandler extends Handler[ElabConstraint]:
       var last = first
       while spans.hasNext do last = spans.next()
       Some(first.combine(last))
+
+  /** Elaborate an effect body that only contains operation signatures. Each operation is registered with a type that carries the enclosing effect in
+    * its effect row. No bodies are required or expected.
+    */
+  private def processEffectBody[M <: SolverModule](
+      body: CST.Block,
+      effectRef: EffectRef,
+      ctx: ElabContext
+  )(using module: M, solver: module.Solver[ElabConstraint]): ElabContext =
+    import module.given
+
+    // Treat tail as another element so a final operation without semicolon is allowed
+    val allElems = body.elements ++ body.tail.toVector
+
+    var currentCtx = ctx
+
+    allElems.foreach {
+      case seq @ CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
+        val elems = seqElems.toVector
+        val name = elems.lift(1) match
+          case Some(CST.Symbol(n, _)) => n
+          case _ =>
+            ctx.reporter.report(ElabProblem.UnboundVariable("Expected name after def in effect body", span))
+            "<error>"
+
+        // Parse telescopes, threading parameter context for dependencies
+        var idx = 2
+        val telescopes = scala.collection.mutable.ArrayBuffer.empty[Telescope]
+        var paramCtx = currentCtx
+
+        while idx < elems.length && (elems(idx).isInstanceOf[CST.ListLiteral] || elems(idx).isInstanceOf[CST.Tuple]) do
+          val tel = elems(idx) match
+            case CST.ListLiteral(params, _)  => parseTelescopeFromCST(params, Implicitness.Implicit, paramCtx)(using module, solver)
+            case CST.Tuple(params, _)        => parseTelescopeFromCST(params, Implicitness.Explicit, paramCtx)(using module, solver)
+            case _                           => Telescope(Vector.empty, Implicitness.Explicit)
+          telescopes += tel
+          // Extend parameter context so later params/result types can reference earlier params
+          tel.params.foreach { param =>
+            val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+            module.fill(solver, paramTyCell, param.ty)
+            paramCtx = paramCtx.bind(param.name, param.id, paramTyCell)
+          }
+          idx += 1
+
+        // Expect a result type annotation
+        if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != ":" then
+          ctx.reporter.report(ElabProblem.UnboundVariable("Effect operation requires a result type", span))
+        else
+          idx += 1
+          if idx >= elems.length then
+            ctx.reporter.report(ElabProblem.UnboundVariable("Missing result type after ':' in effect operation", span))
+          else
+            val typeElems = elems.drop(idx)
+            val resultTypeCst =
+              if typeElems.length == 1 then typeElems.head
+              else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), combinedSpan(typeElems))
+
+            val resultTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+            val resultTyTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+            module.addConstraint(solver, ElabConstraint.Infer(resultTypeCst, resultTyCell, resultTyTyCell, paramCtx, asType = true))
+
+            val resultTyAst = AST.MetaCell(HoldNotReadable(resultTyCell), resultTypeCst.span)
+            val opId = Uniqid.make[AST]
+            val opTy = AST.Pi(telescopes.toVector, resultTyAst, Vector(effectRef), span)
+            val opTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+            module.fill(solver, opTyCell, opTy)
+            // Register operation in the surrounding context so it can be referenced
+            currentCtx = currentCtx.bind(name, opId, opTyCell)
+
+      case _ => () // Ignore non-def statements inside effect body for now
+    }
+
+    currentCtx
 
   /** Handle def statement: def name [implicit] (explicit) : resultTy = body
     * @param defId
