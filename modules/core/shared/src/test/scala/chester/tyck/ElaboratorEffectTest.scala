@@ -1,48 +1,16 @@
 package chester.tyck
 
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.*
 import scala.language.experimental.genericNumberLiterals
 
-import munit.FunSuite
 import chester.core.AST
-import chester.error.VectorReporter
-import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
-import chester.utils.elab.*
+import chester.tyck.ElabTestUtils.{defaultTimeout, elaborateFile, runAsync, given ExecutionContext}
+import munit.FunSuite
 
-class ElaboratorEffectTest extends FunSuite {
-  private def runAsync(body: => Unit): Future[Unit] = Future(body)
+class ElaboratorEffectTest extends FunSuite:
 
-  private def elaborate(input: String): (Option[AST], Option[AST], Vector[ElabProblem]) =
-    given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
-    given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
-
-    val source = Source(FileNameAndContent("effect.chester", input))
-
-    val result = for
-      chars <- CharReader.read(source)
-      tokens <- Tokenizer.tokenize(chars)
-    yield
-      val parsed = Parser.parseFile(tokens)
-
-      given module: ProceduralSolverModule.type = ProceduralSolverModule
-      val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
-
-      val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
-      val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
-
-      module.addConstraint(solver, ElabConstraint.Infer(parsed, resultCell, typeCell, ElabContext(Map.empty, Map.empty, reporter = elabReporter)))
-      module.run(solver)
-
-      val result = module.readStable(solver, resultCell)
-      val ty = module.readStable(solver, typeCell)
-      val zonkedResult = result.map(r => substituteSolutions(r)(using module, solver))
-      val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
-      (zonkedResult, zonkedTy)
-
-    result match
-      case Right((ast, ty)) => (ast, ty, elabReporter.getReports)
-      case Left(err)        => (None, None, Vector(ElabProblem.UnboundVariable(err.toString, None)))
+  override val munitTimeout: FiniteDuration = defaultTimeout
 
   test("propagates user defined effect rows through calls") {
     runAsync {
@@ -54,7 +22,7 @@ class ElaboratorEffectTest extends FunSuite {
           |  bar
           |}""".stripMargin
 
-      val (_, barTy, errors) = elaborate(code)
+      val (_, barTy, errors) = elaborateFile(code, ensureCoreType = true)
       assert(errors.isEmpty, s"Expected no errors, got: $errors")
 
       barTy match
@@ -75,7 +43,7 @@ class ElaboratorEffectTest extends FunSuite {
           |  bad
           |}""".stripMargin
 
-      val (_, _, errors) = elaborate(code)
+      val (_, _, errors) = elaborateFile(code)
       assert(errors.nonEmpty, "Expected error when annotated effects do not cover required effects")
     }
   }
@@ -90,7 +58,7 @@ class ElaboratorEffectTest extends FunSuite {
           |  ok
           |}""".stripMargin
 
-      val (_, okTy, errors) = elaborate(code)
+      val (_, okTy, errors) = elaborateFile(code, ensureCoreType = true)
       assert(errors.isEmpty, s"Expected no errors, got: $errors")
 
       okTy match
@@ -109,7 +77,7 @@ class ElaboratorEffectTest extends FunSuite {
           |  sneaky
           |}""".stripMargin
 
-      val (_, _, errors) = elaborate(code)
+      val (_, _, errors) = elaborateFile(code)
       assert(errors.nonEmpty, "Expected error when using undeclared effect ghost")
     }
   }
@@ -122,7 +90,7 @@ class ElaboratorEffectTest extends FunSuite {
           |  flip
           |}""".stripMargin
 
-      val (_, flipTy, errors) = elaborate(code)
+      val (_, flipTy, errors) = elaborateFile(code)
       assert(errors.isEmpty, s"Expected no errors, got: $errors")
 
       flipTy match
@@ -148,8 +116,7 @@ class ElaboratorEffectTest extends FunSuite {
           |  ok
           |}""".stripMargin
 
-      val (_, _, errors) = elaborate(code)
+      val (_, _, errors) = elaborateFile(code)
       assert(errors.nonEmpty, "Expected error when calling flip without required effect annotation in bad")
     }
   }
-}

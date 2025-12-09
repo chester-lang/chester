@@ -6,6 +6,7 @@ import scala.language.experimental.genericNumberLiterals
 import munit.FunSuite
 import chester.core.{AST, CST}
 import chester.error.{Problem, Reporter}
+import chester.tyck.CoreTypeChecker
 import chester.utils.elab.*
 
 class ElaboratorTest extends FunSuite {
@@ -42,6 +43,7 @@ class ElaboratorTest extends FunSuite {
 
     assert(result.isDefined, "Result should be filled")
     assert(ty.isDefined, "Type should be filled")
+    assert(CoreTypeChecker.typeChecks(result.get), "CoreTypeChecker rejected elaborated AST")
 
     result.get match {
       case AST.StringLit(value, _) =>
@@ -86,6 +88,7 @@ class ElaboratorTest extends FunSuite {
 
     assert(result.isDefined, s"Result should be filled, but got: $result")
     assert(ty.isDefined, s"Type should be filled, but got: $ty")
+    assert(CoreTypeChecker.typeChecks(result.get), "CoreTypeChecker rejected elaborated block")
 
     result.get match {
       case AST.Block(elements, tail, _) =>

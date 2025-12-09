@@ -1,102 +1,20 @@
 package chester.tyck
 
-import scala.language.experimental.genericNumberLiterals
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.*
-import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.ExecutionContext.Implicits.global
+import scala.language.experimental.genericNumberLiterals
 
-import chester.core.{AST, CST}
-import chester.error.VectorReporter
-import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
-import chester.utils.elab.*
-import chester.utils.doc.{DocConf, DocOps, given}
+import chester.core.AST
+import chester.tyck.ElabTestUtils.{defaultTimeout, elaborateExpr, elaborateModule, runAsync, given ExecutionContext}
 import munit.FunSuite
 
 class SubtypingTest extends FunSuite:
 
-  override val munitTimeout: FiniteDuration = 10.seconds
+  override val munitTimeout: FiniteDuration = defaultTimeout
 
-  private def runAsync(body: => Unit): Future[Unit] = Future(body)
-
-  private def elaborateModule(inputs: Seq[String]): (Seq[Option[AST]], Seq[Option[AST]], Vector[ElabProblem]) =
-    given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
-    given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
-
-    val csts = inputs.map { in =>
-      val source = Source(FileNameAndContent("test.chester", in))
-      val parsed = for {
-        chars <- CharReader.read(source)
-        tokens <- Tokenizer.tokenize(chars)
-      } yield Parser.parseFile(tokens)
-      parsed.toOption.get
-    }
-
-    given module: ProceduralSolverModule.type = ProceduralSolverModule
-    val results = Elaborator.elaborateModule(csts, elabReporter)
-    val asts = results.map(_._1)
-    val tys = results.map(_._2)
-    (asts, tys, elabReporter.getReports)
-
-  def elaborate(input: String): (Option[AST], Option[AST], Vector[ElabProblem]) =
-    given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
-    given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
-
-    val source = Source(FileNameAndContent("test.chester", input))
-
-    val result = for {
-      chars <- CharReader.read(source)
-      tokens <- Tokenizer.tokenize(chars)
-    } yield {
-      val parsed = Parser.parse(tokens).cst
-
-      // Create elaborator
-      val ctx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = elabReporter)
-
-      given module: ProceduralSolverModule.type = ProceduralSolverModule
-
-      case class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
-        override def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
-          Some(new ElabHandler)
-
-      val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
-
-      // Create result cells
-      val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
-      val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
-
-      // Add constraint to infer type
-      module.addConstraint(solver, ElabConstraint.Infer(parsed, resultCell, typeCell, ctx))
-
-      // Run solver
-      module.run(solver)
-
-      // Read results and apply substituteSolutions to resolve MetaCells
-      val result = module.readStable(solver, resultCell)
-      val ty = module.readStable(solver, typeCell)
-      val zonkedResult = result.map(r => substituteSolutions(r)(using module, solver))
-      val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
-
-      (zonkedResult, zonkedTy)
-    }
-
-    result match {
-      case Right((ast, ty)) => (ast, ty, elabReporter.getReports)
-      case Left(err)        => (None, None, Vector(ElabProblem.UnboundVariable(err.toString, None)))
-    }
-
-  /** Normalize a type enough to extract the element type of a list, even if wrapped in simple lambdas/apps. */
-  private def listElemOf(ty: AST): Option[AST] =
-    ty match
-      case AST.ListType(elem, _) => Some(elem)
-      case AST.Lam(_, body, _)   => listElemOf(body)
-      case AST.App(func, args, _, _) if args.nonEmpty =>
-        listElemOf(func).orElse(args.reverseIterator.flatMap(a => listElemOf(a.value)).toSeq.headOption)
-      case AST.Ann(expr, annTy, _) => listElemOf(expr).orElse(listElemOf(annTy))
-      case _                       => None
-
-  test("Any type has type Type[1]") {
+  test("Any type has type Type(0)") {
     runAsync {
-      val (ast, ty, errors) = elaborate("Any")
+      val (ast, ty, errors) = elaborateExpr("Any")
 
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ast.isDefined, "AST should be defined")
@@ -116,7 +34,7 @@ class SubtypingTest extends FunSuite:
 
   test("Any type can be used in type position") {
     runAsync {
-      val (ast, ty, errors) = elaborate("{ def f(x: Any) = x; 42 }")
+      val (ast, ty, errors) = elaborateExpr("{ def f(x: Any) = x; 42 }")
 
       // Should not have errors about def placement or type errors
       assert(!errors.exists(_.toString.contains("def statement only allowed")), s"Should not have def placement error, got: $errors")
@@ -133,7 +51,7 @@ class SubtypingTest extends FunSuite:
 
   test("Any can accept any value") {
     runAsync {
-      val (ast, ty, errors) = elaborate("{ def f(x: Any) = x; f(42) }")
+      val (ast, ty, errors) = elaborateExpr("{ def f(x: Any) = x; f(42) }")
 
       // Should elaborate without type errors
       assert(!errors.exists(_.toString.contains("Type mismatch")), s"Should not have type mismatch, got: $errors")
@@ -142,7 +60,7 @@ class SubtypingTest extends FunSuite:
 
   test("type check id[id(String)](\"a\") reduces implicit type argument") {
     runAsync {
-      val (ast, ty, errors) = elaborate("""{
+      val (ast, ty, errors) = elaborateExpr("""{
         def id[a: Type(0)](x: a) = x;
         id[id(String)]("a")
       }""")
@@ -160,7 +78,7 @@ class SubtypingTest extends FunSuite:
 
   test("annotated integer list has type List(Integer)") {
     runAsync {
-      val (ast, ty, errors) = elaborate("[1]: List(Integer)")
+      val (ast, ty, errors) = elaborateExpr("[1]: List(Integer)")
 
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ast.isDefined, "AST should be defined")
@@ -174,7 +92,7 @@ class SubtypingTest extends FunSuite:
 
   test("annotated string list has type List(String)") {
     runAsync {
-      val (ast, ty, errors) = elaborate("""["a"]: List(String)""")
+      val (ast, ty, errors) = elaborateExpr("""["a"]: List(String)""")
 
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ast.isDefined, "AST should be defined")
@@ -188,7 +106,7 @@ class SubtypingTest extends FunSuite:
 
   test("integer literal defaults to Integer") {
     runAsync {
-      val (_, ty, errors) = elaborate("42")
+      val (_, ty, errors) = elaborateExpr("42")
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ty.isDefined, "Type should be defined")
       ty.get match {
@@ -200,7 +118,7 @@ class SubtypingTest extends FunSuite:
 
   test("annotated Natural literal is Natural") {
     runAsync {
-      val (_, ty, errors) = elaborate("42: Natural")
+      val (_, ty, errors) = elaborateExpr("42: Natural")
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ty.isDefined, "Type should be defined")
       ty.get match {
@@ -213,7 +131,7 @@ class SubtypingTest extends FunSuite:
   test("type check id(42) first") {
     runAsync {
       // Simpler test: just id(42)
-      val (ast, ty, errors) = elaborate("""{
+      val (ast, ty, errors) = elaborateExpr("""{
         def id[a: Type(0)](x: a) = x;
         id(42)
       }""")
@@ -226,7 +144,7 @@ class SubtypingTest extends FunSuite:
   test("type check id(id) returns id") {
     runAsync {
       // Simpler test: just id(id) without the second application
-      val (ast, ty, errors) = elaborate("""{
+      val (ast, ty, errors) = elaborateExpr("""{
         def id[a: Type(0)](x: a) = x;
         id(id)
       }""")
@@ -248,7 +166,7 @@ class SubtypingTest extends FunSuite:
       // id(id) applies id to itself: id[([a:Type](x:a)->a)](id) : ([a:Type](x:a)->a)
       // So id(id) returns id, and id(id)("a") should be the same as id("a")
       // The type of "a") is String, so result should have type String
-      val (ast, ty, errors) = elaborate("""{
+      val (ast, ty, errors) = elaborateExpr("""{
         def id[a: Type(0)](x: a) = x;
         id(id)("a")
       }""")
@@ -267,7 +185,7 @@ class SubtypingTest extends FunSuite:
 
   test("type check annotated id(id)(\"a\"): String") {
     runAsync {
-      val (ast, ty, errors) = elaborate("""{
+      val (ast, ty, errors) = elaborateExpr("""{
         def id[a: Type(0)](x: a) = x;
         id(id)("a"): String
       }""")
@@ -285,7 +203,7 @@ class SubtypingTest extends FunSuite:
 
   test("builtin println carries io effect and can be used in annotated function") {
     runAsync {
-      val (_, printlnTy, printlnErrors) = elaborate("println")
+      val (_, printlnTy, printlnErrors) = elaborateExpr("println")
       assert(printlnErrors.isEmpty, s"println lookup should be error free, got: $printlnErrors")
 
       printlnTy match
@@ -293,7 +211,7 @@ class SubtypingTest extends FunSuite:
           assert(effects.map(_.name).contains("io"), s"Expected io effect in println type, got: $effects")
         case other => fail(s"Expected println to have function type, got: $other")
 
-      val (_, _, defErrors) = elaborate("""{
+      val (_, _, defErrors) = elaborateExpr("""{
         def log(msg: String): () / [io] = println(msg);
         log("hi")
       }""")
@@ -303,7 +221,7 @@ class SubtypingTest extends FunSuite:
 
   test("println cannot be used where no effects are allowed") {
     runAsync {
-      val (_, _, errors) = elaborate("""{
+      val (_, _, errors) = elaborateExpr("""{
         def bad(msg: String): () / [] = println(msg);
         bad("oops")
       }""")
@@ -327,7 +245,7 @@ class SubtypingTest extends FunSuite:
 
   test("let binding is sequential") {
     runAsync {
-      val (_, ty, errors) = elaborate("""{
+      val (_, ty, errors) = elaborateExpr("""{
         let x = 42;
         x
       }""")
@@ -343,7 +261,7 @@ class SubtypingTest extends FunSuite:
 
   test("let binding supports shadowing") {
     runAsync {
-      val (_, ty, errors) = elaborate("""{
+      val (_, ty, errors) = elaborateExpr("""{
         let x = 42;
         let x = "shadow";
         x
@@ -359,7 +277,7 @@ class SubtypingTest extends FunSuite:
 
   test("let binding respects annotations") {
     runAsync {
-      val (_, ty, errors) = elaborate("""{
+      val (_, ty, errors) = elaborateExpr("""{
         let greeting: String = "hello";
         greeting
       }""")
@@ -374,7 +292,7 @@ class SubtypingTest extends FunSuite:
 
   test("let bindings cannot reference future declarations") {
     runAsync {
-      val (_, _, errors) = elaborate("""{
+      val (_, _, errors) = elaborateExpr("""{
         let y = x;
         let x = 42;
         y
@@ -386,7 +304,7 @@ class SubtypingTest extends FunSuite:
 
   test("record constructor and field access typecheck") {
     runAsync {
-      val (_, ty, errors) = elaborate("""{
+      val (_, ty, errors) = elaborateExpr("""{
         record Vec2d(x: Integer, y: Integer);
         let v: Vec2d.t = Vec2d(1, 2);
         v.x
