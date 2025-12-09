@@ -66,8 +66,8 @@ enum EffectRef derives ReadWriter:
     case User(_, n)      => n
 
   def collectUniqids(collector: UniqidCollector): Unit = this match
-    case Builtin(_)    => ()
-    case User(id, _)   => collector(id)
+    case Builtin(_)  => ()
+    case User(id, _) => collector(id)
 
   def mapUniqids(mapper: UniqidReplacer): EffectRef = this match
     case Builtin(effect) => this

@@ -58,21 +58,21 @@ object CoreTypeChecker:
       case AST.Type(AST.LevelLit(n, _), _)      => Some(Sort(isOmega = false, n.toInt))
       case AST.TypeOmega(AST.LevelLit(n, _), _) => Some(Sort(isOmega = true, n.toInt))
       // Backwards compat: allow integer level literals
-      case AST.Type(AST.IntLit(n, _), _)        => Some(Sort(isOmega = false, n.toInt))
-      case AST.TypeOmega(AST.IntLit(n, _), _)   => Some(Sort(isOmega = true, n.toInt))
-      case _                                    => None
+      case AST.Type(AST.IntLit(n, _), _)      => Some(Sort(isOmega = false, n.toInt))
+      case AST.TypeOmega(AST.IntLit(n, _), _) => Some(Sort(isOmega = true, n.toInt))
+      case _                                  => None
 
   private def infer(ast: AST, env: Env): Option[AST] =
     ast match
-      case AST.Ref(id, _, _)          => env.get(id)
-      case AST.StringLit(_, _)        => Some(AST.StringType(None))
-      case AST.IntLit(_, _)           => Some(AST.IntegerType(None))
-      case AST.LevelLit(_, span)      => Some(AST.LevelType(span))
-      case AST.AnyType(span)          => Some(AST.Type(AST.LevelLit(0, None), span))
-      case AST.StringType(span)       => Some(AST.Type(AST.LevelLit(0, None), span))
-      case AST.IntegerType(span)      => Some(AST.Type(AST.LevelLit(0, None), span))
-      case AST.NaturalType(span)      => Some(AST.Type(AST.LevelLit(0, None), span))
-      case AST.LevelType(span)        => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.Ref(id, _, _)     => env.get(id)
+      case AST.StringLit(_, _)   => Some(AST.StringType(None))
+      case AST.IntLit(_, _)      => Some(AST.IntegerType(None))
+      case AST.LevelLit(_, span) => Some(AST.LevelType(span))
+      case AST.AnyType(span)     => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.StringType(span)  => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.IntegerType(span) => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.NaturalType(span) => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.LevelType(span)   => Some(AST.Type(AST.LevelLit(0, None), span))
       case AST.Type(level, span) =>
         val lvl = level match
           case AST.IntLit(n, sp) => AST.LevelLit(n, sp)

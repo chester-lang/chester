@@ -3,7 +3,7 @@ package chester.tyck
 import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
 
-import chester.core.{AST, Arg, CST, EffectRef, BuiltinEffect, Implicitness, Param, StmtAST, Telescope}
+import chester.core.{AST, Arg, BuiltinEffect, CST, EffectRef, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Problem, Reporter, Span, VectorReporter}
 import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
@@ -667,7 +667,9 @@ class ElabHandler extends Handler[ElabConstraint]:
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
           Result.Done
         else if elems.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } then
-          c.ctx.reporter.report(ElabProblem.UnboundVariable("effect statement only allowed in block elements, not at top level or in expressions", span))
+          c.ctx.reporter.report(
+            ElabProblem.UnboundVariable("effect statement only allowed in block elements, not at top level or in expressions", span)
+          )
           val metaId = Uniqid.make[AST]
           val ast = AST.Ref(metaId, "effect", span)
           module.fill(solver, c.result, ast)
@@ -1173,19 +1175,25 @@ class ElabHandler extends Handler[ElabConstraint]:
       elements.headOption.exists { case CST.Symbol("let", _) => true; case _ => false }
     case _ => false
 
-  private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using module: SolverModule, solver: module.Solver[ElabConstraint]): Vector[EffectRef] =
-    list.elements.collect {
-      case CST.Symbol(name, _) =>
-        ctx.lookupEffect(name)
-          .orElse(ElabContext.defaultEffects.get(name))
-          .getOrElse {
-            ctx.reporter.report(ElabProblem.UnknownEffect(name, span))
-            EffectRef.User(Uniqid.make, name)
-          }
+  private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using
+      module: SolverModule,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[EffectRef] =
+    list.elements.collect { case CST.Symbol(name, _) =>
+      ctx
+        .lookupEffect(name)
+        .orElse(ElabContext.defaultEffects.get(name))
+        .getOrElse {
+          ctx.reporter.report(ElabProblem.UnknownEffect(name, span))
+          EffectRef.User(Uniqid.make, name)
+        }
     }
 
   /** Extract a base type and an optional effect list from `Type / [e1, e2]` forms. */
-  private def extractEffectAnnotation(cst: CST, ctx: ElabContext)(using module: SolverModule, solver: module.Solver[ElabConstraint]): (CST, Vector[EffectRef]) = cst match
+  private def extractEffectAnnotation(cst: CST, ctx: ElabContext)(using
+      module: SolverModule,
+      solver: module.Solver[ElabConstraint]
+  ): (CST, Vector[EffectRef]) = cst match
     case CST.SeqOf(elements, _) if elements.length == 3 =>
       val elems = elements.toVector
       elems match
@@ -1586,13 +1594,23 @@ class ElabHandler extends Handler[ElabConstraint]:
           stmt match
             case StmtAST.ExprStmt(expr, _) => firstUnresolved(expr)
             case StmtAST.Def(_, _, teles, resTy, body, _) =>
-              teles.iterator.flatMap(_.params.iterator).flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
+              teles.iterator
+                .flatMap(_.params.iterator)
+                .flatMap(p => firstUnresolved(p.ty))
+                .take(1)
+                .toSeq
+                .headOption
                 .orElse(resTy.flatMap(firstUnresolved))
                 .orElse(firstUnresolved(body))
             case StmtAST.Pkg(_, body, _) => firstUnresolved(body)
 
         val unresolvedParamCell =
-          resolvedTelescopes.iterator.flatMap(_.params.iterator).flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
+          resolvedTelescopes.iterator
+            .flatMap(_.params.iterator)
+            .flatMap(p => firstUnresolved(p.ty))
+            .take(1)
+            .toSeq
+            .headOption
             .orElse(firstUnresolved(resolvedResultTy))
         unresolvedParamCell match
           case Some(cell) => return Result.Waiting(cell)
@@ -1785,11 +1803,10 @@ class ElabHandler extends Handler[ElabConstraint]:
     val requiredEffects = gatherEffects(body)
 
     // Validate effects are declared
-    val declaredNames = (c.ctx.effects.keySet ++ ElabContext.defaultEffects.keySet)
+    val declaredNames = c.ctx.effects.keySet ++ ElabContext.defaultEffects.keySet
     val unknownEffects =
       (requiredEffects ++ c.effects.toSet).map(_.name).filterNot(declaredNames.contains)
-    if unknownEffects.nonEmpty then
-      unknownEffects.foreach(e => c.ctx.reporter.report(ElabProblem.UnknownEffect(e, c.span)))
+    if unknownEffects.nonEmpty then unknownEffects.foreach(e => c.ctx.reporter.report(ElabProblem.UnknownEffect(e, c.span)))
 
     // Compute def type (Pi type)
     val finalResultTy = resultTy match
