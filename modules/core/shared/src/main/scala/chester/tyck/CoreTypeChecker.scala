@@ -51,17 +51,45 @@ object CoreTypeChecker:
   private def check(ast: AST, expected: AST, env: Env): Boolean =
     infer(ast, env).exists(t => normalizeType(t) == normalizeType(expected))
 
+  /** Extract sort (Type vs TypeΩ) and its level for a type-of-type. */
+  private case class Sort(isOmega: Boolean, level: Int)
+  private def sortOfType(ty: AST): Option[Sort] =
+    normalizeType(ty) match
+      case AST.Type(AST.LevelLit(n, _), _)      => Some(Sort(isOmega = false, n.toInt))
+      case AST.TypeOmega(AST.LevelLit(n, _), _) => Some(Sort(isOmega = true, n.toInt))
+      // Backwards compat: allow integer level literals
+      case AST.Type(AST.IntLit(n, _), _)        => Some(Sort(isOmega = false, n.toInt))
+      case AST.TypeOmega(AST.IntLit(n, _), _)   => Some(Sort(isOmega = true, n.toInt))
+      case _                                    => None
+
   private def infer(ast: AST, env: Env): Option[AST] =
     ast match
       case AST.Ref(id, _, _)          => env.get(id)
       case AST.StringLit(_, _)        => Some(AST.StringType(None))
       case AST.IntLit(_, _)           => Some(AST.IntegerType(None))
-      case AST.AnyType(span)          => Some(AST.Type(AST.IntLit(1, None), span))
-      case AST.StringType(span)       => Some(AST.Type(AST.IntLit(0, None), span))
-      case AST.IntegerType(span)      => Some(AST.Type(AST.IntLit(0, None), span))
-      case AST.NaturalType(span)      => Some(AST.Type(AST.IntLit(0, None), span))
-      case AST.Type(level, _)         => Some(AST.TypeOmega(level, None))
-      case AST.TypeOmega(level, span) => Some(AST.TypeOmega(level, span))
+      case AST.LevelLit(_, span)      => Some(AST.LevelType(span))
+      case AST.AnyType(span)          => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.StringType(span)       => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.IntegerType(span)      => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.NaturalType(span)      => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.LevelType(span)        => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.Type(level, span) =>
+        val lvl = level match
+          case AST.IntLit(n, sp) => AST.LevelLit(n, sp)
+          case other             => other
+        infer(lvl, env) match
+          case Some(AST.LevelType(_)) => Some(AST.TypeOmega(lvl, span))
+          case _                      => None
+      case AST.TypeOmega(level, span) =>
+        val lvl = level match
+          case AST.IntLit(n, sp) => AST.LevelLit(n, sp)
+          case other             => other
+        infer(lvl, env) match
+          case Some(AST.LevelType(_)) =>
+            normalizeType(lvl) match
+              case AST.LevelLit(n, _) => Some(AST.TypeOmega(AST.LevelLit(n + 1, None), span))
+              case _                  => Some(AST.TypeOmega(lvl, span))
+          case _ => None
       case AST.Tuple(elems, span) =>
         if elems.isEmpty then Some(AST.TupleType(Vector.empty, span))
         else
@@ -69,7 +97,13 @@ object CoreTypeChecker:
           if elemTys.forall(_.isDefined) then Some(AST.TupleType(elemTys.flatten, span)) else None
       case AST.TupleType(elems, span) =>
         val elemTys = elems.map(infer(_, env))
-        if elemTys.forall(_.isDefined) then Some(AST.Type(AST.IntLit(0, None), span)) else None
+        if elemTys.forall(_.isDefined) then
+          val sorts = elemTys.flatten.flatMap(sortOfType)
+          val maxLevel = sorts.map(_.level).maxOption.getOrElse(0)
+          val isOmega = sorts.exists(_.isOmega)
+          if isOmega then Some(AST.TypeOmega(AST.LevelLit(maxLevel, None), span))
+          else Some(AST.Type(AST.LevelLit(maxLevel, None), span))
+        else None
       case AST.ListLit(elems, span) =>
         val elemTys = elems.map(infer(_, env))
         if elemTys.nonEmpty && elemTys.forall(_.isDefined) then
@@ -77,7 +111,7 @@ object CoreTypeChecker:
           if elemTys.flatten.forall(t => normalizeType(t) == normalizeType(headTy)) then Some(AST.ListType(headTy, span)) else None
         else None
       case AST.ListType(elem, span) =>
-        infer(elem, env).map(_ => AST.Type(AST.IntLit(0, None), span))
+        infer(elem, env).map(_ => AST.Type(AST.LevelLit(0, None), span))
       case AST.Ann(expr, ty, _) =>
         if check(expr, ty, env) then Some(ty) else None
       case AST.App(func, args, _, span) =>
@@ -94,9 +128,9 @@ object CoreTypeChecker:
           case _ => None
       case AST.Lam(_, _, _) => None // cannot infer lambda without expected type
       case AST.Pi(teles, res, effs, span) =>
-        val env1 = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> AST.Type(AST.IntLit(0, None), None))))
+        val env1 = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> AST.Type(AST.LevelLit(0, None), None))))
         if teles.forall(_.params.forall(p => infer(p.ty, env1).isDefined)) && infer(res, env1).isDefined then
-          Some(AST.Type(AST.IntLit(0, None), span))
+          Some(AST.Type(AST.LevelLit(0, None), span))
         else None
       case AST.Let(id, _, ty, value, body, _) =>
         val vTy = ty.orElse(infer(value, env))
@@ -119,7 +153,7 @@ object CoreTypeChecker:
   private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env =
     stmt match
       case StmtAST.Def(id, _, teles, resTy, _, _) =>
-        val resultTy = resTy.getOrElse(AST.Type(AST.IntLit(0, None), None))
+        val resultTy = resTy.getOrElse(AST.Type(AST.LevelLit(0, None), None))
         val pi = AST.Pi(teles, resultTy, Vector.empty, None)
         env + (id -> pi)
       case _ => env

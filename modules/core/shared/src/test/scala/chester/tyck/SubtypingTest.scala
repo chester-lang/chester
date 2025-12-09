@@ -107,9 +107,9 @@ class SubtypingTest extends FunSuite:
       }
 
       ty.get match {
-        case AST.Type(AST.IntLit(level, _), _) =>
-          assertEquals(level, BigInt(1), "Any should have type Type(1)")
-        case other => fail(s"Expected Type(1), got: $other")
+        case AST.Type(AST.LevelLit(level, _), _) =>
+          assertEquals(level, BigInt(0), "Any should have type Type(0)")
+        case other => fail(s"Expected Type(0), got: $other")
       }
     }
   }
@@ -143,7 +143,7 @@ class SubtypingTest extends FunSuite:
   test("type check id[id(String)](\"a\") reduces implicit type argument") {
     runAsync {
       val (ast, ty, errors) = elaborate("""{
-        def id[a: Type](x: a) = x;
+        def id[a: Type(0)](x: a) = x;
         id[id(String)]("a")
       }""")
 
@@ -214,7 +214,7 @@ class SubtypingTest extends FunSuite:
     runAsync {
       // Simpler test: just id(42)
       val (ast, ty, errors) = elaborate("""{
-        def id[a: Type](x: a) = x;
+        def id[a: Type(0)](x: a) = x;
         id(42)
       }""")
 
@@ -227,14 +227,14 @@ class SubtypingTest extends FunSuite:
     runAsync {
       // Simpler test: just id(id) without the second application
       val (ast, ty, errors) = elaborate("""{
-        def id[a: Type](x: a) = x;
+        def id[a: Type(0)](x: a) = x;
         id(id)
       }""")
 
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ty.isDefined, "Type should be defined")
 
-      // The type should be [a: Type](x: a) -> a
+      // The type should be [a: Type(0)](x: a) -> a
       ty.get match {
         case AST.Pi(_, _, _, _) => // OK - result type is a function type
         case other              => fail(s"Expected Pi type, got: $other")
@@ -244,12 +244,12 @@ class SubtypingTest extends FunSuite:
 
   test("type check id(id)(\"a\") with type String") {
     runAsync {
-      // id : [a: Type](x: a) -> a
+      // id : [a: Type(0)](x: a) -> a
       // id(id) applies id to itself: id[([a:Type](x:a)->a)](id) : ([a:Type](x:a)->a)
       // So id(id) returns id, and id(id)("a") should be the same as id("a")
       // The type of "a") is String, so result should have type String
       val (ast, ty, errors) = elaborate("""{
-        def id[a: Type](x: a) = x;
+        def id[a: Type(0)](x: a) = x;
         id(id)("a")
       }""")
 
@@ -268,7 +268,7 @@ class SubtypingTest extends FunSuite:
   test("type check annotated id(id)(\"a\"): String") {
     runAsync {
       val (ast, ty, errors) = elaborate("""{
-        def id[a: Type](x: a) = x;
+        def id[a: Type(0)](x: a) = x;
         id(id)("a"): String
       }""")
 
