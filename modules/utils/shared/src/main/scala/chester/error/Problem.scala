@@ -52,16 +52,18 @@ private object ProblemSer {
 }
 
 object ProblemUpickle {
-  implicit val problemRW: ReadWriter[Problem] =
+  implicit val problemRW: ReadWriter[Problem] = {
     readwriter[ProblemSer].bimap(ProblemSer.from, x => x)
+  }
 }
 
 extension (p: Problem) {
-  def renderDoc(using options: DocConf, sourceReader: SourceReader): Doc =
+  def renderDoc(using options: DocConf, sourceReader: SourceReader): Doc = {
     p.fullDescription match {
       case Some(desc) => renderFullDescription(desc)(using options, sourceReader)
       case None       => renderToDocWithSource(p)(using options, sourceReader)
     }
+  }
 }
 
 private def renderFullDescription(desc: FullDescription)(using options: DocConf, sourceReader: SourceReader): Doc = {
@@ -137,8 +139,9 @@ case class SourceReader(readSource: Span => Option[Vector[(Int, String)]]) {
 }
 
 object SourceReader {
-  def fromFileContent(@unused content: FileContent): SourceReader =
+  def fromFileContent(@unused content: FileContent): SourceReader = {
     SourceReader(_.getLinesInRange)
+  }
 
   def default: SourceReader = SourceReader(_.getLinesInRange)
 

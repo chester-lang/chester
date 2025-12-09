@@ -39,8 +39,9 @@ object FileContent {
 //given SourcePosCodec: JsonValueCodec[SourcePos] = JsonCodecMaker.make(CodecMakerConfig.withAllowRecursiveTypes(true))
 
 case class Span(source: Source, range: SpanInFile) derives ReadWriter {
-  private lazy val fileContent: Option[FileContent] =
+  private lazy val fileContent: Option[FileContent] = {
     source.readContent.toOption.map(content => FileContent(content, source.offset))
+  }
   val fileName: String = source.fileName
 
   /** Extracts all lines within the range with their line numbers.
@@ -83,16 +84,18 @@ case class Span(source: Source, range: SpanInFile) derives ReadWriter {
     Span(source, newRange)
   }
 
-  override def toString: String =
+  override def toString: String = {
     t"Span(\"${encodeString(fileName)}\",$range)"
+  }
 }
 
 extension (pos: Option[Span]) {
-  def combineInOption(other: Option[Span]): Option[Span] =
+  def combineInOption(other: Option[Span]): Option[Span] = {
     (pos, other) match {
       case (None, None)         => None
       case (Some(p), None)      => Some(p)
       case (None, Some(p))      => Some(p)
       case (Some(p1), Some(p2)) => Some(p1.combine(p2))
     }
+  }
 }

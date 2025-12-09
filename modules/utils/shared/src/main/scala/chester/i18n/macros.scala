@@ -31,7 +31,7 @@ private object TranslationRepository:
   private val defaultLanguage = Language(LanguageTag.EN)
   private val localePreference: Parameter[Language] = Parameter()
 
-  def translationTemplate(scExpr: Expr[StringContext])(using Quotes): String =
+  def translationTemplate(scExpr: Expr[StringContext])(using Quotes): String = {
     val sc = scExpr match
       case '{ StringContext(${ Varargs(parts) }*) } =>
         val evaluated = parts.map(_.valueOrAbort)
@@ -40,16 +40,19 @@ private object TranslationRepository:
         quotes.reflect.report.error("t interpolator only supports literal string contexts")
         new StringContext("")
     Template.stringContextToString(sc)
+  }
 
-  def render(template: String, args: Vector[Any], translations: Map[String, Map[String, String]]): String =
+  def render(template: String, args: Vector[Any], translations: Map[String, Map[String, String]]): String = {
     Template.applyTemplate(resolveTemplate(template, translations), args)
+  }
 
-  def renderDoc(template: String, args: Vector[ToDoc], translations: Map[String, Map[String, String]])(using DocConf): Doc =
+  def renderDoc(template: String, args: Vector[ToDoc], translations: Map[String, Map[String, String]])(using DocConf): Doc = {
     val resolved = resolveTemplate(template, translations)
     val parts = Template.docPartsFromTemplate(resolved)
     Template.renderDocFromTemplateParts(parts, args)
+  }
 
-  private def resolveTemplate(template: String, translations: Map[String, Map[String, String]]): String =
+  private def resolveTemplate(template: String, translations: Map[String, Map[String, String]]): String = {
     val lang = detectLanguage()
     val locales = Seq(
       s"${lang.tag.name}_${lang.region.name}",
@@ -59,8 +62,9 @@ private object TranslationRepository:
       .flatMap(locale => translations.get(locale).flatMap(_.get(template)))
       .nextOption()
       .getOrElse(template)
+  }
 
-  private def detectLanguage(): Language =
+  private def detectLanguage(): Language = {
     localePreference.getOption
       .orElse {
         val env = sys.env
@@ -72,8 +76,9 @@ private object TranslationRepository:
         rawLocale.flatMap(parseLanguage)
       }
       .getOrElse(defaultLanguage)
+  }
 
-  private def parseLanguage(raw: String): Option[Language] =
+  private def parseLanguage(raw: String): Option[Language] = {
     val sanitized = raw
       .takeWhile(ch => ch != '.' && ch != '@')
       .replace('-', '_')
@@ -87,8 +92,9 @@ private object TranslationRepository:
       case Array(languagePart) =>
         LanguageTag.values.find(_.is(languagePart)).map(Language(_))
       case _ => None
+  }
 
-  private def normalizeLocaleKey(raw: String): String =
+  private def normalizeLocaleKey(raw: String): String = {
     val sanitized = raw
       .takeWhile(ch => ch != '.' && ch != '@')
       .replace('-', '_')
@@ -99,22 +105,26 @@ private object TranslationRepository:
       case Array(languagePart) =>
         languagePart.toLowerCase
       case _ => raw.toLowerCase
+  }
 
-  private def loadTranslations()(using Quotes): Map[String, Map[String, String]] =
+  private def loadTranslations()(using Quotes): Map[String, Map[String, String]] = {
     val path = translationFile
-    val content =
+    val content = {
       try Files.readString(path)
       catch case NonFatal(_) => "{}"
+    }
 
     if cachedFileSnapshot.contains(content) then cachedTranslations.getOrElse(Map.empty)
-    else
+    else {
       val parsed = parseTranslationContent(content)
       cachedFileSnapshot = Some(content)
       cachedTranslations = Some(parsed)
       parsed
+    }
+  }
 
-  private def parseTranslationContent(content: String): Map[String, Map[String, String]] =
-    try
+  private def parseTranslationContent(content: String): Map[String, Map[String, String]] = {
+    try {
       val json = ujson.read(content)
       json.obj.view.flatMap { case (locale, value) =>
         value.objOpt.map { inner =>
@@ -122,9 +132,10 @@ private object TranslationRepository:
           normalizeLocaleKey(locale) -> entries
         }
       }.toMap
-    catch case NonFatal(_) => Map.empty
+    } catch case NonFatal(_) => Map.empty
+  }
 
-  private def translationFile: Path =
+  private def translationFile: Path = {
     val envPath = sys.env.get("CHESTER_I18N_FILE").map(Paths.get(_))
     val defaultPath = Paths.get("i18n", "translations.json")
     val target = envPath.getOrElse(defaultPath)
@@ -135,8 +146,9 @@ private object TranslationRepository:
       cachedFileSnapshot = Some("{}\n")
       cachedTranslations = Some(Map.empty)
     target
+  }
 
-  def ensureTemplateRegistered(template: String)(using Quotes): Unit =
+  def ensureTemplateRegistered(template: String)(using Quotes): Unit = {
     val translations = loadTranslations()
     val missingLocales = LanguageTag.values.map(localeKeyFor).filter(locale => translations.get(locale).forall(!_.contains(template)))
     if missingLocales.nonEmpty then
@@ -144,16 +156,18 @@ private object TranslationRepository:
       val updated = updateTranslationFile(updates)
       cachedFileSnapshot = Some(updated._1)
       cachedTranslations = Some(updated._2)
+  }
 
-  private def updateTranslationFile(newEntries: Map[String, Map[String, String]]): (String, Map[String, Map[String, String]]) =
+  private def updateTranslationFile(newEntries: Map[String, Map[String, String]]): (String, Map[String, Map[String, String]]) = {
     val path = translationFile
-    val currentContent =
+    val currentContent = {
       cachedFileSnapshot
         .orElse {
           try Some(Files.readString(path))
           catch case NonFatal(_) => None
         }
         .getOrElse("{}")
+    }
     val parsed = parseTranslationContent(currentContent)
     val updatedAll = newEntries.foldLeft(parsed) { case (acc, (locale, entries)) =>
       val localeMap = acc.getOrElse(locale, Map.empty)
@@ -171,26 +185,31 @@ private object TranslationRepository:
     val rendered = jsonObj.render(2) + "\n"
     Files.writeString(path, rendered, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
     (rendered, updatedAll)
+  }
 
-  private def localeKeyFor(tag: LanguageTag): String =
+  private def localeKeyFor(tag: LanguageTag): String = {
     normalizeLocaleKey(s"${tag.name}_${tag.defaultRegion.name}")
+  }
 
-  def withLocaleOverride[T](locale: String)(body: => T): T =
+  def withLocaleOverride[T](locale: String)(body: => T): T = {
     val language = parseLanguage(locale).getOrElse(defaultLanguage)
     localePreference.withValue(language)(body)
+  }
 
-  def embeddedTranslations()(using Quotes): Expr[Map[String, Map[String, String]]] =
+  def embeddedTranslations()(using Quotes): Expr[Map[String, Map[String, String]]] = {
     val translations = loadTranslations()
     liftTranslations(translations)
+  }
 
-  private def liftTranslations(map: Map[String, Map[String, String]])(using Quotes): Expr[Map[String, Map[String, String]]] =
+  private def liftTranslations(map: Map[String, Map[String, String]])(using Quotes): Expr[Map[String, Map[String, String]]] = {
     val localeEntries: List[Expr[(String, Map[String, String])]] = map.toList.map { case (k, v) =>
       val inner: List[Expr[(String, String)]] = v.toList.map { case (ik, iv) => '{ ${ Expr(ik) } -> ${ Expr(iv) } } }
       '{ ${ Expr(k) } -> Map[String, String](${ Expr.ofList(inner) }*) }
     }
     '{ Map[String, Map[String, String]](${ Expr.ofList(localeEntries) }*) }
+  }
 
-private def dMacro(scExpr: Expr[StringContext])(using Quotes): Expr[D] =
+private def dMacro(scExpr: Expr[StringContext])(using Quotes): Expr[D] = {
   val parts = scExpr match
     case '{ StringContext(${ Varargs(ps) }*) } => ps.map(_.valueOrAbort).toVector
     case _ =>
@@ -199,31 +218,37 @@ private def dMacro(scExpr: Expr[StringContext])(using Quotes): Expr[D] =
   val partsExpr = Expr.ofSeq(parts.map(Expr(_)))
   '{
     new D {
-      def d(args: ToDoc*)(using DocConf): Doc =
+      def d(args: ToDoc*)(using DocConf): Doc = {
         Template.renderDocFromStringContext($partsExpr.toVector, args.toVector)
+      }
     }
   }
+}
 
-private def tMacro(sc: Expr[StringContext])(using Quotes): Expr[T] =
+private def tMacro(sc: Expr[StringContext])(using Quotes): Expr[T] = {
   val template = TranslationRepository.translationTemplate(sc)
   TranslationRepository.ensureTemplateRegistered(template)
   val templateExpr = Expr(template)(using summon[ToExpr[String]])
   val translationsExpr = TranslationRepository.embeddedTranslations()
   '{
     new T {
-      def t(args: Any*): String =
+      def t(args: Any*): String = {
         TranslationRepository.render($templateExpr, args.toVector, $translationsExpr)
+      }
     }
   }
+}
 
-private def dtMacro(sc: Expr[StringContext])(using Quotes): Expr[DT] =
+private def dtMacro(sc: Expr[StringContext])(using Quotes): Expr[DT] = {
   val template = TranslationRepository.translationTemplate(sc)
   TranslationRepository.ensureTemplateRegistered(template)
   val templateExpr = Expr(template)(using summon[ToExpr[String]])
   val translationsExpr = TranslationRepository.embeddedTranslations()
   '{
     new DT {
-      def dt(args: ToDoc*)(using DocConf): Doc =
+      def dt(args: ToDoc*)(using DocConf): Doc = {
         TranslationRepository.renderDoc($templateExpr, args.toVector, $translationsExpr)
+      }
     }
   }
+}

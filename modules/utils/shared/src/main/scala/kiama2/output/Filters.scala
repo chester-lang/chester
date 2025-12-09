@@ -18,13 +18,15 @@ trait Filters {
 
   /** A filter that limits the string `s` to at most `n` characters.
     */
-  def keepMaxChars(n: Int)(s: String): String =
+  def keepMaxChars(n: Int)(s: String): String = {
     s.take(n)
+  }
 
   /** A filter that limits the string `s` to at most `n` completed lines. The final end of line is included.
     */
-  def keepMaxLines(n: Int)(s: String): String =
+  def keepMaxLines(n: Int)(s: String): String = {
     s.linesWithSeparators.take(n).mkString
+  }
 
   /** A filter that limits the string `s` to at most `n` words. A word is one or more consecutive non-whitespace characters. The whitespace after the
     * last word (if any) is not included.
@@ -36,13 +38,15 @@ trait Filters {
 
   /** A replacement function that when given an integer `n` returns the string `"..."` preceded by `n` spaces. The string argument `s` is ignored.
     */
-  def indentedEllipsis(n: Int, s: String): String =
+  def indentedEllipsis(n: Int, s: String): String = {
     s"${" " * n}...\n"
+  }
 
   /** Return the indentation of a line, i.e., the number of spaces that appear before the first non-space character.
     */
-  def indentOf(s: String): Int =
+  def indentOf(s: String): Int = {
     s.takeWhile(_.isSpaceChar).length
+  }
 
   /** A filter that replaces runs of lines that have an indentation level of at least `n` spaces. A run of replaced lines will be replaced by the
     * result of a call `mkrepl (n, l)` where `l` is the first line of the run. By default, `mkrepl` is `indentedEllipsis`.
@@ -51,19 +55,22 @@ trait Filters {
       n: Int,
       s: String,
       mkrepl: (Int, String) => String = indentedEllipsis
-  ): String =
+  ): String = {
     s.linesWithSeparators
       .foldLeft((Vector[String](), true)) { case ((result, first), l) =>
-        if (indentOf(l) >= n)
-          if (first)
+        if (indentOf(l) >= n) {
+          if (first) {
             (result :+ mkrepl(n, l), false)
-          else
+          } else {
             (result, false)
-        else
+          }
+        } else {
           (result :+ l, true)
+        }
       }
       ._1
       .mkString
+  }
 
 }
 

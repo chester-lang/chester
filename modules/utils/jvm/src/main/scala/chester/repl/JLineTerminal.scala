@@ -5,13 +5,13 @@ class JLineTerminal(_init: TerminalInit) {
   private val terminal = org.jline.terminal.TerminalBuilder.terminal()
   private val history = new org.jline.reader.impl.history.DefaultHistory()
 
-  private def createParser(info: TerminalInfo): org.jline.reader.Parser =
+  private def createParser(info: TerminalInfo): org.jline.reader.Parser = {
     new org.jline.reader.impl.DefaultParser() {
       override def parse(
           line: String,
           cursor: Int,
           context: org.jline.reader.Parser.ParseContext
-      ): org.jline.reader.ParsedLine =
+      ): org.jline.reader.ParsedLine = {
         info.checkInputStatus(line) match {
           case InputStatus.Complete => super.parse(line, cursor, context)
           case InputStatus.Incomplete =>
@@ -22,7 +22,9 @@ class JLineTerminal(_init: TerminalInit) {
             )
           case InputStatus.Error(_) => super.parse(line, cursor, context)
         }
+      }
     }
+  }
 
   def readLine(info: TerminalInfo): ReadLineResult = {
     val parser = createParser(info)
@@ -37,7 +39,7 @@ class JLineTerminal(_init: TerminalInit) {
     var continue = true
     var result: ReadLineResult = EndOfFile
 
-    while (continue)
+    while (continue) {
       try {
         var line = reader.readLine(prompt.render)
         history.add(line)
@@ -69,11 +71,13 @@ class JLineTerminal(_init: TerminalInit) {
           result = EndOfFile
           continue = false
       }
+    }
     result
   }
 
   def close(): Unit = terminal.close()
 
-  def getHistory: Seq[String] =
+  def getHistory: Seq[String] = {
     (0 until history.size()).map(history.get)
+  }
 }

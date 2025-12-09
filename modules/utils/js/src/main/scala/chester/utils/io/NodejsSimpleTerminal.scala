@@ -17,7 +17,7 @@ class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future
 
   private var reading: Promise[String] | Null = null
 
-  private def closeCallback(): Unit =
+  private def closeCallback(): Unit = {
     if (live) {
       reading match {
         case null => ()
@@ -26,6 +26,7 @@ class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future
           r.success("")
       }
     }
+  }
 
   rl.on("close", _ => closeCallback())
 
@@ -52,6 +53,7 @@ class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future
     rl.close()
   }
 
-  override def writeln(line: Str): Future[Unit] =
+  override def writeln(line: Str): Future[Unit] = {
     Future.successful(println(line.render))
+  }
 }

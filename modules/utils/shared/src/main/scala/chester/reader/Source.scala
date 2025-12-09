@@ -44,9 +44,10 @@ object FilePath {
 
 case class FilePath private (fileName: String) extends ParserSource {
   private[chester] var impl: FilePathImpl = scala.compiletime.uninitialized
-  override lazy val readContent: Either[ParseError, Seq[String]] =
+  override lazy val readContent: Either[ParseError, Seq[String]] = {
     if (impl == null) Left(ParseError("No FilePathImpl provided"))
     else impl.readContent(fileName).map(Vector(_))
+  }
 }
 
 // TODO: maybe column offset for the first line also
@@ -88,11 +89,13 @@ case class Offset(
         copy(posOffset = posOffset + WithUTF16(1, s.utf16Len))
       }
   }
-  def add(x: Pos): Pos =
-    if (x.line == 0)
+  def add(x: Pos): Pos = {
+    if (x.line == 0) {
       Pos(index = posOffset + x.index, line = x.line + lineOffset, column = x.column + firstLineColumnOffset)
-    else
+    } else {
       Pos(index = posOffset + x.index, line = x.line + lineOffset, column = x.column)
+    }
+  }
 
   def add(x: SpanInFile): SpanInFile = SpanInFile(start = add(x.start), end = add(x.end))
   def add(x: Span): Span = Span(source = x.source, range = add(x.range))

@@ -3,10 +3,11 @@ import com.eed3si9n.ifdef.*
 
 @ifndef("jdk21")
 class Parameter[T](default: Option[T] = None) {
-  private val tl: InheritableThreadLocal[Option[T]] =
+  private val tl: InheritableThreadLocal[Option[T]] = {
     new InheritableThreadLocal[Option[T]] {
       override def initialValue(): Option[T] = default
     }
+  }
 
   def withValue[U](value: T)(block: => U): U = {
     val previousValue = tl.get()
@@ -18,18 +19,21 @@ class Parameter[T](default: Option[T] = None) {
 
   /** Gets the current value, throwing if none is set (neither scoped nor default).
     */
-  def get: T =
+  def get: T = {
     tl.get().getOrElse(throw new IllegalStateException("No value set for Parameter"))
+  }
 
   /** Gets the current value, or returns the provided default if none is set.
     */
-  def getOrElse(defaultVal: => T): T =
+  def getOrElse(defaultVal: => T): T = {
     tl.get().getOrElse(defaultVal)
+  }
 
   /** Gets the current value as an Option.
     */
-  def getOption: Option[T] =
+  def getOption: Option[T] = {
     tl.get()
+  }
 }
 
 @ifdef("jdk21")

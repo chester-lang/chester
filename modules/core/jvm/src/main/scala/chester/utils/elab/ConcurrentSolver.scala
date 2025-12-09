@@ -36,8 +36,9 @@ object ConcurrentSolverModule extends SolverModule {
   // Define Solver instance type - parameterized by constraint type
   override type Solver[C] = ConcurrentSolverInstance[C]
 
-  override def makeSolver[C](conf: HandlerConf[C, this.type]): Solver[C] =
+  override def makeSolver[C](conf: HandlerConf[C, this.type]): Solver[C] = {
     new ConcurrentSolverInstance[C](conf)
+  }
 
   // Helper methods
   private def peakCell[T](id: CellR[T]): CellContentR[T] = atomic(implicit txn => id.storeRefAs[CellContentR[T]].get)
@@ -62,44 +63,57 @@ object ConcurrentSolverModule extends SolverModule {
   }
 
   // Implement module interface
-  override def hasStableValue[C](solver: Solver[C], id: CellAny): Boolean =
+  override def hasStableValue[C](solver: Solver[C], id: CellAny): Boolean = {
     peakCell(id.asInstanceOf[CellR[Any]]).hasStableValue
+  }
 
-  override def noStableValue[C](solver: Solver[C], id: CellAny): Boolean =
+  override def noStableValue[C](solver: Solver[C], id: CellAny): Boolean = {
     peakCell(id.asInstanceOf[CellR[Any]]).noStableValue
+  }
 
-  override def readStable[C, U](solver: Solver[C], id: CellR[U]): Option[U] =
+  override def readStable[C, U](solver: Solver[C], id: CellR[U]): Option[U] = {
     peakCell(id).readStable
+  }
 
-  override def hasSomeValue[C](solver: Solver[C], id: CellAny): Boolean =
+  override def hasSomeValue[C](solver: Solver[C], id: CellAny): Boolean = {
     peakCell(id.asInstanceOf[CellR[Any]]).hasSomeValue
+  }
 
-  override def noAnyValue[C](solver: Solver[C], id: CellAny): Boolean =
+  override def noAnyValue[C](solver: Solver[C], id: CellAny): Boolean = {
     peakCell(id.asInstanceOf[CellR[Any]]).noAnyValue
+  }
 
-  override def readUnstable[C, U](solver: Solver[C], id: CellR[U]): Option[U] =
+  override def readUnstable[C, U](solver: Solver[C], id: CellR[U]): Option[U] = {
     peakCell(id).readUnstable
+  }
 
-  override def fill[C, T](solver: Solver[C], id: CellW[T], value: T): Unit =
+  override def fill[C, T](solver: Solver[C], id: CellW[T], value: T): Unit = {
     updateCell(solver, id.asInstanceOf[CellOf[Any, Any]], _.fill(value))
+  }
 
-  override def newOnceCell[C, T](solver: Solver[C], default: Option[T] = None): OnceCell[T] =
+  override def newOnceCell[C, T](solver: Solver[C], default: Option[T] = None): OnceCell[T] = {
     ConcurrentCell(OnceCellContent[T](None, default))
+  }
 
-  override def newMutableCell[C, T](solver: Solver[C], initial: Option[T] = None): MutableCell[T] =
+  override def newMutableCell[C, T](solver: Solver[C], initial: Option[T] = None): MutableCell[T] = {
     ConcurrentCell(MutableCellContent[T](initial))
+  }
 
-  override def newCollectionCell[C, A](solver: Solver[C]): CollectionCell[A] =
+  override def newCollectionCell[C, A](solver: Solver[C]): CollectionCell[A] = {
     ConcurrentCell(CollectionCellContent[A, A]())
+  }
 
-  override def newMapCell[C, K, V](solver: Solver[C]): MapCell[K, V] =
+  override def newMapCell[C, K, V](solver: Solver[C]): MapCell[K, V] = {
     ConcurrentCell(MappingCellContent[K, V]())
+  }
 
-  override def newLiteralCell[C, T](solver: Solver[C], value: T): LiteralCell[T] =
+  override def newLiteralCell[C, T](solver: Solver[C], value: T): LiteralCell[T] = {
     ConcurrentCell(LiteralCellContent(value))
+  }
 
-  override def addCell[C, A, B, CC <: CellContent[A, B]](solver: Solver[C], cell: CC): Cell[A, B, CC] =
+  override def addCell[C, A, B, CC <: CellContent[A, B]](solver: Solver[C], cell: CC): Cell[A, B, CC] = {
     ConcurrentCell(cell)
+  }
 
   override def addConstraint[C](solver: Solver[C], constraint: C): Unit = {
     val handler = solver.conf.getHandler(constraint).getOrElse(throw new IllegalStateException(s"no handler for $constraint"))

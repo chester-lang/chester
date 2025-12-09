@@ -95,17 +95,18 @@ trait ParenPrettyPrinter extends AbstractPrettyPrinter {
       outer: PrettyOperatorExpression[Doc],
       inner: PrettyExpression[Doc],
       side: Side
-  ): Doc =
+  ): Doc = {
     inner match {
       case l: PrettyOperatorExpression[Doc] =>
         bracket(outer, l, side)
       case l =>
         toParenDoc(l)
     }
+  }
 
   /** Pretty-print a unary, binary or nary expression.
     */
-  def toParenDoc(e: PrettyExpression[Doc]): Doc =
+  def toParenDoc(e: PrettyExpression[Doc]): Doc = {
     e match {
 
       case b: PrettyBinaryExpression[Doc] =>
@@ -115,14 +116,16 @@ trait ParenPrettyPrinter extends AbstractPrettyPrinter {
 
       case u: PrettyUnaryExpression[Doc] =>
         val ed = recursiveToDoc(u, u.exp, NonAssoc)
-        if (u.fixity == Prefix)
+        if (u.fixity == Prefix) {
           u.op <> ed
-        else
+        } else {
           ed <> u.op
+        }
 
       case d: PrettyExpressionDoc[Doc] =>
         d.doc
     }
+  }
 
   /** Optionally parenthesise an operator expression based on the precedence relation with an outer expression's operator.
     */
@@ -163,7 +166,8 @@ trait ParenPrettyPrinter extends AbstractPrettyPrinter {
     })
   }
 
-  def prettyExpr(d: Expr, w: Width = defaultWidth): Document =
+  def prettyExpr(d: Expr, w: Width = defaultWidth): Document = {
     pretty(toParenDoc(d), w)
+  }
 
 }

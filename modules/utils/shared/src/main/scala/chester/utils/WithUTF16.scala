@@ -14,8 +14,9 @@ case class WithUTF16(unicode: spire.math.Natural, utf16: spire.math.Natural) der
   def >(other: WithUTF16): Boolean = unicode > other.unicode && utf16 > other.utf16
   def <=(other: WithUTF16): Boolean = unicode <= other.unicode && utf16 <= other.utf16
   def >=(other: WithUTF16): Boolean = unicode >= other.unicode && utf16 >= other.utf16
-  def +(other: WithUTF16): WithUTF16 =
+  def +(other: WithUTF16): WithUTF16 = {
     WithUTF16(unicode + other.unicode, utf16 + other.utf16)
+  }
   def isZero: Boolean = unicode == 0 && utf16 == 0
   def nonZero: Boolean = unicode != 0 && utf16 != 0
 }

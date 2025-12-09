@@ -14,14 +14,17 @@ case class DocConf(x: Map[DocConfKey[?], Any]) extends AnyVal {
     getOrElse__[T](key, default)
   }
 
-  private def getOption[T](key: DocConfKey[T]): Option[T] =
+  private def getOption[T](key: DocConfKey[T]): Option[T] = {
     options.get(key).map(_.asInstanceOf[T])
+  }
 
-  private def getOrElse__[T](key: DocConfKey[T], default: T): T =
+  private def getOrElse__[T](key: DocConfKey[T], default: T): T = {
     getOption(key).getOrElse(default)
+  }
 
-  def updated[T](key: DocConfKey[T], value: T): DocConf =
+  def updated[T](key: DocConfKey[T], value: T): DocConf = {
     DocConf(options.updated(key, value))
+  }
 }
 
 case class DocConfKeyVal[T](key: DocConfKey[T], value: T)

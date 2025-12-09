@@ -35,7 +35,7 @@ object Tokenizer {
 
     def currentPos: Int = position
 
-    def spanFrom(start: Int): Span =
+    def spanFrom(start: Int): Span = {
       if (start >= chars.length) {
         chars.lastOption
           .map(_.span)
@@ -52,6 +52,7 @@ object Tokenizer {
       } else {
         chars(start).span.combine(chars(position - 1).span)
       }
+    }
   }
 
   /** Tokenize with lazy evaluation and error recovery. Returns a LazyList that can be consumed incrementally, useful for:
@@ -78,7 +79,7 @@ object Tokenizer {
 
     val state = new TokenizerState(chars)
 
-    def readTokens(): LazyList[TokenResult] =
+    def readTokens(): LazyList[TokenResult] = {
       if (!state.hasNext) {
         // Add EOF token
         val eofSpan = chars.last.span
@@ -89,6 +90,7 @@ object Tokenizer {
           case None         => readTokens() // Skip trivia
         }
       }
+    }
 
     readTokens()
   }
@@ -107,16 +109,17 @@ object Tokenizer {
   }
 
   /** Read a token with error recovery - returns None for trivia (whitespace) */
-  private def readTokenWithRecovery(state: TokenizerState): Option[TokenResult] =
-    try
+  private def readTokenWithRecovery(state: TokenizerState): Option[TokenResult] = {
+    try {
       readToken(state).map(TokenResult.Success(_))
-    catch {
+    } catch {
       case e: TokenizeException =>
         // Error recovery: try to continue parsing
         Some(TokenResult.Error(ParseError(e.message, Some(e.span)), None))
     }
+  }
 
-  private def readToken(state: TokenizerState): Option[Token] =
+  private def readToken(state: TokenizerState): Option[Token] = {
     state.codePoint match {
       case None => None
       case Some(cp) =>
@@ -149,6 +152,7 @@ object Tokenizer {
             throw TokenizeException(t"Unexpected character: '${state.current.get.text}'", span)
         }
     }
+  }
 
   private def readSingleChar(state: TokenizerState, constructor: Span => Token): Token = {
     val start = state.currentPos
@@ -193,7 +197,7 @@ object Tokenizer {
 
     val chars = ArrayBuffer.empty[StringChar]
     var depth = 1
-    while (state.hasNext && depth > 0)
+    while (state.hasNext && depth > 0) {
       if (state.current.get.text == "/" && state.peek(1).exists(_.text == "*")) {
         depth += 1
         chars += state.current.get
@@ -210,6 +214,7 @@ object Tokenizer {
         chars += state.current.get
         state.advance()
       }
+    }
 
     if (depth > 0) {
       // Error recovery: unclosed block comment at EOF - common in editing
@@ -230,7 +235,7 @@ object Tokenizer {
     val chars = ArrayBuffer.empty[StringChar]
     var foundClosing = false
 
-    while (state.hasNext && !foundClosing)
+    while (state.hasNext && !foundClosing) {
       state.current.get.text match {
         case "\"" =>
           foundClosing = true
@@ -260,6 +265,7 @@ object Tokenizer {
           chars += state.current.get
           state.advance()
       }
+    }
 
     if (!foundClosing) {
       // Error recovery: unclosed string at EOF

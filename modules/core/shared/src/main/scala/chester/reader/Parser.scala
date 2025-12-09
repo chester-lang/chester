@@ -19,11 +19,13 @@ object Parser {
     def advance(): Unit = if (hasNext) position += 1
     def getRest: Seq[Token] = tokens.drop(position)
 
-    def skipTrivia(): Unit =
+    def skipTrivia(): Unit = {
       while (hasNext && current.exists(t => t.isWhitespace || t.isComment)) advance()
+    }
 
-    def recordError(message: String, span: Span): Unit =
+    def recordError(message: String, span: Span): Unit = {
       reporter.report(ParseError(message, Some(span)))
+    }
 
     // Helpers for common checks
     def is(check: Token => Boolean): Boolean = current.exists(check)
@@ -46,9 +48,10 @@ object Parser {
 
     // Handle empty file
     if (!state.hasNext) {
-      val dummySpan =
+      val dummySpan = {
         if (tokens.nonEmpty) Some(tokens.last.span)
         else Some(Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero)))
+      }
       return CST.Block(Vector.empty, None, dummySpan)
     }
 
@@ -57,7 +60,7 @@ object Parser {
     var tail: Option[CST] = None
 
     // Parse statements like a block (without braces)
-    while (state.hasNext && !state.isEOF)
+    while (state.hasNext && !state.isEOF) {
       if (state.isSemicolon) {
         state.advance() // Skip empty statement
         state.skipTrivia()
@@ -81,6 +84,7 @@ object Parser {
           state.skipTrivia()
         }
       }
+    }
 
     // Ensure all tokens consumed
     if (!state.isEOF && state.hasNext) {
@@ -97,9 +101,10 @@ object Parser {
 
     if (!state.hasNext) {
       // Return a dummy symbol for error recovery since SeqOf requires at least one element
-      val dummySpan =
+      val dummySpan = {
         if (tokens.nonEmpty) Some(tokens.last.span)
         else Some(Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero)))
+      }
       return ParseResult(CST.Symbol("<empty>", dummySpan), state.getRest)
     }
 
@@ -148,11 +153,12 @@ object Parser {
             else CST.Symbol("<error>", Some(token.span))
         }
       case None =>
-        val lastSpan =
+        val lastSpan = {
           if (state.tokens.nonEmpty) state.tokens.last.span
           else {
             Span(Source(FileNameAndContent("unknown", "")), SpanInFile(Pos.zero, Pos.zero))
           }
+        }
         state.recordError("Unexpected end of input", lastSpan)
         CST.Symbol("<error>", Some(lastSpan))
     }
@@ -188,9 +194,9 @@ object Parser {
 
       if (sequenceAtoms.nonEmpty) {
         // Combine into SeqOf if multiple atoms, or keep single atom
-        val element =
+        val element = {
           if (sequenceAtoms.length == 1) sequenceAtoms(0)
-          else
+          else {
             CST.SeqOf(
               NonEmptyVector.fromVectorUnsafe(sequenceAtoms.toVector),
               for {
@@ -198,6 +204,8 @@ object Parser {
                 l <- sequenceAtoms.last.span
               } yield h.combine(l)
             )
+          }
+        }
         elements += element
       }
 
@@ -240,9 +248,9 @@ object Parser {
   }
 
   /** Combine atoms into single CST - SeqOf if multiple, single atom if one */
-  private def combineAtoms(atoms: Seq[CST]): CST =
+  private def combineAtoms(atoms: Seq[CST]): CST = {
     if (atoms.length == 1) atoms(0)
-    else
+    else {
       CST.SeqOf(
         NonEmptyVector.fromVectorUnsafe(atoms.toVector),
         for {
@@ -250,6 +258,8 @@ object Parser {
           l <- atoms.last.span
         } yield h.combine(l)
       )
+    }
+  }
 
   /** Parse multiple atoms until hitting a block stop token */
   private def parseAtomSequence(state: ParserState): CST = {
@@ -281,7 +291,7 @@ object Parser {
       CST.Block(elements.toVector, tail, Some(start.combine(endSpan)))
     }
 
-    while (state.hasNext && !state.is(isRBrace) && !state.is(isRParen))
+    while (state.hasNext && !state.is(isRBrace) && !state.is(isRParen)) {
       if (state.isSemicolon) {
         state.advance() // Skip empty statement
         state.skipTrivia()
@@ -304,6 +314,7 @@ object Parser {
           state.skipTrivia()
         }
       }
+    }
 
     state.current match {
       case Some(tok @ Token.RBrace(_)) =>

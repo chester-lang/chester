@@ -11,12 +11,13 @@ case class Style(
     background: Option[Background] = None,
     styling: Stylings = Stylings.Empty
 ) derives ReadWriter {
-  def ++(other: Style): Style =
+  def ++(other: Style): Style = {
     Style(
       foreground = other.foreground.orElse(foreground),
       background = other.background.orElse(background),
       styling = styling ++ other.styling
     )
+  }
 
   def toFansi: fansi.Attrs = {
     val fg = foreground.map(_.toFansi).getOrElse(fansi.Attrs.Empty)

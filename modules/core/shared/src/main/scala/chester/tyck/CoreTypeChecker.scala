@@ -11,7 +11,7 @@ object CoreTypeChecker:
   private type RecordEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[chester.core.Param])]
 
   /** Normalize a type AST with shallow beta-reduction of type-level lambdas/applications. */
-  def normalizeType(ast: AST): AST =
+  def normalizeType(ast: AST): AST = {
     ast match
       case AST.App(func, args, implicitArgs, span) =>
         val nFunc = normalizeType(func)
@@ -40,9 +40,10 @@ object CoreTypeChecker:
         AST.RecordCtor(id, name, args.map(normalizeType), span)
       case AST.FieldAccess(target, field, span) =>
         AST.FieldAccess(normalizeType(target), field, span)
-      case other                        => other
+      case other => other
+  }
 
-  private def normalizeTypeStmt(stmt: StmtAST): StmtAST =
+  private def normalizeTypeStmt(stmt: StmtAST): StmtAST = {
     stmt match
       case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(normalizeType(expr), span)
       case StmtAST.Def(id, name, teles, resTy, body, span) =>
@@ -52,16 +53,18 @@ object CoreTypeChecker:
         val normFields = fields.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))
         StmtAST.Record(id, name, normFields, span)
       case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, normalizeType(body), span)
+  }
 
   /** Entry point to check whether an AST is well-typed according to a simple dependent type checker. */
   def typeChecks(ast: AST): Boolean = infer(ast, Map.empty, Map.empty).isDefined
 
-  private def check(ast: AST, expected: AST, env: Env, records: RecordEnv): Boolean =
+  private def check(ast: AST, expected: AST, env: Env, records: RecordEnv): Boolean = {
     infer(ast, env, records).exists(t => normalizeType(t) == normalizeType(expected))
+  }
 
   /** Extract sort (Type vs TypeΩ) and its level for a type-of-type. */
   private case class Sort(isOmega: Boolean, level: Int)
-  private def sortOfType(ty: AST): Option[Sort] =
+  private def sortOfType(ty: AST): Option[Sort] = {
     normalizeType(ty) match
       case AST.Type(AST.LevelLit(n, _), _)      => Some(Sort(isOmega = false, n.toInt))
       case AST.TypeOmega(AST.LevelLit(n, _), _) => Some(Sort(isOmega = true, n.toInt))
@@ -69,8 +72,9 @@ object CoreTypeChecker:
       case AST.Type(AST.IntLit(n, _), _)      => Some(Sort(isOmega = false, n.toInt))
       case AST.TypeOmega(AST.IntLit(n, _), _) => Some(Sort(isOmega = true, n.toInt))
       case _                                  => None
+  }
 
-  private def infer(ast: AST, env: Env, records: RecordEnv): Option[AST] =
+  private def infer(ast: AST, env: Env, records: RecordEnv): Option[AST] = {
     ast match
       case AST.Ref(id, _, _)     => env.get(id)
       case AST.StringLit(_, _)   => Some(AST.StringType(None))
@@ -100,9 +104,10 @@ object CoreTypeChecker:
           case _ => None
       case AST.Tuple(elems, span) =>
         if elems.isEmpty then Some(AST.TupleType(Vector.empty, span))
-        else
+        else {
           val elemTys = elems.map(infer(_, env, records))
           if elemTys.forall(_.isDefined) then Some(AST.TupleType(elemTys.flatten, span)) else None
+        }
       case AST.TupleType(elems, span) =>
         val elemTys = elems.map(infer(_, env, records))
         if elemTys.forall(_.isDefined) then
@@ -127,12 +132,13 @@ object CoreTypeChecker:
           case Some(AST.Pi(teles, resTy, _, _)) =>
             val params = teles.flatMap(_.params)
             if params.length != args.length then None
-            else
+            else {
               val argTysOk = args.zip(params).forall { case (arg, param) => check(arg.value, param.ty, env, records) }
               if argTysOk then
                 val subst = params.map(_.id).zip(args.map(_.value)).toMap
                 Some(normalizeType(substituteInType(resTy, subst)))
               else None
+            }
           case _ => None
       case AST.Lam(_, _, _) => None // cannot infer lambda without expected type
       case AST.Pi(teles, res, effs, span) =>
@@ -162,8 +168,9 @@ object CoreTypeChecker:
             records.get(id).flatMap { case (_, flds) => flds.find(_.name == field).map(_.ty) }
           case _ => None
       case AST.MetaCell(_, _) => None
+  }
 
-  private def checkStmt(stmt: StmtAST, env: Env, records: RecordEnv): Boolean =
+  private def checkStmt(stmt: StmtAST, env: Env, records: RecordEnv): Boolean = {
     stmt match
       case StmtAST.ExprStmt(expr, _) => infer(expr, env, records).isDefined
       case StmtAST.Def(_, _, teles, resTy, body, _) =>
@@ -173,16 +180,19 @@ object CoreTypeChecker:
           case None     => infer(body, paramEnv, records).isDefined
       case StmtAST.Record(_, _, _, _) => true
       case StmtAST.Pkg(_, body, _)    => infer(body, env, records).isDefined
+  }
 
-  private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env =
+  private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env = {
     stmt match
       case StmtAST.Def(id, _, teles, resTy, _, _) =>
         val resultTy = resTy.getOrElse(AST.Type(AST.LevelLit(0, None), None))
         val pi = AST.Pi(teles, resultTy, Vector.empty, None)
         env + (id -> pi)
       case _ => env
+  }
 
-  private def extendRecordEnv(records: RecordEnv, stmt: StmtAST): RecordEnv =
+  private def extendRecordEnv(records: RecordEnv, stmt: StmtAST): RecordEnv = {
     stmt match
       case StmtAST.Record(id, name, fields, _) => records + (id -> (name, fields))
       case _                                   => records
+  }

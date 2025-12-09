@@ -54,8 +54,9 @@ object EditDistance {
       d(i)(j) = c1 min c2 min c3
 
       if (transpositions) {
-        if (i > 1 && j > 1 && s(i - 1) == t(j - 2) && s(i - 2) == t(j - 1))
+        if (i > 1 && j > 1 && s(i - 1) == t(j - 2) && s(i - 2) == t(j - 1)) {
           d(i)(j) = d(i)(j) min (d(i - 2)(j - 2) + cost)
+        }
       }
     }
 

@@ -56,8 +56,9 @@ enum RegionTag {
 }
 
 case class RegionTable(table: Map[RegionTag, Map[String, String]]) {
-  private val alternatives: Vector[Map[String, String]] =
+  private val alternatives: Vector[Map[String, String]] = {
     table.toSeq.sortBy((_, map) => -map.size).map(_._2).toVector
+  }
 
   def get(region: RegionTag, context: String): String = {
     import scala.util.boundary
@@ -78,8 +79,9 @@ case class RegionTable(table: Map[RegionTag, Map[String, String]]) {
 }
 
 case class TranslationTable(table: Map[LanguageTag, RegionTable]) {
-  def get(lang: Language, context: String): String =
+  def get(lang: Language, context: String): String = {
     table.get(lang.tag).map(_.get(lang.region, context)).getOrElse(context)
+  }
 }
 
 object Template {
@@ -104,33 +106,39 @@ object Template {
   }
 
   def applyTemplate(template: String, args: Vector[Any]): String = {
-    if (args.length > 9)
+    if (args.length > 9) {
       throw new IllegalArgumentException("Too many arguments")
+    }
     var result = template
     val xs = args.map(_.toString)
     for (i <- xs.indices) {
       val newResult = result.replace(s"$$${i + 1}", xs(i))
-      if (newResult == result)
+      if (newResult == result) {
         throw new IllegalArgumentException(
           s"Missing argument ${i + 1} in template $template"
         )
+      }
       result = newResult
     }
     for (i <- 1 to 9) {
-      for (x <- xs)
-        if (x.contains("s$$${i}"))
+      for (x <- xs) {
+        if (x.contains("s$$${i}")) {
           throw new IllegalArgumentException(s"Unexpected $i in args $args")
-      if (result.contains("s$$${i}"))
+        }
+      }
+      if (result.contains("s$$${i}")) {
         throw new IllegalArgumentException(s"Missing argument $i in args $args")
+      }
     }
     result.replace("$$", "$")
   }
 
-  def renderDocFromStringContext(parts: Vector[String], args: Vector[ToDoc])(using DocConf): Doc =
+  def renderDocFromStringContext(parts: Vector[String], args: Vector[ToDoc])(using DocConf): Doc = {
     if parts.length != args.length + 1 then
       throw new IllegalArgumentException(s"Invalid string context: ${parts.length} parts for ${args.length} args")
-    val literalDocs =
+    val literalDocs = {
       parts.iterator.map(part => if part.isEmpty then None else Some(Doc.text(part))).toVector
+    }
     val combined = Vector.newBuilder[Doc]
     var idx = 0
     while idx < args.length do
@@ -139,15 +147,17 @@ object Template {
       idx += 1
     literalDocs.lastOption.flatten.foreach(combined += _)
     concatenateDocs(combined.result())
+  }
 
-  def docPartsFromTemplate(template: String): Vector[DocTemplatePart] =
+  def docPartsFromTemplate(template: String): Vector[DocTemplatePart] = {
     val builder = Vector.newBuilder[DocTemplatePart]
     val literal = new StringBuilder
     var idx = 0
-    def flushLiteral(): Unit =
+    def flushLiteral(): Unit = {
       if literal.nonEmpty then
         builder += Literal(literal.result())
         literal.clear()
+    }
     while idx < template.length do
       val ch = template.charAt(idx)
       if ch == '$' && idx + 1 < template.length then
@@ -163,13 +173,15 @@ object Template {
           case _ =>
             literal.append(ch)
             idx += 1
-      else
+      else {
         literal.append(ch)
         idx += 1
+      }
     flushLiteral()
     builder.result()
+  }
 
-  def renderDocFromTemplateParts(parts: Vector[DocTemplatePart], args: Vector[ToDoc])(using DocConf): Doc =
+  def renderDocFromTemplateParts(parts: Vector[DocTemplatePart], args: Vector[ToDoc])(using DocConf): Doc = {
     val docs = Vector.newBuilder[Doc]
     parts.foreach {
       case Literal(value) if value.nonEmpty =>
@@ -181,9 +193,11 @@ object Template {
         docs += args(zeroIdx).toDoc
     }
     concatenateDocs(docs.result())
+  }
 
-  private def concatenateDocs(docs: Vector[Doc])(using DocConf): Doc =
+  private def concatenateDocs(docs: Vector[Doc])(using DocConf): Doc = {
     docs.headOption match
       case Some(head) => docs.tail.foldLeft(head)((acc, doc) => acc <> doc)
       case None       => Doc.empty
+  }
 }

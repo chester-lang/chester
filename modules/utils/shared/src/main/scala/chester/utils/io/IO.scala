@@ -71,11 +71,13 @@ trait IO[F[_]] {
 case class CommandOutput(exitCode: Option[Int])
 
 object Runner {
-  inline def pure[F[_]: Runner as runner, A](inline x: A): F[A] =
+  inline def pure[F[_]: Runner as runner, A](inline x: A): F[A] = {
     runner.pure(x)
+  }
 
-  inline def doTry[F[_]: Runner as runner, T](inline IO: F[T]): F[Try[T]] =
+  inline def doTry[F[_]: Runner as runner, T](inline IO: F[T]): F[Try[T]] = {
     runner.doTry(IO)
+  }
 
 }
 
@@ -86,8 +88,9 @@ object Spawn {
 }
 
 object IO {
-  inline def println[F[_]](inline x: String, toStderr: Boolean = false)(using inline io: IO[F]): F[Unit] =
+  inline def println[F[_]](inline x: String, toStderr: Boolean = false)(using inline io: IO[F]): F[Unit] = {
     io.println(x, toStderr)
+  }
 }
 
 extension [F[_]](_io: IO.type)(using io: IO[F]) {
@@ -100,20 +103,26 @@ extension [F[_]](_io: IO.type)(using io: IO[F]) {
       inline content: String,
       inline writeMode: WriteMode = WriteMode.Create
   ): F[Unit] = io.writeString(path, content, writeMode)
-  inline def write(inline path: io.Path, inline content: Array[Byte]): F[Unit] =
+  inline def write(inline path: io.Path, inline content: Array[Byte]): F[Unit] = {
     io.write(path, content)
-  inline def removeWhenExists(inline path: io.Path): F[Boolean] =
+  }
+  inline def removeWhenExists(inline path: io.Path): F[Boolean] = {
     io.removeWhenExists(path)
+  }
   inline def getHomeDir: F[io.Path] = io.getHomeDir
   inline def exists(inline path: io.Path): F[Boolean] = io.exists(path)
-  inline def createDirRecursiveIfNotExists(inline path: io.Path): F[Unit] =
+  inline def createDirRecursiveIfNotExists(inline path: io.Path): F[Unit] = {
     io.createDirRecursiveIfNotExists(path)
-  inline def downloadToFile(inline url: String, inline path: io.Path): F[Unit] =
+  }
+  inline def downloadToFile(inline url: String, inline path: io.Path): F[Unit] = {
     io.downloadToFile(url, path)
-  inline def chmodExecutable(inline path: io.Path): F[Unit] =
+  }
+  inline def chmodExecutable(inline path: io.Path): F[Unit] = {
     io.chmodExecutable(path)
-  inline def getAbsolutePath(inline path: io.Path): F[io.Path] =
+  }
+  inline def getAbsolutePath(inline path: io.Path): F[io.Path] = {
     io.getAbsolutePath(path)
+  }
   inline def call(
       inline command: Seq[String]
   ): F[CommandOutput] = io.call(command)

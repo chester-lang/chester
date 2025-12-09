@@ -70,8 +70,9 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     }
   }
 
-  private def printLines(lines: Seq[String], toStderr: Boolean): F[Unit] =
+  private def printLines(lines: Seq[String], toStderr: Boolean): F[Unit] = {
     lines.foldLeft(Runner.pure[F, Unit](()))((acc, line) => acc.flatMap(_ => IO.println(line, toStderr)))
+  }
 
   private def formatAst(ast: AST, ty: Option[AST]): String = {
     val astDoc = ast.toDoc.toString
@@ -84,7 +85,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     }
   }
 
-  private def showAnalysis(result: Either[Seq[String], (AST, Option[AST])], output: Option[String]): F[Unit] =
+  private def showAnalysis(result: Either[Seq[String], (AST, Option[AST])], output: Option[String]): F[Unit] = {
     result match {
       case Left(errors) =>
         printLines(errors, toStderr = true)
@@ -99,17 +100,19 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
             IO.println(rendered)
         }
     }
+  }
 
-  private def runRepl(): F[Unit] =
+  private def runRepl(): F[Unit] = {
     Terminal.runTerminal(TerminalInit.Default) {
-      def loop(using term: InTerminal[F]): F[Unit] =
+      def loop(using term: InTerminal[F]): F[Unit] = {
         InTerminal.readline(ReplInfo).flatMap {
           case LineRead(line) =>
             val trimmed = line.trim
             if (trimmed == ":quit" || trimmed == ":q") IO.println("Goodbye.")
-            else
+            else {
               showAnalysis(analyze(Source(FileNameAndContent("<stdin>", line))), None)
                 .flatMap(_ => loop)
+            }
           case StatusError(message) =>
             IO.println(s"Input error: $message", toStderr = true).flatMap(_ => loop)
           case UserInterrupted =>
@@ -117,9 +120,11 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
           case EndOfFile =>
             IO.println("Goodbye.")
         }
+      }
 
       loop
     }
+  }
 
   private def runFile(pathStr: String): F[Unit] = {
     val path = io.pathOps.of(pathStr)
@@ -127,11 +132,12 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       exists <- IO.exists(path)
       _ <-
         if !exists then IO.println(s"Input file '$pathStr' does not exist.", toStderr = true)
-        else
+        else {
           for {
             content <- IO.readString(path)
             _ <- showAnalysis(analyze(Source(FileNameAndContent(pathStr, content))), None)
           } yield ()
+        }
     } yield ()
   }
 
@@ -141,11 +147,12 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       exists <- IO.exists(path)
       _ <-
         if !exists then IO.println(s"Input file '$input' does not exist.", toStderr = true)
-        else
+        else {
           for {
             content <- IO.readString(path)
             _ <- showAnalysis(analyze(Source(FileNameAndContent(input, content))), output)
           } yield ()
+        }
     } yield ()
   }
 
@@ -169,8 +176,9 @@ object CLI {
       terminal: Terminal[F],
       io: IO[F],
       spawn: Spawn[F]
-  ): Unit =
+  ): Unit = {
     Spawn.spawn {
       (new CLI[F]).run(config)
     }
+  }
 }

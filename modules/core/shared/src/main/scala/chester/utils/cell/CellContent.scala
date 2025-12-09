@@ -34,27 +34,31 @@ trait BaseMapCell[A, B] {
 }
 
 trait UnstableCellContent[+A, -B] extends CellContent[A, B] {
-  override def readStable: Option[A] =
+  override def readStable: Option[A] = {
     throw new UnsupportedOperationException(
       t"${getClass.getName} is not stable"
     )
+  }
 
-  override def hasStableValue: Boolean =
+  override def hasStableValue: Boolean = {
     throw new UnsupportedOperationException(
       t"${getClass.getName} is not stable"
     )
+  }
 
-  override def noStableValue: Boolean =
+  override def noStableValue: Boolean = {
     throw new UnsupportedOperationException(
       t"${getClass.getName} is not stable"
     )
+  }
 }
 
 trait NoFill[+A, -B] extends CellContent[A, B] {
-  override def fill(newValue: B): NoFill[A, B] =
+  override def fill(newValue: B): NoFill[A, B] = {
     throw new UnsupportedOperationException(
       t"${getClass.getName} cannot be filled"
     )
+  }
 }
 
 trait MapCellContent[A, B] extends UnstableCellContent[Map[A, B], Map[A, B]] with BaseMapCell[A, B] with NoFill[Map[A, B], Map[A, B]] {}
@@ -81,22 +85,25 @@ case class OnceCellContent[T](
 case class MutableCellContent[T](value: Option[T]) extends CellContentRW[T] {
   override def readStable: Option[T] = value
 
-  override def fill(newValue: T): MutableCellContent[T] =
+  override def fill(newValue: T): MutableCellContent[T] = {
     copy(value = Some(newValue))
+  }
 }
 
 case class CollectionCellContent[+A, -B <: A](value: Vector[A] = Vector.empty) extends SeqCellContent[A, B] {
   override def readUnstable: Option[Vector[A]] = Some(value)
 
-  override def add(newValue: B): CollectionCellContent[A, B] =
+  override def add(newValue: B): CollectionCellContent[A, B] = {
     copy(value = value :+ newValue)
+  }
 }
 
 case class MappingCellContent[A, B](value: Map[A, B] = Map.empty[A, B]) extends MapCellContent[A, B] {
   override def readStable: Option[Map[A, B]] = Some(value)
 
-  override def add(key: A, newValue: B): MappingCellContent[A, B] =
+  override def add(key: A, newValue: B): MappingCellContent[A, B] = {
     copy(value = value + (key -> newValue))
+  }
 }
 
 case class LiteralCellContent[T](value: T) extends CellContentRW[T] {
@@ -104,8 +111,9 @@ case class LiteralCellContent[T](value: T) extends CellContentRW[T] {
 
   override def hasStableValue: Boolean = true
 
-  override def fill(newValue: T): LiteralCellContent[T] =
+  override def fill(newValue: T): LiteralCellContent[T] = {
     throw new UnsupportedOperationException("LiteralCell cannot be filled")
+  }
 }
 
 /** A cell that automatically provides a default value during zonking if no other propagator fills it. This is used to avoid "not covered by any
@@ -124,6 +132,7 @@ case class DefaultValueCellContent[T](
 
   override val default: Option[T] = Some(defaultValue)
 
-  override def fill(newValue: T): DefaultValueCellContent[T] =
+  override def fill(newValue: T): DefaultValueCellContent[T] = {
     copy(value = Some(newValue))
+  }
 }

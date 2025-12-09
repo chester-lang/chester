@@ -18,5 +18,6 @@ private def trileanToThree(trilean: Trilean): Three = trilean match {
   case Trilean.Unknown => Three.Unknown
 }
 
-given trileanRW: ReadWriter[Trilean] =
+given trileanRW: ReadWriter[Trilean] = {
   readwriter[Three].bimap(trileanToThree, threeToTrilean)
+}

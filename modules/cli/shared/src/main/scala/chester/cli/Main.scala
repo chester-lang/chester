@@ -8,7 +8,7 @@ import chester.utils.io.impl.given
 object Main {
   val progName: String = "chester"
 
-  val usage: String =
+  val usage: String = {
     s"""$progName - Chester CLI
        |
        |Usage:
@@ -17,8 +17,9 @@ object Main {
        |  $progName version                      Show version information
        |  $progName help                         Show this help message
        |""".stripMargin
+  }
 
-  def main(args: Array[String]): Unit =
+  def main(args: Array[String]): Unit = {
     parse(args.toList) match {
       case Right(config) =>
         CLI.run(config)
@@ -28,6 +29,7 @@ object Main {
         System.err.println(usage)
         sys.exit(1)
     }
+  }
 
   private def parse(args: List[String]): Either[String, Config] = args match {
     case Nil => Right(Config.Run(None))
@@ -56,7 +58,7 @@ object Main {
   }
 
   private def parseCompile(args: List[String]): Either[String, Config] = {
-    def loop(rest: List[String], output: Option[String], input: Option[String]): Either[String, Config] =
+    def loop(rest: List[String], output: Option[String], input: Option[String]): Either[String, Config] = {
       rest match {
         case Nil =>
           input match {
@@ -75,6 +77,7 @@ object Main {
             case Some(_) => Left("compile accepts only one input file")
           }
       }
+    }
 
     loop(args, output = None, input = None)
   }
