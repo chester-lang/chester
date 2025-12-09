@@ -3,7 +3,7 @@ package chester.tyck
 import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
 
-import chester.core.{AST, Arg, CST, Implicitness, Param, StmtAST, Telescope}
+import chester.core.{AST, Arg, CST, EffectRef, BuiltinEffect, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Problem, Reporter, Span, VectorReporter}
 import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
@@ -40,7 +40,7 @@ case class ElabContext(
     bindings: Map[String, UniqidOf[AST]], // Name -> variable ID mapping
     types: Map[UniqidOf[AST], CellRW[AST]], // Variable ID -> type cell mapping
     defBodies: Map[UniqidOf[AST], CellRW[AST]] = Map.empty, // Definition ID -> AST cell mapping
-    effects: Set[String] = ElabContext.defaultEffects, // Declared effects
+    effects: Map[String, EffectRef] = ElabContext.defaultEffects, // Declared effects
     builtins: Set[String] = ElabContext.defaultBuiltins, // Built-in names
     builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes, // Built-in types
     reporter: Reporter[ElabProblem] // Error reporter
@@ -56,11 +56,13 @@ case class ElabContext(
   def lookupDefBody(id: UniqidOf[AST]): Option[CellRW[AST]] = defBodies.get(id)
   def isBuiltin(name: String): Boolean = builtins.contains(name)
   def lookupBuiltinType(name: String): Option[AST] = builtinTypes.get(name)
-  def declareEffect(name: String): ElabContext = copy(effects = effects + name)
-  def hasEffect(name: String): Boolean = effects.contains(name) || ElabContext.defaultEffects.contains(name)
+  def declareEffect(name: String): ElabContext =
+    val eff = EffectRef.User(Uniqid.make, name)
+    copy(effects = effects + (name -> eff))
+  def lookupEffect(name: String): Option[EffectRef] = effects.get(name)
 
 object ElabContext:
-  val defaultEffects: Set[String] = Set("io")
+  val defaultEffects: Map[String, EffectRef] = Map("io" -> EffectRef.Builtin(BuiltinEffect.Io))
   val defaultBuiltins: Set[String] = Set(
     "Integer",
     "Int",
@@ -81,7 +83,7 @@ object ElabContext:
     val stringParam = Param(Uniqid.make, "value", AST.StringType(None), Implicitness.Explicit, None)
     val tele = Vector(Telescope(Vector(stringParam), Implicitness.Explicit))
     val unitTy = AST.Tuple(Vector.empty, None)
-    val printlnTy = AST.Pi(tele, unitTy, Vector("io"), None)
+    val printlnTy = AST.Pi(tele, unitTy, Vector(ElabContext.defaultEffects("io")), None)
     Map("println" -> printlnTy)
   }
 
@@ -165,7 +167,7 @@ enum ElabConstraint:
       bodyTy: CellR[AST],
       result: CellRW[AST],
       inferredTy: CellRW[AST],
-      effects: Vector[String],
+      effects: Vector[EffectRef],
       effectAnnotated: Boolean,
       defTypeCell: CellRW[AST],
       span: Option[Span],
@@ -179,7 +181,7 @@ private case class DefInfo(
     resultCell: CellRW[AST],
     telescopes: Vector[Telescope] = Vector.empty,
     resultTyCell: Option[CellRW[AST]] = None,
-    effects: Vector[String] = Vector.empty,
+    effects: Vector[EffectRef] = Vector.empty,
     effectAnnotated: Boolean = false,
     span: Option[Span] = None
 )
@@ -900,7 +902,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     // Check for optional result type annotation
     val resultTyCell = module.newOnceCell[ElabConstraint, AST](solver)
     var hasResultTy = false
-    var annotatedEffects: Vector[String] = Vector.empty
+    var annotatedEffects: Vector[EffectRef] = Vector.empty
     var effectAnnotated = false
     if idx < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == ":" then
       idx += 1
@@ -914,7 +916,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         if idx + 1 < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == "/" then
           elems(idx + 1) match
             case list: CST.ListLiteral =>
-              annotatedEffects = parseEffectNames(list)
+              annotatedEffects = parseEffectNames(list, accumulatedCtx, c.cst.span)(using module, solver)
               effectAnnotated = true
               idx += 2
             case _ => ()
@@ -1120,16 +1122,24 @@ class ElabHandler extends Handler[ElabConstraint]:
       elements.headOption.exists { case CST.Symbol("let", _) => true; case _ => false }
     case _ => false
 
-  private def parseEffectNames(list: CST.ListLiteral): Vector[String] =
-    list.elements.collect { case CST.Symbol(name, _) => name }
+  private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using module: SolverModule, solver: module.Solver[ElabConstraint]): Vector[EffectRef] =
+    list.elements.collect {
+      case CST.Symbol(name, _) =>
+        ctx.lookupEffect(name)
+          .orElse(ElabContext.defaultEffects.get(name))
+          .getOrElse {
+            ctx.reporter.report(ElabProblem.UnknownEffect(name, span))
+            EffectRef.User(Uniqid.make, name)
+          }
+    }
 
   /** Extract a base type and an optional effect list from `Type / [e1, e2]` forms. */
-  private def extractEffectAnnotation(cst: CST): (CST, Vector[String]) = cst match
+  private def extractEffectAnnotation(cst: CST, ctx: ElabContext)(using module: SolverModule, solver: module.Solver[ElabConstraint]): (CST, Vector[EffectRef]) = cst match
     case CST.SeqOf(elements, _) if elements.length == 3 =>
       val elems = elements.toVector
       elems match
         case Vector(base, CST.Symbol("/", _), list: CST.ListLiteral) =>
-          (base, parseEffectNames(list))
+          (base, parseEffectNames(list, ctx, cst.span))
         case _ => (cst, Vector.empty)
     case _ => (cst, Vector.empty)
 
@@ -1617,26 +1627,26 @@ class ElabHandler extends Handler[ElabConstraint]:
     // Result cell carries the elaborated body to resolve block placeholders
     module.fill(solver, c.result, body)
 
-    def effectsFromRef(ref: AST.Ref): Set[String] =
+    def effectsFromRef(ref: AST.Ref): Set[EffectRef] =
       // Prefer user-defined types in context; fall back to builtin signatures
       val fromCtx = c.ctx
         .lookupType(ref.id)
         .flatMap(cell => module.readStable(solver, cell.asInstanceOf[module.CellR[AST]]))
         .collect { case AST.Pi(_, _, effs, _) => effs.toSet }
-        .getOrElse(Set.empty[String])
+        .getOrElse(Set.empty[EffectRef])
       if fromCtx.nonEmpty then fromCtx
       else
         ElabContext.defaultBuiltinTypes.get(ref.name) match
           case Some(AST.Pi(_, _, effs, _)) => effs.toSet
-          case _                           => Set.empty[String]
+          case _                           => Set.empty[EffectRef]
 
     // Compute required effects by scanning the body for calls whose types carry effect rows
-    def gatherEffects(ast: AST): Set[String] =
+    def gatherEffects(ast: AST): Set[EffectRef] =
       ast match
         case AST.App(func, args, _, _) =>
           val fromFuncType = func match
             case r: AST.Ref => effectsFromRef(r)
-            case _          => Set.empty[String]
+            case _          => Set.empty[EffectRef]
           fromFuncType ++ gatherEffects(func) ++ args.flatMap(a => gatherEffects(a.value))
         case AST.Block(elements, tail, _) =>
           elements.flatMap(gatherEffectsStmt).toSet ++ gatherEffects(tail)
@@ -1648,7 +1658,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         case AST.Ann(expr, ty, _) => gatherEffects(expr) ++ gatherEffects(ty)
         case _                    => Set.empty
 
-    def gatherEffectsStmt(stmt: StmtAST): Set[String] = stmt match
+    def gatherEffectsStmt(stmt: StmtAST): Set[EffectRef] = stmt match
       case StmtAST.ExprStmt(expr, _) => gatherEffects(expr)
       case StmtAST.Def(_, _, teles, resTy, body, _) =>
         teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(
@@ -1659,9 +1669,9 @@ class ElabHandler extends Handler[ElabConstraint]:
     val requiredEffects = gatherEffects(body)
 
     // Validate effects are declared
-    val declaredEffects = c.ctx.effects ++ ElabContext.defaultEffects
+    val declaredNames = (c.ctx.effects.keySet ++ ElabContext.defaultEffects.keySet)
     val unknownEffects =
-      (requiredEffects ++ c.effects.toSet).filterNot(declaredEffects.contains)
+      (requiredEffects ++ c.effects.toSet).map(_.name).filterNot(declaredNames.contains)
     if unknownEffects.nonEmpty then
       unknownEffects.foreach(e => c.ctx.reporter.report(ElabProblem.UnknownEffect(e, c.span)))
 

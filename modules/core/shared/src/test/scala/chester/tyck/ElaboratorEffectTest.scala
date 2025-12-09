@@ -59,7 +59,7 @@ class ElaboratorEffectTest extends FunSuite {
 
       barTy match
         case Some(AST.Pi(_, _, effects, _)) =>
-          assertEquals(effects.toSet, Set("magic"), clue = s"bar should propagate foo's effect, got $effects")
+          assertEquals(effects.map(_.name).toSet, Set("magic"), clue = s"bar should propagate foo's effect, got $effects")
         case other =>
           fail(s"Expected Pi type for bar reference, got: $other")
     }
@@ -95,7 +95,7 @@ class ElaboratorEffectTest extends FunSuite {
 
       okTy match
         case Some(AST.Pi(_, _, effects, _)) =>
-          assertEquals(effects.toSet, Set("magic"), clue = s"ok should retain declared effect row, got $effects")
+          assertEquals(effects.map(_.name).toSet, Set("magic"), clue = s"ok should retain declared effect row, got $effects")
         case other =>
           fail(s"Expected Pi type for ok reference, got: $other")
     }

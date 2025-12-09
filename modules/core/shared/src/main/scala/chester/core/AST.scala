@@ -51,6 +51,28 @@ case class Arg(
   def mapUniqids(mapper: UniqidReplacer): Arg =
     Arg(value.mapUniqids(mapper), implicitness)
 
+enum BuiltinEffect derives ReadWriter:
+  case Io
+
+  def name: String = this match
+    case Io => "io"
+
+enum EffectRef derives ReadWriter:
+  case Builtin(effect: BuiltinEffect)
+  case User(id: UniqidOf[AST], effName: String)
+
+  def name: String = this match
+    case Builtin(effect) => effect.name
+    case User(_, n)      => n
+
+  def collectUniqids(collector: UniqidCollector): Unit = this match
+    case Builtin(_)    => ()
+    case User(id, _)   => collector(id)
+
+  def mapUniqids(mapper: UniqidReplacer): EffectRef = this match
+    case Builtin(effect) => this
+    case User(id, n)     => User(mapper(id), n)
+
 // Ensure HoldNotReadable ReadWriter is in scope for MetaCell
 given [T]: ReadWriter[HoldNotReadable[T]] = holdNotReadableRW.asInstanceOf[ReadWriter[HoldNotReadable[T]]]
 
@@ -113,7 +135,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case NaturalType(override val span: Option[Span]) extends AST(span)
   case IntegerType(override val span: Option[Span]) extends AST(span)
   case ListType(element: AST, override val span: Option[Span]) extends AST(span)
-  case Pi(telescopes: Vector[Telescope], resultTy: AST, effects: Vector[String], override val span: Option[Span]) extends AST(span)
+  case Pi(telescopes: Vector[Telescope], resultTy: AST, effects: Vector[EffectRef], override val span: Option[Span]) extends AST(span)
   case Lam(telescopes: Vector[Telescope], body: AST, override val span: Option[Span]) extends AST(span)
   case App(func: AST, args: Vector[Arg], implicitArgs: Boolean, override val span: Option[Span]) extends AST(span)
   case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
@@ -162,7 +184,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       }
       val effDoc =
         if effects.isEmpty then empty
-        else text(" / ") <> brackets(hsep(effects.map(text(_)), `,` <+> empty))
+        else text(" / ") <> brackets(hsep(effects.map(e => text(e.name)), `,` <+> empty))
       hsep(telescopeDocs, empty) <+> text("->") <+> resultTy.toDoc <> effDoc
     case AST.Lam(telescopes, body, _) =>
       val telescopeDocs = telescopes.map { tel =>
@@ -217,9 +239,10 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
     case AST.ListType(element, _) =>
       element.collectUniqids(collector)
-    case AST.Pi(telescopes, resultTy, _, _) =>
+    case AST.Pi(telescopes, resultTy, effects, _) =>
       telescopes.foreach(_.collectUniqids(collector))
       resultTy.collectUniqids(collector)
+      effects.foreach(_.collectUniqids(collector))
     case AST.Lam(telescopes, body, _) =>
       telescopes.foreach(_.collectUniqids(collector))
       body.collectUniqids(collector)
@@ -268,7 +291,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.Pi(
         telescopes.map(_.mapUniqids(mapper)),
         resultTy.mapUniqids(mapper),
-        effects,
+        effects.map(_.mapUniqids(mapper)),
         span
       )
     case AST.Lam(telescopes, body, span) =>

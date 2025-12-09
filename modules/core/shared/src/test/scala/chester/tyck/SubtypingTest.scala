@@ -290,7 +290,7 @@ class SubtypingTest extends FunSuite:
 
       printlnTy match
         case Some(AST.Pi(_, _, effects, _)) =>
-          assert(effects.contains("io"), s"Expected io effect in println type, got: $effects")
+          assert(effects.map(_.name).contains("io"), s"Expected io effect in println type, got: $effects")
         case other => fail(s"Expected println to have function type, got: $other")
 
       val (_, _, defErrors) = elaborate("""{
