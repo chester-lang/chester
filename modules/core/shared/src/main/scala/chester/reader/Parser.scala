@@ -19,13 +19,11 @@ object Parser {
     def advance(): Unit = if (hasNext) position += 1
     def getRest: Seq[Token] = tokens.drop(position)
 
-    def skipTrivia(): Unit = {
+    def skipTrivia(): Unit =
       while (hasNext && current.exists(t => t.isWhitespace || t.isComment)) advance()
-    }
 
-    def recordError(message: String, span: Span): Unit = {
+    def recordError(message: String, span: Span): Unit =
       reporter.report(ParseError(message, Some(span)))
-    }
 
     // Helpers for common checks
     def is(check: Token => Boolean): Boolean = current.exists(check)

@@ -17,9 +17,8 @@ case class StringChar(text: String, span: Span) {
 }
 
 object StringChar {
-  def apply(codePoint: Int, span: Span): StringChar = {
+  def apply(codePoint: Int, span: Span): StringChar =
     new StringChar(codepointToString(codePoint), span)
-  }
 
   extension (text: Text) {
     def asString: String = text.map(_.text).mkString

@@ -36,9 +36,8 @@ object EffectCPS:
       case _                                   => false
   }
 
-  private def isEffectfulPi(pi: AST.Pi, config: Config): Boolean = {
+  private def isEffectfulPi(pi: AST.Pi, config: Config): Boolean =
     pi.effects.nonEmpty || (config.transformIO && pi.effects.exists(isBuiltinIo))
-  }
 
   /** Transform a type; effectful Pis gain an explicit continuation parameter and shed their effect row. */
   def transformType(ty: AST, config: Config): AST = {

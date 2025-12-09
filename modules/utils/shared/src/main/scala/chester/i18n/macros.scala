@@ -42,9 +42,8 @@ private object TranslationRepository:
     Template.stringContextToString(sc)
   }
 
-  def render(template: String, args: Vector[Any], translations: Map[String, Map[String, String]]): String = {
+  def render(template: String, args: Vector[Any], translations: Map[String, Map[String, String]]): String =
     Template.applyTemplate(resolveTemplate(template, translations), args)
-  }
 
   def renderDoc(template: String, args: Vector[ToDoc], translations: Map[String, Map[String, String]])(using DocConf): Doc = {
     val resolved = resolveTemplate(template, translations)
@@ -187,9 +186,8 @@ private object TranslationRepository:
     (rendered, updatedAll)
   }
 
-  private def localeKeyFor(tag: LanguageTag): String = {
+  private def localeKeyFor(tag: LanguageTag): String =
     normalizeLocaleKey(s"${tag.name}_${tag.defaultRegion.name}")
-  }
 
   def withLocaleOverride[T](locale: String)(body: => T): T = {
     val language = parseLanguage(locale).getOrElse(defaultLanguage)
@@ -218,9 +216,8 @@ private def dMacro(scExpr: Expr[StringContext])(using Quotes): Expr[D] = {
   val partsExpr = Expr.ofSeq(parts.map(Expr(_)))
   '{
     new D {
-      def d(args: ToDoc*)(using DocConf): Doc = {
+      def d(args: ToDoc*)(using DocConf): Doc =
         Template.renderDocFromStringContext($partsExpr.toVector, args.toVector)
-      }
     }
   }
 }
@@ -232,9 +229,8 @@ private def tMacro(sc: Expr[StringContext])(using Quotes): Expr[T] = {
   val translationsExpr = TranslationRepository.embeddedTranslations()
   '{
     new T {
-      def t(args: Any*): String = {
+      def t(args: Any*): String =
         TranslationRepository.render($templateExpr, args.toVector, $translationsExpr)
-      }
     }
   }
 }
@@ -246,9 +242,8 @@ private def dtMacro(sc: Expr[StringContext])(using Quotes): Expr[DT] = {
   val translationsExpr = TranslationRepository.embeddedTranslations()
   '{
     new DT {
-      def dt(args: ToDoc*)(using DocConf): Doc = {
+      def dt(args: ToDoc*)(using DocConf): Doc =
         TranslationRepository.renderDoc($templateExpr, args.toVector, $translationsExpr)
-      }
     }
   }
 }

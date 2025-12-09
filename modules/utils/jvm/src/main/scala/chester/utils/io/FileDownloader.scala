@@ -25,9 +25,9 @@ object FileDownloader {
     } catch {
       case e: IOException =>
         // Clean up in case of failure
-        try {
+        try
           Files.deleteIfExists(tempFile)
-        } catch {
+        catch {
           case _: IOException =>
         }
         throw e // Rethrow the exception to indicate failure

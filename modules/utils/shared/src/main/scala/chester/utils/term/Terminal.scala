@@ -7,9 +7,8 @@ trait Terminal[F[_]] {
 object Terminal {
   inline def runTerminal[F[_], T](inline init: TerminalInit)(
       inline block: InTerminal[F] ?=> F[T]
-  )(using inline terminal: Terminal[F]): F[T] = {
+  )(using inline terminal: Terminal[F]): F[T] =
     terminal.runTerminal(init, block)
-  }
 }
 
 trait InTerminal[F[_]] {

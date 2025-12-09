@@ -58,9 +58,8 @@ object CoreTypeChecker:
   /** Entry point to check whether an AST is well-typed according to a simple dependent type checker. */
   def typeChecks(ast: AST): Boolean = infer(ast, Map.empty, Map.empty).isDefined
 
-  private def check(ast: AST, expected: AST, env: Env, records: RecordEnv): Boolean = {
+  private def check(ast: AST, expected: AST, env: Env, records: RecordEnv): Boolean =
     infer(ast, env, records).exists(t => normalizeType(t) == normalizeType(expected))
-  }
 
   /** Extract sort (Type vs TypeΩ) and its level for a type-of-type. */
   private case class Sort(isOmega: Boolean, level: Int)

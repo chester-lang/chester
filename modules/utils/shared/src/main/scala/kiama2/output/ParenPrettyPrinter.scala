@@ -166,8 +166,7 @@ trait ParenPrettyPrinter extends AbstractPrettyPrinter {
     })
   }
 
-  def prettyExpr(d: Expr, w: Width = defaultWidth): Document = {
+  def prettyExpr(d: Expr, w: Width = defaultWidth): Document =
     pretty(toParenDoc(d), w)
-  }
 
 }

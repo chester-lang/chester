@@ -11,9 +11,8 @@ given DefaultTerminal: Terminal[Future] {
       block: InTerminal[Future] ?=> Future[T]
   ): Future[T] = {
     val terminal = new NodejsSimpleTerminal(init)
-    val future = {
+    val future =
       block(using terminal)
-    }
     future.transform { result =>
       terminal.close()
       result

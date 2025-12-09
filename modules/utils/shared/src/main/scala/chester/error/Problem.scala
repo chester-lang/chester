@@ -52,9 +52,8 @@ private object ProblemSer {
 }
 
 object ProblemUpickle {
-  implicit val problemRW: ReadWriter[Problem] = {
+  implicit val problemRW: ReadWriter[Problem] =
     readwriter[ProblemSer].bimap(ProblemSer.from, x => x)
-  }
 }
 
 extension (p: Problem) {
@@ -139,9 +138,8 @@ case class SourceReader(readSource: Span => Option[Vector[(Int, String)]]) {
 }
 
 object SourceReader {
-  def fromFileContent(@unused content: FileContent): SourceReader = {
+  def fromFileContent(@unused content: FileContent): SourceReader =
     SourceReader(_.getLinesInRange)
-  }
 
   def default: SourceReader = SourceReader(_.getLinesInRange)
 

@@ -35,9 +35,8 @@ given DefaultRunner: Runner[Id] {
 object DefaultPathOps extends PathOps[_root_.os.FilePath] {
   override inline def of(path: String): _root_.os.FilePath = FilePath(path)
 
-  override inline def join(p1: os.FilePath, p2: String): _root_.os.FilePath = {
+  override inline def join(p1: os.FilePath, p2: String): _root_.os.FilePath =
     (p1 / os.SubPath(p2)).asInstanceOf[os.FilePath]
-  }
 
   override inline def asString(p: os.FilePath): String = p.toString
 
@@ -65,13 +64,11 @@ given DefaultIO: IO[Id] {
 
   override def workingDir: os.Path = os2.pwd
 
-  override inline def readString(path: Path): String = {
+  override inline def readString(path: Path): String =
     os.read(path.resolveFrom(workingDir))
-  }
 
-  override inline def read(path: Path): Array[Byte] = {
+  override inline def read(path: Path): Array[Byte] =
     os.read.bytes(path.resolveFrom(workingDir))
-  }
 
   override inline def writeString(
       path: Path,
@@ -88,29 +85,24 @@ given DefaultIO: IO[Id] {
     }
   }
 
-  override inline def write(path: Path, content: Array[Byte]): Unit = {
+  override inline def write(path: Path, content: Array[Byte]): Unit =
     os.write(path.resolveFrom(workingDir), content)
-  }
 
-  override inline def removeWhenExists(path: Path): Boolean = {
+  override inline def removeWhenExists(path: Path): Boolean =
     os.remove(path.resolveFrom(workingDir), true)
-  }
 
   override inline def getHomeDir: Path = FilePath(
     java.nio.file.Paths.get(System.getProperty("user.home"))
   )
 
-  override inline def exists(path: Path): Boolean = {
+  override inline def exists(path: Path): Boolean =
     os.exists(path.resolveFrom(workingDir))
-  }
 
-  override inline def createDirRecursiveIfNotExists(path: Path): Unit = {
+  override inline def createDirRecursiveIfNotExists(path: Path): Unit =
     os.makeDir.all(path.resolveFrom(workingDir))
-  }
 
-  override inline def downloadToFile(url: String, path: Path): Unit = {
+  override inline def downloadToFile(url: String, path: Path): Unit =
     FileDownloader.downloadFile(url, path.toNIO)
-  }
 
   override inline def chmodExecutable(path: Path): Unit = {
     val perms = Files.getPosixFilePermissions(path.toNIO)
@@ -130,15 +122,12 @@ given DefaultIO: IO[Id] {
   }
 
   @ifdef("scalaNativeNoMultithread")
-  override inline def call(command: Seq[String]): CommandOutput = {
+  override inline def call(command: Seq[String]): CommandOutput =
     throw new NotImplementedError("Not implemented for Termux")
-  }
 
-  override def listFiles(path: Path): Id[Seq[Path]] = {
+  override def listFiles(path: Path): Id[Seq[Path]] =
     os.list(path.resolveFrom(workingDir))
-  }
 
-  override def isDirectory(path: Path): Id[Boolean] = {
+  override def isDirectory(path: Path): Id[Boolean] =
     os.isDir(path.resolveFrom(workingDir))
-  }
 }

@@ -98,9 +98,8 @@ object Uniqid {
   def calculateRange[T <: ContainsUniqid](x: T): UniqIdRange = {
     val currentRangeCollect = new mutable.ArrayDeque[Uniqid]()
     val collector: UniqidCollector = new UniqidCollector {
-      override def apply[T](id: UniqidOf[T]): Unit = {
+      override def apply[T](id: UniqidOf[T]): Unit =
         currentRangeCollect.append(id)
-      }
     }
     x.collectUniqids(collector)
     import spire.compat.ordering
@@ -120,9 +119,8 @@ object Uniqid {
     val currentRange = x.uniqIdRange
     val newRange = requireRange(currentRange.size)
     val mapper: UniqidReplacer = new UniqidReplacer {
-      override def apply[U](id: UniqidOf[U]): UniqidOf[U] = {
+      override def apply[U](id: UniqidOf[U]): UniqidOf[U] =
         id.rerange(currentRange, newRange)
-      }
     }
     GiveNewRangeResult(currentRange, newRange, x.mapUniqids(mapper).asInstanceOf[T])
   }

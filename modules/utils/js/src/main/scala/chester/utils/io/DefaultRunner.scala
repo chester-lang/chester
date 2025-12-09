@@ -7,9 +7,8 @@ import scala.util.Try
 import chester.utils.io.*
 
 given DefaultRunner: Runner[Future] {
-  override inline def doTry[T](IO: Future[T]): Future[Try[T]] = {
+  override inline def doTry[T](IO: Future[T]): Future[Try[T]] =
     IO.transformWith(result => Future.successful(result))
-  }
 
   override inline def pure[A](x: A): Future[A] = Future.successful(x)
 

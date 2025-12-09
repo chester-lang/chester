@@ -28,34 +28,29 @@ case class Param(
     default.foreach(_.collectUniqids(collector))
   }
 
-  def mapUniqids(mapper: UniqidReplacer): Param = {
+  def mapUniqids(mapper: UniqidReplacer): Param =
     Param(mapper(id), name, ty.mapUniqids(mapper), implicitness, default.map(_.mapUniqids(mapper)))
-  }
 
 /** Telescope: a sequence of parameters with the same implicitness */
 case class Telescope(
     params: Vector[Param],
     implicitness: Implicitness
 ) derives ReadWriter:
-  def collectUniqids(collector: UniqidCollector): Unit = {
+  def collectUniqids(collector: UniqidCollector): Unit =
     params.foreach(_.collectUniqids(collector))
-  }
 
-  def mapUniqids(mapper: UniqidReplacer): Telescope = {
+  def mapUniqids(mapper: UniqidReplacer): Telescope =
     Telescope(params.map(_.mapUniqids(mapper)), implicitness)
-  }
 
 case class Arg(
     value: AST,
     implicitness: Implicitness = Implicitness.Explicit
 ) derives ReadWriter:
-  def collectUniqids(collector: UniqidCollector): Unit = {
+  def collectUniqids(collector: UniqidCollector): Unit =
     value.collectUniqids(collector)
-  }
 
-  def mapUniqids(mapper: UniqidReplacer): Arg = {
+  def mapUniqids(mapper: UniqidReplacer): Arg =
     Arg(value.mapUniqids(mapper), implicitness)
-  }
 
 enum BuiltinEffect derives ReadWriter:
   case Io

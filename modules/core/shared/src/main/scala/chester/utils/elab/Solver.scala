@@ -54,9 +54,8 @@ trait SolverModule {
   // Simple conversion: top-level Cell → module.Cell with same type parameters
   // This handles the common case where constraint case classes store Cell[A, B, C]
   // and handlers need to work with module.Cell[A, B, C]
-  given cellToModuleCell[A, B, C <: CellContent[A, B]]: Conversion[chester.utils.elab.Cell[A, B, C], Cell[A, B, C]] = {
+  given cellToModuleCell[A, B, C <: CellContent[A, B]]: Conversion[chester.utils.elab.Cell[A, B, C], Cell[A, B, C]] =
     _.asInstanceOf[Cell[A, B, C]]
-  }
 
   // Derived cell type aliases
   type CellOf[A, B] = Cell[A, B, CellContent[A, B]]

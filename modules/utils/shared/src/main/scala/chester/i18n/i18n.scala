@@ -56,9 +56,8 @@ enum RegionTag {
 }
 
 case class RegionTable(table: Map[RegionTag, Map[String, String]]) {
-  private val alternatives: Vector[Map[String, String]] = {
+  private val alternatives: Vector[Map[String, String]] =
     table.toSeq.sortBy((_, map) => -map.size).map(_._2).toVector
-  }
 
   def get(region: RegionTag, context: String): String = {
     import scala.util.boundary
@@ -79,9 +78,8 @@ case class RegionTable(table: Map[RegionTag, Map[String, String]]) {
 }
 
 case class TranslationTable(table: Map[LanguageTag, RegionTable]) {
-  def get(lang: Language, context: String): String = {
+  def get(lang: Language, context: String): String =
     table.get(lang.tag).map(_.get(lang.region, context)).getOrElse(context)
-  }
 }
 
 object Template {
@@ -136,9 +134,8 @@ object Template {
   def renderDocFromStringContext(parts: Vector[String], args: Vector[ToDoc])(using DocConf): Doc = {
     if parts.length != args.length + 1 then
       throw new IllegalArgumentException(s"Invalid string context: ${parts.length} parts for ${args.length} args")
-    val literalDocs = {
+    val literalDocs =
       parts.iterator.map(part => if part.isEmpty then None else Some(Doc.text(part))).toVector
-    }
     val combined = Vector.newBuilder[Doc]
     var idx = 0
     while idx < args.length do

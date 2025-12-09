@@ -53,7 +53,6 @@ class NodejsSimpleTerminal(init: TerminalInit) extends AbstractInTerminal[Future
     rl.close()
   }
 
-  override def writeln(line: Str): Future[Unit] = {
+  override def writeln(line: Str): Future[Unit] =
     Future.successful(println(line.render))
-  }
 }

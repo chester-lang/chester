@@ -110,9 +110,9 @@ object Tokenizer {
 
   /** Read a token with error recovery - returns None for trivia (whitespace) */
   private def readTokenWithRecovery(state: TokenizerState): Option[TokenResult] = {
-    try {
+    try
       readToken(state).map(TokenResult.Success(_))
-    } catch {
+    catch {
       case e: TokenizeException =>
         // Error recovery: try to continue parsing
         Some(TokenResult.Error(ParseError(e.message, Some(e.span)), None))

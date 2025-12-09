@@ -11,9 +11,8 @@ object IdentifierRules {
   private val AllowedMiddleWordingSymbols: Set[Int] = "-".toSet.map(_.asInt)
   val ReservedSymbols = ";,#()[]{}'\""
 
-  private def isEmoji(codePoint: Int): Boolean = {
+  private def isEmoji(codePoint: Int): Boolean =
     codePointIsEmoji(codePoint)
-  }
 
   private def isWording(x: Character): Boolean = isLetter(x) || isEmoji(x)
 
@@ -21,23 +20,20 @@ object IdentifierRules {
 
   private def isWordingSymbol(x: Character): Boolean = AllowedWordingSymbols.contains(x)
 
-  private def isMiddleWordingSymbol(x: Character): Boolean = {
+  private def isMiddleWordingSymbol(x: Character): Boolean =
     AllowedMiddleWordingSymbols.contains(x)
-  }
 
   def isIdentifierFirst(x: Character): Boolean = isWording(x) || isWordingSymbol(x)
 
-  def isIdentifierPart(x: Character): Boolean = {
+  def isIdentifierPart(x: Character): Boolean =
     isIdentifierFirst(x) || isDigit(x) || isMiddleWordingSymbol(x)
-  }
 
   def isIdentifierEnd(x: Character): Boolean = isIdentifierFirst(x) || isDigit(x)
 
   def isOperatorIdentifierFirst(x: Character): Boolean = isOperatorSymbol(x)
 
-  def isOperatorIdentifierRest(x: Character): Boolean = {
+  def isOperatorIdentifierRest(x: Character): Boolean =
     isOperatorSymbol(x) || isWordingSymbol(x)
-  }
 
   def strIsOperator(s: String): Boolean = {
     val codepoints = s.getCodePoints

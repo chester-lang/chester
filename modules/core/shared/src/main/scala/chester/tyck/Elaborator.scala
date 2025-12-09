@@ -47,13 +47,11 @@ case class ElabContext(
     builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes, // Built-in types
     reporter: Reporter[ElabProblem] // Error reporter
 ):
-  def bind(name: String, id: UniqidOf[AST], ty: CellRW[AST]): ElabContext = {
+  def bind(name: String, id: UniqidOf[AST], ty: CellRW[AST]): ElabContext =
     copy(bindings = bindings + (name -> id), types = types + (id -> ty))
-  }
 
-  def registerDefBody(id: UniqidOf[AST], cell: CellRW[AST]): ElabContext = {
+  def registerDefBody(id: UniqidOf[AST], cell: CellRW[AST]): ElabContext =
     copy(defBodies = defBodies + (id -> cell))
-  }
 
   def lookup(name: String): Option[UniqidOf[AST]] = bindings.get(name)
   def lookupType(id: UniqidOf[AST]): Option[CellRW[AST]] = types.get(id)
@@ -256,9 +254,9 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST = {
       // Don't substitute bound variables
       val newTelescopes = telescopes.map { tel =>
         Telescope(
-          tel.params.map(p => {
+          tel.params.map(p =>
             Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
-          }),
+          ),
           tel.implicitness
         )
       }
@@ -268,9 +266,9 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST = {
     case AST.Lam(telescopes, body, span) =>
       val newTelescopes = telescopes.map { tel =>
         Telescope(
-          tel.params.map(p => {
+          tel.params.map(p =>
             Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
-          }),
+          ),
           tel.implicitness
         )
       }
@@ -311,9 +309,9 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
   case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
     val newTelescopes = telescopes.map { tel =>
       Telescope(
-        tel.params.map(p => {
+        tel.params.map(p =>
           Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
-        }),
+        ),
         tel.implicitness
       )
     }
@@ -321,9 +319,8 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
     val filteredSubs = substitutions.filterNot { case (i, _) => boundIds.contains(i) }
     StmtAST.Def(id, name, newTelescopes, resultTy.map(substituteInType(_, filteredSubs)), substituteInType(body, filteredSubs), span)
   case StmtAST.Record(id, name, fields, span) =>
-    val newFields = {
+    val newFields =
       fields.map(p => Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions))))
-    }
     StmtAST.Record(id, name, newFields, span)
   case StmtAST.Pkg(name, body, span) =>
     StmtAST.Pkg(name, substituteInType(body, substitutions), span)
@@ -416,9 +413,8 @@ class ElabHandler extends Handler[ElabConstraint]:
   ): Result = {
     import module.given
 
-    def addInferConstraint(cst: CST, result: CellRW[AST], inferredTy: CellRW[AST], ctx: ElabContext, asType: Boolean = false): Unit = {
+    def addInferConstraint(cst: CST, result: CellRW[AST], inferredTy: CellRW[AST], ctx: ElabContext, asType: Boolean = false): Unit =
       module.addConstraint(solver, ElabConstraint.Infer(cst, result, inferredTy, ctx, asType))
-    }
 
     // Check if we've already filled the result and type - if so, we're done (avoid re-processing)
     if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then return Result.Done
@@ -1052,9 +1048,8 @@ class ElabHandler extends Handler[ElabConstraint]:
   )(using module: M, solver: module.Solver[ElabConstraint]): Option[Result] = {
     import module.given
 
-    def fillResultOnce(cell: module.CellRW[AST], value: AST): Unit = {
+    def fillResultOnce(cell: module.CellRW[AST], value: AST): Unit =
       if !module.hasStableValue(solver, cell) then module.fill(solver, cell, value)
-    }
 
     elems match
       case Vector(CST.Symbol(name, _), CST.Symbol(".", _), CST.Symbol("t", _)) =>
@@ -1695,12 +1690,10 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.App(func, args, implicitArgs, span) =>
         reduce(func, ctx, depth + 1) match
           case AST.Lam(telescopes, body, lamSpan) =>
-            val targetImplicitness = {
+            val targetImplicitness =
               if implicitArgs then Implicitness.Implicit else Implicitness.Explicit
-            }
-            val (appliedTelescopes, remainingTelescopes) = {
+            val (appliedTelescopes, remainingTelescopes) =
               telescopes.span(_.implicitness == targetImplicitness)
-            }
             val paramsToApply = appliedTelescopes.flatMap(_.params)
             if paramsToApply.size == args.size then
               val substMap = paramsToApply
@@ -2303,9 +2296,8 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     // Validate effects are declared
     val declaredNames = c.ctx.effects.keySet ++ ElabContext.defaultEffects.keySet
-    val unknownEffects = {
+    val unknownEffects =
       (requiredEffects ++ c.effects.toSet).map(_.name).filterNot(declaredNames.contains)
-    }
     if unknownEffects.nonEmpty then unknownEffects.foreach(e => c.ctx.reporter.report(ElabProblem.UnknownEffect(e, c.span)))
 
     // Compute def type (Pi type)
@@ -2337,9 +2329,8 @@ class ElabHandler extends Handler[ElabConstraint]:
 class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
   private val handler = new ElabHandler()
 
-  def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] = {
+  def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
     Some(handler)
-  }
 
 /** Substitute meta-cell solutions throughout an AST This resolves MetaCell nodes by reading their cell contents after constraint solving Also known
   * as "zonking" in some type checkers
@@ -2441,9 +2432,8 @@ private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using modu
   stmt match
     case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteSolutions(expr), span)
     case StmtAST.Def(id, name, teles, resTy, body, span) =>
-      val newTeles = {
+      val newTeles =
         teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
-      }
       StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span)
     case StmtAST.Record(id, name, fields, span) =>
       val newFields = fields.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))
@@ -2569,14 +2559,12 @@ object Elaborator:
   }
 
   /** Elaborate with default ProceduralSolver and new VectorReporter */
-  def elaborate(cst: CST)(using Reporter[ElabProblem]): (AST, AST) = {
+  def elaborate(cst: CST)(using Reporter[ElabProblem]): (AST, AST) =
     elaborate(cst, summon[Reporter[ElabProblem]], None)(using ProceduralSolverModule)
-  }
 
   /** Elaborate with custom context */
-  def elaborate(cst: CST, ctx: ElabContext): (AST, AST) = {
+  def elaborate(cst: CST, ctx: ElabContext): (AST, AST) =
     elaborate(cst, ctx.reporter, Some(ctx))(using ProceduralSolverModule)
-  }
 
   /** Expose normalizeType for tests and downstream utilities. */
   def normalizeType(ast: AST): AST = CoreTypeChecker.normalizeType(ast)

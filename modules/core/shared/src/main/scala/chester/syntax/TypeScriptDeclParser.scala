@@ -29,9 +29,8 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
 
   private def eof: Boolean = cursor.utf16Index >= source.length
 
-  private def peekCodePoint: Option[Int] = {
+  private def peekCodePoint: Option[Int] =
     if eof then None else Some(source.codePointAt(cursor.utf16Index))
-  }
 
   private def advance(): Option[Int] = {
     peekCodePoint.map { cp =>
@@ -40,17 +39,14 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     }
   }
 
-  private def spanFrom(start: Cursor, end: Cursor): Option[Span] = {
+  private def spanFrom(start: Cursor, end: Cursor): Option[Span] =
     Some(Span(sourceRef, SpanInFile(start.toPos, end.toPos)))
-  }
 
-  private def isIdentStart(cp: Int): Boolean = {
+  private def isIdentStart(cp: Int): Boolean =
     Character.isLetter(cp) || cp == '_' || cp == '$'
-  }
 
-  private def isIdentPart(cp: Int): Boolean = {
+  private def isIdentPart(cp: Int): Boolean =
     isIdentStart(cp) || Character.isDigit(cp)
-  }
 
   private def skipTrivia(): Unit = {
     var keepGoing = true
@@ -84,13 +80,11 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
       else advance()
   }
 
-  private def peekChar(ch: Char): Boolean = {
+  private def peekChar(ch: Char): Boolean =
     peekCodePoint.contains(ch.toInt)
-  }
 
-  private def startsWith(str: String): Boolean = {
+  private def startsWith(str: String): Boolean =
     source.regionMatches(cursor.utf16Index, str, 0, str.length)
-  }
 
   private def readIdentifier(skip: Boolean = true): Option[(String, Cursor, Cursor)] = {
     if skip then skipTrivia()
@@ -124,13 +118,11 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     else false
   }
 
-  private def expectChar(ch: Char): Boolean = {
+  private def expectChar(ch: Char): Boolean =
     if maybeConsume(ch) then true else false
-  }
 
-  private def skipUnknownToken(): Unit = {
+  private def skipUnknownToken(): Unit =
     if !eof then advance()
-  }
 
   /** Parse a TypeScript declaration file into a TypeScriptAST.Program */
   def parse(): TypeScriptAST = {
@@ -191,9 +183,8 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     members.toVector
   }
 
-  private def skipToLineEnd(): Unit = {
+  private def skipToLineEnd(): Unit =
     while !eof && !peekChar('\n') && !peekChar('}') do advance()
-  }
 
   private def parseTypeReference(): TypeScriptType = {
     val start = cursor
@@ -321,6 +312,5 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
 
 object TypeScriptDeclParser:
   /** Parse a TypeScript declaration file */
-  def parse(source: String, sourceRef: Source): TypeScriptAST = {
+  def parse(source: String, sourceRef: Source): TypeScriptAST =
     new TypeScriptDeclParser(source, sourceRef).parse()
-  }

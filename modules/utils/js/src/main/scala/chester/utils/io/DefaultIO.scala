@@ -44,9 +44,8 @@ given DefaultIO: IO[Future] {
     t"ask is not implemented in JS environment"
   )
 
-  override inline def readString(path: String): Future[String] = {
+  override inline def readString(path: String): Future[String] =
     fsPromisesMod.readFile(path, BufferEncoding.utf8)
-  }
 
   // TODO: maybe use https://stackoverflow.com/questions/75031248/scala-js-convert-uint8array-to-arraybyte
   override inline def read(path: String): Future[Array[Byte]] = for {
@@ -74,9 +73,8 @@ given DefaultIO: IO[Future] {
   }
 
   // https://stackoverflow.com/questions/76455786/scala-js-how-to-convert-arraybyte-to-blob/76463887#76463887
-  override inline def write(path: String, content: Array[Byte]): Future[Unit] = {
+  override inline def write(path: String, content: Array[Byte]): Future[Unit] =
     fsPromisesMod.writeFile(path, content.toTypedArray)
-  }
 
   override def removeWhenExists(path: String): Future[Boolean] = {
     fsPromisesMod.unlink(path).map(_ => true).recover { case _: js.JavaScriptException =>
@@ -84,13 +82,11 @@ given DefaultIO: IO[Future] {
     }
   }
 
-  override inline def workingDir: Future[String] = {
+  override inline def workingDir: Future[String] =
     Future.successful(processMod.^.cwd())
-  }
 
-  override inline def getHomeDir: Future[String] = {
+  override inline def getHomeDir: Future[String] =
     Future.successful(osMod.homedir())
-  }
 
   override def exists(path: String): Future[Boolean] = {
     if (ExistsUseSync) {
@@ -119,13 +115,11 @@ given DefaultIO: IO[Future] {
     } yield ()
   }
 
-  override inline def chmodExecutable(path: String): Future[Unit] = {
+  override inline def chmodExecutable(path: String): Future[Unit] =
     fsPromisesMod.chmod(path, "755")
-  }
 
-  override inline def getAbsolutePath(path: String): Future[String] = {
+  override inline def getAbsolutePath(path: String): Future[String] =
     Future.successful(pathMod.resolve(path))
-  }
   override def call(command: Seq[String]): Future[CommandOutput] = {
     if (UseSpawnSync) {
       val result = childProcessMod.spawnSync(command.head, command.tail.toJSArray, SpawnSyncOptions().setStdio(IOType.inherit))
@@ -155,7 +149,6 @@ given DefaultIO: IO[Future] {
       .map(_.toSeq.map(file => pathMod.join(path, file)))
   }
 
-  override def isDirectory(path: String): Future[Boolean] = {
+  override def isDirectory(path: String): Future[Boolean] =
     fsPromisesMod.lstat(path).map(_.isDirectory())
-  }
 }

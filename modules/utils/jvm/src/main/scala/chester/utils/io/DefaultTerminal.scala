@@ -7,9 +7,8 @@ import chester.utils.term.*
 class InTerm(terminal: JLineTerminal) extends InTerminal[Id] {
   inline def writeln(line: fansi.Str): Unit = println(line.render)
 
-  inline def readline(info: TerminalInfo): ReadLineResult = {
+  inline def readline(info: TerminalInfo): ReadLineResult =
     terminal.readLine(info)
-  }
 
   inline def getHistory: Seq[String] = terminal.getHistory
 }
@@ -20,10 +19,9 @@ given DefaultTerminal: Terminal[Id] {
       block: InTerminal[Id] ?=> T
   ): T = {
     val terminal = new JLineTerminal(init)
-    try {
+    try
       block(using new InTerm(terminal))
-    } finally {
+    finally
       terminal.close()
-    }
   }
 }
