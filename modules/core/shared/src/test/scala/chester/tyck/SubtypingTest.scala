@@ -383,3 +383,19 @@ class SubtypingTest extends FunSuite:
       assert(errors.exists(_.toString.contains("Unbound variable")), s"Should report unbound variable, got: $errors")
     }
   }
+
+  test("record constructor and field access typecheck") {
+    runAsync {
+      val (_, ty, errors) = elaborate("""{
+        record Vec2d(x: Integer, y: Integer);
+        let v: Vec2d.t = Vec2d(1, 2);
+        v.x
+      }""")
+
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+      ty.get match
+        case AST.IntegerType(_) => ()
+        case other              => fail(s"Expected Integer field type, got: $other")
+    }
+  }

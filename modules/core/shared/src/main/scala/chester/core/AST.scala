@@ -80,6 +80,7 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
   case ExprStmt(expr: AST, override val span: Option[Span]) extends StmtAST(span)
   case Def(id: UniqidOf[AST], name: String, telescopes: Vector[Telescope], resultTy: Option[AST], body: AST, override val span: Option[Span])
       extends StmtAST(span)
+  case Record(id: UniqidOf[AST], name: String, fields: Vector[Param], override val span: Option[Span]) extends StmtAST(span)
   case Pkg(name: String, body: AST, override val span: Option[Span]) extends StmtAST(span)
 
   def toDoc(using options: DocConf): Doc = this match
@@ -92,6 +93,9 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       }
       val tyDoc = resultTy.map(t => text(":") <+> t.toDoc).getOrElse(empty)
       text("def") <+> text(name) <> hsep(telescopeDocs, empty) <+> tyDoc <+> text("=") <+> body.toDoc
+    case StmtAST.Record(_, name, fields, _) =>
+      val paramsDoc = hsep(fields.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
+      text("record") <+> text(name) <> parens(paramsDoc)
     case StmtAST.Pkg(name, body, _) =>
       text("package") <+> text(name) <@@> body.toDoc.indented()
 
@@ -103,6 +107,9 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       telescopes.foreach(_.collectUniqids(collector))
       resultTy.foreach(_.collectUniqids(collector))
       body.collectUniqids(collector)
+    case StmtAST.Record(id, _, fields, _) =>
+      collector(id)
+      fields.foreach(_.collectUniqids(collector))
     case StmtAST.Pkg(_, body, _) =>
       body.collectUniqids(collector)
 
@@ -116,6 +123,13 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
         telescopes.map(_.mapUniqids(mapper)),
         resultTy.map(_.mapUniqids(mapper)),
         body.mapUniqids(mapper),
+        span
+      )
+    case StmtAST.Record(id, name, fields, span) =>
+      StmtAST.Record(
+        mapper(id),
+        name,
+        fields.map(_.mapUniqids(mapper)),
         span
       )
     case StmtAST.Pkg(name, body, span) =>
@@ -143,6 +157,9 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case App(func: AST, args: Vector[Arg], implicitArgs: Boolean, override val span: Option[Span]) extends AST(span)
   case Let(id: UniqidOf[AST], name: String, ty: Option[AST], value: AST, body: AST, override val span: Option[Span]) extends AST(span)
   case Ann(expr: AST, ty: AST, override val span: Option[Span]) extends AST(span)
+  case RecordTypeRef(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)
+  case RecordCtor(id: UniqidOf[AST], name: String, args: Vector[AST], override val span: Option[Span]) extends AST(span)
+  case FieldAccess(target: AST, field: String, override val span: Option[Span]) extends AST(span)
   case MetaCell(cell: HoldNotReadable[chester.utils.elab.CellRW[AST]], override val span: Option[Span]) extends AST(span)
 
   def toDoc(using options: DocConf): Doc = this match
@@ -217,6 +234,13 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("let") <+> text(name) <+> tyDoc <+> text("=") <+> value.toDoc <+> text("in") <@@> body.toDoc.indented()
     case AST.Ann(expr, ty, _) =>
       parens(expr.toDoc <+> text(":") <+> ty.toDoc)
+    case AST.RecordTypeRef(_, name, _) =>
+      text(name) <> text(".t")
+    case AST.RecordCtor(_, name, args, _) =>
+      // Desugared constructor call: Vec2d(a, b) => Vec2d.apply(a, b)
+      text(name) <> text(".apply") <> parens(hsep(args.map(_.toDoc), `,` <+> empty))
+    case AST.FieldAccess(target, field, _) =>
+      target.toDoc <> text(".") <> text(field)
     case AST.MetaCell(cell, _) =>
       text("?") <> text(cell.toString)
 
@@ -272,6 +296,13 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
     case AST.Ann(expr, ty, _) =>
       expr.collectUniqids(collector)
       ty.collectUniqids(collector)
+    case AST.RecordTypeRef(id, _, _) =>
+      collector(id)
+    case AST.RecordCtor(id, _, args, _) =>
+      collector(id)
+      args.foreach(_.collectUniqids(collector))
+    case AST.FieldAccess(target, _, _) =>
+      target.collectUniqids(collector)
     case AST.MetaCell(_, _) =>
       ()
 
@@ -332,5 +363,11 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.Let(mapper(id), name, ty.map(_.mapUniqids(mapper)), value.mapUniqids(mapper), body.mapUniqids(mapper), span)
     case AST.Ann(expr, ty, span) =>
       AST.Ann(expr.mapUniqids(mapper), ty.mapUniqids(mapper), span)
+    case AST.RecordTypeRef(id, name, span) =>
+      AST.RecordTypeRef(mapper(id), name, span)
+    case AST.RecordCtor(id, name, args, span) =>
+      AST.RecordCtor(mapper(id), name, args.map(_.mapUniqids(mapper)), span)
+    case AST.FieldAccess(target, field, span) =>
+      AST.FieldAccess(target.mapUniqids(mapper), field, span)
     case AST.MetaCell(cell, span) =>
       AST.MetaCell(cell, span)

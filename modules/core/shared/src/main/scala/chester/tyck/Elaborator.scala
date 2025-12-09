@@ -41,6 +41,8 @@ case class ElabContext(
     types: Map[UniqidOf[AST], CellRW[AST]], // Variable ID -> type cell mapping
     defBodies: Map[UniqidOf[AST], CellRW[AST]] = Map.empty, // Definition ID -> AST cell mapping
     effects: Map[String, EffectRef] = ElabContext.defaultEffects, // Declared effects
+    recordsByName: Map[String, ElabContext.RecordDef] = Map.empty,
+    recordsById: Map[UniqidOf[AST], ElabContext.RecordDef] = Map.empty,
     builtins: Set[String] = ElabContext.defaultBuiltins, // Built-in names
     builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes, // Built-in types
     reporter: Reporter[ElabProblem] // Error reporter
@@ -56,12 +58,30 @@ case class ElabContext(
   def lookupDefBody(id: UniqidOf[AST]): Option[CellRW[AST]] = defBodies.get(id)
   def isBuiltin(name: String): Boolean = builtins.contains(name)
   def lookupBuiltinType(name: String): Option[AST] = builtinTypes.get(name)
+  def registerRecordPlaceholder(name: String, id: UniqidOf[AST], ctorType: CellRW[AST]): ElabContext =
+    val defn = ElabContext.RecordDef(id, name, Vector.empty, ctorType)
+    copy(
+      recordsByName = recordsByName + (name -> defn),
+      recordsById = recordsById + (id -> defn),
+      bindings = bindings + (name -> id),
+      types = types + (id -> ctorType)
+    )
+  def updateRecord(name: String, fields: Vector[Param]): ElabContext =
+    recordsByName.get(name) match
+      case Some(defn) =>
+        val updated = defn.copy(fields = fields)
+        copy(recordsByName = recordsByName + (name -> updated), recordsById = recordsById + (defn.id -> updated))
+      case None => this
+  def lookupRecord(name: String): Option[ElabContext.RecordDef] = recordsByName.get(name)
+  def lookupRecordById(id: UniqidOf[AST]): Option[ElabContext.RecordDef] = recordsById.get(id)
   def declareEffect(name: String): ElabContext =
     val eff = EffectRef.User(Uniqid.make, name)
     copy(effects = effects + (name -> eff))
   def lookupEffect(name: String): Option[EffectRef] = effects.get(name)
 
 object ElabContext:
+  case class RecordDef(id: UniqidOf[AST], name: String, fields: Vector[Param], ctorType: CellRW[AST])
+
   val defaultEffects: Map[String, EffectRef] = Map("io" -> EffectRef.Builtin(BuiltinEffect.Io))
   val defaultBuiltins: Set[String] = Set(
     "Integer",
@@ -251,6 +271,12 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST =
         implicitArgs,
         span
       )
+    case AST.RecordTypeRef(id, name, span) =>
+      AST.RecordTypeRef(id, name, span)
+    case AST.RecordCtor(id, name, args, span) =>
+      AST.RecordCtor(id, name, args.map(substituteInType(_, substitutions)), span)
+    case AST.FieldAccess(target, field, span) =>
+      AST.FieldAccess(substituteInType(target, substitutions), field, span)
     case AST.Let(id, name, ty, value, body, span) =>
       val filteredSubs = substitutions - id
       AST.Let(
@@ -280,6 +306,11 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
     val boundIds = telescopes.flatMap(_.params.map(_.id)).toSet + id
     val filteredSubs = substitutions.filterNot { case (i, _) => boundIds.contains(i) }
     StmtAST.Def(id, name, newTelescopes, resultTy.map(substituteInType(_, filteredSubs)), substituteInType(body, filteredSubs), span)
+  case StmtAST.Record(id, name, fields, span) =>
+    val newFields = fields.map(p =>
+      Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
+    )
+    StmtAST.Record(id, name, newFields, span)
   case StmtAST.Pkg(name, body, span) =>
     StmtAST.Pkg(name, substituteInType(body, substitutions), span)
 
@@ -546,12 +577,14 @@ class ElabHandler extends Handler[ElabConstraint]:
         tail.foreach { t =>
           if isDefStatement(t) then c.ctx.reporter.report(ElabProblem.UnboundVariable("def statement not allowed in tail position", t.span))
           if isLetStatement(t) then c.ctx.reporter.report(ElabProblem.UnboundVariable("let statement not allowed in tail position", t.span))
+          if isRecordStatement(t) then c.ctx.reporter.report(ElabProblem.UnboundVariable("record statement not allowed in tail position", t.span))
         }
 
         // TWO-PASS ELABORATION for forward references:
         // Pass 1: Scan elements, collect all def declarations, create placeholder cells (reusing any pre-bound ones)
         var enrichedCtx = c.ctx
         val defInfoMap = scala.collection.mutable.Map.empty[CST, DefInfo]
+        val recordInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.CellRW[AST])]
 
         elements.foreach {
           case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
@@ -577,6 +610,14 @@ class ElabHandler extends Handler[ElabConstraint]:
             seqElems.lift(1) match
               case Some(CST.Symbol(name, _)) =>
                 enrichedCtx = enrichedCtx.declareEffect(name)
+              case _ => ()
+          case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("record", _) => true; case _ => false } =>
+            seqElems.lift(1) match
+              case Some(CST.Symbol(name, _)) =>
+                val recordId = Uniqid.make[AST]
+                val ctorTyCell = enrichedCtx.lookup(name).flatMap(enrichedCtx.lookupType).getOrElse(module.newOnceCell[ElabConstraint, AST](solver))
+                enrichedCtx = enrichedCtx.registerRecordPlaceholder(name, recordId, ctorTyCell)
+                recordInfoMap(elem) = (name, recordId, ctorTyCell)
               case _ => ()
           case _ => ()
         }
@@ -619,6 +660,20 @@ class ElabHandler extends Handler[ElabConstraint]:
                   module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
                   module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
               elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), span), span)
+            case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("record", _) => true; case _ => false } =>
+              val recordMeta = recordInfoMap(elem)
+              val fields = parseRecordFields(seqElems.toVector, currentCtx)(using module, solver)
+              val ctorType = AST.Pi(
+                Vector(Telescope(fields, Implicitness.Explicit)),
+                AST.RecordTypeRef(recordMeta._2, recordMeta._1, span),
+                Vector.empty,
+                span
+              )
+              module.fill(solver, recordMeta._3, ctorType)
+              currentCtx = currentCtx.updateRecord(recordMeta._1, fields)
+              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+              elaboratedElemsBuffer += StmtAST.Record(recordMeta._2, recordMeta._1, fields, span)
             case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("let", _) => true; case _ => false } =>
               val elems = seqElems.toVector
               currentCtx = handleLetStatement(c, elems, elem.span, currentCtx, elemResult, elemType)(using module, solver)
@@ -680,6 +735,16 @@ class ElabHandler extends Handler[ElabConstraint]:
           val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
           module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
           Result.Done
+        else if elems.headOption.exists { case CST.Symbol("record", _) => true; case _ => false } then
+          c.ctx.reporter.report(
+            ElabProblem.UnboundVariable("record statement only allowed in block elements, not at top level or in expressions", span)
+          )
+          val metaId = Uniqid.make[AST]
+          val ast = AST.Ref(metaId, "record", span)
+          module.fill(solver, c.result, ast)
+          val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+          module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
+          Result.Done
         else if elems.headOption.exists { case CST.Symbol("package", _) => true; case _ => false } then
           // package name [body...]
           if elems.length < 2 then
@@ -710,30 +775,33 @@ class ElabHandler extends Handler[ElabConstraint]:
             module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(bodyTy), span))
             Result.Done
         else
-          annotationPattern(elems) match
-            case Some((exprCst, typeCst)) =>
-              handleAnnotatedExpression(c, exprCst, typeCst, span)
+          tryHandleDotSequence(c, elems.toVector, span) match
+            case Some(res) => res
             case None =>
-              // Normalize chained applications like f(a)(b) or f[a](b)(c)
-              normalizeApplicationSeq(elems) match
-                case Some(normalized) =>
-                  module.addConstraint(solver, ElabConstraint.Infer(normalized, c.result, c.inferredTy, c.ctx))
-                  Result.Done
+              annotationPattern(elems) match
+                case Some((exprCst, typeCst)) =>
+                  handleAnnotatedExpression(c, exprCst, typeCst, span)
                 case None =>
-                  // Check for function application patterns:
-                  // f(args) becomes SeqOf(f, Tuple(args))
-                  // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
-                  if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
-                    // f(args) - no explicit type arguments
-                    handleFunctionApplication(c, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
-                  else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
-                    // f[typeArgs](args) - explicit type arguments provided
-                    handleFunctionApplication(c, elems(0), Some(elems(1).asInstanceOf[CST.ListLiteral]), elems(2).asInstanceOf[CST.Tuple], span)
-                  else
-                    // Default: treat as a block-like sequence
-                    val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
-                    module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
-                    Result.Done
+                  // Normalize chained applications like f(a)(b) or f[a](b)(c)
+                  normalizeApplicationSeq(elems) match
+                    case Some(normalized) =>
+                      module.addConstraint(solver, ElabConstraint.Infer(normalized, c.result, c.inferredTy, c.ctx))
+                      Result.Done
+                    case None =>
+                      // Check for function application patterns:
+                      // f(args) becomes SeqOf(f, Tuple(args))
+                      // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
+                      if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
+                        // f(args) - no explicit type arguments
+                        handleFunctionApplication(c, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
+                      else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
+                        // f[typeArgs](args) - explicit type arguments provided
+                        handleFunctionApplication(c, elems(0), Some(elems(1).asInstanceOf[CST.ListLiteral]), elems(2).asInstanceOf[CST.Tuple], span)
+                      else
+                        // Default: treat as a block-like sequence
+                        val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
+                        module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
+                        Result.Done
 
   /** Handle function application: f(args) or f[typeArgs](args) */
   private def handleFunctionApplication[M <: SolverModule](
@@ -743,6 +811,40 @@ class ElabHandler extends Handler[ElabConstraint]:
       argsTuple: CST.Tuple,
       span: Option[Span]
   )(using module: M, solver: module.Solver[ElabConstraint]): Result =
+
+    funcCst match
+      case CST.Symbol(name, funcSpan) if c.ctx.lookupRecord(name).isDefined =>
+        val rec = c.ctx.lookupRecord(name).get
+        val fields = rec.fields
+        val argPairs = argsTuple.elements
+          .zipAll(
+            fields,
+            CST.Symbol("<missing>", span),
+            Param(Uniqid.make, "<missing>", AST.MetaCell(HoldNotReadable(module.newOnceCell[ElabConstraint, AST](solver)), None), Implicitness.Explicit, None)
+          )
+          .map {
+            case (argCst, field) =>
+              val argResult = module.newOnceCell[ElabConstraint, AST](solver)
+              val argTy = module.newOnceCell[ElabConstraint, AST](solver)
+              module.addConstraint(solver, ElabConstraint.Infer(argCst, argResult, argTy, c.ctx, asType = c.asType))
+              // If we know the expected field type, add a unification constraint
+              if field.name != "<missing>" then
+                val expectedTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+                module.fill(solver, expectedTyCell, field.ty)
+                module.addConstraint(solver, ElabConstraint.Unify(argTy, expectedTyCell, span, c.ctx))
+                field.ty match
+                  case AST.MetaCell(HoldNotReadable(cell), _) if !module.hasStableValue(solver, cell.asInstanceOf[module.CellRW[AST]]) =>
+                    module.readStable(solver, argTy) match
+                      case Some(argTypeAst) => module.fill(solver, cell.asInstanceOf[module.CellRW[AST]], argTypeAst)
+                      case None             => ()
+                  case _ => ()
+              (argResult, argCst)
+          }
+        val argAsts = argPairs.map { case (cell, argCst) => AST.MetaCell(HoldNotReadable(cell), argCst.span) }.toVector
+        module.fill(solver, c.result, AST.RecordCtor(rec.id, name, argAsts, span))
+        module.fill(solver, c.inferredTy, AST.RecordTypeRef(rec.id, name, span))
+        return Result.Done
+      case _ => ()
 
     // Elaborate function
     val funcResult = module.newOnceCell[ElabConstraint, AST](solver)
@@ -791,6 +893,74 @@ class ElabHandler extends Handler[ElabConstraint]:
     )
 
     Result.Done
+
+  /** Handle dotted sequences such as `Vec2d.t` or `point.x`. */
+  private def tryHandleDotSequence[M <: SolverModule](
+      c: ElabConstraint.Infer,
+    elems: Vector[CST],
+    span: Option[Span]
+  )(using module: M, solver: module.Solver[ElabConstraint]): Option[Result] =
+    import module.given
+
+    def fillResultOnce(cell: module.CellRW[AST], value: AST): Unit =
+      if !module.hasStableValue(solver, cell) then module.fill(solver, cell, value)
+
+    elems match
+      case Vector(CST.Symbol(name, _), CST.Symbol(".", _), CST.Symbol("t", _)) =>
+        c.ctx.lookupRecord(name) match
+          case Some(rec) =>
+            val ast = AST.RecordTypeRef(rec.id, name, span)
+            fillResultOnce(c.result, ast)
+            fillResultOnce(c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+            Some(Result.Done)
+          case None => None
+      case Vector(lhs, CST.Symbol(".", _), CST.Symbol(field, _)) =>
+        val targetResult = module.newOnceCell[ElabConstraint, AST](solver)
+        val targetTy = module.newOnceCell[ElabConstraint, AST](solver)
+        module.addConstraint(solver, ElabConstraint.Infer(lhs, targetResult, targetTy, c.ctx, asType = c.asType))
+        val targetAst = AST.MetaCell(HoldNotReadable(targetResult), lhs.span)
+        val accessAst = AST.FieldAccess(targetAst, field, span)
+        fillResultOnce(c.result, accessAst)
+        module.readStable(solver, targetTy) match
+          case None =>
+            // Try to use a known binding type (if lhs is a symbol) before deferring
+            lhs match
+              case CST.Symbol(sym, _) =>
+                (for
+                  id     <- c.ctx.lookup(sym)
+                  tyCell <- c.ctx.lookupType(id)
+                  ty     <- module.readStable(solver, tyCell)
+                yield (id, ty)) match
+                  case Some((id, AST.RecordTypeRef(recId, _, _))) =>
+                    c.ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == field)) match
+                      case Some(param) => fillResultOnce(c.inferredTy, param.ty)
+                      case None        => fillResultOnce(c.inferredTy, AST.AnyType(span))
+                  case _ => ()
+              case _ => ()
+            // If we still haven't produced a type, defer to the eventual target type
+            if !module.hasSomeValue(solver, c.inferredTy.asInstanceOf[module.CellAny]) then
+              fillResultOnce(c.inferredTy, AST.MetaCell(HoldNotReadable(targetTy), span))
+            Some(Result.Done)
+          case Some(AST.RecordTypeRef(recId, _, _)) =>
+            c.ctx.lookupRecordById(recId) match
+              case Some(rec) =>
+                rec.fields.find(_.name == field) match
+                  case Some(param) =>
+                    fillResultOnce(c.inferredTy, param.ty)
+                    Some(Result.Done)
+                  case None =>
+                    // Unknown field on a known record type – fall back to Any to keep solving
+                    fillResultOnce(c.inferredTy, AST.AnyType(span))
+                    Some(Result.Done)
+              case None =>
+                // Should not happen; fall back conservatively
+                fillResultOnce(c.inferredTy, AST.AnyType(span))
+                Some(Result.Done)
+          case Some(_) =>
+            // Field access on non-record type – yield Any to avoid dangling metas
+            fillResultOnce(c.inferredTy, AST.AnyType(span))
+            Some(Result.Done)
+      case _ => None
 
   private def annotationPattern(elems: Vector[CST]): Option[(CST, CST)] =
     if elems.length >= 3 then
@@ -1140,16 +1310,23 @@ class ElabHandler extends Handler[ElabConstraint]:
     var idx = 2
     var hasAnnotation = false
     var annotationSpan: Option[Span] = None
+    var annotationCstOpt: Option[CST] = None
 
     if idx < elems.length && elems(idx).isInstanceOf[CST.Symbol] && elems(idx).asInstanceOf[CST.Symbol].name == ":" then
       hasAnnotation = true
-      idx += 1
-      if idx >= elems.length then return fail("Expected type annotation after colon in let")
-      val annotationCst = elems(idx)
-      annotationSpan = annotationCst.span
+      val annElems = elems.drop(idx + 1).takeWhile {
+        case CST.Symbol("=", _) => false
+        case _                  => true
+      }
+      if annElems.isEmpty then return fail("Expected type annotation after colon in let")
+      val annCst =
+        if annElems.length == 1 then annElems.head
+        else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(annElems), combinedSpan(annElems))
+      annotationCstOpt = Some(annCst)
+      annotationSpan = annCst.span
       val annotationTyTy = module.newOnceCell[ElabConstraint, AST](solver)
-      module.addConstraint(solver, ElabConstraint.Infer(annotationCst, letTypeCell, annotationTyTy, ctx, asType = true))
-      idx += 1
+      module.addConstraint(solver, ElabConstraint.Infer(annCst, letTypeCell, annotationTyTy, ctx, asType = true))
+      idx = idx + 1 + annElems.length
 
     if idx >= elems.length || !elems(idx).isInstanceOf[CST.Symbol] || elems(idx).asInstanceOf[CST.Symbol].name != "=" then
       return fail("Expected = in let")
@@ -1174,7 +1351,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     val valueAst = AST.MetaCell(HoldNotReadable(valueResult), valueCst.span)
     val tyAstOpt =
-      if hasAnnotation then Some(AST.MetaCell(HoldNotReadable(letTypeCell), annotationSpan))
+      if hasAnnotation then Some(AST.MetaCell(HoldNotReadable(letTypeCell), annotationSpan.orElse(annotationCstOpt.flatMap(_.span))))
       else None
     val bodyAst = AST.Ref(letId, name, valueCst.span.orElse(span))
     val letAst = AST.Let(letId, name, tyAstOpt, valueAst, bodyAst, span)
@@ -1240,6 +1417,17 @@ class ElabHandler extends Handler[ElabConstraint]:
     }
     Telescope(parsedParams, implicitness)
 
+  /** Parse the field list of a record declaration. */
+  private def parseRecordFields[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[Param] =
+    val fieldsTuple = elems.lift(2) match
+      case Some(CST.Tuple(params, _)) => params
+      case _                          => Vector.empty
+    val telescope = parseTelescopeFromCST(fieldsTuple, Implicitness.Explicit, ctx)
+    telescope.params
+
   /** Check if a CST node is a def statement */
   private def isDefStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>
@@ -1249,6 +1437,11 @@ class ElabHandler extends Handler[ElabConstraint]:
   private def isLetStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>
       elements.headOption.exists { case CST.Symbol("let", _) => true; case _ => false }
+    case _ => false
+
+  private def isRecordStatement(cst: CST): Boolean = cst match
+    case CST.SeqOf(elements, _) =>
+      elements.headOption.exists { case CST.Symbol("record", _) => true; case _ => false }
     case _ => false
 
   private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using
@@ -1433,6 +1626,9 @@ class ElabHandler extends Handler[ElabConstraint]:
               else UnifyResult.Failure("Effect mismatch")
             case failure => failure
 
+      case (AST.RecordTypeRef(id1, _, _), AST.RecordTypeRef(id2, _, _)) =>
+        if id1 == id2 then UnifyResult.Success else UnifyResult.Failure("Record type mismatch")
+
       case _ => UnifyResult.Failure(s"Type mismatch: ${t1.getClass.getSimpleName} vs ${t2.getClass.getSimpleName}")
 
   /** Unify a list of type pairs */
@@ -1562,6 +1758,10 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.Let(_, _, ty, value, body, _) =>
         ty.exists(occursIn(cell, _)) || occursIn(cell, value) || occursIn(cell, body)
       case AST.Ann(expr, ty, _) => occursIn(cell, expr) || occursIn(cell, ty)
+      case AST.RecordCtor(_, _, args, _) =>
+        args.exists(occursIn(cell, _))
+      case AST.FieldAccess(target, _, _) =>
+        occursIn(cell, target)
       case _                    => false
 
   private def occursInStmt[M <: SolverModule](cell: Any, stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): Boolean =
@@ -1569,6 +1769,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       case StmtAST.ExprStmt(expr, _) => occursIn(cell, expr)
       case StmtAST.Def(_, _, teles, resTy, body, _) =>
         teles.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || resTy.exists(occursIn(cell, _)) || occursIn(cell, body)
+      case StmtAST.Record(_, _, fields, _) =>
+        fields.exists(p => occursIn(cell, p.ty))
       case StmtAST.Pkg(_, body, _) => occursIn(cell, body)
 
   private def handleIsUniverse[M <: SolverModule](c: ElabConstraint.IsUniverse)(using module: M, solver: module.Solver[ElabConstraint]): Result =
@@ -1664,6 +1866,10 @@ class ElabHandler extends Handler[ElabConstraint]:
             case AST.Ann(expr, ty, _) => firstUnresolved(expr).orElse(firstUnresolved(ty))
             case AST.Block(elems, tail, _) =>
               elems.iterator.flatMap(firstUnresolvedStmt).take(1).toSeq.headOption.orElse(firstUnresolved(tail))
+            case AST.RecordCtor(_, _, args, _) =>
+              args.iterator.flatMap(firstUnresolved).take(1).toSeq.headOption
+            case AST.FieldAccess(target, _, _) =>
+              firstUnresolved(target)
             case _ => None
 
         def firstUnresolvedStmt(stmt: StmtAST): Option[module.CellAny] =
@@ -1678,6 +1884,8 @@ class ElabHandler extends Handler[ElabConstraint]:
                 .headOption
                 .orElse(resTy.flatMap(firstUnresolved))
                 .orElse(firstUnresolved(body))
+            case StmtAST.Record(_, _, fields, _) =>
+              fields.iterator.flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
             case StmtAST.Pkg(_, body, _) => firstUnresolved(body)
 
         val unresolvedParamCell =
@@ -1866,6 +2074,10 @@ class ElabHandler extends Handler[ElabConstraint]:
         case AST.Let(_, _, ty, value, body, _) =>
           ty.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(value) ++ gatherEffects(body)
         case AST.Ann(expr, ty, _) => gatherEffects(expr) ++ gatherEffects(ty)
+        case AST.RecordCtor(_, _, args, _) =>
+          args.flatMap(gatherEffects).toSet
+        case AST.FieldAccess(target, _, _) =>
+          gatherEffects(target)
         case _                    => Set.empty
 
     def gatherEffectsStmt(stmt: StmtAST): Set[EffectRef] = stmt match
@@ -1874,6 +2086,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(
           body
         )
+      case StmtAST.Record(_, _, fields, _) =>
+        fields.flatMap(p => gatherEffects(p.ty)).toSet
       case StmtAST.Pkg(_, body, _) => gatherEffects(body)
 
     val requiredEffects = gatherEffects(body)
@@ -1943,8 +2157,6 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
 
     case AST.Block(elements, tail, span) =>
       AST.Block(elements.map(substituteSolutionsStmt), substituteSolutions(tail), span)
-    case other => other
-
     case AST.StringLit(value, span) => ast
     case AST.IntLit(value, span)    => ast
 
@@ -2006,6 +2218,10 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
 
     case AST.Ann(expr, ty, span) =>
       AST.Ann(substituteSolutions(expr), substituteSolutions(ty), span)
+    case AST.RecordCtor(id, name, args, span) =>
+      AST.RecordCtor(id, name, args.map(substituteSolutions), span)
+    case AST.FieldAccess(target, field, span) =>
+      AST.FieldAccess(substituteSolutions(target), field, span)
     case other => other
 
 private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): StmtAST =
@@ -2015,6 +2231,9 @@ private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using modu
       val newTeles =
         teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
       StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span)
+    case StmtAST.Record(id, name, fields, span) =>
+      val newFields = fields.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))
+      StmtAST.Record(id, name, newFields, span)
     case StmtAST.Pkg(name, body, span) =>
       StmtAST.Pkg(name, substituteSolutions(body), span)
 

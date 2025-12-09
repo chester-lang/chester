@@ -130,6 +130,9 @@ object Parser {
           case Token.IntegerLiteral(value, span) =>
             state.advance()
             CST.IntegerLiteral(BigInt(value.asString), Some(span))
+          case Token.Dot(span) =>
+            state.advance()
+            CST.Symbol(".", Some(span))
           case Token.SymbolLiteral(value, span) =>
             state.advance()
             CST.Symbol(value.asString, Some(span))
@@ -209,6 +212,7 @@ object Parser {
         case Some(tok) if isClosing(tok) => // Done, will be handled after loop
         case _ if state.isEOF            => return closeWithError("EOF")
         case Some(_: Token.Semicolon)    => return closeWithError("semicolon in block context")
+        case Some(_)                     => return closeWithError("unexpected token")
         case None                        => return closeWithError("unexpected end")
       }
     }
