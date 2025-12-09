@@ -912,9 +912,9 @@ class ElabHandler extends Handler[ElabConstraint]:
 
         while idx < elems.length && (elems(idx).isInstanceOf[CST.ListLiteral] || elems(idx).isInstanceOf[CST.Tuple]) do
           val tel = elems(idx) match
-            case CST.ListLiteral(params, _)  => parseTelescopeFromCST(params, Implicitness.Implicit, paramCtx)(using module, solver)
-            case CST.Tuple(params, _)        => parseTelescopeFromCST(params, Implicitness.Explicit, paramCtx)(using module, solver)
-            case _                           => Telescope(Vector.empty, Implicitness.Explicit)
+            case CST.ListLiteral(params, _) => parseTelescopeFromCST(params, Implicitness.Implicit, paramCtx)(using module, solver)
+            case CST.Tuple(params, _)       => parseTelescopeFromCST(params, Implicitness.Explicit, paramCtx)(using module, solver)
+            case _                          => Telescope(Vector.empty, Implicitness.Explicit)
           telescopes += tel
           // Extend parameter context so later params/result types can reference earlier params
           tel.params.foreach { param =>
@@ -929,8 +929,7 @@ class ElabHandler extends Handler[ElabConstraint]:
           ctx.reporter.report(ElabProblem.UnboundVariable("Effect operation requires a result type", span))
         else
           idx += 1
-          if idx >= elems.length then
-            ctx.reporter.report(ElabProblem.UnboundVariable("Missing result type after ':' in effect operation", span))
+          if idx >= elems.length then ctx.reporter.report(ElabProblem.UnboundVariable("Missing result type after ':' in effect operation", span))
           else
             val typeElems = elems.drop(idx)
             val resultTypeCst =
