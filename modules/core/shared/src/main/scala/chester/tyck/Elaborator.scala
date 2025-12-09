@@ -3,7 +3,7 @@ package chester.tyck
 import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
 
-import chester.core.{AST, Arg, BuiltinEffect, CST, EffectRef, Implicitness, Param, StmtAST, Telescope}
+import chester.core.{AST, Arg, BuiltinEffect, CST, EffectRef, EnumCase, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Problem, Reporter, Span, VectorReporter}
 import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
@@ -43,6 +43,8 @@ case class ElabContext(
     effects: Map[String, EffectRef] = ElabContext.defaultEffects, // Declared effects
     recordsByName: Map[String, ElabContext.RecordDef] = Map.empty,
     recordsById: Map[UniqidOf[AST], ElabContext.RecordDef] = Map.empty,
+    enumsByName: Map[String, ElabContext.EnumDef] = Map.empty,
+    enumsById: Map[UniqidOf[AST], ElabContext.EnumDef] = Map.empty,
     builtins: Set[String] = ElabContext.defaultBuiltins, // Built-in names
     builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes, // Built-in types
     reporter: Reporter[ElabProblem] // Error reporter
@@ -76,6 +78,24 @@ case class ElabContext(
   }
   def lookupRecord(name: String): Option[ElabContext.RecordDef] = recordsByName.get(name)
   def lookupRecordById(id: UniqidOf[AST]): Option[ElabContext.RecordDef] = recordsById.get(id)
+  def registerEnumPlaceholder(name: String, id: UniqidOf[AST]): ElabContext = {
+    val defn = ElabContext.EnumDef(id, name, Vector.empty)
+    copy(
+      enumsByName = enumsByName + (name -> defn),
+      enumsById = enumsById + (id -> defn)
+    )
+  }
+  def updateEnum(name: String, cases: Vector[EnumCase]): ElabContext = {
+    enumsByName.get(name) match
+      case Some(defn) =>
+        val updated = defn.copy(cases = cases)
+        copy(enumsByName = enumsByName + (name -> updated), enumsById = enumsById + (defn.id -> updated))
+      case None => this
+  }
+  def lookupEnum(name: String): Option[ElabContext.EnumDef] = enumsByName.get(name)
+  def lookupEnumById(id: UniqidOf[AST]): Option[ElabContext.EnumDef] = enumsById.get(id)
+  def lookupEnumCase(enumId: UniqidOf[AST], caseName: String): Option[EnumCase] =
+    enumsById.get(enumId).flatMap(_.cases.find(_.name == caseName))
   def declareEffect(name: String): ElabContext = {
     val eff = EffectRef.User(Uniqid.make, name)
     copy(effects = effects + (name -> eff))
@@ -84,6 +104,7 @@ case class ElabContext(
 
 object ElabContext:
   case class RecordDef(id: UniqidOf[AST], name: String, fields: Vector[Param], ctorType: CellRW[AST])
+  case class EnumDef(id: UniqidOf[AST], name: String, cases: Vector[EnumCase])
 
   val defaultEffects: Map[String, EffectRef] = Map("io" -> EffectRef.Builtin(BuiltinEffect.Io))
   val defaultBuiltins: Set[String] = Set(
@@ -288,6 +309,12 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST = {
       AST.RecordCtor(id, name, args.map(substituteInType(_, substitutions)), span)
     case AST.FieldAccess(target, field, span) =>
       AST.FieldAccess(substituteInType(target, substitutions), field, span)
+    case AST.EnumTypeRef(id, name, span) =>
+      AST.EnumTypeRef(id, name, span)
+    case AST.EnumCaseRef(enumId, caseId, enumName, caseName, span) =>
+      AST.EnumCaseRef(enumId, caseId, enumName, caseName, span)
+    case AST.EnumCtor(enumId, caseId, enumName, caseName, args, span) =>
+      AST.EnumCtor(enumId, caseId, enumName, caseName, args.map(substituteInType(_, substitutions)), span)
     case AST.Let(id, name, ty, value, body, span) =>
       val filteredSubs = substitutions - id
       AST.Let(
@@ -322,6 +349,17 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
     val newFields =
       fields.map(p => Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions))))
     StmtAST.Record(id, name, newFields, span)
+  case StmtAST.Enum(id, name, cases, span) =>
+    val newCases = cases.map { c =>
+      EnumCase(
+        c.id,
+        c.name,
+        c.params.map(p =>
+          Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
+        )
+      )
+    }
+    StmtAST.Enum(id, name, newCases, span)
   case StmtAST.Pkg(name, body, span) =>
     StmtAST.Pkg(name, substituteInType(body, substitutions), span)
 
@@ -653,6 +691,16 @@ class ElabHandler extends Handler[ElabConstraint]:
             val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
             module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
             Result.Done
+          case Some(CST.Symbol("enum", _)) =>
+            c.ctx.reporter.report(
+              ElabProblem.UnboundVariable("enum statement only allowed in block elements; add ';' to terminate it", span)
+            )
+            val metaId = Uniqid.make[AST]
+            val ast = AST.Ref(metaId, "enum", span)
+            module.fill(solver, c.result, ast)
+            val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+            module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
+            Result.Done
           case _ =>
             if elems.headOption.exists { case CST.Symbol("package", _) => true; case _ => false } then
               // package name [body...]
@@ -699,30 +747,42 @@ class ElabHandler extends Handler[ElabConstraint]:
                           module.addConstraint(solver, ElabConstraint.Infer(normalized, c.result, c.inferredTy, c.ctx))
                           Result.Done
                         case None =>
-                          // Check for function application patterns:
-                          // f(args) becomes SeqOf(f, Tuple(args))
-                          // f[typeArgs](args) becomes SeqOf(f, ListLiteral(typeArgs), Tuple(args))
-                          if elems.length == 2 && elems(1).isInstanceOf[CST.Tuple] then
-                            // f(args) - no explicit type arguments
-                            handleFunctionApplication(c.ctx, c.asType, c.result, c.inferredTy, elems(0), None, elems(1).asInstanceOf[CST.Tuple], span)
-                          else if elems.length == 3 && elems(1).isInstanceOf[CST.ListLiteral] && elems(2).isInstanceOf[CST.Tuple] then
-                            // f[typeArgs](args) - explicit type arguments provided
-                            handleFunctionApplication(
-                              c.ctx,
-                              c.asType,
-                              c.result,
-                              c.inferredTy,
-                              elems(0),
-                              Some(elems(1).asInstanceOf[CST.ListLiteral]),
-                              elems(2).asInstanceOf[CST.Tuple],
-                              span
-                            )
-                          else {
-                            // Default: treat as a block-like sequence
-                            val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
-                            module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
-                            Result.Done
-                          }
+                          val maybeTuple = elems.lastOption.collect { case t: CST.Tuple => t }
+                          val maybeTypeArgs =
+                            if elems.length >= 2 then elems(elems.length - 2) match
+                              case l: CST.ListLiteral => Some(l)
+                              case _                  => None
+                            else None
+
+                          (maybeTuple, maybeTypeArgs) match
+                            case (Some(tuple), Some(typeArgs)) =>
+                              val funcElems = elems.dropRight(2)
+                              if funcElems.nonEmpty then
+                                val funcCst =
+                                  if funcElems.length == 1 then funcElems.head
+                                  else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(funcElems), combinedSpan(funcElems))
+                                handleFunctionApplication(c.ctx, c.asType, c.result, c.inferredTy, funcCst, Some(typeArgs), tuple, span)
+                              else
+                                val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
+                                module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
+                                Result.Done
+                            case (Some(tuple), None) =>
+                              val funcElems = elems.dropRight(1)
+                              if funcElems.nonEmpty then
+                                val funcCst =
+                                  if funcElems.length == 1 then funcElems.head
+                                  else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(funcElems), combinedSpan(funcElems))
+                                handleFunctionApplication(c.ctx, c.asType, c.result, c.inferredTy, funcCst, None, tuple, span)
+                              else {
+                                val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
+                                module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
+                                Result.Done
+                              }
+                            case _ =>
+                              // Default: treat as a block-like sequence
+                              val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
+                              module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
+                              Result.Done
             }
   }
 
@@ -741,7 +801,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       case CST.SeqOf(elements, span) =>
         val elems = elements.toVector
         elems.headOption match
-          case Some(CST.Symbol("def", _)) | Some(CST.Symbol("effect", _)) | Some(CST.Symbol("record", _)) =>
+          case Some(CST.Symbol("def", _)) | Some(CST.Symbol("effect", _)) | Some(CST.Symbol("record", _)) |
+              Some(CST.Symbol("enum", _)) =>
             val blockElem = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems), span)
             elaborateBlockLike(c.ctx, c.result, c.inferredTy, Vector(blockElem), None, span)
           case Some(CST.Symbol("let", _)) =>
@@ -845,6 +906,51 @@ class ElabHandler extends Handler[ElabConstraint]:
         return Result.Done
       case _ => ()
 
+    def resolveEnumCase(cst: CST): Option[(ElabContext.EnumDef, EnumCase)] = cst match
+      case CST.SeqOf(seqElems, _) =>
+        seqElems.toVector match
+          case Vector(CST.Symbol(enumName, _), CST.Symbol(".", _), CST.Symbol(caseName, _)) =>
+            ctx.lookupEnum(enumName).flatMap(en => en.cases.find(_.name == caseName).map(en -> _))
+          case _ => None
+      case _ => None
+
+    resolveEnumCase(funcCst) match
+      case Some((enumDef, enumCase)) =>
+        val expectedTy = AST.EnumTypeRef(enumDef.id, enumDef.name, span)
+        val argPairs = argsTuple.elements
+          .zipAll(
+            enumCase.params,
+            CST.Symbol("<missing>", span),
+            Param(
+              Uniqid.make,
+              "<missing>",
+              AST.MetaCell(HoldNotReadable(module.newOnceCell[ElabConstraint, AST](solver)), None),
+              Implicitness.Explicit,
+              None
+            )
+          )
+          .map { case (argCst, param) =>
+            val argResult = module.newOnceCell[ElabConstraint, AST](solver)
+            val argTy = module.newOnceCell[ElabConstraint, AST](solver)
+            module.addConstraint(solver, ElabConstraint.Infer(argCst, argResult, argTy, ctx, asType = asType))
+            if param.name != "<missing>" then
+              val expectedTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+              module.fill(solver, expectedTyCell, param.ty)
+              module.addConstraint(solver, ElabConstraint.Unify(argTy, expectedTyCell, span, ctx))
+              param.ty match
+                case AST.MetaCell(HoldNotReadable(cell), _) if !module.hasStableValue(solver, cell.asInstanceOf[module.CellRW[AST]]) =>
+                  module.readStable(solver, argTy) match
+                    case Some(argTypeAst) => module.fill(solver, cell.asInstanceOf[module.CellRW[AST]], argTypeAst)
+                    case None             => ()
+                case _ => ()
+            (argResult, argCst)
+          }
+        val argAsts = argPairs.map { case (cell, argCst) => AST.MetaCell(HoldNotReadable(cell), argCst.span) }.toVector
+        module.fill(solver, resultCell, AST.EnumCtor(enumDef.id, enumCase.id, enumDef.name, enumCase.name, argAsts, span))
+        module.fill(solver, inferredTyCell, expectedTy)
+        return Result.Done
+      case None => ()
+
     // Elaborate function
     val funcResult = module.newOnceCell[ElabConstraint, AST](solver)
     val funcTy = module.newOnceCell[ElabConstraint, AST](solver)
@@ -910,6 +1016,8 @@ class ElabHandler extends Handler[ElabConstraint]:
       if isDefStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("def statement not allowed in tail position", t.span))
       if isLetStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("let statement not allowed in tail position", t.span))
       if isRecordStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("record statement not allowed in tail position", t.span))
+      if isEnumStatement(t) then
+        ctx.reporter.report(ElabProblem.UnboundVariable("enum statement not allowed in tail position; terminate with ';'", t.span))
     }
 
     // TWO-PASS ELABORATION for forward references:
@@ -917,6 +1025,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     var enrichedCtx = ctx
     val defInfoMap = scala.collection.mutable.Map.empty[CST, DefInfo]
     val recordInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.CellRW[AST])]
+    val enumInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST])]
 
     elements.foreach {
       case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
@@ -950,6 +1059,13 @@ class ElabHandler extends Handler[ElabConstraint]:
             val ctorTyCell = enrichedCtx.lookup(name).flatMap(enrichedCtx.lookupType).getOrElse(module.newOnceCell[ElabConstraint, AST](solver))
             enrichedCtx = enrichedCtx.registerRecordPlaceholder(name, recordId, ctorTyCell)
             recordInfoMap(elem) = (name, recordId, ctorTyCell)
+          case _ => ()
+      case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("enum", _) => true; case _ => false } =>
+        seqElems.lift(1) match
+          case Some(CST.Symbol(name, _)) =>
+            val enumId = Uniqid.make[AST]
+            enrichedCtx = enrichedCtx.registerEnumPlaceholder(name, enumId)
+            enumInfoMap(elem) = (name, enumId)
           case _ => ()
       case _ => ()
     }
@@ -1007,6 +1123,17 @@ class ElabHandler extends Handler[ElabConstraint]:
           module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
           module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
           elaboratedElemsBuffer += StmtAST.Record(recordMeta._2, recordMeta._1, fields, span)
+        case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("enum", _) => true; case _ => false } =>
+          enumInfoMap.get(elem) match
+            case Some((name, enumId)) =>
+              val cases = parseEnumCases(seqElems.toVector, currentCtx)(using module, solver)
+              currentCtx = currentCtx.updateEnum(name, cases)
+              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+              elaboratedElemsBuffer += StmtAST.Enum(enumId, name, cases, span)
+            case None =>
+              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
         case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("let", _) => true; case _ => false } =>
           val elems = seqElems.toVector
           currentCtx = handleLetStatement(elems, elem.span, currentCtx, elemResult, elemType)(using module, solver)
@@ -1053,13 +1180,81 @@ class ElabHandler extends Handler[ElabConstraint]:
 
     elems match
       case Vector(CST.Symbol(name, _), CST.Symbol(".", _), CST.Symbol("t", _)) =>
-        ctx.lookupRecord(name) match
-          case Some(rec) =>
-            val ast = AST.RecordTypeRef(rec.id, name, span)
+        ctx.lookupEnum(name) match
+          case Some(en) =>
+            val ast = AST.EnumTypeRef(en.id, name, span)
             fillResultOnce(resultCell, ast)
             fillResultOnce(inferredTyCell, AST.Type(AST.LevelLit(0, None), None))
             Some(Result.Done)
-          case None => None
+          case None =>
+            ctx.lookupRecord(name) match
+              case Some(rec) =>
+                val ast = AST.RecordTypeRef(rec.id, name, span)
+                fillResultOnce(resultCell, ast)
+                fillResultOnce(inferredTyCell, AST.Type(AST.LevelLit(0, None), None))
+                Some(Result.Done)
+              case None => None
+      case Vector(lhs @ CST.Symbol(enumOrVal, _), CST.Symbol(".", _), CST.Symbol(field, _)) =>
+        ctx.lookupEnum(enumOrVal) match
+          case Some(enumDef) =>
+            enumDef.cases.find(_.name == field) match
+              case Some(caseDef) =>
+                val ctorType =
+                  if caseDef.params.isEmpty then AST.EnumTypeRef(enumDef.id, enumOrVal, span)
+                  else
+                    AST.Pi(
+                      Vector(Telescope(caseDef.params, Implicitness.Explicit)),
+                      AST.EnumTypeRef(enumDef.id, enumOrVal, span),
+                      Vector.empty,
+                      span
+                    )
+                val ast = AST.EnumCaseRef(enumDef.id, caseDef.id, enumOrVal, field, span)
+                fillResultOnce(resultCell, ast)
+                fillResultOnce(inferredTyCell, ctorType)
+                Some(Result.Done)
+              case None => None
+          case None =>
+            // Fallback to regular field access
+            val targetResult = module.newOnceCell[ElabConstraint, AST](solver)
+            val targetTy = module.newOnceCell[ElabConstraint, AST](solver)
+            module.addConstraint(solver, ElabConstraint.Infer(lhs, targetResult, targetTy, ctx, asType = asType))
+            val targetAst = AST.MetaCell(HoldNotReadable(targetResult), lhs.span)
+            val accessAst = AST.FieldAccess(targetAst, field, span)
+            fillResultOnce(resultCell, accessAst)
+            module.readStable(solver, targetTy) match
+              case None =>
+                lhs match
+                  case CST.Symbol(sym, _) =>
+                    (for
+                      id <- ctx.lookup(sym)
+                      tyCell <- ctx.lookupType(id)
+                      ty <- module.readStable(solver, tyCell)
+                    yield (id, ty)) match
+                      case Some((id, AST.RecordTypeRef(recId, _, _))) =>
+                        ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == field)) match
+                          case Some(param) => fillResultOnce(inferredTyCell, param.ty)
+                          case None        => fillResultOnce(inferredTyCell, AST.AnyType(span))
+                      case _ => ()
+                  case _ => ()
+                if !module.hasSomeValue(solver, inferredTyCell.asInstanceOf[module.CellAny]) then
+                  fillResultOnce(inferredTyCell, AST.MetaCell(HoldNotReadable(targetTy), span))
+                Some(Result.Done)
+              case Some(AST.RecordTypeRef(recId, _, _)) =>
+                ctx.lookupRecordById(recId) match
+                  case Some(rec) =>
+                    rec.fields.find(_.name == field) match
+                      case Some(param) =>
+                        fillResultOnce(inferredTyCell, param.ty)
+                        Some(Result.Done)
+                      case None =>
+                        fillResultOnce(inferredTyCell, AST.AnyType(span))
+                        Some(Result.Done)
+                  case None =>
+                    fillResultOnce(inferredTyCell, AST.AnyType(span))
+                    Some(Result.Done)
+              case Some(_) =>
+                fillResultOnce(inferredTyCell, AST.AnyType(span))
+                Some(Result.Done)
       case Vector(lhs, CST.Symbol(".", _), CST.Symbol(field, _)) =>
         val targetResult = module.newOnceCell[ElabConstraint, AST](solver)
         val targetTy = module.newOnceCell[ElabConstraint, AST](solver)
@@ -1602,6 +1797,27 @@ class ElabHandler extends Handler[ElabConstraint]:
     telescope.params
   }
 
+  /** Parse enum cases from the enum declaration body. */
+  private def parseEnumCases[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[EnumCase] = {
+    val casesBlockOpt = elems.lift(2).collect { case b: CST.Block => b }
+    val caseElems = casesBlockOpt.map(b => b.elements ++ b.tail.toVector).getOrElse(Vector.empty)
+    caseElems.collect { case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("case", _) => true; case _ => false } =>
+      val name = seqElems.lift(1) match
+        case Some(CST.Symbol(n, _)) => n
+        case _ =>
+          ctx.reporter.report(ElabProblem.UnboundVariable("Expected case name in enum", span))
+          "<error>"
+      val paramsTuple = seqElems.lift(2) match
+        case Some(CST.Tuple(params, _)) => params
+        case _                          => Vector.empty
+      val telescope = parseTelescopeFromCST(paramsTuple, Implicitness.Explicit, ctx)
+      EnumCase(Uniqid.make, name, telescope.params)
+    }
+  }
+
   /** Check if a CST node is a def statement */
   private def isDefStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>
@@ -1616,6 +1832,10 @@ class ElabHandler extends Handler[ElabConstraint]:
   private def isRecordStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>
       elements.headOption.exists { case CST.Symbol("record", _) => true; case _ => false }
+    case _ => false
+  private def isEnumStatement(cst: CST): Boolean = cst match
+    case CST.SeqOf(elements, _) =>
+      elements.headOption.exists { case CST.Symbol("enum", _) => true; case _ => false }
     case _ => false
 
   private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using
@@ -1808,6 +2028,8 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       case (AST.RecordTypeRef(id1, _, _), AST.RecordTypeRef(id2, _, _)) =>
         if id1 == id2 then UnifyResult.Success else UnifyResult.Failure("Record type mismatch")
+      case (AST.EnumTypeRef(id1, _, _), AST.EnumTypeRef(id2, _, _)) =>
+        if id1 == id2 then UnifyResult.Success else UnifyResult.Failure("Enum type mismatch")
 
       case _ => UnifyResult.Failure(s"Type mismatch: ${t1.getClass.getSimpleName} vs ${t2.getClass.getSimpleName}")
   }
@@ -1947,6 +2169,10 @@ class ElabHandler extends Handler[ElabConstraint]:
       case AST.Ann(expr, ty, _) => occursIn(cell, expr) || occursIn(cell, ty)
       case AST.RecordCtor(_, _, args, _) =>
         args.exists(occursIn(cell, _))
+      case AST.EnumCtor(_, _, _, _, args, _) =>
+        args.exists(occursIn(cell, _))
+      case AST.EnumCaseRef(_, _, _, _, _) => false
+      case AST.EnumTypeRef(_, _, _)       => false
       case AST.FieldAccess(target, _, _) =>
         occursIn(cell, target)
       case _ => false
@@ -1959,6 +2185,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         teles.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || resTy.exists(occursIn(cell, _)) || occursIn(cell, body)
       case StmtAST.Record(_, _, fields, _) =>
         fields.exists(p => occursIn(cell, p.ty))
+      case StmtAST.Enum(_, _, cases, _) =>
+        cases.exists(c => c.params.exists(p => occursIn(cell, p.ty)))
       case StmtAST.Pkg(_, body, _) => occursIn(cell, body)
   }
 
@@ -2059,6 +2287,8 @@ class ElabHandler extends Handler[ElabConstraint]:
               elems.iterator.flatMap(firstUnresolvedStmt).take(1).toSeq.headOption.orElse(firstUnresolved(tail))
             case AST.RecordCtor(_, _, args, _) =>
               args.iterator.flatMap(firstUnresolved).take(1).toSeq.headOption
+            case AST.EnumCtor(_, _, _, _, args, _) =>
+              args.iterator.flatMap(firstUnresolved).take(1).toSeq.headOption
             case AST.FieldAccess(target, _, _) =>
               firstUnresolved(target)
             case _ => None
@@ -2078,6 +2308,8 @@ class ElabHandler extends Handler[ElabConstraint]:
                 .orElse(firstUnresolved(body))
             case StmtAST.Record(_, _, fields, _) =>
               fields.iterator.flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
+            case StmtAST.Enum(_, _, cases, _) =>
+              cases.iterator.flatMap(_.params.iterator).flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
             case StmtAST.Pkg(_, body, _) => firstUnresolved(body)
         }
 
@@ -2190,11 +2422,15 @@ class ElabHandler extends Handler[ElabConstraint]:
           AST.App(func, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
         }
 
-        module.fill(solver, c.result, app)
-
         // Perform substitution: replace parameter references in result type with resolved arguments
         val allParams = implicitParams ++ explicitParams
         val allArgs = resolvedImplicitArgs ++ explicitArgs
+        val appValue = func match
+          case AST.EnumCaseRef(enumId, caseId, enumName, caseName, _) =>
+            AST.EnumCtor(enumId, caseId, enumName, caseName, allArgs, c.span)
+          case _ => app
+
+        module.fill(solver, c.result, appValue)
         val substitutedTy = substituteInType(resolvedResultTy, allParams.map(_.id).zip(allArgs).toMap)
         val normalizedTy = reduce(substitutedTy, c.ctx)
 
@@ -2277,6 +2513,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         case AST.Ann(expr, ty, _) => gatherEffects(expr) ++ gatherEffects(ty)
         case AST.RecordCtor(_, _, args, _) =>
           args.flatMap(gatherEffects).toSet
+        case AST.EnumCtor(_, _, _, _, args, _) =>
+          args.flatMap(gatherEffects).toSet
         case AST.FieldAccess(target, _, _) =>
           gatherEffects(target)
         case _ => Set.empty
@@ -2290,6 +2528,8 @@ class ElabHandler extends Handler[ElabConstraint]:
         )
       case StmtAST.Record(_, _, fields, _) =>
         fields.flatMap(p => gatherEffects(p.ty)).toSet
+      case StmtAST.Enum(_, _, cases, _) =>
+        cases.flatMap(_.params).flatMap(p => gatherEffects(p.ty)).toSet
       case StmtAST.Pkg(_, body, _) => gatherEffects(body)
 
     val requiredEffects = gatherEffects(body)
@@ -2423,6 +2663,12 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
       AST.Ann(substituteSolutions(expr), substituteSolutions(ty), span)
     case AST.RecordCtor(id, name, args, span) =>
       AST.RecordCtor(id, name, args.map(substituteSolutions), span)
+    case AST.EnumTypeRef(id, name, span) =>
+      AST.EnumTypeRef(id, name, span)
+    case AST.EnumCaseRef(enumId, caseId, enumName, caseName, span) =>
+      AST.EnumCaseRef(enumId, caseId, enumName, caseName, span)
+    case AST.EnumCtor(enumId, caseId, enumName, caseName, args, span) =>
+      AST.EnumCtor(enumId, caseId, enumName, caseName, args.map(substituteSolutions), span)
     case AST.FieldAccess(target, field, span) =>
       AST.FieldAccess(substituteSolutions(target), field, span)
     case other => other
@@ -2438,6 +2684,9 @@ private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using modu
     case StmtAST.Record(id, name, fields, span) =>
       val newFields = fields.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))
       StmtAST.Record(id, name, newFields, span)
+    case StmtAST.Enum(id, name, cases, span) =>
+      val newCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
+      StmtAST.Enum(id, name, newCases, span)
     case StmtAST.Pkg(name, body, span) =>
       StmtAST.Pkg(name, substituteSolutions(body), span)
 }
