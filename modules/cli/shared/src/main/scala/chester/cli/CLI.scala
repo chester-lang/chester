@@ -52,7 +52,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
           val tyCell = module.newOnceCell[ElabConstraint, AST](solver)
           val ctx = ElabContext(bindings = Map.empty, types = Map.empty, reporter = elabReporter)
 
-          module.addConstraint(solver, ElabConstraint.Infer(cst, resultCell, tyCell, ctx))
+          module.addConstraint(solver, ElabConstraint.InferTopLevel(cst, resultCell, tyCell, ctx))
           module.run(solver)
 
           val elabProblems = elabReporter.getReports
