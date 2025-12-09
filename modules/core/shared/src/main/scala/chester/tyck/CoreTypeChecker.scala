@@ -28,6 +28,8 @@ object CoreTypeChecker:
         AST.Pi(nTeles, normalizeType(resultTy), effs, span)
       case AST.ListType(elem, span) => AST.ListType(normalizeType(elem), span)
       case AST.Tuple(elems, span)   => AST.Tuple(elems.map(normalizeType), span)
+      case AST.TupleType(elems, span) =>
+        AST.TupleType(elems.map(normalizeType), span)
       case AST.ListLit(elems, span) => AST.ListLit(elems.map(normalizeType), span)
       case AST.Let(id, name, ty, value, body, span) =>
         AST.Let(id, name, ty.map(normalizeType), normalizeType(value), normalizeType(body), span)
@@ -61,8 +63,13 @@ object CoreTypeChecker:
       case AST.Type(level, _)         => Some(AST.TypeOmega(level, None))
       case AST.TypeOmega(level, span) => Some(AST.TypeOmega(level, span))
       case AST.Tuple(elems, span) =>
+        if elems.isEmpty then Some(AST.TupleType(Vector.empty, span))
+        else
+          val elemTys = elems.map(infer(_, env))
+          if elemTys.forall(_.isDefined) then Some(AST.TupleType(elemTys.flatten, span)) else None
+      case AST.TupleType(elems, span) =>
         val elemTys = elems.map(infer(_, env))
-        if elemTys.forall(_.isDefined) then Some(AST.Tuple(elemTys.flatten, span)) else None
+        if elemTys.forall(_.isDefined) then Some(AST.Type(AST.IntLit(0, None), span)) else None
       case AST.ListLit(elems, span) =>
         val elemTys = elems.map(infer(_, env))
         if elemTys.nonEmpty && elemTys.forall(_.isDefined) then

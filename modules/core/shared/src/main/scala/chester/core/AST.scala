@@ -134,6 +134,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case StringType(override val span: Option[Span]) extends AST(span)
   case NaturalType(override val span: Option[Span]) extends AST(span)
   case IntegerType(override val span: Option[Span]) extends AST(span)
+  case TupleType(elements: Vector[AST], override val span: Option[Span]) extends AST(span)
   case ListType(element: AST, override val span: Option[Span]) extends AST(span)
   case Pi(telescopes: Vector[Telescope], resultTy: AST, effects: Vector[EffectRef], override val span: Option[Span]) extends AST(span)
   case Lam(telescopes: Vector[Telescope], body: AST, override val span: Option[Span]) extends AST(span)
@@ -168,6 +169,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("Natural")
     case AST.IntegerType(_) =>
       text("Integer")
+    case AST.TupleType(elements, _) =>
+      parens(hsep(elements.map(_.toDoc), `,` <+> empty))
     case AST.ListType(element, _) =>
       text("List") <> brackets(element.toDoc)
     case AST.Pi(telescopes, resultTy, effects, _) =>
@@ -237,6 +240,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
     case AST.IntegerType(_) =>
       ()
+    case AST.TupleType(elements, _) =>
+      elements.foreach(_.collectUniqids(collector))
     case AST.ListType(element, _) =>
       element.collectUniqids(collector)
     case AST.Pi(telescopes, resultTy, effects, _) =>
@@ -285,6 +290,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.NaturalType(span)
     case AST.IntegerType(span) =>
       AST.IntegerType(span)
+    case AST.TupleType(elements, span) =>
+      AST.TupleType(elements.map(_.mapUniqids(mapper)), span)
     case AST.ListType(element, span) =>
       AST.ListType(element.mapUniqids(mapper), span)
     case AST.Pi(telescopes, resultTy, effects, span) =>
