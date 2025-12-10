@@ -115,9 +115,9 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
         val paramsDoc = hsep(
           tel.params.map { p =>
             val coeffDoc = p.coeffect match
-              case Coeffect.One           => text("1") <+> empty
-              case Coeffect.Zero          => text("0") <+> empty
-              case Coeffect.Unrestricted  => empty
+              case Coeffect.One          => text("1") <+> empty
+              case Coeffect.Zero         => text("0") <+> empty
+              case Coeffect.Unrestricted => empty
             coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
           },
           `,` <+> empty
@@ -130,9 +130,9 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       val paramsDoc = hsep(
         fields.map { p =>
           val coeffDoc = p.coeffect match
-            case Coeffect.One           => text("1") <+> empty
-            case Coeffect.Zero          => text("0") <+> empty
-            case Coeffect.Unrestricted  => empty
+            case Coeffect.One          => text("1") <+> empty
+            case Coeffect.Zero         => text("0") <+> empty
+            case Coeffect.Unrestricted => empty
           coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
         },
         `,` <+> empty
@@ -141,27 +141,28 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
     case StmtAST.Enum(_, name, typeParams, cases, _) =>
       val typeParamsDoc = {
         if typeParams.isEmpty then empty
-        else
+        else {
           parens(
             hsep(
               typeParams.map { p =>
                 val coeffDoc = p.coeffect match
-                  case Coeffect.One           => text("1") <+> empty
-                  case Coeffect.Zero          => text("0") <+> empty
-                  case Coeffect.Unrestricted  => empty
+                  case Coeffect.One          => text("1") <+> empty
+                  case Coeffect.Zero         => text("0") <+> empty
+                  case Coeffect.Unrestricted => empty
                 coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
               },
               `,` <+> empty
             )
           )
+        }
       }
       val caseDocs = cases.map { c =>
         val paramsDoc = hsep(
           c.params.map { p =>
             val coeffDoc = p.coeffect match
-              case Coeffect.One           => text("1") <+> empty
-              case Coeffect.Zero          => text("0") <+> empty
-              case Coeffect.Unrestricted  => empty
+              case Coeffect.One          => text("1") <+> empty
+              case Coeffect.Zero         => text("0") <+> empty
+              case Coeffect.Unrestricted => empty
             coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
           },
           `,` <+> empty
@@ -177,27 +178,28 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
     case StmtAST.Coenum(_, name, typeParams, cases, _) =>
       val typeParamsDoc = {
         if typeParams.isEmpty then empty
-        else
+        else {
           parens(
             hsep(
               typeParams.map { p =>
                 val coeffDoc = p.coeffect match
-                  case Coeffect.One           => text("1") <+> empty
-                  case Coeffect.Zero          => text("0") <+> empty
-                  case Coeffect.Unrestricted  => empty
+                  case Coeffect.One          => text("1") <+> empty
+                  case Coeffect.Zero         => text("0") <+> empty
+                  case Coeffect.Unrestricted => empty
                 coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
               },
               `,` <+> empty
             )
           )
+        }
       }
       val caseDocs = cases.map { c =>
         val paramsDoc = hsep(
           c.params.map { p =>
             val coeffDoc = p.coeffect match
-              case Coeffect.One           => text("1") <+> empty
-              case Coeffect.Zero          => text("0") <+> empty
-              case Coeffect.Unrestricted  => empty
+              case Coeffect.One          => text("1") <+> empty
+              case Coeffect.Zero         => text("0") <+> empty
+              case Coeffect.Unrestricted => empty
             coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
           },
           `,` <+> empty

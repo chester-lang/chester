@@ -69,8 +69,8 @@ object ElaboratorBlocks:
       case CST.SeqOf(elements, span) =>
         val elems = elements.toVector
         elems.headOption match
-          case Some(CST.Symbol("def", _)) | Some(CST.Symbol("effect", _)) | Some(CST.Symbol("record", _)) |
-              Some(CST.Symbol("enum", _)) | Some(CST.Symbol("coenum", _)) =>
+          case Some(CST.Symbol("def", _)) | Some(CST.Symbol("effect", _)) | Some(CST.Symbol("record", _)) | Some(CST.Symbol("enum", _)) |
+              Some(CST.Symbol("coenum", _)) =>
             val blockElem = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems), span)
             elaborateBlockLike(c.ctx, c.result, c.inferredTy, Vector(blockElem), None, span)
           case Some(CST.Symbol("let", _)) =>
@@ -280,9 +280,11 @@ object ElaboratorBlocks:
                   p.copy(ty = resolved, default = p.default.map(helpers.substituteSolutions))
                 }
               }
-              val resolvedCases = cases.map(c =>
-                c.copy(params = c.params.map(p => p.copy(ty = helpers.substituteSolutions(p.ty), default = p.default.map(helpers.substituteSolutions))))
-              )
+              val resolvedCases = cases.map(c => {
+                c.copy(params =
+                  c.params.map(p => p.copy(ty = helpers.substituteSolutions(p.ty), default = p.default.map(helpers.substituteSolutions)))
+                )
+              })
               currentCtx = currentCtx.updateEnum(name, resolvedTypeParams, resolvedCases, isCo)
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
               module.fill(solver, elemType, AST.TupleType(Vector.empty, span))

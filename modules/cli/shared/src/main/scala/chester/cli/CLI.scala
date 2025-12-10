@@ -92,9 +92,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
         printLines(errors, toStderr = true)
       case Right((ast, ty)) =>
         val coreOk = CoreTypeChecker.typeChecks(ast)
-        if !coreOk then
-          printLines(Seq("Core type checker failed; cannot CPS-transform or evaluate."), toStderr = true)
-        else
+        if !coreOk then printLines(Seq("Core type checker failed; cannot CPS-transform or evaluate."), toStderr = true)
+        else {
           output match
             case Some(pathStr) =>
               val rendered = formatAst(ast, ty)
@@ -107,9 +106,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                   val (cpsAst, _) = EffectCPS.transformExpr(ast, tpe, EffectCPS.Config(transformIO = true))
                   cpsAst
                 case None => ast
-              Evaluator.eval(evalAst).flatMap { value =>
-                IO.println(s"=> ${Evaluator.valueToString(value)}")
-              }
+              Evaluator.eval(evalAst).flatMap(value => IO.println(s"=> ${Evaluator.valueToString(value)}"))
+        }
     }
   }
 

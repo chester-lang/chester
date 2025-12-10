@@ -4,12 +4,11 @@ import scala.language.experimental.genericNumberLiterals
 
 import chester.core.{AST, StmtAST, Telescope}
 import chester.utils.io.{IO, Runner}
-import chester.utils.io.*  // brings map/flatMap extensions into scope
+import chester.utils.io.* // brings map/flatMap extensions into scope
 
 /** A minimal evaluator for elaborated Chester ASTs.
   *
-  * It supports integers, strings, booleans, tuples/lists, function application, let bindings, and block sequencing.
-  * Built-ins implemented:
+  * It supports integers, strings, booleans, tuples/lists, function application, let bindings, and block sequencing. Built-ins implemented:
   *   - `+` on integers
   *   - `println` (uses the provided IO implementation)
   */
@@ -32,34 +31,43 @@ object Evaluator:
     def extendAll(pairs: Iterable[(String, Value)]): Env = copy(bindings = bindings ++ pairs)
   }
 
-  private def defaultEnv[F[_]](using io: IO[F], runner: Runner[F]): Env =
+  private def defaultEnv[F[_]](using io: IO[F], runner: Runner[F]): Env = {
     Env(
       Map(
         "true" -> BoolV(true),
         "false" -> BoolV(false),
-        "+" -> Builtin("+" , 2, {
-          case Vector(IntV(a), IntV(b)) => IntV(a + b)
-          case other                    => throw new RuntimeException(s"Invalid arguments to '+': $other")
-        }),
-        "println" -> BuiltinIO("println", 1, {
-          case Vector(v) =>
-            val msg = valueToString(v)
-            io.println(msg).map(_ => UnitV)
-          case other =>
-            throw new RuntimeException(s"Invalid arguments to println: $other")
-        })
+        "+" -> Builtin(
+          "+",
+          2,
+          {
+            case Vector(IntV(a), IntV(b)) => IntV(a + b)
+            case other                    => throw new RuntimeException(s"Invalid arguments to '+': $other")
+          }
+        ),
+        "println" -> BuiltinIO(
+          "println",
+          1,
+          {
+            case Vector(v) =>
+              val msg = valueToString(v)
+              io.println(msg).map(_ => UnitV)
+            case other =>
+              throw new RuntimeException(s"Invalid arguments to println: $other")
+          }
+        )
       )
     )
+  }
 
   /** Evaluate an AST, returning a value in the provided effect F. */
   def eval[F[_]](ast: AST)(using io: IO[F], runner: Runner[F]): F[Value] =
     evalWithEnv(ast, defaultEnv)
 
-  private def evalWithEnv[F[_]](ast: AST, env: Env)(using io: IO[F], runner: Runner[F]): F[Value] =
+  private def evalWithEnv[F[_]](ast: AST, env: Env)(using io: IO[F], runner: Runner[F]): F[Value] = {
     ast match
-      case AST.IntLit(v, _)    => runner.pure(IntV(v))
+      case AST.IntLit(v, _)     => runner.pure(IntV(v))
       case AST.NaturalLit(v, _) => runner.pure(IntV(v))
-      case AST.StringLit(s, _) => runner.pure(StringV(s))
+      case AST.StringLit(s, _)  => runner.pure(StringV(s))
       case AST.Ref(_, name, _) =>
         env.get(name) match
           case Some(v) => runner.pure(v)
@@ -75,9 +83,7 @@ object Evaluator:
         evalBlock(stmts, tail, env)
 
       case AST.Let(_, name, _, value, body, _) =>
-        evalWithEnv(value, env).flatMap { v =>
-          evalWithEnv(body, env.extend(name, v))
-        }
+        evalWithEnv(value, env).flatMap(v => evalWithEnv(body, env.extend(name, v)))
 
       case AST.Lam(teles, body, _) =>
         val params = flattenTeleNames(teles)
@@ -104,6 +110,7 @@ object Evaluator:
 
       case _ =>
         runner.pure(UnitV)
+  }
 
   private def evalBlock[F[_]](stmts: Vector[StmtAST], tail: AST, env: Env)(using io: IO[F], runner: Runner[F]): F[Value] = {
     val initial: F[Env] = runner.pure(env)
@@ -125,18 +132,23 @@ object Evaluator:
   private def flattenTeleNames(teles: Vector[Telescope]): Vector[String] =
     teles.flatMap(_.params.map(_.name))
 
-  private def applyFunc[F[_]](f: Value, args: Vector[Value])(using io: IO[F], runner: Runner[F]): F[Value] =
+  private def applyFunc[F[_]](f: Value, args: Vector[Value])(using io: IO[F], runner: Runner[F]): F[Value] = {
     f match
       case Closure(params, body, closureEnv) =>
-        val (actualArgs, extendedParams) =
+        val (actualArgs, extendedParams) = {
           if params.nonEmpty && params.lastOption.contains("k") && args.length == params.length - 1 then
             // Effect CPS shape: synthesize a default continuation that just returns its argument.
-            val cont = Builtin("k", 1, {
-              case Vector(v) => v
-              case _         => UnitV
-            })
+            val cont = Builtin(
+              "k",
+              1,
+              {
+                case Vector(v) => v
+                case _         => UnitV
+              }
+            )
             (args :+ cont, params)
           else (args, params)
+        }
         val extended = closureEnv.extendAll(extendedParams.zip(actualArgs))
         evalWithEnv(body, extended)
       case Builtin(_, arity, run) if args.length == arity =>
@@ -145,19 +157,18 @@ object Evaluator:
         b.run(args)
       case _ =>
         runner.pure(UnitV)
+  }
 
   private def sequence[F[_], A](fs: Iterable[F[A]])(using runner: Runner[F]): F[List[A]] =
-    fs.foldLeft(runner.pure(List.empty[A])) { (accF, f) =>
-      accF.flatMap(acc => f.map(v => acc :+ v))
-    }
+    fs.foldLeft(runner.pure(List.empty[A]))((accF, f) => accF.flatMap(acc => f.map(v => acc :+ v)))
 
   def valueToString(v: Value): String = v match
-    case IntV(n)     => n.toString
-    case StringV(s)  => s""""$s""""
-    case BoolV(b)    => b.toString
-    case UnitV       => "()"
-    case TupleV(xs)  => xs.map(valueToString).mkString("(", ", ", ")")
-    case ListV(xs)   => xs.map(valueToString).mkString("[", ", ", "]")
-    case Closure(_, _, _) => "<function>"
-    case Builtin(name, _, _) => s"<builtin $name>"
+    case IntV(n)               => n.toString
+    case StringV(s)            => s""""$s""""
+    case BoolV(b)              => b.toString
+    case UnitV                 => "()"
+    case TupleV(xs)            => xs.map(valueToString).mkString("(", ", ", ")")
+    case ListV(xs)             => xs.map(valueToString).mkString("[", ", ", "]")
+    case Closure(_, _, _)      => "<function>"
+    case Builtin(name, _, _)   => s"<builtin $name>"
     case BuiltinIO(name, _, _) => s"<builtin-io $name>"
