@@ -2,7 +2,7 @@
   description = "Scala multiplatform project with Scala.js and Scala Native";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     typelevel-nix.url = "github:typelevel/typelevel-nix";
     typelevel-nix.inputs.nixpkgs.follows = "nixpkgs";
