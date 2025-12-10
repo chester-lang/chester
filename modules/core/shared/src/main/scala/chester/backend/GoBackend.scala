@@ -3,16 +3,7 @@ package chester.backend
 import scala.language.experimental.genericNumberLiterals
 
 import chester.core.{AST, EnumCase, Param, StmtAST, Telescope}
-import chester.syntax.{
-  GoAST,
-  GoCompositeElement,
-  GoField,
-  GoType,
-  GoTypeParam,
-  GoTypeSpec,
-  GoValueDeclKind,
-  GoValueSpec
-}
+import chester.syntax.{GoAST, GoCompositeElement, GoField, GoType, GoTypeParam, GoTypeSpec, GoValueDeclKind, GoValueSpec}
 import chester.transform.EffectCPS
 
 /** Backend lowering from Chester core `AST` into a lightweight Go AST for code generation. */
@@ -24,12 +15,13 @@ object GoBackend:
   )
 
   /** Entry point: lower a Chester AST into a Go file. */
-  def lowerProgram(ast: AST, config: Config = Config(), packageName: String = "main"): GoAST.File =
+  def lowerProgram(ast: AST, config: Config = Config(), packageName: String = "main"): GoAST.File = {
     val (pkg, decls) = lowerAsDeclarations(ast, config, packageName, topLevel = true)
     GoAST.File(pkg, Vector.empty, decls, ast.span)
+  }
 
   /** Lower a Chester statement into zero or more Go declarations/statements. */
-  private def lowerStmt(stmt: StmtAST, config: Config, packageName: String): (String, Vector[GoAST]) =
+  private def lowerStmt(stmt: StmtAST, config: Config, packageName: String): (String, Vector[GoAST]) = {
     stmt match
       case StmtAST.ExprStmt(expr, span) =>
         (packageName, Vector(GoAST.ExprStmt(lowerExpr(expr, config), span)))
@@ -53,9 +45,8 @@ object GoBackend:
         (packageName, Vector(fn))
 
       case StmtAST.Record(_, name, fields, span) =>
-        val structFields = fields.map { f =>
-          GoField(Vector(f.name), lowerType(f.ty, config), None, isEmbedded = false, isVariadic = false, span = f.ty.span)
-        }
+        val structFields =
+          fields.map(f => GoField(Vector(f.name), lowerType(f.ty, config), None, isEmbedded = false, isVariadic = false, span = f.ty.span))
         val typeSpec = GoTypeSpec(name, Vector.empty, GoType.Struct(structFields.toVector, span), isAlias = false, span = span)
         (packageName, Vector(GoAST.TypeDecl(Vector(typeSpec), span)))
 
@@ -68,38 +59,41 @@ object GoBackend:
       case StmtAST.Pkg(name, body, _) =>
         val (_, inner) = lowerAsDeclarations(body, config, name, topLevel = true)
         (name, inner)
+  }
 
   /** Lower a block-like AST into a list of Go statements, appending a return for the tail when necessary. */
-  private def lowerAsDeclarations(ast: AST, config: Config, packageName: String, topLevel: Boolean): (String, Vector[GoAST]) =
+  private def lowerAsDeclarations(ast: AST, config: Config, packageName: String, topLevel: Boolean): (String, Vector[GoAST]) = {
     ast match
       case AST.Block(elems, tail, _) =>
-        val (pkgAfterElems, loweredElems) = elems.foldLeft((packageName, Vector.empty[GoAST])) {
-          case ((pkg, acc), stmt) =>
-            val (nextPkg, stmts) = lowerStmt(stmt, config, pkg)
-            (nextPkg, acc ++ stmts)
+        val (pkgAfterElems, loweredElems) = elems.foldLeft((packageName, Vector.empty[GoAST])) { case ((pkg, acc), stmt) =>
+          val (nextPkg, stmts) = lowerStmt(stmt, config, pkg)
+          (nextPkg, acc ++ stmts)
         }
         val tailExpr = lowerExpr(tail, config)
         val tailIsUnit = tailExpr match
-          case GoAST.NilLiteral(_)                                      => true
+          case GoAST.NilLiteral(_)                                        => true
           case GoAST.CompositeLiteral(_, elements, _) if elements.isEmpty => true
-          case _                                                        => false
-        val tailStmt =
+          case _                                                          => false
+        val tailStmt = {
           if topLevel && tailIsUnit then Vector.empty
           else Vector(GoAST.Return(Vector(tailExpr), tail.span))
+        }
         (pkgAfterElems, (loweredElems ++ tailStmt).toVector)
       case other =>
         val expr = lowerExpr(other, config)
         val tailIsUnit = expr match
-          case GoAST.NilLiteral(_)                                      => true
+          case GoAST.NilLiteral(_)                                        => true
           case GoAST.CompositeLiteral(_, elements, _) if elements.isEmpty => true
-          case _                                                        => false
-        val stmt =
+          case _                                                          => false
+        val stmt = {
           if topLevel && tailIsUnit then Vector.empty
           else Vector(GoAST.Return(Vector(expr), other.span))
+        }
         (packageName, stmt)
+  }
 
   /** Lower a Chester expression to a Go expression node. */
-  private def lowerExpr(expr: AST, config: Config): GoAST =
+  private def lowerExpr(expr: AST, config: Config): GoAST = {
     expr match
       // Literals
       case AST.IntLit(value, span)     => GoAST.IntLiteral(value.toString, span)
@@ -194,9 +188,10 @@ object GoBackend:
       // Fallback
       case _ =>
         GoAST.NilLiteral(expr.span)
+  }
 
   /** Lower a Chester parameter into a Go function parameter. */
-  private def lowerParam(param: Param, config: Config): GoField =
+  private def lowerParam(param: Param, config: Config): GoField = {
     GoField(
       names = Vector(param.name),
       fieldType = lowerType(param.ty, config),
@@ -205,9 +200,10 @@ object GoBackend:
       isVariadic = false,
       span = param.ty.span
     )
+  }
 
   /** Lower a Chester type into a Go type. */
-  private def lowerType(ty: AST, config: Config): GoType =
+  private def lowerType(ty: AST, config: Config): GoType = {
     val rewritten = if config.applyEffectCPS then EffectCPS.transformType(ty, config.cpsConfig) else ty
     rewritten match
       case AST.StringType(span)  => GoType.Named("string", span)
@@ -232,20 +228,17 @@ object GoBackend:
         GoType.Named("any", span)
       case _ =>
         GoType.Named("any", ty.span)
+  }
 
   private def lowerResultField(ty: AST, config: Config): GoField =
     GoField(Vector.empty, lowerType(ty, config), None, isEmbedded = false, isVariadic = false, span = ty.span)
 
-  private def lowerEnumLike(name: String, cases: Vector[EnumCase], span: Option[chester.error.Span]): Vector[GoAST] =
+  private def lowerEnumLike(name: String, cases: Vector[EnumCase], span: Option[chester.error.Span]): Vector[GoAST] = {
     val stringType = GoType.Named("string", span)
-    val structFields = cases.map { c =>
-      GoField(Vector(c.name), stringType, None, isEmbedded = false, isVariadic = false, span = span)
-    }
+    val structFields = cases.map(c => GoField(Vector(c.name), stringType, None, isEmbedded = false, isVariadic = false, span = span))
     val structType = GoType.Struct(structFields.toVector, span)
     val typeSpec = GoTypeSpec(name, Vector.empty, structType, isAlias = false, span = span)
-    val compositeElems = cases.map { c =>
-      GoCompositeElement(Some(GoAST.Identifier(c.name, span)), GoAST.StringLiteral(c.name, span), span)
-    }
+    val compositeElems = cases.map(c => GoCompositeElement(Some(GoAST.Identifier(c.name, span)), GoAST.StringLiteral(c.name, span), span))
     val valueSpec = GoValueSpec(
       names = Vector(name),
       valueType = Some(structType),
@@ -253,3 +246,4 @@ object GoBackend:
       span = span
     )
     Vector(GoAST.TypeDecl(Vector(typeSpec), span), GoAST.ValueDecl(GoValueDeclKind.Var, Vector(valueSpec), span))
+  }

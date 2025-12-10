@@ -214,31 +214,33 @@ object CoreTypeChecker:
     case AST.LevelType(_)                  => false
 
   private def hasMetaStmt(stmt: StmtAST): Boolean = stmt match
-    case StmtAST.ExprStmt(expr, _)        => hasMeta(expr)
+    case StmtAST.ExprStmt(expr, _) => hasMeta(expr)
     case StmtAST.Def(_, _, teles, resTy, body, _) =>
       teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || resTy.exists(hasMeta) || hasMeta(body)
-    case StmtAST.Record(_, _, fields, _)  => fields.exists(f => hasMeta(f.ty))
+    case StmtAST.Record(_, _, fields, _) => fields.exists(f => hasMeta(f.ty))
     case StmtAST.Enum(_, _, tps, cases, _) =>
       tps.exists(tp => hasMeta(tp.ty)) || cases.exists(c => c.params.exists(p => hasMeta(p.ty)))
     case StmtAST.Coenum(_, _, tps, cases, _) =>
       tps.exists(tp => hasMeta(tp.ty)) || cases.exists(c => c.params.exists(p => hasMeta(p.ty)))
-    case StmtAST.Pkg(_, body, _)          => hasMeta(body)
+    case StmtAST.Pkg(_, body, _) => hasMeta(body)
 
-  private def sameType(a: AST, b: AST): Boolean =
+  private def sameType(a: AST, b: AST): Boolean = {
     if hasMeta(a) || hasMeta(b) then true
     else eraseSpans(normalizeType(a)) == eraseSpans(normalizeType(b))
+  }
 
   /** Entry point to check whether an AST is well-typed according to a simple dependent type checker. */
-  def typeCheck(ast: AST)(using Reporter[ElabProblem]): Unit =
+  def typeCheck(ast: AST)(using Reporter[ElabProblem]): Unit = {
     val result = infer(ast, Map.empty, Map.empty, Map.empty)
-    if result.isEmpty then
-      summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable("Core type check failed", ast.span))
+    if result.isEmpty then summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable("Core type check failed", ast.span))
+  }
 
   /** Boolean wrapper for legacy call sites; collects problems into a VectorReporter. */
-  def typeChecks(ast: AST): Boolean =
+  def typeChecks(ast: AST): Boolean = {
     given vr: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
     typeCheck(ast)(using vr)
     vr.getReports.isEmpty
+  }
 
   private def ensureType(
       ast: AST,
@@ -246,16 +248,18 @@ object CoreTypeChecker:
       env: Env,
       records: RecordEnv,
       enums: EnumEnv
-  )(using Reporter[ElabProblem]): Boolean =
+  )(using Reporter[ElabProblem]): Boolean = {
     infer(ast, env, records, enums) match
       case Some(actual) =>
         if sameType(actual, expected) then true
-        else
+        else {
           summon[Reporter[ElabProblem]].report(ElabProblem.TypeMismatch(expected, actual, ast.span))
           false
+        }
       case None =>
         summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable("Unable to infer type", ast.span))
         false
+  }
 
   private def check(
       ast: AST,

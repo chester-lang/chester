@@ -22,9 +22,10 @@ object Parser {
     def skipWhitespace(): Unit =
       while (hasNext && current.exists(_.isWhitespace)) advance()
 
-    def skipTrivia(): Unit =
+    def skipTrivia(): Unit = {
       if preserveComments then skipWhitespace()
       else while (hasNext && current.exists(t => t.isWhitespace || t.isComment)) advance()
+    }
 
     def recordError(message: String, span: Span): Unit =
       reporter.report(ParseError(message, Some(span)))

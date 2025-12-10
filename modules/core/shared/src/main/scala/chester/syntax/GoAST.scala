@@ -85,7 +85,7 @@ object GoAST {
       text("func") <> typeParamListDoc(typeParams) <> paramListDoc(params) <> resultListDoc(results) <+> toDoc(body)
     case GoAST.Call(func, args, _) =>
       toDoc(func) <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
-    case GoAST.Unary(op, expr, _)    => text(op) <> toDoc(expr)
+    case GoAST.Unary(op, expr, _) => text(op) <> toDoc(expr)
     case GoAST.Binary(left, op, right, _) =>
       toDoc(left) <+> text(op) <+> toDoc(right)
     case GoAST.Paren(expr, _) => text("(") <> toDoc(expr) <> text(")")
@@ -147,13 +147,14 @@ object GoAST {
 
     case GoAST.File(packageName, imports, decls, _) =>
       val packageDoc = text("package ") <> text(packageName)
-      val importsDoc =
+      val importsDoc = {
         if imports.isEmpty then empty
         else {
           val rendered = imports.map(importSpecToDoc)
           if rendered.length == 1 then hardline <> text("import ") <> rendered.head
           else hardline <> text("import (") <@@> ssep(rendered, hardline).indented() <@@> text(")")
         }
+      }
       val declsDoc =
         if decls.isEmpty then empty else hardline <> hardline <> ssep(decls.map(toDoc), hardline <> hardline)
       packageDoc <> importsDoc <> declsDoc
@@ -238,21 +239,23 @@ object GoAST {
     aliasDoc <> text("\"") <> text(escapeString(spec.path)) <> text("\"")
   }
 
-  private def escapeString(value: String): String =
+  private def escapeString(value: String): String = {
     value
       .replace("\\", "\\\\")
       .replace("\"", "\\\"")
       .replace("\n", "\\n")
       .replace("\t", "\\t")
       .replace("\r", "\\r")
+  }
 
-  private def escapeRune(value: String): String =
+  private def escapeRune(value: String): String = {
     value
       .replace("\\", "\\\\")
       .replace("'", "\\'")
       .replace("\n", "\\n")
       .replace("\t", "\\t")
       .replace("\r", "\\r")
+  }
 
   private def escapeTag(value: String): String =
     value.replace("`", "\\`")

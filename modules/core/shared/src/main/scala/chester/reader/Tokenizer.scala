@@ -212,10 +212,11 @@ object Tokenizer {
           state.advance()
           chars += state.current.get
           state.advance()
-        else
+        else {
           // Final closing delimiter - consume but do not include in comment text
           state.advance()
           state.advance()
+        }
       } else {
         chars += state.current.get
         state.advance()

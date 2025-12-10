@@ -96,12 +96,14 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
         CoreTypeChecker.typeCheck(ast)
         val coreProblems = coreReporter.getReports
         val coreOk = coreProblems.isEmpty
-        val coreCheckAction =
+        val coreCheckAction = {
           if coreOk then Runner.pure[F, Unit](())
-          else
+          else {
             val rendered = renderProblems(coreProblems, source = Source(FileNameAndContent("<core>", "")))
             IO.println("Core type checker failed; skipping evaluation.", toStderr = true)
               .flatMap(_ => printLines(rendered, toStderr = true))
+          }
+        }
 
         coreCheckAction.flatMap { _ =>
           if !coreOk && output.isEmpty then Runner.pure[F, Unit](())

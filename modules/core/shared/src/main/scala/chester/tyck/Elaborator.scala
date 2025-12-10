@@ -689,11 +689,12 @@ object ElabHandler extends Handler[ElabConstraint]:
               val pi = AST.Pi(telescopes, bodyAst, Vector.empty, lamSpan)
               module.fill(solver, c.result, pi)
               module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), lamSpan))
-            else
+            else {
               val lam = AST.Lam(telescopes, bodyAst, lamSpan)
               val lamTy = AST.Pi(telescopes, AST.MetaCell(HoldNotReadable(bodyTy), bodyCst.span), Vector.empty, lamSpan)
               module.fill(solver, c.result, lam)
               module.fill(solver, c.inferredTy, lamTy)
+            }
             Result.Done
           case None =>
             // Reject block-only statements in expression context
@@ -842,7 +843,7 @@ object ElabHandler extends Handler[ElabConstraint]:
                                   val blockCst = CST.Block(elems.dropRight(1), Some(elems.last), span)
                                   module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
                                   Result.Done
-            }
+                }
   }
 
   /** Handle function application: f(args) or f[typeArgs](args) */
@@ -1142,12 +1143,13 @@ object ElabHandler extends Handler[ElabConstraint]:
           case _                                         => false
         }
         if arrowIndex < 1 || arrowIndex >= elems.length - 1 then None
-        else
+        else {
           val paramElems = elems.slice(1, arrowIndex)
           val bodyElems = elems.drop(arrowIndex + 1)
-          val bodyCst =
+          val bodyCst = {
             if bodyElems.length == 1 then bodyElems.head
             else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(bodyElems), ElabSupport.combinedSpan(bodyElems))
+          }
 
           var paramCtx = ctx
           val telescopes = scala.collection.mutable.ArrayBuffer.empty[Telescope]
@@ -1170,6 +1172,7 @@ object ElabHandler extends Handler[ElabConstraint]:
           }
 
           Some(LambdaParts(telescopes.toVector, bodyCst, paramCtx, lamSpan))
+        }
       case _ => None
   }
 
@@ -1499,9 +1502,10 @@ private def handleDefStatement[M <: SolverModule](
         case -1 => elems.length
         case n  => n
       val typeElems = elems.slice(typeStart, typeEnd)
-      val baseTyCst =
+      val baseTyCst = {
         if typeElems.length == 1 then typeElems.head
         else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), ElabSupport.combinedSpan(typeElems))
+      }
       module.addConstraint(solver, ElabConstraint.Infer(baseTyCst, resultTyCell, resultTyTyCell, ctx, asType = true))
       hasResultTy = true
       idx = typeEnd
@@ -1736,12 +1740,13 @@ private def parseTelescopeFromCST[M <: SolverModule](
 private def extendCtxWithTelescope[M <: SolverModule](ctx: ElabContext, tel: Telescope)(using
     module: M,
     solver: module.Solver[ElabConstraint]
-): ElabContext =
+): ElabContext = {
   tel.params.foldLeft(ctx) { (acc, param) =>
     val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
     module.fill(solver, paramTyCell, param.ty)
     acc.bind(param.name, param.id, paramTyCell)
   }
+}
 
 /** Parse the field list of a record declaration. */
 private def parseRecordFields[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
