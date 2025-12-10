@@ -26,4 +26,4 @@ jobs:
 
       - name: Run tests
         run: |
-          sbt --batch coreJVM/test cliJVM/test
+          sbt --batch test
