@@ -18,7 +18,7 @@ class ElaboratorTest extends FunSuite {
 
   case class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
     override def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
-      Some(new ElabHandler)
+      Some(ElabHandler)
 
   test("elaborate string literal directly") {
     val reporter = new VectorReporter[ElabProblem]()

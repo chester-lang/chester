@@ -3,7 +3,7 @@ package chester.tyck
 import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
 
-import chester.core.{AST, Arg, BuiltinEffect, CST, EffectRef, EnumCase, Implicitness, Param, StmtAST, Telescope}
+import chester.core.{AST, Arg, BuiltinEffect, CST, Coeffect, EffectRef, EnumCase, Implicitness, Param, StmtAST, Telescope}
 import chester.error.{Problem, Reporter, Span, VectorReporter}
 import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
@@ -11,6 +11,7 @@ import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
 import chester.tyck.CoreTypeChecker.normalizeType
 import cats.data.NonEmptyVector
+import chester.tyck.ElaboratorBlocks
 
 private val DebugUnboundLogging = false
 
@@ -239,7 +240,7 @@ enum ElabConstraint:
       ctx: ElabContext
   )
 
-private case class DefInfo(
+private[tyck] case class DefInfo(
     name: String,
     id: UniqidOf[AST],
     tyCell: CellRW[AST],
@@ -389,14 +390,14 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
     StmtAST.Pkg(name, substituteInType(body, substitutions), span)
 
 /** Handler for elaboration constraints */
-class ElabHandler extends Handler[ElabConstraint]:
+object ElabHandler extends Handler[ElabConstraint]:
 
   def run[M <: SolverModule](constraint: ElabConstraint)(using module: M, solver: module.Solver[ElabConstraint]): Result = {
     constraint match
       case c: ElabConstraint.Check => handleCheck(c)
       case c: ElabConstraint.Infer => handleInferExpr(c)
       case c: ElabConstraint.InferTopLevel =>
-        handleInferTopLevel(c)
+        ElaboratorBlocks.handleInferTopLevel(c)
       case c: ElabConstraint.Unify       => handleUnify(c)
       case c: ElabConstraint.Subtype     => handleSubtype(c)
       case c: ElabConstraint.IsUniverse  => handleIsUniverse(c)
@@ -671,7 +672,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       // Block: infer each element with two-pass elaboration for defs
       case CST.Block(elements, tail, span) =>
-        elaborateBlockLike(c.ctx, c.result, c.inferredTy, elements, tail, span)
+        ElaboratorBlocks.elaborateBlockLike(c.ctx, c.result, c.inferredTy, elements, tail, span)
 
       // SeqOf: could be function application or sequence (block-only statements handled separately)
       case CST.SeqOf(elements, span) =>
@@ -747,7 +748,7 @@ class ElabHandler extends Handler[ElabConstraint]:
                   if elems.length > 2 then
                     val rest = elems.drop(2)
                     if rest.length == 1 then rest.head
-                    else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(rest), combinedSpan(rest))
+                    else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(rest), ElabSupport.combinedSpan(rest))
                   else CST.Block(Vector.empty, None, span)
                 }
 
@@ -768,7 +769,7 @@ class ElabHandler extends Handler[ElabConstraint]:
                   // Binary operator sugar: lhs op rhs
                   elems match
                     case Vector(lhs, CST.Symbol(op, opSpan), rhs) if c.ctx.isBuiltin(op) =>
-                      val argTuple: CST.Tuple = CST.Tuple(Vector(lhs, rhs), combinedSpan(Vector(lhs, rhs)))
+                      val argTuple: CST.Tuple = CST.Tuple(Vector(lhs, rhs), ElabSupport.combinedSpan(Vector(lhs, rhs)))
                       val funcCst = CST.Symbol(op, opSpan)
                       handleFunctionApplication(c.ctx, c.asType, c.result, c.inferredTy, funcCst, None, argTuple, span)
                     case _ =>
@@ -797,7 +798,7 @@ class ElabHandler extends Handler[ElabConstraint]:
                               if funcElems.nonEmpty then
                                 val funcCst = {
                                   if funcElems.length == 1 then funcElems.head
-                                  else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(funcElems), combinedSpan(funcElems))
+                                  else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(funcElems), ElabSupport.combinedSpan(funcElems))
                                 }
                                 handleFunctionApplication(c.ctx, c.asType, c.result, c.inferredTy, funcCst, Some(typeArgs), tuple, span)
                               else {
@@ -810,7 +811,7 @@ class ElabHandler extends Handler[ElabConstraint]:
                               if funcElems.nonEmpty then
                                 val funcCst = {
                                   if funcElems.length == 1 then funcElems.head
-                                  else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(funcElems), combinedSpan(funcElems))
+                                  else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(funcElems), ElabSupport.combinedSpan(funcElems))
                                 }
                                 handleFunctionApplication(c.ctx, c.asType, c.result, c.inferredTy, funcCst, None, tuple, span)
                               else {
@@ -824,75 +825,6 @@ class ElabHandler extends Handler[ElabConstraint]:
                               module.addConstraint(solver, ElabConstraint.Infer(blockCst, c.result, c.inferredTy, c.ctx))
                               Result.Done
             }
-  }
-
-  private def handleInferTopLevel[M <: SolverModule](c: ElabConstraint.InferTopLevel)(using
-      module: M,
-      solver: module.Solver[ElabConstraint]
-  ): Result = {
-    import module.given
-
-    if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then return Result.Done
-
-    c.cst match
-      case CST.Block(elements, tail, span) =>
-        elaborateBlockLike(c.ctx, c.result, c.inferredTy, elements, tail, span)
-
-      case CST.SeqOf(elements, span) =>
-        val elems = elements.toVector
-        elems.headOption match
-          case Some(CST.Symbol("def", _)) | Some(CST.Symbol("effect", _)) | Some(CST.Symbol("record", _)) | Some(CST.Symbol("enum", _)) |
-              Some(CST.Symbol("coenum", _)) =>
-            val blockElem = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems), span)
-            elaborateBlockLike(c.ctx, c.result, c.inferredTy, Vector(blockElem), None, span)
-          case Some(CST.Symbol("let", _)) =>
-            c.ctx.reporter.report(
-              ElabProblem.UnboundVariable("let statement only allowed in block elements, not in expression position", span)
-            )
-            val metaId = Uniqid.make[AST]
-            val ast = AST.Ref(metaId, "let", span)
-            module.fill(solver, c.result, ast)
-            val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
-            module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
-            Result.Done
-          case _ =>
-            if elems.headOption.exists { case CST.Symbol("package", _) => true; case _ => false } then
-              if elems.length < 2 then
-                c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected package name", span))
-                module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", span))
-                module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-                Result.Done
-              else {
-                val pkgName = elems(1) match
-                  case CST.Symbol(n, _) => n
-                  case _ =>
-                    c.ctx.reporter.report(ElabProblem.UnboundVariable("Expected package name", span))
-                    "<error>"
-                val bodyCst = {
-                  if elems.length > 2 then
-                    val rest = elems.drop(2)
-                    if rest.length == 1 then rest.head
-                    else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(rest), combinedSpan(rest))
-                  else CST.Block(Vector.empty, None, span)
-                }
-
-                val bodyResult = module.newOnceCell[ElabConstraint, AST](solver)
-                val bodyTy = module.newOnceCell[ElabConstraint, AST](solver)
-                module.addConstraint(solver, ElabConstraint.InferTopLevel(bodyCst, bodyResult, bodyTy, c.ctx))
-
-                val pkgStmt = StmtAST.Pkg(pkgName, AST.MetaCell(HoldNotReadable(bodyResult), span), span)
-                val block = AST.Block(Vector(pkgStmt), AST.MetaCell(HoldNotReadable(bodyResult), span), span)
-                module.fill(solver, c.result, block)
-                module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(bodyTy), span))
-                Result.Done
-              }
-            else {
-              module.addConstraint(solver, ElabConstraint.Infer(c.cst, c.result, c.inferredTy, c.ctx))
-              Result.Done
-            }
-      case other =>
-        module.addConstraint(solver, ElabConstraint.Infer(other, c.result, c.inferredTy, c.ctx))
-        Result.Done
   }
 
   /** Handle function application: f(args) or f[typeArgs](args) */
@@ -1000,200 +932,6 @@ class ElabHandler extends Handler[ElabConstraint]:
       )
     )
 
-    Result.Done
-  }
-
-  /** Elaborate a block-like group of statements (shared by real blocks and top-level blockish SeqOf forms). */
-  private def elaborateBlockLike[M <: SolverModule](
-      ctx: ElabContext,
-      resultCell: CellRW[AST],
-      inferredTyCell: CellRW[AST],
-      elements: Vector[CST],
-      tail: Option[CST],
-      span: Option[Span]
-  )(using module: M, solver: module.Solver[ElabConstraint]): Result = {
-    import module.given
-
-    elements.headOption.flatMap(extractPackageName) match
-      case Some(pkgName) =>
-        val innerResult = module.newOnceCell[ElabConstraint, AST](solver)
-        val innerTy = module.newOnceCell[ElabConstraint, AST](solver)
-        elaborateBlockLike(ctx, innerResult, innerTy, elements.tail, tail, span)
-        val pkgStmt = StmtAST.Pkg(pkgName, AST.MetaCell(HoldNotReadable(innerResult), span), span)
-        module.fill(solver, resultCell, AST.Block(Vector(pkgStmt), AST.Tuple(Vector.empty, span), span))
-        module.fill(solver, inferredTyCell, AST.TupleType(Vector.empty, span))
-        return Result.Done
-      case None => ()
-
-    // Check if tail contains a def/let/record statement (which is not allowed)
-    tail.foreach { t =>
-      if isDefStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("def statement not allowed in tail position", t.span))
-      if isLetStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("let statement not allowed in tail position", t.span))
-      if isRecordStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("record statement not allowed in tail position", t.span))
-      if isEnumStatement(t) then
-        ctx.reporter.report(ElabProblem.UnboundVariable("enum/coenum statement not allowed in tail position; terminate with ';'", t.span))
-    }
-
-    // TWO-PASS ELABORATION for forward references:
-    // Pass 1: Scan elements, collect all def declarations, create placeholder cells (reusing any pre-bound ones)
-    var enrichedCtx = ctx
-    val defInfoMap = scala.collection.mutable.Map.empty[CST, DefInfo]
-    val recordInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.CellRW[AST])]
-    val enumInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], Vector[Param], Boolean)]
-
-    elements.foreach {
-      case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
-        // Extract def name
-        val elems = seqElems.toVector
-        elems match
-          case _ +: CST.Symbol(name, _) +: _ =>
-            // Reuse existing binding if present (for cross-file/module pre-pass), otherwise create new
-            val (defId, defTypeCell) = enrichedCtx.lookup(name) match
-              case Some(existingId) =>
-                val cell = enrichedCtx.lookupType(existingId).getOrElse(module.newOnceCell[ElabConstraint, AST](solver))
-                (existingId, cell)
-              case None =>
-                val newId = Uniqid.make[AST]
-                val cell = module.newOnceCell[ElabConstraint, AST](solver)
-                (newId, cell)
-            val defResultCell = module.newOnceCell[ElabConstraint, AST](solver)
-            // Add to context so it can be referenced (including by other defs)
-            enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell).registerDefBody(defId, defResultCell)
-            defInfoMap(elem) = DefInfo(name, defId, defTypeCell, defResultCell, span = elem.span)
-          case _ => ()
-      case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } =>
-        seqElems.lift(1) match
-          case Some(CST.Symbol(name, _)) =>
-            enrichedCtx = enrichedCtx.declareEffect(name)
-          case _ => ()
-      case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("record", _) => true; case _ => false } =>
-        seqElems.lift(1) match
-          case Some(CST.Symbol(name, _)) =>
-            val recordId = Uniqid.make[AST]
-            val ctorTyCell = enrichedCtx.lookup(name).flatMap(enrichedCtx.lookupType).getOrElse(module.newOnceCell[ElabConstraint, AST](solver))
-            enrichedCtx = enrichedCtx.registerRecordPlaceholder(name, recordId, ctorTyCell)
-            recordInfoMap(elem) = (name, recordId, ctorTyCell)
-          case _ => ()
-      case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists {
-            case CST.Symbol("enum", _) | CST.Symbol("coenum", _) => true
-            case _                                               => false
-          } =>
-        seqElems.lift(1) match
-          case Some(CST.Symbol(name, _)) =>
-            val typeParams = parseEnumTypeParams(seqElems.toVector, enrichedCtx)
-            val enumId = Uniqid.make[AST]
-            val isCo = seqElems.headOption.exists { case CST.Symbol("coenum", _) => true; case _ => false }
-            enrichedCtx = enrichedCtx.registerEnumPlaceholder(name, enumId, typeParams, isCo)
-            enumInfoMap(elem) = (name, enumId, typeParams, isCo)
-          case _ => ()
-      case _ => ()
-    }
-
-    // Pass 2: Elaborate all elements with enriched context and sequential lets
-    val elaboratedElemsBuffer = scala.collection.mutable.ArrayBuffer.empty[StmtAST]
-    var currentCtx = enrichedCtx
-
-    elements.foreach { elem =>
-      val elemResult = {
-        defInfoMap.get(elem) match
-          case Some(info) => info.resultCell
-          case None       => module.newOnceCell[ElabConstraint, AST](solver)
-      }
-      val elemType = module.newOnceCell[ElabConstraint, AST](solver)
-
-      elem match
-        case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
-          val elems = seqElems.toVector
-          val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, currentCtx)
-          val defMeta = defInfoMap(elem)
-          handleDefStatement(defConstraint, elems, elem.span, defMeta.id, defMeta.tyCell, currentCtx, defInfoMap)(using module, solver)
-          val updated = defInfoMap(elem)
-          // Construct a Stmt placeholder with MetaCells for body/result type
-          val bodyAst = AST.MetaCell(HoldNotReadable(updated.resultCell), elem.span)
-          val resTyAst = updated.resultTyCell.map(c => AST.MetaCell(HoldNotReadable(c), elem.span))
-          val stmt = StmtAST.Def(updated.id, updated.name, updated.telescopes, resTyAst, bodyAst, elem.span)
-          elaboratedElemsBuffer += stmt
-        case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } =>
-          val (maybeName, maybeBody) = (seqElems.lift(1), seqElems.lift(2))
-          maybeName.collect { case CST.Symbol(name, _) => name } match
-            case Some(name) =>
-              // Declare the effect and elaborate its operation signatures (if any)
-              val withEffectCtx = currentCtx.declareEffect(name)
-              val effRef = withEffectCtx.lookupEffect(name).get
-              val bodyCst: CST.Block = maybeBody.collect { case b: CST.Block => b }.getOrElse(CST.Block(Vector.empty, None, span))
-              currentCtx = processEffectBody(bodyCst, effRef, withEffectCtx)
-              // The effect declaration itself evaluates to unit
-              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
-              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
-            case None =>
-              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
-              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
-          elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), span), span)
-        case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("record", _) => true; case _ => false } =>
-          val recordMeta = recordInfoMap(elem)
-          val fields = parseRecordFields(seqElems.toVector, currentCtx)(using module, solver)
-          val ctorType = AST.Pi(
-            Vector(Telescope(fields, Implicitness.Explicit)),
-            AST.RecordTypeRef(recordMeta._2, recordMeta._1, span),
-            Vector.empty,
-            span
-          )
-          module.fill(solver, recordMeta._3, ctorType)
-          currentCtx = currentCtx.updateRecord(recordMeta._1, fields)
-          module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
-          module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
-          elaboratedElemsBuffer += StmtAST.Record(recordMeta._2, recordMeta._1, fields, span)
-        case CST.SeqOf(seqElems, span) if seqElems.headOption.exists {
-              case CST.Symbol("enum", _) | CST.Symbol("coenum", _) => true
-              case _                                               => false
-            } =>
-          enumInfoMap.get(elem) match
-            case Some((name, enumId, typeParams, isCo)) =>
-              val cases = parseEnumCases(seqElems.toVector, currentCtx, typeParams)(using module, solver)
-              val resolvedTypeParams = {
-                typeParams.map { p =>
-                  val resolved = normalizeTypeLikeKind(substituteSolutions(p.ty))
-                  p.copy(ty = resolved, default = p.default.map(substituteSolutions))
-                }
-              }
-              val resolvedCases = cases.map(c =>
-                c.copy(params = c.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions))))
-              )
-              currentCtx = currentCtx.updateEnum(name, resolvedTypeParams, resolvedCases, isCo)
-              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
-              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
-              if isCo then elaboratedElemsBuffer += StmtAST.Coenum(enumId, name, resolvedTypeParams, resolvedCases, span)
-              else elaboratedElemsBuffer += StmtAST.Enum(enumId, name, resolvedTypeParams, resolvedCases, span)
-            case None =>
-              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
-              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
-        case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("let", _) => true; case _ => false } =>
-          val elems = seqElems.toVector
-          currentCtx = handleLetStatement(elems, elem.span, currentCtx, elemResult, elemType)(using module, solver)
-          elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), elem.span), elem.span)
-        case _ =>
-          module.addConstraint(solver, ElabConstraint.Infer(elem, elemResult, elemType, currentCtx))
-          elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), elem.span), elem.span)
-    }
-
-    val elaboratedElems = elaboratedElemsBuffer.toVector
-
-    // Elaborate tail (or use empty tuple if None)
-    val elaboratedTail = tail match
-      case Some(t) =>
-        val tailResult = module.newOnceCell[ElabConstraint, AST](solver)
-        // Type of block is type of tail - use c.inferredTy directly
-        module.addConstraint(solver, ElabConstraint.Infer(t, tailResult, inferredTyCell, currentCtx))
-        AST.MetaCell(HoldNotReadable(tailResult), t.span)
-      case None =>
-        // Empty tail = unit value (empty tuple)
-        val emptyTuple = AST.Tuple(Vector.empty, span)
-        module.fill(solver, inferredTyCell, AST.TupleType(Vector.empty, None))
-        emptyTuple
-
-    // Construct block directly with MetaCells - they'll be resolved by substituteSolutions
-    val block = AST.Block(elaboratedElems, elaboratedTail, span)
-    module.fill(solver, resultCell, block)
     Result.Done
   }
 
@@ -1357,11 +1095,11 @@ class ElabHandler extends Handler[ElabConstraint]:
         val typeElems = elems.drop(colonIndex + 1)
         val expr = {
           if exprElems.length == 1 then exprElems.head
-          else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(exprElems), combinedSpan(exprElems))
+          else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(exprElems), ElabSupport.combinedSpan(exprElems))
         }
         val ty = {
           if typeElems.length == 1 then typeElems.head
-          else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), combinedSpan(typeElems))
+          else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), ElabSupport.combinedSpan(typeElems))
         }
         Some((expr, ty))
       else None
@@ -1432,10 +1170,11 @@ class ElabHandler extends Handler[ElabConstraint]:
     val seqElems = typeArgs match
       case Some(list) => Vector(func, list, tuple)
       case None       => Vector(func, tuple)
-    CST.SeqOf(NonEmptyVector.fromVectorUnsafe(seqElems), combinedSpan(seqElems))
+    CST.SeqOf(NonEmptyVector.fromVectorUnsafe(seqElems), ElabSupport.combinedSpan(seqElems))
   }
 
-  private def combinedSpan(elems: Seq[CST]): Option[Span] = {
+private object ElabSupport:
+  def combinedSpan(elems: Seq[CST]): Option[Span] = {
     val spans = elems.iterator.flatMap(_.span)
     if !spans.hasNext then None
     else {
@@ -1445,6 +1184,88 @@ class ElabHandler extends Handler[ElabConstraint]:
       Some(first.combine(last))
     }
   }
+  def spanOf(elems: Seq[CST]): Option[Span] = combinedSpan(elems)
+  def parseEnumParams[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[Param] = parseEnumTypeParams(elems, ctx)
+  def parseRecordParams[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[Param] = parseRecordFields(elems, ctx)
+  def parseEnumCasesF[M <: SolverModule](elems: Vector[CST], ctx: ElabContext, typeParams: Vector[Param])(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[EnumCase] = parseEnumCases(elems, ctx, typeParams)
+  def handleDef[M <: SolverModule](
+      c: ElabConstraint.Infer,
+      elems: Vector[CST],
+      span: Option[Span],
+      defId: UniqidOf[AST],
+      defTypeCell: CellRW[AST],
+      ctx: ElabContext,
+      defInfoMap: scala.collection.mutable.Map[CST, DefInfo]
+  )(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    handleDefStatement(c, elems, span, defId, defTypeCell, ctx, defInfoMap)
+  def processEffect[M <: SolverModule](body: CST.Block, effectRef: EffectRef, ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): ElabContext = processEffectBody(body, effectRef, ctx)
+  def handleLet[M <: SolverModule](
+      elems: Vector[CST],
+      span: Option[Span],
+      ctx: ElabContext,
+      resultCell: CellRW[AST],
+      inferredTyCell: CellRW[AST]
+  )(using module: M, solver: module.Solver[ElabConstraint]): ElabContext =
+    handleLetStatement(elems, span, ctx, resultCell, inferredTyCell)
+  def normalizeKindish(ty: AST): AST = normalizeTypeLikeKind(ty)
+  def substitute(ast: AST)(using module: SolverModule, solver: module.Solver[ElabConstraint]): AST =
+    substituteSolutions(ast)
+
+private given blockHelpers: ElaboratorBlocks.Helpers = new ElaboratorBlocks.Helpers {
+  override def combinedSpan(elems: Seq[CST]): Option[Span] = ElabSupport.spanOf(elems)
+  override def parseEnumTypeParams[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[Param] = ElabSupport.parseEnumParams(elems, ctx)
+  override def parseRecordFields[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[Param] = ElabSupport.parseRecordParams(elems, ctx)
+  override def parseEnumCases[M <: SolverModule](elems: Vector[CST], ctx: ElabContext, typeParams: Vector[Param])(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[EnumCase] = ElabSupport.parseEnumCasesF(elems, ctx, typeParams)
+  override def handleDefStatement[M <: SolverModule](
+      c: ElabConstraint.Infer,
+      elems: Vector[CST],
+      span: Option[Span],
+      defId: UniqidOf[AST],
+      defTypeCell: CellRW[AST],
+      ctx: ElabContext,
+      defInfoMap: scala.collection.mutable.Map[CST, DefInfo]
+  )(using module: M, solver: module.Solver[ElabConstraint]): Result =
+    ElabSupport.handleDef(c, elems, span, defId, defTypeCell, ctx, defInfoMap)
+
+  override def processEffectBody[M <: SolverModule](body: CST.Block, effectRef: EffectRef, ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): ElabContext = ElabSupport.processEffect(body, effectRef, ctx)
+
+  override def handleLetStatement[M <: SolverModule](
+      elems: Vector[CST],
+      span: Option[Span],
+      ctx: ElabContext,
+      resultCell: CellRW[AST],
+      inferredTyCell: CellRW[AST]
+  )(using module: M, solver: module.Solver[ElabConstraint]): ElabContext =
+    ElabSupport.handleLet(elems, span, ctx, resultCell, inferredTyCell)
+
+  override def normalizeTypeLikeKind(ty: AST): AST = ElabSupport.normalizeKindish(ty)
+  override def substituteSolutions(ast: AST): AST = ast
+}
+
 
   /** Elaborate an effect body that only contains operation signatures. Each operation is registered with a type that carries the enclosing effect in
     * its effect row. No bodies are required or expected.
@@ -1499,7 +1320,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             val typeElems = elems.drop(idx)
             val resultTypeCst = {
               if typeElems.length == 1 then typeElems.head
-              else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), combinedSpan(typeElems))
+              else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), ElabSupport.combinedSpan(typeElems))
             }
 
             val resultTyCell = module.newOnceCell[ElabConstraint, AST](solver)
@@ -1723,7 +1544,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       if annElems.isEmpty then return fail("Expected type annotation after colon in let")
       val annCst = {
         if annElems.length == 1 then annElems.head
-        else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(annElems), combinedSpan(annElems))
+        else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(annElems), ElabSupport.combinedSpan(annElems))
       }
       annotationCstOpt = Some(annCst)
       annotationSpan = annCst.span
@@ -1786,13 +1607,18 @@ class ElabHandler extends Handler[ElabConstraint]:
       // Pattern: SeqOf(name, :, type)
       case CST.SeqOf(elems, _) if elems.length >= 3 =>
         val elemsVec = elems.toVector
-        (elemsVec.head, elemsVec(1)) match
-          case (CST.Symbol(name, _), CST.Symbol(":", _)) =>
-            val typeElems = elemsVec.drop(2)
+        val (coeffect, startIdx) = elemsVec.headOption match
+          case Some(CST.IntegerLiteral(v, _)) if v == 0 => (Coeffect.Zero, 1)
+          case Some(CST.IntegerLiteral(v, _)) if v == 1 => (Coeffect.One, 1)
+          case _                                        => (Coeffect.Unrestricted, 0)
+
+        (elemsVec.lift(startIdx), elemsVec.lift(startIdx + 1)) match
+          case (Some(CST.Symbol(name, _)), Some(CST.Symbol(":", _))) =>
+            val typeElems = elemsVec.drop(startIdx + 2)
             // Allow complex types after the colon; if there are multiple elems, wrap them in a SeqOf
             val typeCst = {
               if typeElems.length == 1 then typeElems.head
-              else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), combinedSpan(typeElems))
+              else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(typeElems), ElabSupport.combinedSpan(typeElems))
             }
 
             val paramId = Uniqid.make[AST]
@@ -1803,7 +1629,7 @@ class ElabHandler extends Handler[ElabConstraint]:
 
             // Store cell reference as MetaCell - it will be resolved after constraints run
             val paramTy = AST.MetaCell(HoldNotReadable(tyResult), None)
-            val param = Param(paramId, name, paramTy, implicitness, None)
+            val param = Param(paramId, name, paramTy, implicitness, None, coeffect)
 
             // Extend context for the next parameter
             currentCtx = currentCtx.bind(name, paramId, tyResult)
@@ -1901,34 +1727,6 @@ class ElabHandler extends Handler[ElabConstraint]:
         EnumCase(Uniqid.make, name, telescope.params)
     }
   }
-
-  /** Check if a CST node is a def statement */
-  private def isDefStatement(cst: CST): Boolean = cst match
-    case CST.SeqOf(elements, _) =>
-      elements.headOption.exists { case CST.Symbol("def", _) => true; case _ => false }
-    case _ => false
-
-  private def isLetStatement(cst: CST): Boolean = cst match
-    case CST.SeqOf(elements, _) =>
-      elements.headOption.exists { case CST.Symbol("let", _) => true; case _ => false }
-    case _ => false
-
-  private def isRecordStatement(cst: CST): Boolean = cst match
-    case CST.SeqOf(elements, _) =>
-      elements.headOption.exists { case CST.Symbol("record", _) => true; case _ => false }
-    case _ => false
-  private def isEnumStatement(cst: CST): Boolean = cst match
-    case CST.SeqOf(elements, _) =>
-      elements.headOption.exists { case CST.Symbol("enum", _) | CST.Symbol("coenum", _) => true; case _ => false }
-    case _ => false
-  private def extractPackageName(cst: CST): Option[String] = cst match
-    case CST.SeqOf(elements, _) =>
-      elements.headOption.flatMap {
-        case CST.Symbol("package", _) =>
-          elements.lift(1).collect { case CST.Symbol(name, _) => name.stripSuffix(";") }
-        case _ => None
-      }
-    case _ => None
 
   private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using
       module: SolverModule,
@@ -2722,10 +2520,8 @@ class ElabHandler extends Handler[ElabConstraint]:
 
 /** Handler configuration for elaboration */
 class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
-  private val handler = new ElabHandler()
-
   def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
-    Some(handler)
+    Some(ElabHandler)
 
 /** Substitute meta-cell solutions throughout an AST This resolves MetaCell nodes by reading their cell contents after constraint solving Also known
   * as "zonking" in some type checkers
@@ -2951,7 +2747,7 @@ object Elaborator:
       )
     )
 
-    val solver = module.makeSolver[ElabConstraint](new ElabHandlerConf(module))
+    val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
 
     val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
     val typeCell = module.newOnceCell[ElabConstraint, AST](solver)

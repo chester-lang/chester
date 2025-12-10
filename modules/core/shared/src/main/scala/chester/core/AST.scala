@@ -15,12 +15,18 @@ enum Implicitness derives ReadWriter:
   case Implicit
   case Explicit
 
+enum Coeffect derives ReadWriter:
+  case Zero
+  case One
+  case Unrestricted
+
 case class Param(
     id: UniqidOf[AST],
     name: String,
     ty: AST,
     implicitness: Implicitness = Implicitness.Explicit,
-    default: Option[AST] = None
+    default: Option[AST] = None,
+    coeffect: Coeffect = Coeffect.Unrestricted
 ) derives ReadWriter:
   def collectUniqids(collector: UniqidCollector): Unit = {
     collector(id)
@@ -29,7 +35,7 @@ case class Param(
   }
 
   def mapUniqids(mapper: UniqidReplacer): Param =
-    Param(mapper(id), name, ty.mapUniqids(mapper), implicitness, default.map(_.mapUniqids(mapper)))
+    Param(mapper(id), name, ty.mapUniqids(mapper), implicitness, default.map(_.mapUniqids(mapper)), coeffect)
 
 /** Telescope: a sequence of parameters with the same implicitness */
 case class Telescope(
@@ -106,21 +112,60 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
     case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
-        val paramsDoc = hsep(tel.params.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
+        val paramsDoc = hsep(
+          tel.params.map { p =>
+            val coeffDoc = p.coeffect match
+              case Coeffect.One           => text("1") <+> empty
+              case Coeffect.Zero          => text("0") <+> empty
+              case Coeffect.Unrestricted  => empty
+            coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
+          },
+          `,` <+> empty
+        )
         bracket._1(paramsDoc)
       }
       val tyDoc = resultTy.map(t => text(":") <+> t.toDoc).getOrElse(empty)
       text("def") <+> text(name) <> hsep(telescopeDocs, empty) <+> tyDoc <+> text("=") <+> body.toDoc
     case StmtAST.Record(_, name, fields, _) =>
-      val paramsDoc = hsep(fields.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
+      val paramsDoc = hsep(
+        fields.map { p =>
+          val coeffDoc = p.coeffect match
+            case Coeffect.One           => text("1") <+> empty
+            case Coeffect.Zero          => text("0") <+> empty
+            case Coeffect.Unrestricted  => empty
+          coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
+        },
+        `,` <+> empty
+      )
       text("record") <+> text(name) <> parens(paramsDoc)
     case StmtAST.Enum(_, name, typeParams, cases, _) =>
       val typeParamsDoc = {
         if typeParams.isEmpty then empty
-        else parens(hsep(typeParams.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty))
+        else
+          parens(
+            hsep(
+              typeParams.map { p =>
+                val coeffDoc = p.coeffect match
+                  case Coeffect.One           => text("1") <+> empty
+                  case Coeffect.Zero          => text("0") <+> empty
+                  case Coeffect.Unrestricted  => empty
+                coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
+              },
+              `,` <+> empty
+            )
+          )
       }
       val caseDocs = cases.map { c =>
-        val paramsDoc = hsep(c.params.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
+        val paramsDoc = hsep(
+          c.params.map { p =>
+            val coeffDoc = p.coeffect match
+              case Coeffect.One           => text("1") <+> empty
+              case Coeffect.Zero          => text("0") <+> empty
+              case Coeffect.Unrestricted  => empty
+            coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
+          },
+          `,` <+> empty
+        )
         val paramsRendered = if paramsDoc == empty then empty else parens(paramsDoc)
         text("case") <+> text(c.name) <> paramsRendered
       }
@@ -132,10 +177,31 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
     case StmtAST.Coenum(_, name, typeParams, cases, _) =>
       val typeParamsDoc = {
         if typeParams.isEmpty then empty
-        else parens(hsep(typeParams.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty))
+        else
+          parens(
+            hsep(
+              typeParams.map { p =>
+                val coeffDoc = p.coeffect match
+                  case Coeffect.One           => text("1") <+> empty
+                  case Coeffect.Zero          => text("0") <+> empty
+                  case Coeffect.Unrestricted  => empty
+                coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
+              },
+              `,` <+> empty
+            )
+          )
       }
       val caseDocs = cases.map { c =>
-        val paramsDoc = hsep(c.params.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
+        val paramsDoc = hsep(
+          c.params.map { p =>
+            val coeffDoc = p.coeffect match
+              case Coeffect.One           => text("1") <+> empty
+              case Coeffect.Zero          => text("0") <+> empty
+              case Coeffect.Unrestricted  => empty
+            coeffDoc <> text(p.name) <> text(":") <+> p.ty.toDoc
+          },
+          `,` <+> empty
+        )
         val paramsRendered = if paramsDoc == empty then empty else parens(paramsDoc)
         text("case") <+> text(c.name) <> paramsRendered
       }

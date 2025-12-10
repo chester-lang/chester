@@ -67,7 +67,7 @@ object ElabTestUtils:
 
       case class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabConstraint, M]:
         override def getHandler(constraint: ElabConstraint): Option[Handler[ElabConstraint]] =
-          Some(new ElabHandler)
+          Some(ElabHandler)
 
       val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
       val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
