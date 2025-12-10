@@ -28,8 +28,8 @@ import chester.transform.EffectCPS
   *   - Records become interfaces; enums/coenums become TypeScript enums.
   *   - Expressions map to their closest TypeScript counterpart (calls, literals, arrays, objects, property access).
   *
-  * The transformer is best-effort: if a construct has no obvious TypeScript analogue, it degrades to an identifier or `undefined`
-  * rather than failing outright.
+  * The transformer is best-effort: if a construct has no obvious TypeScript analogue, it degrades to an identifier or `undefined` rather than failing
+  * outright.
   */
 object TypeScriptBackend:
 
@@ -40,12 +40,13 @@ object TypeScriptBackend:
   )
 
   /** Entry point: lower a Chester AST into a TypeScript program. */
-  def lowerProgram(ast: AST, config: Config = Config()): TypeScriptAST.Program =
+  def lowerProgram(ast: AST, config: Config = Config()): TypeScriptAST.Program = {
     val lowered = lowerAsStatements(ast, config, topLevel = true)
     TypeScriptAST.Program(lowered, ast.span)
+  }
 
   /** Lower a Chester statement into zero or more TypeScript statements. */
-  private def lowerStmt(stmt: StmtAST, config: Config): Vector[TypeScriptAST] =
+  private def lowerStmt(stmt: StmtAST, config: Config): Vector[TypeScriptAST] = {
     stmt match
       case StmtAST.ExprStmt(expr, _) =>
         Vector(TypeScriptAST.ExpressionStatement(lowerExpr(expr, config), stmt.span))
@@ -81,32 +82,37 @@ object TypeScriptBackend:
       case StmtAST.Pkg(name, body, span) =>
         val inner = lowerAsStatements(body, config, topLevel = true)
         Vector(TypeScriptAST.NamespaceDeclaration(name, inner, span))
+  }
 
   /** Lower a block-like AST into a list of statements, appending a return for the tail when necessary. */
-  private def lowerAsStatements(ast: AST, config: Config, topLevel: Boolean = false): Vector[TypeScriptAST] =
+  private def lowerAsStatements(ast: AST, config: Config, topLevel: Boolean = false): Vector[TypeScriptAST] = {
     ast match
       case AST.Block(elems, tail, _) =>
         val loweredElems = elems.flatMap(lowerStmt(_, config))
         val tailExpr = lowerExpr(tail, config)
         val tailIsUnit = tailExpr match
-          case TypeScriptAST.Array(e, _) if e.isEmpty => true
+          case TypeScriptAST.Array(e, _) if e.isEmpty   => true
           case TypeScriptAST.Identifier("undefined", _) => true
-          case _ => false
-        val tailStmt =
+          case _                                        => false
+        val tailStmt = {
           if topLevel && tailIsUnit then Vector.empty
           else Vector(TypeScriptAST.Return(Some(tailExpr), tail.span))
+        }
         (loweredElems ++ tailStmt).toVector
       case other =>
         val expr = lowerExpr(other, config)
-        val stmt =
+        val stmt = {
           if topLevel && (expr == TypeScriptAST.UndefinedLiteral(other.span) || (expr match
               case TypeScriptAST.Array(e, _) if e.isEmpty => true
-              case _                                      => false)) then Vector.empty
+              case _                                      => false))
+          then Vector.empty
           else Vector(TypeScriptAST.Return(Some(expr), other.span))
+        }
         stmt
+  }
 
   /** Lower a Chester expression to a TypeScript expression. */
-  private def lowerExpr(expr: AST, config: Config): TypeScriptAST =
+  private def lowerExpr(expr: AST, config: Config): TypeScriptAST = {
     expr match
       // Literals
       case AST.IntLit(value, span)     => TypeScriptAST.NumberLiteral(value.toString, span)
@@ -187,9 +193,10 @@ object TypeScriptBackend:
       // Fallback
       case _ =>
         TypeScriptAST.Identifier("undefined", expr.span)
+  }
 
   /** Lower a Chester parameter into a TypeScript function parameter. */
-  private def lowerParam(param: Param, config: Config): TSParameter =
+  private def lowerParam(param: Param, config: Config): TSParameter = {
     TSParameter(
       name = param.name,
       paramType = Some(lowerType(param.ty, config)),
@@ -197,9 +204,10 @@ object TypeScriptBackend:
       isRest = false,
       span = None
     )
+  }
 
   /** Lower a Chester type into a TypeScript type. */
-  private def lowerType(ty: AST, config: Config): TypeScriptType =
+  private def lowerType(ty: AST, config: Config): TypeScriptType = {
     val rewritten = if config.applyEffectCPS then EffectCPS.transformType(ty, config.cpsConfig) else ty
     rewritten match
       case AST.StringType(span)  => TypeScriptType.PrimitiveType("string", span)
@@ -223,3 +231,4 @@ object TypeScriptBackend:
         TypeScriptType.PrimitiveType("any", span)
       case _ =>
         TypeScriptType.PrimitiveType("any", ty.span)
+  }

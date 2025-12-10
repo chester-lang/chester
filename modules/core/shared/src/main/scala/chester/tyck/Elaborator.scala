@@ -761,7 +761,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             else {
               tryHandleDotSequence(c.ctx, c.result, c.inferredTy, false, elems, span) match
                 case Some(r) => r
-                case None =>
+                case None    =>
                   // Binary operator sugar: lhs op rhs
                   elems match
                     case Vector(lhs, CST.Symbol(op, opSpan), rhs) if c.ctx.isBuiltin(op) =>

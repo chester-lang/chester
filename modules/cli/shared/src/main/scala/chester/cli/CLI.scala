@@ -179,7 +179,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
         if !exists then IO.println(s"Input path '$input' does not exist.", toStderr = true)
         else {
           IO.isDirectory(inPath).flatMap { isDir =>
-            val defaultOut =
+            val defaultOut = {
               if isDir then io.pathOps.join(inPath, "ts-out")
               else {
                 val inStr = io.pathOps.asString(inPath)
@@ -187,11 +187,13 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                 val tsName = if inStr.contains(".") then inStr.replaceAll("\\.[^.]+$", ".ts") else s"$inStr.ts"
                 if idx >= 0 then io.pathOps.of(inStr.take(idx + 1) + tsName.split('/').last) else io.pathOps.of(tsName)
               }
+            }
             val outBaseStr = output.getOrElse(io.pathOps.asString(defaultOut))
             ensureDir(outBaseStr).flatMap { outDir =>
-              val inputsF: F[Seq[io.Path]] =
+              val inputsF: F[Seq[io.Path]] = {
                 if isDir then IO.listFiles(inPath).map(_.filter(p => io.pathOps.baseName(p).endsWith(".chester")))
                 else Runner.pure(Seq(inPath))
+              }
 
               inputsF.flatMap { paths =>
                 paths.foldLeft(Runner.pure[F, Unit](())) { (acc, p) =>
