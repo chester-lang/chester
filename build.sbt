@@ -249,7 +249,10 @@ lazy val cli = crossProject(JVMPlatform, JSPlatform)
   .settings(
     commonSettings,
     name := "chester-cli",
-    Compile / mainClass := Some("chester.cli.Main")
+    Compile / mainClass := Some("chester.cli.Main"),
+    libraryDependencies ++= Seq(
+      "org.scalameta" %%% "munit" % "1.2.1" % Test
+    )
   )
   .jsSettings(
     scalaJSUseMainModuleInitializer := true

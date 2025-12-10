@@ -5,6 +5,7 @@ import scala.language.experimental.genericNumberLiterals
 import chester.core.AST
 import chester.error.*
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
+import chester.backend.TypeScriptBackend
 import chester.tyck.{ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, substituteSolutions}
 import chester.utils.doc.DocConf
 import chester.utils.elab.ProceduralSolverModule
@@ -155,6 +156,67 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     } yield ()
   }
 
+  private def ensureDir(pathStr: String): F[io.Path] = {
+    val p = io.pathOps.of(pathStr)
+    for {
+      isDir <- IO.isDirectory(p)
+      _ <- if !isDir then IO.createDirRecursiveIfNotExists(p) else Runner.pure(())
+    } yield p
+  }
+
+  private def targetTsPath(inputPath: io.Path, outDir: io.Path): io.Path = {
+    val name = io.pathOps.baseName(inputPath)
+    val tsName =
+      if name.contains(".") then name.replaceAll("\\.[^.]+$", ".ts") else s"$name.ts"
+    io.pathOps.join(outDir, tsName)
+  }
+
+  private def compileToTypeScript(input: String, output: Option[String]): F[Unit] = {
+    val inPath = io.pathOps.of(input)
+    for {
+      exists <- IO.exists(inPath)
+      _ <-
+        if !exists then IO.println(s"Input path '$input' does not exist.", toStderr = true)
+        else {
+          IO.isDirectory(inPath).flatMap { isDir =>
+            val defaultOut =
+              if isDir then io.pathOps.join(inPath, "ts-out")
+              else {
+                val inStr = io.pathOps.asString(inPath)
+                val idx = inStr.lastIndexOf('/')
+                val tsName = if inStr.contains(".") then inStr.replaceAll("\\.[^.]+$", ".ts") else s"$inStr.ts"
+                if idx >= 0 then io.pathOps.of(inStr.take(idx + 1) + tsName.split('/').last) else io.pathOps.of(tsName)
+              }
+            val outBaseStr = output.getOrElse(io.pathOps.asString(defaultOut))
+            ensureDir(outBaseStr).flatMap { outDir =>
+              val inputsF: F[Seq[io.Path]] =
+                if isDir then IO.listFiles(inPath).map(_.filter(p => io.pathOps.baseName(p).endsWith(".chester")))
+                else Runner.pure(Seq(inPath))
+
+              inputsF.flatMap { paths =>
+                paths.foldLeft(Runner.pure[F, Unit](())) { (acc, p) =>
+                  acc.flatMap { _ =>
+                    IO.readString(p).flatMap { content =>
+                      val result = analyze(Source(FileNameAndContent(io.pathOps.asString(p), content)))
+                      result match
+                        case Left(errs) =>
+                          printLines(errs, toStderr = true)
+                        case Right((ast, _)) =>
+                          val tsProg = TypeScriptBackend.lowerProgram(ast)
+                          val rendered = tsProg.toDoc.toString
+                          val outPath = targetTsPath(p, outDir)
+                          IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
+                            .flatMap(_ => IO.println(s"Wrote TypeScript to '${io.pathOps.asString(outPath)}'."))
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+    } yield ()
+  }
+
   def run(config: Config): F[Unit] = config match {
     case Config.Version =>
       IO.println(s"Chester version: ${VersionInfo.current}")
@@ -166,6 +228,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       runFile(path)
     case Config.Compile(input, output) =>
       compileFile(input, output)
+    case Config.CompileTS(input, output) =>
+      compileToTypeScript(input, output)
   }
 }
 
