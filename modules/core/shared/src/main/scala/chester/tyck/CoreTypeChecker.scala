@@ -9,7 +9,52 @@ import chester.utils.HoldNotReadable
 object CoreTypeChecker:
   private type Env = Map[chester.uniqid.UniqidOf[AST], AST]
   private type RecordEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[chester.core.Param])]
-  private type EnumEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[EnumCase])]
+  private type EnumEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[EnumCase], Vector[Param])]
+
+  private def substituteInType(ast: AST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): AST =
+    ast match
+      case AST.Ref(id, _, _) => subst.getOrElse(id, ast)
+      case AST.App(func, args, imp, span) =>
+        AST.App(substituteInType(func, subst), args.map(a => Arg(substituteInType(a.value, subst), a.implicitness)), imp, span)
+      case AST.Pi(teles, res, effs, span) =>
+        val newTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
+        AST.Pi(newTeles, substituteInType(res, subst), effs, span)
+      case AST.Lam(teles, body, span) =>
+        val newTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
+        AST.Lam(newTeles, substituteInType(body, subst), span)
+      case AST.Tuple(elems, span)    => AST.Tuple(elems.map(substituteInType(_, subst)), span)
+      case AST.TupleType(elems, span) => AST.TupleType(elems.map(substituteInType(_, subst)), span)
+      case AST.ListType(elem, span)  => AST.ListType(substituteInType(elem, subst), span)
+      case AST.ListLit(elems, span)  => AST.ListLit(elems.map(substituteInType(_, subst)), span)
+      case AST.RecordCtor(id, name, args, span) =>
+        AST.RecordCtor(id, name, args.map(substituteInType(_, subst)), span)
+      case AST.EnumCtor(enumId, caseId, enumName, caseName, args, span) =>
+        AST.EnumCtor(enumId, caseId, enumName, caseName, args.map(substituteInType(_, subst)), span)
+      case AST.Ann(expr, ty, span)   => AST.Ann(substituteInType(expr, subst), substituteInType(ty, subst), span)
+      case AST.Let(id, name, ty, value, body, span) =>
+        AST.Let(id, name, ty.map(substituteInType(_, subst)), substituteInType(value, subst), substituteInType(body, subst), span)
+      case AST.Block(elems, tail, span) =>
+        AST.Block(elems.map(substituteInTypeStmt(_, subst)), substituteInType(tail, subst), span)
+      case other => other
+
+  private def substituteInTypeStmt(stmt: StmtAST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): StmtAST =
+    stmt match
+      case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteInType(expr, subst), span)
+      case StmtAST.Def(id, name, teles, resTy, body, span) =>
+        val newTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
+        StmtAST.Def(id, name, newTeles, resTy.map(substituteInType(_, subst)), substituteInType(body, subst), span)
+      case StmtAST.Record(id, name, fields, span) =>
+        val newFields = fields.map(p => p.copy(ty = substituteInType(p.ty, subst)))
+        StmtAST.Record(id, name, newFields, span)
+      case StmtAST.Enum(id, name, tps, cases, span) =>
+        val newTps = tps.map(p => p.copy(ty = substituteInType(p.ty, subst)))
+        val newCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
+        StmtAST.Enum(id, name, newTps, newCases, span)
+      case StmtAST.Coenum(id, name, tps, cases, span) =>
+        val newTps = tps.map(p => p.copy(ty = substituteInType(p.ty, subst)))
+        val newCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
+        StmtAST.Coenum(id, name, newTps, newCases, span)
+      case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, substituteInType(body, subst), span)
 
   /** Normalize a type AST with shallow beta-reduction of type-level lambdas/applications. */
   def normalizeType(ast: AST): AST = {
@@ -57,9 +102,14 @@ object CoreTypeChecker:
       case StmtAST.Record(id, name, fields, span) =>
         val normFields = fields.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))
         StmtAST.Record(id, name, normFields, span)
-      case StmtAST.Enum(id, name, cases, span) =>
+      case StmtAST.Enum(id, name, typeParams, cases, span) =>
+        val normTypeParams = typeParams.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))
         val normCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
-        StmtAST.Enum(id, name, normCases, span)
+        StmtAST.Enum(id, name, normTypeParams, normCases, span)
+      case StmtAST.Coenum(id, name, typeParams, cases, span) =>
+        val normTypeParams = typeParams.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))
+        val normCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
+        StmtAST.Coenum(id, name, normTypeParams, normCases, span)
       case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, normalizeType(body), span)
   }
 
@@ -116,9 +166,14 @@ object CoreTypeChecker:
     case StmtAST.Record(id, name, fields, _) =>
       val nFields = fields.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))
       StmtAST.Record(id, name, nFields, None)
-    case StmtAST.Enum(id, name, cases, _) =>
+    case StmtAST.Enum(id, name, typeParams, cases, _) =>
+      val nTypeParams = typeParams.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))
       val nCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
-      StmtAST.Enum(id, name, nCases, None)
+      StmtAST.Enum(id, name, nTypeParams, nCases, None)
+    case StmtAST.Coenum(id, name, typeParams, cases, _) =>
+      val nTypeParams = typeParams.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))
+      val nCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
+      StmtAST.Coenum(id, name, nTypeParams, nCases, None)
     case StmtAST.Pkg(name, body, _) =>
       StmtAST.Pkg(name, eraseSpans(body), None)
 
@@ -257,21 +312,47 @@ object CoreTypeChecker:
             records.get(id).flatMap { case (_, flds) => flds.find(_.name == field).map(_.ty) }
           case _ => None
       case AST.EnumTypeRef(id, name, span) =>
-        enums.get(id).map(_ => AST.Type(AST.LevelLit(0, None), span))
+        enums.get(id).map { case (_, _, typeParams) =>
+          if typeParams.nonEmpty then
+            val teleImplicitness = typeParams.headOption.map(_.implicitness).getOrElse(Implicitness.Explicit)
+            val tele = Vector(Telescope(typeParams, teleImplicitness))
+            AST.Pi(tele, AST.Type(AST.LevelLit(0, None), span), Vector.empty, span)
+          else AST.Type(AST.LevelLit(0, None), span)
+        }
       case AST.EnumCaseRef(enumId, caseId, _, _, span) =>
-        enums.get(enumId).flatMap { case (enumName, cases) =>
+        enums.get(enumId).flatMap { case (enumName, cases, typeParams) =>
           cases.find(_.id == caseId).map { c =>
-            if c.params.isEmpty then AST.EnumTypeRef(enumId, enumName, span)
-            else AST.Pi(Vector(Telescope(c.params, Implicitness.Explicit)), AST.EnumTypeRef(enumId, enumName, span), Vector.empty, span)
+            val teleImplicitness = typeParams.headOption.map(_.implicitness).getOrElse(Implicitness.Explicit)
+            val typeParamTele = if typeParams.nonEmpty then Vector(Telescope(typeParams, teleImplicitness)) else Vector.empty
+            val caseTele = if c.params.nonEmpty then Vector(Telescope(c.params, Implicitness.Explicit)) else Vector.empty
+            val typeParamRefs = typeParams.map(p => Arg(AST.Ref(p.id, p.name, span), Implicitness.Explicit))
+            val enumType =
+              if typeParamRefs.nonEmpty then AST.App(AST.EnumTypeRef(enumId, enumName, span), typeParamRefs, implicitArgs = false, span)
+              else AST.EnumTypeRef(enumId, enumName, span)
+            if typeParamTele.isEmpty && caseTele.isEmpty then enumType
+            else AST.Pi(typeParamTele ++ caseTele, enumType, Vector.empty, span)
           }
         }
       case AST.EnumCtor(enumId, caseId, enumName, _, args, span) =>
         enums.get(enumId) match
-          case Some((_, cases)) =>
+          case Some((_, cases, typeParams)) =>
             cases.find(_.id == caseId) match
-              case Some(ecase) if ecase.params.length == args.length =>
-                val paramsOk = args.zip(ecase.params).forall { case (arg, param) => check(arg, param.ty, env, records, enums) }
-                if paramsOk then Some(AST.EnumTypeRef(enumId, enumName, span)) else None
+              case Some(ecase) if ecase.params.length + typeParams.length == args.length =>
+                val allParams = typeParams ++ ecase.params
+                var subst: Map[chester.uniqid.UniqidOf[AST], AST] = Map.empty
+                val paramsOk = args.zip(allParams).forall { case (arg, param) =>
+                  val expected = substituteInType(param.ty, subst)
+                  val ok = check(arg, expected, env, records, enums)
+                  if ok then subst = subst + (param.id -> arg)
+                  ok
+                }
+                if paramsOk then
+                  val typeArgs = args.take(typeParams.length).map(arg => Arg(arg, Implicitness.Explicit))
+                  val enumType =
+                    if typeArgs.nonEmpty then AST.App(AST.EnumTypeRef(enumId, enumName, span), typeArgs, implicitArgs = false, span)
+                    else AST.EnumTypeRef(enumId, enumName, span)
+                  Some(enumType)
+                else None
               case _ => None
           case None => None
       case AST.MetaCell(_, _) => None
@@ -286,7 +367,8 @@ object CoreTypeChecker:
           case Some(rt) => check(body, rt, paramEnv, records, enums)
           case None     => infer(body, paramEnv, records, enums).isDefined
       case StmtAST.Record(_, _, _, _) => true
-      case StmtAST.Enum(_, _, _, _)   => true
+      case StmtAST.Enum(_, _, _, _, _)   => true
+      case StmtAST.Coenum(_, _, _, _, _) => true
       case StmtAST.Pkg(_, body, _)    => infer(body, env, records, enums).isDefined
   }
 
@@ -307,6 +389,7 @@ object CoreTypeChecker:
 
   private def extendEnumEnv(enums: EnumEnv, stmt: StmtAST): EnumEnv = {
     stmt match
-      case StmtAST.Enum(id, name, cases, _) => enums + (id -> (name, cases))
-      case _                                => enums
+      case StmtAST.Enum(id, name, typeParams, cases, _)  => enums + (id -> (name, cases, typeParams))
+      case StmtAST.Coenum(id, name, typeParams, cases, _) => enums + (id -> (name, cases, typeParams))
+      case _                                             => enums
   }

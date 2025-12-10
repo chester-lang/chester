@@ -78,17 +78,17 @@ case class ElabContext(
   }
   def lookupRecord(name: String): Option[ElabContext.RecordDef] = recordsByName.get(name)
   def lookupRecordById(id: UniqidOf[AST]): Option[ElabContext.RecordDef] = recordsById.get(id)
-  def registerEnumPlaceholder(name: String, id: UniqidOf[AST]): ElabContext = {
-    val defn = ElabContext.EnumDef(id, name, Vector.empty)
+  def registerEnumPlaceholder(name: String, id: UniqidOf[AST], typeParams: Vector[Param], isCoinductive: Boolean): ElabContext = {
+    val defn = ElabContext.EnumDef(id, name, typeParams, Vector.empty, isCoinductive = isCoinductive)
     copy(
       enumsByName = enumsByName + (name -> defn),
       enumsById = enumsById + (id -> defn)
     )
   }
-  def updateEnum(name: String, cases: Vector[EnumCase]): ElabContext = {
+  def updateEnum(name: String, typeParams: Vector[Param], cases: Vector[EnumCase], isCoinductive: Boolean): ElabContext = {
     enumsByName.get(name) match
       case Some(defn) =>
-        val updated = defn.copy(cases = cases)
+        val updated = defn.copy(typeParams = typeParams, cases = cases, isCoinductive = isCoinductive)
         copy(enumsByName = enumsByName + (name -> updated), enumsById = enumsById + (defn.id -> updated))
       case None => this
   }
@@ -104,7 +104,7 @@ case class ElabContext(
 
 object ElabContext:
   case class RecordDef(id: UniqidOf[AST], name: String, fields: Vector[Param], ctorType: CellRW[AST])
-  case class EnumDef(id: UniqidOf[AST], name: String, cases: Vector[EnumCase])
+  case class EnumDef(id: UniqidOf[AST], name: String, typeParams: Vector[Param], cases: Vector[EnumCase], isCoinductive: Boolean)
 
   val defaultEffects: Map[String, EffectRef] = Map("io" -> EffectRef.Builtin(BuiltinEffect.Io))
   val defaultBuiltins: Set[String] = Set(
@@ -349,7 +349,10 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
     val newFields =
       fields.map(p => Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions))))
     StmtAST.Record(id, name, newFields, span)
-  case StmtAST.Enum(id, name, cases, span) =>
+  case StmtAST.Enum(id, name, typeParams, cases, span) =>
+    val newTypeParams = typeParams.map(p =>
+      Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
+    )
     val newCases = cases.map { c =>
       EnumCase(
         c.id,
@@ -359,7 +362,21 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
         )
       )
     }
-    StmtAST.Enum(id, name, newCases, span)
+    StmtAST.Enum(id, name, newTypeParams, newCases, span)
+  case StmtAST.Coenum(id, name, typeParams, cases, span) =>
+    val newTypeParams = typeParams.map(p =>
+      Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
+    )
+    val newCases = cases.map { c =>
+      EnumCase(
+        c.id,
+        c.name,
+        c.params.map(p =>
+          Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
+        )
+      )
+    }
+    StmtAST.Coenum(id, name, newTypeParams, newCases, span)
   case StmtAST.Pkg(name, body, span) =>
     StmtAST.Pkg(name, substituteInType(body, substitutions), span)
 
@@ -479,117 +496,119 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       // Symbol: lookup in context
       case CST.Symbol(name, span) =>
-        c.ctx.lookup(name) match
-          case Some(id) =>
-            val ast = AST.Ref(id, name, span)
-            module.fill(solver, c.result, ast)
-            c.ctx.lookupType(id) match
-              case Some(tyCell) =>
-                // Copy the type cell content
-                module.readStable(solver, tyCell) match
+        // Builtins first to avoid creating Refs for well-known types like String
+        if name == "Any" then
+          val ast = AST.AnyType(None)
+          module.fill(solver, c.result, ast)
+          // Any has type Type(0)
+          module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+          Result.Done
+        else if name == "Level" then
+          val ast = AST.LevelType(span)
+          module.fill(solver, c.result, ast)
+          module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+          Result.Done
+        else if name == "String" then
+          val ast = AST.StringType(None)
+          module.fill(solver, c.result, ast)
+          // String has type Type(0)
+          module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+          Result.Done
+        else if name == "Natural" then
+          val ast = AST.NaturalType(None)
+          module.fill(solver, c.result, ast)
+          module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+          Result.Done
+        else if name == "Integer" then
+          val ast = AST.IntegerType(None)
+          module.fill(solver, c.result, ast)
+          module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+          Result.Done
+        else if name == "Unit" then
+          val ast = AST.TupleType(Vector.empty, span)
+          module.fill(solver, c.result, ast)
+          module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+          Result.Done
+        else if name == "Type" then
+          // Type is a function from a level to its universe Type(n)
+          val levelParamId = Uniqid.make[AST]
+          val levelParamTy = AST.LevelType(None)
+          val levelParam = Param(levelParamId, "n", levelParamTy, Implicitness.Explicit, None)
+          val levelTele = Vector(Telescope(Vector(levelParam), Implicitness.Explicit))
+          // Value: λ n : Level => Type(n)
+          val ast = AST.Lam(levelTele, AST.Type(AST.Ref(levelParamId, "n", span), span), span)
+          module.fill(solver, c.result, ast)
+          // Type of Type: (n : Level) -> Typeω(n)
+          val typeOfType = AST.Pi(
+            levelTele,
+            AST.TypeOmega(AST.Ref(levelParamId, "n", span), None),
+            Vector.empty,
+            span
+          )
+          module.fill(solver, c.inferredTy, typeOfType)
+          Result.Done
+        else if name == "List" then
+          val elemParamId = Uniqid.make[AST]
+          val paramTy = AST.Type(AST.LevelLit(0, None), None)
+          val param = Param(elemParamId, "A", paramTy, Implicitness.Explicit, None)
+          val lamTelescopes = Vector(Telescope(Vector(param), Implicitness.Explicit))
+          val body = AST.ListType(AST.Ref(elemParamId, "A", span), span)
+          val lam = AST.Lam(lamTelescopes, body, span)
+          module.fill(solver, c.result, lam)
+
+          val typeParamId = Uniqid.make[AST]
+          val typeParam = Param(typeParamId, "A", paramTy, Implicitness.Explicit, None)
+          val typeTele = Vector(Telescope(Vector(typeParam), Implicitness.Explicit))
+          val lamType = AST.Pi(typeTele, AST.Type(AST.LevelLit(1, None), None), Vector.empty, span)
+          module.fill(solver, c.inferredTy, lamType)
+          Result.Done
+        else
+          c.ctx.lookup(name) match
+            case Some(id) =>
+              val ast = AST.Ref(id, name, span)
+              module.fill(solver, c.result, ast)
+              c.ctx.lookupType(id) match
+                case Some(tyCell) =>
+                  // Copy the type cell content
+                  module.readStable(solver, tyCell) match
+                    case Some(ty) =>
+                      module.fill(solver, c.inferredTy, ty)
+                      Result.Done
+                    case None =>
+                      Result.Waiting(tyCell)
+                case None =>
+                  // Variable without type - use a meta-variable
+                  val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+                  module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
+                  Result.Done
+            case None =>
+              // Built-in but not handled above or unknown identifier
+              if c.ctx.isBuiltin(name) then
+                // Built-in: create a special reference
+                val metaId = Uniqid.make[AST]
+                val ast = AST.Ref(metaId, name, span)
+                module.fill(solver, c.result, ast)
+                // Look up builtin type
+                c.ctx.lookupBuiltinType(name) match
                   case Some(ty) =>
                     module.fill(solver, c.inferredTy, ty)
-                    Result.Done
                   case None =>
-                    Result.Waiting(tyCell)
-              case None =>
-                // Variable without type - use a meta-variable
+                    // Default: Type(0)
+                    module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+                Result.Done
+              else {
+                // Unbound variable - report error and recover
+                println(s"[debug-unbound] symbol $name at $span in asType=${c.asType}, cst=${c.cst}, ctxBindings=${c.ctx.bindings.keySet}")
+                c.ctx.reporter.report(ElabProblem.UnboundVariable(name, span))
+
+                // Error recovery: create a meta-variable to continue elaboration
+                val metaId = Uniqid.make[AST]
                 val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+                val ast = AST.Ref(metaId, name, span)
+                module.fill(solver, c.result, ast)
                 module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
                 Result.Done
-          case None =>
-            // Check if it's a builtin type
-            if name == "Any" then
-              val ast = AST.AnyType(None)
-              module.fill(solver, c.result, ast)
-              // Any has type Type(0)
-              module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-              Result.Done
-            else if name == "Level" then
-              val ast = AST.LevelType(span)
-              module.fill(solver, c.result, ast)
-              module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-              Result.Done
-            else if name == "String" then
-              val ast = AST.StringType(None)
-              module.fill(solver, c.result, ast)
-              // String has type Type(0)
-              module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-              Result.Done
-            else if name == "Natural" then
-              val ast = AST.NaturalType(None)
-              module.fill(solver, c.result, ast)
-              module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-              Result.Done
-            else if name == "Integer" then
-              val ast = AST.IntegerType(None)
-              module.fill(solver, c.result, ast)
-              module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-              Result.Done
-            else if name == "Unit" then
-              val ast = AST.TupleType(Vector.empty, span)
-              module.fill(solver, c.result, ast)
-              module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-              Result.Done
-            else if name == "Type" then
-              // Type is a function from a level to its universe Type(n)
-              val levelParamId = Uniqid.make[AST]
-              val levelParamTy = AST.LevelType(None)
-              val levelParam = Param(levelParamId, "n", levelParamTy, Implicitness.Explicit, None)
-              val levelTele = Vector(Telescope(Vector(levelParam), Implicitness.Explicit))
-              // Value: λ n : Level => Type(n)
-              val ast = AST.Lam(levelTele, AST.Type(AST.Ref(levelParamId, "n", span), span), span)
-              module.fill(solver, c.result, ast)
-              // Type of Type: (n : Level) -> Typeω(n)
-              val typeOfType = AST.Pi(
-                levelTele,
-                AST.TypeOmega(AST.Ref(levelParamId, "n", span), None),
-                Vector.empty,
-                span
-              )
-              module.fill(solver, c.inferredTy, typeOfType)
-              Result.Done
-            else if name == "List" then
-              val elemParamId = Uniqid.make[AST]
-              val paramTy = AST.Type(AST.LevelLit(0, None), None)
-              val param = Param(elemParamId, "A", paramTy, Implicitness.Explicit, None)
-              val lamTelescopes = Vector(Telescope(Vector(param), Implicitness.Explicit))
-              val body = AST.ListType(AST.Ref(elemParamId, "A", span), span)
-              val lam = AST.Lam(lamTelescopes, body, span)
-              module.fill(solver, c.result, lam)
-
-              val typeParamId = Uniqid.make[AST]
-              val typeParam = Param(typeParamId, "A", paramTy, Implicitness.Explicit, None)
-              val typeTele = Vector(Telescope(Vector(typeParam), Implicitness.Explicit))
-              val lamType = AST.Pi(typeTele, AST.Type(AST.LevelLit(1, None), None), Vector.empty, span)
-              module.fill(solver, c.inferredTy, lamType)
-              Result.Done
-            else if c.ctx.isBuiltin(name) then
-              // Built-in: create a special reference
-              val metaId = Uniqid.make[AST]
-              val ast = AST.Ref(metaId, name, span)
-              module.fill(solver, c.result, ast)
-              // Look up builtin type
-              c.ctx.lookupBuiltinType(name) match
-                case Some(ty) =>
-                  module.fill(solver, c.inferredTy, ty)
-                case None =>
-                  // Default: Type(0)
-                  module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-              Result.Done
-            else {
-              // Unbound variable - report error and recover
-              println(s"[debug-unbound] symbol $name at $span in asType=${c.asType}, cst=${c.cst}, ctxBindings=${c.ctx.bindings.keySet}")
-              c.ctx.reporter.report(ElabProblem.UnboundVariable(name, span))
-
-              // Error recovery: create a meta-variable to continue elaboration
-              val metaId = Uniqid.make[AST]
-              val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
-              val ast = AST.Ref(metaId, name, span)
-              module.fill(solver, c.result, ast)
-              module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
-              Result.Done
-            }
+              }
 
       // Tuple: infer each element (lazily zonked via MetaCells)
       case CST.Tuple(elements, span) =>
@@ -690,7 +709,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
             module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
             Result.Done
-          case Some(CST.Symbol("enum", _)) =>
+          case Some(CST.Symbol("enum", _)) | Some(CST.Symbol("coenum", _)) =>
             c.ctx.reporter.report(
               ElabProblem.UnboundVariable("enum statement only allowed in block elements; add ';' to terminate it", span)
             )
@@ -801,7 +820,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         val elems = elements.toVector
         elems.headOption match
           case Some(CST.Symbol("def", _)) | Some(CST.Symbol("effect", _)) | Some(CST.Symbol("record", _)) |
-              Some(CST.Symbol("enum", _)) =>
+              Some(CST.Symbol("enum", _)) | Some(CST.Symbol("coenum", _)) =>
             val blockElem = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems), span)
             elaborateBlockLike(c.ctx, c.result, c.inferredTy, Vector(blockElem), None, span)
           case Some(CST.Symbol("let", _)) =>
@@ -913,43 +932,6 @@ class ElabHandler extends Handler[ElabConstraint]:
           case _ => None
       case _ => None
 
-    resolveEnumCase(funcCst) match
-      case Some((enumDef, enumCase)) =>
-        val expectedTy = AST.EnumTypeRef(enumDef.id, enumDef.name, span)
-        val argPairs = argsTuple.elements
-          .zipAll(
-            enumCase.params,
-            CST.Symbol("<missing>", span),
-            Param(
-              Uniqid.make,
-              "<missing>",
-              AST.MetaCell(HoldNotReadable(module.newOnceCell[ElabConstraint, AST](solver)), None),
-              Implicitness.Explicit,
-              None
-            )
-          )
-          .map { case (argCst, param) =>
-            val argResult = module.newOnceCell[ElabConstraint, AST](solver)
-            val argTy = module.newOnceCell[ElabConstraint, AST](solver)
-            module.addConstraint(solver, ElabConstraint.Infer(argCst, argResult, argTy, ctx, asType = asType))
-            if param.name != "<missing>" then
-              val expectedTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-              module.fill(solver, expectedTyCell, param.ty)
-              module.addConstraint(solver, ElabConstraint.Unify(argTy, expectedTyCell, span, ctx))
-              param.ty match
-                case AST.MetaCell(HoldNotReadable(cell), _) if !module.hasStableValue(solver, cell.asInstanceOf[module.CellRW[AST]]) =>
-                  module.readStable(solver, argTy) match
-                    case Some(argTypeAst) => module.fill(solver, cell.asInstanceOf[module.CellRW[AST]], argTypeAst)
-                    case None             => ()
-                case _ => ()
-            (argResult, argCst)
-          }
-        val argAsts = argPairs.map { case (cell, argCst) => AST.MetaCell(HoldNotReadable(cell), argCst.span) }.toVector
-        module.fill(solver, resultCell, AST.EnumCtor(enumDef.id, enumCase.id, enumDef.name, enumCase.name, argAsts, span))
-        module.fill(solver, inferredTyCell, expectedTy)
-        return Result.Done
-      case None => ()
-
     // Elaborate function
     val funcResult = module.newOnceCell[ElabConstraint, AST](solver)
     val funcTy = module.newOnceCell[ElabConstraint, AST](solver)
@@ -1016,7 +998,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       if isLetStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("let statement not allowed in tail position", t.span))
       if isRecordStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("record statement not allowed in tail position", t.span))
       if isEnumStatement(t) then
-        ctx.reporter.report(ElabProblem.UnboundVariable("enum statement not allowed in tail position; terminate with ';'", t.span))
+        ctx.reporter.report(ElabProblem.UnboundVariable("enum/coenum statement not allowed in tail position; terminate with ';'", t.span))
     }
 
     // TWO-PASS ELABORATION for forward references:
@@ -1024,7 +1006,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     var enrichedCtx = ctx
     val defInfoMap = scala.collection.mutable.Map.empty[CST, DefInfo]
     val recordInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], module.CellRW[AST])]
-    val enumInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST])]
+    val enumInfoMap = scala.collection.mutable.Map.empty[CST, (String, UniqidOf[AST], Vector[Param], Boolean)]
 
     elements.foreach {
       case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
@@ -1059,12 +1041,17 @@ class ElabHandler extends Handler[ElabConstraint]:
             enrichedCtx = enrichedCtx.registerRecordPlaceholder(name, recordId, ctorTyCell)
             recordInfoMap(elem) = (name, recordId, ctorTyCell)
           case _ => ()
-      case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("enum", _) => true; case _ => false } =>
+      case elem @ CST.SeqOf(seqElems, _) if seqElems.headOption.exists {
+            case CST.Symbol("enum", _) | CST.Symbol("coenum", _) => true
+            case _ => false
+          } =>
         seqElems.lift(1) match
           case Some(CST.Symbol(name, _)) =>
+            val typeParams = parseEnumTypeParams(seqElems.toVector, enrichedCtx)
             val enumId = Uniqid.make[AST]
-            enrichedCtx = enrichedCtx.registerEnumPlaceholder(name, enumId)
-            enumInfoMap(elem) = (name, enumId)
+            val isCo = seqElems.headOption.exists { case CST.Symbol("coenum", _) => true; case _ => false }
+            enrichedCtx = enrichedCtx.registerEnumPlaceholder(name, enumId, typeParams, isCo)
+            enumInfoMap(elem) = (name, enumId, typeParams, isCo)
           case _ => ()
       case _ => ()
     }
@@ -1122,14 +1109,24 @@ class ElabHandler extends Handler[ElabConstraint]:
           module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
           module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
           elaboratedElemsBuffer += StmtAST.Record(recordMeta._2, recordMeta._1, fields, span)
-        case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("enum", _) => true; case _ => false } =>
+        case CST.SeqOf(seqElems, span) if seqElems.headOption.exists {
+              case CST.Symbol("enum", _) | CST.Symbol("coenum", _) => true
+              case _ => false
+            } =>
           enumInfoMap.get(elem) match
-            case Some((name, enumId)) =>
-              val cases = parseEnumCases(seqElems.toVector, currentCtx)(using module, solver)
-              currentCtx = currentCtx.updateEnum(name, cases)
+            case Some((name, enumId, typeParams, isCo)) =>
+              val cases = parseEnumCases(seqElems.toVector, currentCtx, typeParams)(using module, solver)
+              val resolvedTypeParams =
+                typeParams.map { p =>
+                  val resolved = normalizeTypeLikeKind(substituteSolutions(p.ty))
+                  p.copy(ty = resolved, default = p.default.map(substituteSolutions))
+                }
+              val resolvedCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
+              currentCtx = currentCtx.updateEnum(name, resolvedTypeParams, resolvedCases, isCo)
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
               module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
-              elaboratedElemsBuffer += StmtAST.Enum(enumId, name, cases, span)
+              if isCo then elaboratedElemsBuffer += StmtAST.Coenum(enumId, name, resolvedTypeParams, resolvedCases, span)
+              else elaboratedElemsBuffer += StmtAST.Enum(enumId, name, resolvedTypeParams, resolvedCases, span)
             case None =>
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
               module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
@@ -1183,7 +1180,12 @@ class ElabHandler extends Handler[ElabConstraint]:
           case Some(en) =>
             val ast = AST.EnumTypeRef(en.id, name, span)
             fillResultOnce(resultCell, ast)
-            fillResultOnce(inferredTyCell, AST.Type(AST.LevelLit(0, None), None))
+            val teleImplicitness = en.typeParams.headOption.map(_.implicitness).getOrElse(Implicitness.Explicit)
+            val enumTy =
+              if en.typeParams.nonEmpty then
+                AST.Pi(Vector(Telescope(en.typeParams, teleImplicitness)), AST.Type(AST.LevelLit(0, None), span), Vector.empty, span)
+              else AST.Type(AST.LevelLit(0, None), None)
+            fillResultOnce(inferredTyCell, enumTy)
             Some(Result.Done)
           case None =>
             ctx.lookupRecord(name) match
@@ -1198,15 +1200,16 @@ class ElabHandler extends Handler[ElabConstraint]:
           case Some(enumDef) =>
             enumDef.cases.find(_.name == field) match
               case Some(caseDef) =>
+                val teleImplicitness = enumDef.typeParams.headOption.map(_.implicitness).getOrElse(Implicitness.Explicit)
+                val typeParamTele = if enumDef.typeParams.nonEmpty then Vector(Telescope(enumDef.typeParams, teleImplicitness)) else Vector.empty
+                val caseTele = if caseDef.params.nonEmpty then Vector(Telescope(caseDef.params, Implicitness.Explicit)) else Vector.empty
+                val typeArgs = enumDef.typeParams.map(p => Arg(AST.Ref(p.id, p.name, span), Implicitness.Explicit))
+                val enumTy =
+                  if typeArgs.nonEmpty then AST.App(AST.EnumTypeRef(enumDef.id, enumOrVal, span), typeArgs, implicitArgs = false, span)
+                  else AST.EnumTypeRef(enumDef.id, enumOrVal, span)
                 val ctorType =
-                  if caseDef.params.isEmpty then AST.EnumTypeRef(enumDef.id, enumOrVal, span)
-                  else
-                    AST.Pi(
-                      Vector(Telescope(caseDef.params, Implicitness.Explicit)),
-                      AST.EnumTypeRef(enumDef.id, enumOrVal, span),
-                      Vector.empty,
-                      span
-                    )
+                  if typeParamTele.isEmpty && caseTele.isEmpty then enumTy
+                  else AST.Pi(typeParamTele ++ caseTele, enumTy, Vector.empty, span)
                 val ast = AST.EnumCaseRef(enumDef.id, caseDef.id, enumOrVal, field, span)
                 fillResultOnce(resultCell, ast)
                 fillResultOnce(inferredTyCell, ctorType)
@@ -1796,12 +1799,50 @@ class ElabHandler extends Handler[ElabConstraint]:
     telescope.params
   }
 
+  /** Parse optional type parameters that appear between the enum name and its body. */
+  private def parseEnumTypeParams[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+      module: M,
+      solver: module.Solver[ElabConstraint]
+  ): Vector[Param] = {
+    val paramsTupleOpt = elems.drop(2).takeWhile {
+      case _: CST.Block => false
+      case _            => true
+    }.collectFirst { case CST.Tuple(params, _) => params }
+
+    paramsTupleOpt
+      .map { params =>
+        val telescope = parseTelescopeFromCST(params, Implicitness.Explicit, ctx)
+        telescope.params
+      }
+      .getOrElse(Vector.empty)
+  }
+
+  /** Normalize the common "Type" sugar used in parameter kinds: a bare Type desugars to Type(0) for ease of use. */
+  private def normalizeTypeLikeKind(ty: AST): AST = {
+    def isLevelParamLam(teles: Vector[Telescope]): Boolean =
+      teles.length == 1 && teles.head.params.length == 1 && teles.head.params.head.ty.isInstanceOf[AST.LevelType]
+
+    val zonked = ty
+    zonked match
+      case AST.Lam(teles, AST.Type(AST.Ref(_, _, _), tSpan), lamSpan) if isLevelParamLam(teles) =>
+        AST.Type(AST.LevelLit(0, None), tSpan.orElse(lamSpan))
+      case AST.Lam(teles, AST.TypeOmega(AST.Ref(_, _, _), tSpan), lamSpan) if isLevelParamLam(teles) =>
+        AST.TypeOmega(AST.LevelLit(0, None), tSpan.orElse(lamSpan))
+      case other => other
+  }
+
   /** Parse enum cases from the enum declaration body. */
-  private def parseEnumCases[M <: SolverModule](elems: Vector[CST], ctx: ElabContext)(using
+  private def parseEnumCases[M <: SolverModule](elems: Vector[CST], ctx: ElabContext, typeParams: Vector[Param])(using
       module: M,
       solver: module.Solver[ElabConstraint]
   ): Vector[EnumCase] = {
-    val casesBlockOpt = elems.lift(2).collect { case b: CST.Block => b }
+    val casesBlockOpt = elems.collectFirst { case b: CST.Block => b }
+    val ctxWithParams = typeParams.foldLeft(ctx) { (acc, param) =>
+      val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+      val normalizedTy = normalizeTypeLikeKind(substituteSolutions(param.ty))
+      module.fill(solver, paramTyCell, normalizedTy)
+      acc.bind(param.name, param.id, paramTyCell)
+    }
     val caseElems = casesBlockOpt.map(b => b.elements ++ b.tail.toVector).getOrElse(Vector.empty)
     caseElems.collect { case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("case", _) => true; case _ => false } =>
       val name = seqElems.lift(1) match
@@ -1812,7 +1853,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       val paramsTuple = seqElems.lift(2) match
         case Some(CST.Tuple(params, _)) => params
         case _                          => Vector.empty
-      val telescope = parseTelescopeFromCST(paramsTuple, Implicitness.Explicit, ctx)
+      val telescope = parseTelescopeFromCST(paramsTuple, Implicitness.Explicit, ctxWithParams)
       EnumCase(Uniqid.make, name, telescope.params)
     }
   }
@@ -1834,7 +1875,7 @@ class ElabHandler extends Handler[ElabConstraint]:
     case _ => false
   private def isEnumStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>
-      elements.headOption.exists { case CST.Symbol("enum", _) => true; case _ => false }
+      elements.headOption.exists { case CST.Symbol("enum", _) | CST.Symbol("coenum", _) => true; case _ => false }
     case _ => false
 
   private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using
@@ -1998,6 +2039,16 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       case (AST.TypeOmega(l1, _), AST.TypeOmega(l2, _)) => unify(l1, l2, span, ctx)
 
+      // Tolerate redundant applications of Type/Typeω (e.g., Type(0)(0)) by comparing the base
+      case (AST.App(t1 @ AST.Type(_, _), _, _, _), t2 @ AST.Type(_, _)) =>
+        unify(t1, t2, span, ctx)
+      case (t1 @ AST.Type(_, _), AST.App(t2 @ AST.Type(_, _), _, _, _)) =>
+        unify(t1, t2, span, ctx)
+      case (AST.App(t1 @ AST.TypeOmega(_, _), _, _, _), t2 @ AST.TypeOmega(_, _)) =>
+        unify(t1, t2, span, ctx)
+      case (t1 @ AST.TypeOmega(_, _), AST.App(t2 @ AST.TypeOmega(_, _), _, _, _)) =>
+        unify(t1, t2, span, ctx)
+
       case (AST.LevelType(_), AST.LevelType(_)) => UnifyResult.Success
 
       case (AST.AnyType(_), AST.AnyType(_))           => UnifyResult.Success
@@ -2011,6 +2062,13 @@ class ElabHandler extends Handler[ElabConstraint]:
       case (AST.TupleType(e1, _), AST.TupleType(e2, _)) =>
         if e1.size != e2.size then UnifyResult.Failure("Tuple type arity mismatch")
         else unifyAll(e1.zip(e2), span, ctx)
+
+      case (AST.App(f1, args1, imp1, _), AST.App(f2, args2, imp2, _)) =>
+        if imp1 != imp2 || args1.size != args2.size then UnifyResult.Failure("Application mismatch")
+        else
+          unify(f1, f2, span, ctx) match
+            case UnifyResult.Success => unifyAll(args1.map(_.value).zip(args2.map(_.value)), span, ctx)
+            case failure             => failure
 
       case (AST.Pi(tel1, r1, eff1, _), AST.Pi(tel2, r2, eff2, _)) =>
         if tel1.size != tel2.size then UnifyResult.Failure("Function arity mismatch")
@@ -2184,8 +2242,10 @@ class ElabHandler extends Handler[ElabConstraint]:
         teles.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || resTy.exists(occursIn(cell, _)) || occursIn(cell, body)
       case StmtAST.Record(_, _, fields, _) =>
         fields.exists(p => occursIn(cell, p.ty))
-      case StmtAST.Enum(_, _, cases, _) =>
-        cases.exists(c => c.params.exists(p => occursIn(cell, p.ty)))
+      case StmtAST.Enum(_, _, typeParams, cases, _) =>
+        typeParams.exists(p => occursIn(cell, p.ty)) || cases.exists(c => c.params.exists(p => occursIn(cell, p.ty)))
+      case StmtAST.Coenum(_, _, typeParams, cases, _) =>
+        typeParams.exists(p => occursIn(cell, p.ty)) || cases.exists(c => c.params.exists(p => occursIn(cell, p.ty)))
       case StmtAST.Pkg(_, body, _) => occursIn(cell, body)
   }
 
@@ -2258,7 +2318,9 @@ class ElabHandler extends Handler[ElabConstraint]:
 
       case Some(piTy @ AST.Pi(telescopes, resultTy, _, _)) =>
         // Resolve MetaCells in telescopes (parameter types may contain unresolved cells)
-        val resolvedTelescopes = telescopes.map(tel => tel.copy(params = tel.params.map(param => param.copy(ty = substituteSolutions(param.ty)))))
+        val resolvedTelescopes = telescopes.map(tel =>
+          tel.copy(params = tel.params.map(param => param.copy(ty = normalizeTypeLikeKind(substituteSolutions(param.ty)))))
+        )
         val resolvedResultTy = substituteSolutions(resultTy)
 
         // Wait until all parameter types (and result type) are stabilized so implicit substitution can succeed
@@ -2307,8 +2369,12 @@ class ElabHandler extends Handler[ElabConstraint]:
                 .orElse(firstUnresolved(body))
             case StmtAST.Record(_, _, fields, _) =>
               fields.iterator.flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
-            case StmtAST.Enum(_, _, cases, _) =>
-              cases.iterator.flatMap(_.params.iterator).flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
+            case StmtAST.Enum(_, _, typeParams, cases, _) =>
+              typeParams.iterator.flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
+                .orElse(cases.iterator.flatMap(_.params.iterator).flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption)
+            case StmtAST.Coenum(_, _, typeParams, cases, _) =>
+              typeParams.iterator.flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption
+                .orElse(cases.iterator.flatMap(_.params.iterator).flatMap(p => firstUnresolved(p.ty)).take(1).toSeq.headOption)
             case StmtAST.Pkg(_, body, _) => firstUnresolved(body)
         }
 
@@ -2341,12 +2407,24 @@ class ElabHandler extends Handler[ElabConstraint]:
           // Type check explicit type arguments against implicit parameter types synchronously
           val typeArgsOk = implicitParams.zip(explicitTypeArgs).zip(c.explicitTypeArgTypes).forall { case ((param, _), argTyCell) =>
             module.readStable(solver, argTyCell) match
+              case Some(actualTy @ AST.MetaCell(_, _)) =>
+                val expectedTy = substituteSolutions(param.ty)
+                expectedTy match
+                  case AST.MetaCell(_, _) => true
+                  case other =>
+                    if !module.hasStableValue(solver, argTyCell.asInstanceOf[module.CellRW[AST]]) then
+                      module.fill(solver, argTyCell.asInstanceOf[module.CellRW[AST]], other)
+                    true
               case Some(actualTy) =>
-                unify(param.ty, actualTy, c.span, c.ctx) match
-                  case UnifyResult.Success => true
-                  case UnifyResult.Failure(_) =>
-                    c.ctx.reporter.report(ElabProblem.TypeMismatch(param.ty, actualTy, c.span))
-                    false
+                val expectedTy = substituteSolutions(param.ty)
+                expectedTy match
+                  case AST.MetaCell(_, _) => true
+                  case _ =>
+                    unify(expectedTy, actualTy, c.span, c.ctx) match
+                      case UnifyResult.Success => true
+                      case UnifyResult.Failure(_) =>
+                        c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedTy, actualTy, c.span))
+                        false
               case None => true // Not stable yet
           }
 
@@ -2375,25 +2453,41 @@ class ElabHandler extends Handler[ElabConstraint]:
         // Type check arguments synchronously (not via constraints to avoid loops)
         // This may fill the implicit arg MetaCells through unification
         val implicitSubst = implicitParams.map(_.id).zip(implicitArgs).toMap
-        val allTypeChecksPassed = explicitParams.zip(c.argTypes).forall { case (param, argTyCell) =>
-          val baseParamTy = param.ty match
-            case AST.MetaCell(HoldNotReadable(cell), _) =>
-              module.readStable(solver, cell.asInstanceOf[module.CellR[AST]]).getOrElse(param.ty)
-            case other => other
-          val expectedParamTy = substituteInType(baseParamTy, implicitSubst)
-          module.readStable(solver, argTyCell) match
+        var runningSubst = implicitSubst
+        val allTypeChecksPassed = explicitParams.zip(c.argTypes).zipWithIndex.forall { case ((param, argTyCell), idx) =>
+          val baseParamTy = substituteSolutions(param.ty)
+          val expectedParamTy = substituteInType(baseParamTy, runningSubst)
+          val typeCheckOk = module.readStable(solver, argTyCell) match
             case Some(actualArgTy) =>
-              // Try unification first (for implicit argument inference), then subtyping
-              unify(expectedParamTy, actualArgTy, c.span, c.ctx) match
-                case UnifyResult.Success    => true
-                case UnifyResult.Failure(_) =>
-                  // Unification failed, try subtyping: actualArgTy <: expectedParamTy
-                  if isSubtype(actualArgTy, expectedParamTy, c.span, c.ctx) then true
-                  else {
-                    c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
-                    false
-                  }
+              expectedParamTy match
+                case metaExpected @ AST.MetaCell(_, _) =>
+                  unify(metaExpected, actualArgTy, c.span, c.ctx) match
+                    case UnifyResult.Success    => true
+                    case UnifyResult.Failure(_) =>
+                      c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
+                      false
+                case _ =>
+                  actualArgTy match
+                    case AST.MetaCell(_, _) =>
+                      if !module.hasStableValue(solver, argTyCell.asInstanceOf[module.CellRW[AST]]) then
+                        module.fill(solver, argTyCell.asInstanceOf[module.CellRW[AST]], expectedParamTy)
+                      true
+                    case _ =>
+                      // Try unification first (for implicit argument inference), then subtyping
+                      unify(expectedParamTy, actualArgTy, c.span, c.ctx) match
+                        case UnifyResult.Success    => true
+                        case UnifyResult.Failure(_) =>
+                          // Unification failed, try subtyping: actualArgTy <: expectedParamTy
+                          if isSubtype(actualArgTy, expectedParamTy, c.span, c.ctx) then true
+                          else {
+                            c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
+                            false
+                          }
             case None => true // Not stable yet, will be checked later
+          if typeCheckOk then
+            // Extend substitution with this explicit argument for later parameters
+            explicitArgs.lift(idx).foreach(argAst => runningSubst = runningSubst + (param.id -> argAst))
+          typeCheckOk
         }
 
         if !allTypeChecksPassed then
@@ -2527,8 +2621,10 @@ class ElabHandler extends Handler[ElabConstraint]:
         )
       case StmtAST.Record(_, _, fields, _) =>
         fields.flatMap(p => gatherEffects(p.ty)).toSet
-      case StmtAST.Enum(_, _, cases, _) =>
-        cases.flatMap(_.params).flatMap(p => gatherEffects(p.ty)).toSet
+      case StmtAST.Enum(_, _, typeParams, cases, _) =>
+        typeParams.flatMap(p => gatherEffects(p.ty)).toSet ++ cases.flatMap(_.params).flatMap(p => gatherEffects(p.ty)).toSet
+      case StmtAST.Coenum(_, _, typeParams, cases, _) =>
+        typeParams.flatMap(p => gatherEffects(p.ty)).toSet ++ cases.flatMap(_.params).flatMap(p => gatherEffects(p.ty)).toSet
       case StmtAST.Pkg(_, body, _) => gatherEffects(body)
 
     val requiredEffects = gatherEffects(body)
@@ -2576,7 +2672,21 @@ class ElabHandlerConf[M <: SolverModule](module: M) extends HandlerConf[ElabCons
   */
 def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: module.Solver[ElabConstraint]): AST = {
 
-  ast match
+  def isLevelParamLam(teles: Vector[Telescope]): Boolean =
+    teles.length == 1 && teles.head.params.length == 1 && teles.head.params.head.ty.isInstanceOf[AST.LevelType]
+
+  def desugarKindSugar(t: AST): AST = t match
+    case AST.Lam(teles, AST.Type(AST.Ref(_, _, _), tSpan), lamSpan) if isLevelParamLam(teles) =>
+      AST.Type(AST.LevelLit(0, None), tSpan.orElse(lamSpan))
+    case AST.Lam(teles, AST.TypeOmega(AST.Ref(_, _, _), tSpan), lamSpan) if isLevelParamLam(teles) =>
+      AST.TypeOmega(AST.LevelLit(0, None), tSpan.orElse(lamSpan))
+    case other => other
+
+  // First normalize common kind sugar (e.g., bare Type => Type(0))
+  val normalizedKind = desugarKindSugar(ast)
+  val targetAst = if normalizedKind != ast then normalizedKind else ast
+
+  targetAst match
     case AST.MetaCell(HoldNotReadable(cell), span) =>
       // Try to read the solution from the cell
       module.readStable(solver, cell.asInstanceOf[module.CellR[AST]]) match
@@ -2674,9 +2784,14 @@ private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using modu
     case StmtAST.Record(id, name, fields, span) =>
       val newFields = fields.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))
       StmtAST.Record(id, name, newFields, span)
-    case StmtAST.Enum(id, name, cases, span) =>
+    case StmtAST.Enum(id, name, typeParams, cases, span) =>
+      val newTypeParams = typeParams.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))
       val newCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
-      StmtAST.Enum(id, name, newCases, span)
+      StmtAST.Enum(id, name, newTypeParams, newCases, span)
+    case StmtAST.Coenum(id, name, typeParams, cases, span) =>
+      val newTypeParams = typeParams.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))
+      val newCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
+      StmtAST.Coenum(id, name, newTypeParams, newCases, span)
     case StmtAST.Pkg(name, body, span) =>
       StmtAST.Pkg(name, substituteSolutions(body), span)
 }
