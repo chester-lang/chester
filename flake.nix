@@ -10,30 +10,51 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        
+
         # sbt launcher (will auto-download 2.0.0-RC7 from project/build.properties)
         sbt = pkgs.sbt.override {
           jre = pkgs.jdk21;
         };
 
+        cliScript = pkgs.writeShellApplication {
+          name = "chester";
+          runtimeInputs = [ pkgs.jdk21 sbt pkgs.nodejs_20 ];
+          text = ''
+            #!/usr/bin/env bash
+            set -euo pipefail
+            cd ${self}
+            sbt "cliJVM/runMain chester.cli.Main $@"
+          '';
+        };
+
       in
       {
+        packages = {
+          cli = cliScript;
+          default = cliScript;
+        };
+
+        apps.default = {
+          type = "app";
+          program = "${cliScript}/bin/chester";
+        };
+
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             # Java/JVM
             jdk21
-            
+
             # Scala build tool
             sbt
-            
+
             # Scala.js requirements
             nodejs_20
-            
+
             # Scala Native requirements
             clang
             llvm
             zlib
-            
+
             # Additional utilities
             git
           ];
