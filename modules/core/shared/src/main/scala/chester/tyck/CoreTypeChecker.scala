@@ -94,7 +94,6 @@ object CoreTypeChecker:
         AST.EnumCtor(enumId, caseId, enumName, caseName, args.map(normalizeType), span)
       case AST.EnumCaseRef(_, _, _, _, _) => ast
       case AST.EnumTypeRef(_, _, _)       => ast
-      case AST.MetaCell(_, span)          => AST.AnyType(span)
       case other                          => other
   }
 
@@ -183,48 +182,35 @@ object CoreTypeChecker:
       StmtAST.Pkg(name, eraseSpans(body), None)
 
   private def hasMeta(ast: AST): Boolean = ast match
-    case AST.MetaCell(_, _)                   => true
-    case AST.Ref(_, _, _)                     => false
-    case AST.Tuple(elems, _)                  => elems.exists(hasMeta)
-    case AST.ListLit(elems, _)                => elems.exists(hasMeta)
-    case AST.Block(elems, tail, _)            => elems.exists(hasMetaStmt) || hasMeta(tail)
-    case AST.TupleType(elems, _)              => elems.exists(hasMeta)
-    case AST.ListType(elem, _)                => hasMeta(elem)
-    case AST.Pi(teles, res, _, _)             => teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || hasMeta(res)
-    case AST.Lam(teles, body, _)              => teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || hasMeta(body)
-    case AST.App(func, args, _, _)            => hasMeta(func) || args.exists(a => hasMeta(a.value))
-    case AST.Let(_, _, ty, value, body, _)    => ty.exists(hasMeta) || hasMeta(value) || hasMeta(body)
-    case AST.Ann(expr, ty, _)                 => hasMeta(expr) || hasMeta(ty)
-    case AST.RecordCtor(_, _, args, _)        => args.exists(hasMeta)
-    case AST.EnumCtor(_, _, _, _, args, _)    => args.exists(hasMeta)
-    case AST.FieldAccess(target, _, _)        => hasMeta(target)
-    case AST.Type(level, _)                   => hasMeta(level)
-    case AST.TypeOmega(level, _)              => hasMeta(level)
-    case AST.EnumCaseRef(_, _, _, _, _)       => false
-    case AST.EnumTypeRef(_, _, _)             => false
-    case AST.RecordTypeRef(_, _, _)           => false
-    case AST.StringLit(_, _)                  => false
-    case AST.IntLit(_, _)                     => false
-    case AST.NaturalLit(_, _)                 => false
-    case AST.LevelLit(_, _)                   => false
-    case AST.AnyType(_)                       => false
-    case AST.StringType(_)                    => false
-    case AST.NaturalType(_)                   => false
-    case AST.IntegerType(_)                   => false
-    case AST.LevelType(_)                     => false
-    case AST.RecordCtor(_, _, args, _)        => args.exists(hasMeta)
-    case AST.Ann(expr, ty, _)                 => hasMeta(expr) || hasMeta(ty)
-    case AST.App(func, args, _, _)            => hasMeta(func) || args.exists(a => hasMeta(a.value))
-    case AST.Tuple(elems, _)                  => elems.exists(hasMeta)
-    case AST.ListLit(elems, _)                => elems.exists(hasMeta)
-    case AST.ListType(elem, _)                => hasMeta(elem)
-    case AST.TupleType(elems, _)              => elems.exists(hasMeta)
-    case AST.Block(elems, tail, _)            => elems.exists(hasMetaStmt) || hasMeta(tail)
-    case AST.Let(_, _, ty, value, body, _)    => ty.exists(hasMeta) || hasMeta(value) || hasMeta(body)
-    case AST.Type(level, _)                   => hasMeta(level)
-    case AST.TypeOmega(level, _)              => hasMeta(level)
-    case AST.RecordCtor(_, _, args, _)        => args.exists(hasMeta)
-    case AST.FieldAccess(target, _, _)        => hasMeta(target)
+    case AST.MetaCell(_, _)                => true
+    case AST.Ref(_, _, _)                  => false
+    case AST.Tuple(elems, _)               => elems.exists(hasMeta)
+    case AST.ListLit(elems, _)             => elems.exists(hasMeta)
+    case AST.Block(elems, tail, _)         => elems.exists(hasMetaStmt) || hasMeta(tail)
+    case AST.TupleType(elems, _)           => elems.exists(hasMeta)
+    case AST.ListType(elem, _)             => hasMeta(elem)
+    case AST.Pi(teles, res, _, _)          => teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || hasMeta(res)
+    case AST.Lam(teles, body, _)           => teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || hasMeta(body)
+    case AST.App(func, args, _, _)         => hasMeta(func) || args.exists(a => hasMeta(a.value))
+    case AST.Let(_, _, ty, value, body, _) => ty.exists(hasMeta) || hasMeta(value) || hasMeta(body)
+    case AST.Ann(expr, ty, _)              => hasMeta(expr) || hasMeta(ty)
+    case AST.RecordCtor(_, _, args, _)     => args.exists(hasMeta)
+    case AST.EnumCtor(_, _, _, _, args, _) => args.exists(hasMeta)
+    case AST.FieldAccess(target, _, _)     => hasMeta(target)
+    case AST.Type(level, _)                => hasMeta(level)
+    case AST.TypeOmega(level, _)           => hasMeta(level)
+    case AST.EnumCaseRef(_, _, _, _, _)    => false
+    case AST.EnumTypeRef(_, _, _)          => false
+    case AST.RecordTypeRef(_, _, _)        => false
+    case AST.StringLit(_, _)               => false
+    case AST.IntLit(_, _)                  => false
+    case AST.NaturalLit(_, _)              => false
+    case AST.LevelLit(_, _)                => false
+    case AST.AnyType(_)                    => false
+    case AST.StringType(_)                 => false
+    case AST.NaturalType(_)                => false
+    case AST.IntegerType(_)                => false
+    case AST.LevelType(_)                  => false
 
   private def hasMetaStmt(stmt: StmtAST): Boolean = stmt match
     case StmtAST.ExprStmt(expr, _)        => hasMeta(expr)
