@@ -29,7 +29,7 @@
         # Offline, reproducible coursier cache based on generated lockfile
         coursierCache = squish-find-the-brains.lib.mkCoursierCache {
           pkgs = pkgs;
-          lockfilePath = ./nix/deps.lock.json;
+          lockfilePath = ./deps.lock.json;
         };
 
         # sbt setup script and inputs wired to the cached dependencies
@@ -69,9 +69,9 @@
             fi
             cp "$jar_path" $out/share/java/chester-cli.jar
             cat > $out/bin/chester <<EOF
-#!${pkgs.runtimeShell}
-exec ${pkgs.jdk21}/bin/java -jar $out/share/java/chester-cli.jar "\$@"
-EOF
+            #!${pkgs.runtimeShell}
+            exec ${pkgs.jdk21}/bin/java -jar $out/share/java/chester-cli.jar "\$@"
+            EOF
             chmod +x $out/bin/chester
           '';
         };
