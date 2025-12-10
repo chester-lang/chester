@@ -115,30 +115,34 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       val paramsDoc = hsep(fields.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
       text("record") <+> text(name) <> parens(paramsDoc)
     case StmtAST.Enum(_, name, typeParams, cases, _) =>
-      val typeParamsDoc =
+      val typeParamsDoc = {
         if typeParams.isEmpty then empty
         else parens(hsep(typeParams.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty))
+      }
       val caseDocs = cases.map { c =>
         val paramsDoc = hsep(c.params.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
         val paramsRendered = if paramsDoc == empty then empty else parens(paramsDoc)
         text("case") <+> text(c.name) <> paramsRendered
       }
-      val bodyDoc =
+      val bodyDoc = {
         if caseDocs.isEmpty then empty
         else line <> ssep(caseDocs, `;` <> line).indented() <> line
+      }
       text("enum") <+> text(name) <> typeParamsDoc <+> braces(bodyDoc)
     case StmtAST.Coenum(_, name, typeParams, cases, _) =>
-      val typeParamsDoc =
+      val typeParamsDoc = {
         if typeParams.isEmpty then empty
         else parens(hsep(typeParams.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty))
+      }
       val caseDocs = cases.map { c =>
         val paramsDoc = hsep(c.params.map(p => text(p.name) <> text(":") <+> p.ty.toDoc), `,` <+> empty)
         val paramsRendered = if paramsDoc == empty then empty else parens(paramsDoc)
         text("case") <+> text(c.name) <> paramsRendered
       }
-      val bodyDoc =
+      val bodyDoc = {
         if caseDocs.isEmpty then empty
         else line <> ssep(caseDocs, `;` <> line).indented() <> line
+      }
       text("coenum") <+> text(name) <> typeParamsDoc <+> braces(bodyDoc)
     case StmtAST.Pkg(name, body, _) =>
       text("package") <+> text(name) <@@> body.toDoc.indented()
@@ -276,10 +280,10 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
         val paramsDoc = hsep(
-          tel.params.map(p => {
+          tel.params.map { p =>
             text(p.name) <> text(":") <+> p.ty.toDoc <>
               p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
-          }),
+          },
           `,` <+> empty
         )
         bracket._1(paramsDoc)
@@ -293,10 +297,10 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
         val paramsDoc = hsep(
-          tel.params.map(p => {
+          tel.params.map { p =>
             text(p.name) <> text(":") <+> p.ty.toDoc <>
               p.default.map(d => text(" = ") <> d.toDoc).getOrElse(empty)
-          }),
+          },
           `,` <+> empty
         )
         bracket._1(paramsDoc)

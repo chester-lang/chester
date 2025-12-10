@@ -11,7 +11,7 @@ object CoreTypeChecker:
   private type RecordEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[chester.core.Param])]
   private type EnumEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[EnumCase], Vector[Param])]
 
-  private def substituteInType(ast: AST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): AST =
+  private def substituteInType(ast: AST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): AST = {
     ast match
       case AST.Ref(id, _, _) => subst.getOrElse(id, ast)
       case AST.App(func, args, imp, span) =>
@@ -22,22 +22,23 @@ object CoreTypeChecker:
       case AST.Lam(teles, body, span) =>
         val newTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
         AST.Lam(newTeles, substituteInType(body, subst), span)
-      case AST.Tuple(elems, span)    => AST.Tuple(elems.map(substituteInType(_, subst)), span)
+      case AST.Tuple(elems, span)     => AST.Tuple(elems.map(substituteInType(_, subst)), span)
       case AST.TupleType(elems, span) => AST.TupleType(elems.map(substituteInType(_, subst)), span)
-      case AST.ListType(elem, span)  => AST.ListType(substituteInType(elem, subst), span)
-      case AST.ListLit(elems, span)  => AST.ListLit(elems.map(substituteInType(_, subst)), span)
+      case AST.ListType(elem, span)   => AST.ListType(substituteInType(elem, subst), span)
+      case AST.ListLit(elems, span)   => AST.ListLit(elems.map(substituteInType(_, subst)), span)
       case AST.RecordCtor(id, name, args, span) =>
         AST.RecordCtor(id, name, args.map(substituteInType(_, subst)), span)
       case AST.EnumCtor(enumId, caseId, enumName, caseName, args, span) =>
         AST.EnumCtor(enumId, caseId, enumName, caseName, args.map(substituteInType(_, subst)), span)
-      case AST.Ann(expr, ty, span)   => AST.Ann(substituteInType(expr, subst), substituteInType(ty, subst), span)
+      case AST.Ann(expr, ty, span) => AST.Ann(substituteInType(expr, subst), substituteInType(ty, subst), span)
       case AST.Let(id, name, ty, value, body, span) =>
         AST.Let(id, name, ty.map(substituteInType(_, subst)), substituteInType(value, subst), substituteInType(body, subst), span)
       case AST.Block(elems, tail, span) =>
         AST.Block(elems.map(substituteInTypeStmt(_, subst)), substituteInType(tail, subst), span)
       case other => other
+  }
 
-  private def substituteInTypeStmt(stmt: StmtAST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): StmtAST =
+  private def substituteInTypeStmt(stmt: StmtAST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): StmtAST = {
     stmt match
       case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteInType(expr, subst), span)
       case StmtAST.Def(id, name, teles, resTy, body, span) =>
@@ -55,6 +56,7 @@ object CoreTypeChecker:
         val newCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
         StmtAST.Coenum(id, name, newTps, newCases, span)
       case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, substituteInType(body, subst), span)
+  }
 
   /** Normalize a type AST with shallow beta-reduction of type-level lambdas/applications. */
   def normalizeType(ast: AST): AST = {
@@ -90,7 +92,7 @@ object CoreTypeChecker:
         AST.EnumCtor(enumId, caseId, enumName, caseName, args.map(normalizeType), span)
       case AST.EnumCaseRef(_, _, _, _, _) => ast
       case AST.EnumTypeRef(_, _, _)       => ast
-      case other => other
+      case other                          => other
   }
 
   private def normalizeTypeStmt(stmt: StmtAST): StmtAST = {
@@ -115,23 +117,23 @@ object CoreTypeChecker:
 
   private def eraseSpans(ast: AST): AST = {
     ast match
-      case AST.Ref(id, name, _)         => AST.Ref(id, name, None)
-      case AST.Tuple(elems, _)          => AST.Tuple(elems.map(eraseSpans), None)
-      case AST.ListLit(elems, _)        => AST.ListLit(elems.map(eraseSpans), None)
-      case AST.Block(elems, tail, _)    => AST.Block(elems.map(eraseSpansStmt), eraseSpans(tail), None)
-      case AST.StringLit(v, _)          => AST.StringLit(v, None)
-      case AST.IntLit(v, _)             => AST.IntLit(v, None)
-      case AST.NaturalLit(v, _)         => AST.NaturalLit(v, None)
-      case AST.LevelLit(v, _)           => AST.LevelLit(v, None)
-      case AST.Type(level, _)           => AST.Type(eraseSpans(level), None)
-      case AST.TypeOmega(level, _)      => AST.TypeOmega(eraseSpans(level), None)
-      case AST.AnyType(_)               => AST.AnyType(None)
-      case AST.StringType(_)            => AST.StringType(None)
-      case AST.NaturalType(_)           => AST.NaturalType(None)
-      case AST.IntegerType(_)           => AST.IntegerType(None)
-      case AST.LevelType(_)             => AST.LevelType(None)
-      case AST.TupleType(elems, _)      => AST.TupleType(elems.map(eraseSpans), None)
-      case AST.ListType(elem, _)        => AST.ListType(eraseSpans(elem), None)
+      case AST.Ref(id, name, _)      => AST.Ref(id, name, None)
+      case AST.Tuple(elems, _)       => AST.Tuple(elems.map(eraseSpans), None)
+      case AST.ListLit(elems, _)     => AST.ListLit(elems.map(eraseSpans), None)
+      case AST.Block(elems, tail, _) => AST.Block(elems.map(eraseSpansStmt), eraseSpans(tail), None)
+      case AST.StringLit(v, _)       => AST.StringLit(v, None)
+      case AST.IntLit(v, _)          => AST.IntLit(v, None)
+      case AST.NaturalLit(v, _)      => AST.NaturalLit(v, None)
+      case AST.LevelLit(v, _)        => AST.LevelLit(v, None)
+      case AST.Type(level, _)        => AST.Type(eraseSpans(level), None)
+      case AST.TypeOmega(level, _)   => AST.TypeOmega(eraseSpans(level), None)
+      case AST.AnyType(_)            => AST.AnyType(None)
+      case AST.StringType(_)         => AST.StringType(None)
+      case AST.NaturalType(_)        => AST.NaturalType(None)
+      case AST.IntegerType(_)        => AST.IntegerType(None)
+      case AST.LevelType(_)          => AST.LevelType(None)
+      case AST.TupleType(elems, _)   => AST.TupleType(elems.map(eraseSpans), None)
+      case AST.ListType(elem, _)     => AST.ListType(eraseSpans(elem), None)
       case AST.Pi(teles, res, effs, _) =>
         val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
         AST.Pi(nTeles, eraseSpans(res), effs, None)
@@ -142,7 +144,7 @@ object CoreTypeChecker:
         AST.App(eraseSpans(func), args.map(a => Arg(eraseSpans(a.value), a.implicitness)), implicitArgs, None)
       case AST.Let(id, name, ty, value, body, _) =>
         AST.Let(id, name, ty.map(eraseSpans), eraseSpans(value), eraseSpans(body), None)
-      case AST.Ann(expr, ty, _)        => AST.Ann(eraseSpans(expr), eraseSpans(ty), None)
+      case AST.Ann(expr, ty, _) => AST.Ann(eraseSpans(expr), eraseSpans(ty), None)
       case AST.RecordTypeRef(id, name, _) =>
         AST.RecordTypeRef(id, name, None)
       case AST.RecordCtor(id, name, args, _) =>
@@ -277,15 +279,12 @@ object CoreTypeChecker:
               case _ => None
       case AST.Lam(teles, body, span) =>
         val env1 = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> p.ty)))
-        infer(body, env1, records, enums).map { bodyTy =>
-          AST.Pi(teles, bodyTy, Vector.empty, span)
-        }
+        infer(body, env1, records, enums).map(bodyTy => AST.Pi(teles, bodyTy, Vector.empty, span))
       case AST.Pi(teles, res, effs, span) =>
         val env1 = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> AST.Type(AST.LevelLit(0, None), None))))
         if teles.forall(_.params.forall(p => infer(p.ty, env1, records, enums).isDefined)) &&
           infer(res, env1, records, enums).isDefined
-        then
-          Some(AST.Type(AST.LevelLit(0, None), span))
+        then Some(AST.Type(AST.LevelLit(0, None), span))
         else None
       case AST.Let(id, _, ty, value, body, _) =>
         val vTy = ty.orElse(infer(value, env, records, enums))
@@ -326,9 +325,10 @@ object CoreTypeChecker:
             val typeParamTele = if typeParams.nonEmpty then Vector(Telescope(typeParams, teleImplicitness)) else Vector.empty
             val caseTele = if c.params.nonEmpty then Vector(Telescope(c.params, Implicitness.Explicit)) else Vector.empty
             val typeParamRefs = typeParams.map(p => Arg(AST.Ref(p.id, p.name, span), Implicitness.Explicit))
-            val enumType =
+            val enumType = {
               if typeParamRefs.nonEmpty then AST.App(AST.EnumTypeRef(enumId, enumName, span), typeParamRefs, implicitArgs = false, span)
               else AST.EnumTypeRef(enumId, enumName, span)
+            }
             if typeParamTele.isEmpty && caseTele.isEmpty then enumType
             else AST.Pi(typeParamTele ++ caseTele, enumType, Vector.empty, span)
           }
@@ -348,9 +348,10 @@ object CoreTypeChecker:
                 }
                 if paramsOk then
                   val typeArgs = args.take(typeParams.length).map(arg => Arg(arg, Implicitness.Explicit))
-                  val enumType =
+                  val enumType = {
                     if typeArgs.nonEmpty then AST.App(AST.EnumTypeRef(enumId, enumName, span), typeArgs, implicitArgs = false, span)
                     else AST.EnumTypeRef(enumId, enumName, span)
+                  }
                   Some(enumType)
                 else None
               case _ => None
@@ -366,10 +367,10 @@ object CoreTypeChecker:
         resTy match
           case Some(rt) => check(body, rt, paramEnv, records, enums)
           case None     => infer(body, paramEnv, records, enums).isDefined
-      case StmtAST.Record(_, _, _, _) => true
+      case StmtAST.Record(_, _, _, _)    => true
       case StmtAST.Enum(_, _, _, _, _)   => true
       case StmtAST.Coenum(_, _, _, _, _) => true
-      case StmtAST.Pkg(_, body, _)    => infer(body, env, records, enums).isDefined
+      case StmtAST.Pkg(_, body, _)       => infer(body, env, records, enums).isDefined
   }
 
   private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env = {
@@ -389,7 +390,7 @@ object CoreTypeChecker:
 
   private def extendEnumEnv(enums: EnumEnv, stmt: StmtAST): EnumEnv = {
     stmt match
-      case StmtAST.Enum(id, name, typeParams, cases, _)  => enums + (id -> (name, cases, typeParams))
+      case StmtAST.Enum(id, name, typeParams, cases, _)   => enums + (id -> (name, cases, typeParams))
       case StmtAST.Coenum(id, name, typeParams, cases, _) => enums + (id -> (name, cases, typeParams))
-      case _                                             => enums
+      case _                                              => enums
   }
