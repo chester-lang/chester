@@ -280,11 +280,11 @@ object ElaboratorBlocks:
                   p.copy(ty = resolved, default = p.default.map(helpers.substituteSolutions))
                 }
               }
-              val resolvedCases = cases.map(c => {
+              val resolvedCases = cases.map { c =>
                 c.copy(params =
                   c.params.map(p => p.copy(ty = helpers.substituteSolutions(p.ty), default = p.default.map(helpers.substituteSolutions)))
                 )
-              })
+              }
               currentCtx = currentCtx.updateEnum(name, resolvedTypeParams, resolvedCases, isCo)
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
               module.fill(solver, elemType, AST.TupleType(Vector.empty, span))

@@ -204,7 +204,7 @@ object CoreTypeChecker:
 
   private def infer(ast: AST, env: Env, records: RecordEnv, enums: EnumEnv): Option[AST] = {
     ast match
-      case AST.Ref(id, name, _)  =>
+      case AST.Ref(id, name, _) =>
         env.get(id).orElse(builtinTypes.get(name))
       case AST.StringLit(_, _)   => Some(AST.StringType(None))
       case AST.IntLit(_, _)      => Some(AST.IntegerType(None))

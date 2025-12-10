@@ -92,13 +92,14 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
         printLines(errors, toStderr = true)
       case Right((ast, ty)) =>
         val coreOk = CoreTypeChecker.typeChecks(ast)
-        val coreCheckAction =
+        val coreCheckAction = {
           if coreOk then Runner.pure[F, Unit](())
           else IO.println("Core type checker failed; skipping evaluation.", toStderr = true)
+        }
 
         coreCheckAction.flatMap { _ =>
           if !coreOk && output.isEmpty then Runner.pure[F, Unit](())
-          else
+          else {
             output match
               case Some(pathStr) =>
                 val rendered = formatAst(ast, ty)
@@ -112,6 +113,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                     cpsAst
                   case None => ast
                 Evaluator.eval(evalAst).flatMap(value => IO.println(s"=> ${Evaluator.valueToString(value)}"))
+          }
         }
     }
   }
