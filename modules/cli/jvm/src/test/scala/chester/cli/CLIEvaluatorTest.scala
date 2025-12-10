@@ -10,9 +10,13 @@ import chester.core.AST
 import chester.utils.io.*
 import chester.utils.io.impl.{given}
 import munit.FunSuite
+import chester.utils.term.Terminal
 
 @experimental
 class CLIEvaluatorTest extends FunSuite:
+
+  // Use the JVM default terminal for Id-based runs
+  private given Terminal[Id] = chester.utils.io.DefaultTerminal
 
   private def captureOutput(body: => Unit): String =
     val baos = new ByteArrayOutputStream()
@@ -50,4 +54,25 @@ class CLIEvaluatorTest extends FunSuite:
       assert(value == Evaluator.UnitV)
     }
     assert(out.contains("word"), clue = s"captured output: '$out'")
+  }
+
+  test("CLI run evaluates pure expression file") {
+    val tmp = os.temp.dir()
+    val src = tmp / "expr.chester"
+    os.write.over(src, "2+2")
+    val out = captureOutput {
+      CLI.run[Id](Config.Run(Some(src.toString)))
+    }
+    assert(out.contains("=> 4"), clue = out)
+  }
+
+  test("CLI run evaluates println file") {
+    val tmp = os.temp.dir()
+    val src = tmp / "print.chester"
+    os.write.over(src, """println("hi")""")
+    val out = captureOutput {
+      CLI.run[Id](Config.Run(Some(src.toString)))
+    }
+    assert(out.contains("hi"), clue = out)
+    assert(out.contains("=> ()"), clue = out)
   }

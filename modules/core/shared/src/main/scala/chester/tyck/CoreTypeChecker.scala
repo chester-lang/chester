@@ -4,12 +4,14 @@ import scala.language.experimental.genericNumberLiterals
 
 import chester.core.{AST, Arg, EnumCase, Implicitness, Param, StmtAST, Telescope}
 import chester.utils.HoldNotReadable
+import chester.tyck.ElabContext
 
 /** Lightweight core type checker used to validate elaborated ASTs and normalize types. */
 object CoreTypeChecker:
   private type Env = Map[chester.uniqid.UniqidOf[AST], AST]
   private type RecordEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[chester.core.Param])]
   private type EnumEnv = Map[chester.uniqid.UniqidOf[AST], (String, Vector[EnumCase], Vector[Param])]
+  private val builtinTypes: Map[String, AST] = ElabContext.defaultBuiltinTypes
 
   private def substituteInType(ast: AST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): AST = {
     ast match
@@ -202,7 +204,8 @@ object CoreTypeChecker:
 
   private def infer(ast: AST, env: Env, records: RecordEnv, enums: EnumEnv): Option[AST] = {
     ast match
-      case AST.Ref(id, _, _)     => env.get(id)
+      case AST.Ref(id, name, _)  =>
+        env.get(id).orElse(builtinTypes.get(name))
       case AST.StringLit(_, _)   => Some(AST.StringType(None))
       case AST.IntLit(_, _)      => Some(AST.IntegerType(None))
       case AST.NaturalLit(_, _)  => Some(AST.NaturalType(None))
