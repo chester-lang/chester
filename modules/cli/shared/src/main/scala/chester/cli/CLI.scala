@@ -6,7 +6,8 @@ import chester.core.AST
 import chester.error.*
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.backend.TypeScriptBackend
-import chester.tyck.{ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, substituteSolutions}
+import chester.tyck.{CoreTypeChecker, ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, substituteSolutions}
+import chester.transform.EffectCPS
 import chester.utils.doc.DocConf
 import chester.utils.elab.ProceduralSolverModule
 import chester.utils.io.*
@@ -90,15 +91,25 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       case Left(errors) =>
         printLines(errors, toStderr = true)
       case Right((ast, ty)) =>
-        val rendered = formatAst(ast, ty)
-        output match {
-          case Some(pathStr) =>
-            val path = io.pathOps.of(pathStr)
-            IO.writeString(path, rendered, writeMode = WriteMode.Overwrite)
-              .flatMap(_ => IO.println(s"Wrote elaborated AST to '${io.pathOps.asString(path)}'."))
-          case None =>
-            IO.println(rendered)
-        }
+        val coreOk = CoreTypeChecker.typeChecks(ast)
+        if !coreOk then
+          printLines(Seq("Core type checker failed; cannot CPS-transform or evaluate."), toStderr = true)
+        else
+          output match
+            case Some(pathStr) =>
+              val rendered = formatAst(ast, ty)
+              val path = io.pathOps.of(pathStr)
+              IO.writeString(path, rendered, writeMode = WriteMode.Overwrite)
+                .flatMap(_ => IO.println(s"Wrote elaborated AST to '${io.pathOps.asString(path)}'."))
+            case None =>
+              val evalAst = ty match
+                case Some(tpe) =>
+                  val (cpsAst, _) = EffectCPS.transformExpr(ast, tpe, EffectCPS.Config(transformIO = true))
+                  cpsAst
+                case None => ast
+              Evaluator.eval(evalAst).flatMap { value =>
+                IO.println(s"=> ${Evaluator.valueToString(value)}")
+              }
     }
   }
 
