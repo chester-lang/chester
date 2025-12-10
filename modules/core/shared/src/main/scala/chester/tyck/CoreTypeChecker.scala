@@ -5,6 +5,7 @@ import scala.language.experimental.genericNumberLiterals
 import chester.core.{AST, Arg, EnumCase, Implicitness, Param, StmtAST, Telescope}
 import chester.utils.HoldNotReadable
 import chester.tyck.ElabContext
+import chester.error.{Reporter, VectorReporter}
 
 /** Lightweight core type checker used to validate elaborated ASTs and normalize types. */
 object CoreTypeChecker:
@@ -228,10 +229,42 @@ object CoreTypeChecker:
     else eraseSpans(normalizeType(a)) == eraseSpans(normalizeType(b))
 
   /** Entry point to check whether an AST is well-typed according to a simple dependent type checker. */
-  def typeChecks(ast: AST): Boolean = infer(ast, Map.empty, Map.empty, Map.empty).isDefined
+  def typeCheck(ast: AST)(using Reporter[ElabProblem]): Unit =
+    val result = infer(ast, Map.empty, Map.empty, Map.empty)
+    if result.isEmpty then
+      summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable("Core type check failed", ast.span))
 
-  private def check(ast: AST, expected: AST, env: Env, records: RecordEnv, enums: EnumEnv): Boolean =
-    infer(ast, env, records, enums).exists(t => sameType(t, expected))
+  /** Boolean wrapper for legacy call sites; collects problems into a VectorReporter. */
+  def typeChecks(ast: AST): Boolean =
+    given vr: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+    typeCheck(ast)(using vr)
+    vr.getReports.isEmpty
+
+  private def ensureType(
+      ast: AST,
+      expected: AST,
+      env: Env,
+      records: RecordEnv,
+      enums: EnumEnv
+  )(using Reporter[ElabProblem]): Boolean =
+    infer(ast, env, records, enums) match
+      case Some(actual) =>
+        if sameType(actual, expected) then true
+        else
+          summon[Reporter[ElabProblem]].report(ElabProblem.TypeMismatch(expected, actual, ast.span))
+          false
+      case None =>
+        summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable("Unable to infer type", ast.span))
+        false
+
+  private def check(
+      ast: AST,
+      expected: AST,
+      env: Env,
+      records: RecordEnv,
+      enums: EnumEnv
+  )(using Reporter[ElabProblem]): Unit =
+    ensureType(ast, expected, env, records, enums)
 
   /** Extract sort (Type vs TypeΩ) and its level for a type-of-type. */
   private case class Sort(isOmega: Boolean, level: Int)
@@ -245,7 +278,7 @@ object CoreTypeChecker:
       case _                                  => None
   }
 
-  private def infer(ast: AST, env: Env, records: RecordEnv, enums: EnumEnv): Option[AST] = {
+  private def infer(ast: AST, env: Env, records: RecordEnv, enums: EnumEnv)(using Reporter[ElabProblem]): Option[AST] = {
     ast match
       case AST.Ref(id, name, _) =>
         env.get(id).orElse(builtinTypes.get(name))
@@ -299,7 +332,7 @@ object CoreTypeChecker:
       case AST.ListType(elem, span) =>
         infer(elem, env, records, enums).map(_ => AST.Type(AST.LevelLit(0, None), span))
       case AST.Ann(expr, ty, _) =>
-        if check(expr, ty, env, records, enums) then Some(ty) else None
+        if ensureType(expr, ty, env, records, enums) then Some(ty) else None
       case AST.App(func, args, _, span) =>
         val funcTyOpt = infer(func, env, records, enums)
         funcTyOpt match
@@ -307,7 +340,7 @@ object CoreTypeChecker:
             val params = teles.flatMap(_.params)
             if params.length != args.length then None
             else {
-              val argTysOk = args.zip(params).forall { case (arg, param) => check(arg.value, param.ty, env, records, enums) }
+              val argTysOk = args.zip(params).forall { case (arg, param) => ensureType(arg.value, param.ty, env, records, enums) }
               if argTysOk then
                 val subst = params.map(_.id).zip(args.map(_.value)).toMap
                 Some(normalizeType(substituteInType(resTy, subst)))
@@ -317,7 +350,7 @@ object CoreTypeChecker:
             func match
               case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == args.length =>
                 val params = teles.flatMap(_.params)
-                val argsOk = args.zip(params).forall { case (arg, param) => check(arg.value, param.ty, env, records, enums) }
+                val argsOk = args.zip(params).forall { case (arg, param) => ensureType(arg.value, param.ty, env, records, enums) }
                 if argsOk then
                   val subst = params.map(_.id).zip(args.map(_.value)).toMap
                   Some(normalizeType(substituteInType(body, subst)))
@@ -342,13 +375,14 @@ object CoreTypeChecker:
         val env1 = envRecEnum._1
         val rec1 = envRecEnum._2
         val en1 = envRecEnum._3
-        if elems.forall(stmt => checkStmt(stmt, env1, rec1, en1)) then infer(tail, env1, rec1, en1) else None
+        elems.foreach(stmt => checkStmt(stmt, env1, rec1, en1))
+        infer(tail, env1, rec1, en1)
       case AST.RecordTypeRef(id, name, span) =>
         records.get(id).map(_ => AST.Type(AST.LevelLit(0, None), span))
       case AST.RecordCtor(id, _, args, span) =>
         records.get(id) match
           case Some((recName, fields)) if fields.length == args.length =>
-            val argsOk = args.zip(fields).forall { case (arg, field) => check(arg, field.ty, env, records, enums) }
+            val argsOk = args.zip(fields).forall { case (arg, field) => ensureType(arg, field.ty, env, records, enums) }
             if argsOk then Some(AST.RecordTypeRef(id, recName, span)) else None
           case _ => None
       case AST.FieldAccess(target, field, span) =>
@@ -388,7 +422,7 @@ object CoreTypeChecker:
                 var subst: Map[chester.uniqid.UniqidOf[AST], AST] = Map.empty
                 val paramsOk = args.zip(allParams).forall { case (arg, param) =>
                   val expected = substituteInType(param.ty, subst)
-                  val ok = check(arg, expected, env, records, enums)
+                  val ok = ensureType(arg, expected, env, records, enums)
                   if ok then subst = subst + (param.id -> arg)
                   ok
                 }
@@ -405,18 +439,18 @@ object CoreTypeChecker:
       case AST.MetaCell(_, span) => Some(AST.AnyType(span))
   }
 
-  private def checkStmt(stmt: StmtAST, env: Env, records: RecordEnv, enums: EnumEnv): Boolean = {
+  private def checkStmt(stmt: StmtAST, env: Env, records: RecordEnv, enums: EnumEnv)(using Reporter[ElabProblem]): Unit = {
     stmt match
-      case StmtAST.ExprStmt(expr, _) => infer(expr, env, records, enums).isDefined
+      case StmtAST.ExprStmt(expr, _) => infer(expr, env, records, enums)
       case StmtAST.Def(_, _, teles, resTy, body, _) =>
         val paramEnv = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> p.ty)))
         resTy match
           case Some(rt) => check(body, rt, paramEnv, records, enums)
-          case None     => infer(body, paramEnv, records, enums).isDefined
-      case StmtAST.Record(_, _, _, _)    => true
-      case StmtAST.Enum(_, _, _, _, _)   => true
-      case StmtAST.Coenum(_, _, _, _, _) => true
-      case StmtAST.Pkg(_, body, _)       => infer(body, env, records, enums).isDefined
+          case None     => infer(body, paramEnv, records, enums)
+      case StmtAST.Record(_, _, _, _)    => ()
+      case StmtAST.Enum(_, _, _, _, _)   => ()
+      case StmtAST.Coenum(_, _, _, _, _) => ()
+      case StmtAST.Pkg(_, body, _)       => infer(body, env, records, enums)
   }
 
   private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env = {

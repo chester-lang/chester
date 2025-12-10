@@ -7,6 +7,7 @@ import chester.error.*
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.backend.TypeScriptBackend
 import chester.tyck.{CoreTypeChecker, ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, substituteSolutions}
+import chester.error.VectorReporter
 import chester.transform.EffectCPS
 import chester.utils.doc.DocConf
 import chester.utils.elab.ProceduralSolverModule
@@ -91,11 +92,16 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       case Left(errors) =>
         printLines(errors, toStderr = true)
       case Right((ast, ty)) =>
-        val coreOk = CoreTypeChecker.typeChecks(ast)
-        val coreCheckAction = {
+        given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+        CoreTypeChecker.typeCheck(ast)
+        val coreProblems = coreReporter.getReports
+        val coreOk = coreProblems.isEmpty
+        val coreCheckAction =
           if coreOk then Runner.pure[F, Unit](())
-          else IO.println("Core type checker failed; skipping evaluation.", toStderr = true)
-        }
+          else
+            val rendered = renderProblems(coreProblems, source = Source(FileNameAndContent("<core>", "")))
+            IO.println("Core type checker failed; skipping evaluation.", toStderr = true)
+              .flatMap(_ => printLines(rendered, toStderr = true))
 
         coreCheckAction.flatMap { _ =>
           if !coreOk && output.isEmpty then Runner.pure[F, Unit](())

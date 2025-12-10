@@ -44,7 +44,9 @@ object ElabTestUtils:
 
     if ensureCoreType && elabReporter.getReports.isEmpty then
       asts.flatten.foreach { ast =>
-        assert(CoreTypeChecker.typeChecks(ast), s"CoreTypeChecker rejected elaborated AST in elaborateModule: $ast")
+        given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+        CoreTypeChecker.typeCheck(ast)
+        assert(coreReporter.getReports.isEmpty, s"CoreTypeChecker rejected elaborated AST in elaborateModule: ${coreReporter.getReports}")
       }
 
     (asts, tys, elabReporter.getReports)
@@ -82,7 +84,11 @@ object ElabTestUtils:
       val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
 
       if ensureCoreType && elabReporter.getReports.isEmpty then
-        zonkedResult.foreach(ast => assert(CoreTypeChecker.typeChecks(ast), s"CoreTypeChecker rejected elaborated AST: $ast"))
+        zonkedResult.foreach { ast =>
+          given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+          CoreTypeChecker.typeCheck(ast)
+          assert(coreReporter.getReports.isEmpty, s"CoreTypeChecker rejected elaborated AST: ${coreReporter.getReports}")
+        }
 
       (zonkedResult, zonkedTy)
 

@@ -43,7 +43,9 @@ class ElaboratorTest extends FunSuite {
 
     assert(result.isDefined, "Result should be filled")
     assert(ty.isDefined, "Type should be filled")
-    assert(CoreTypeChecker.typeChecks(result.get), "CoreTypeChecker rejected elaborated AST")
+    given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+    CoreTypeChecker.typeCheck(result.get)
+    assert(coreReporter.getProblems.isEmpty, s"CoreTypeChecker rejected elaborated AST: ${coreReporter.getProblems}")
 
     result.get match {
       case AST.StringLit(value, _) =>
@@ -88,7 +90,9 @@ class ElaboratorTest extends FunSuite {
 
     assert(result.isDefined, s"Result should be filled, but got: $result")
     assert(ty.isDefined, s"Type should be filled, but got: $ty")
-    assert(CoreTypeChecker.typeChecks(result.get), "CoreTypeChecker rejected elaborated block")
+    given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+    CoreTypeChecker.typeCheck(result.get)
+    assert(coreReporter.getProblems.isEmpty, s"CoreTypeChecker rejected elaborated block: ${coreReporter.getProblems}")
 
     result.get match {
       case AST.Block(elements, tail, _) =>
