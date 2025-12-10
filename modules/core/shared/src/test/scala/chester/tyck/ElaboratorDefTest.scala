@@ -16,7 +16,7 @@ class ElaboratorDefTest extends munit.FunSuite:
     runAsync {
       val (_, _, errors) = elaborateExpr("def id[a: Type](x: a) = x")
 
-      // Since def is at top level (not in a block), it should produce an error
+      // Since def is in expression position (not in a block), it should produce an error
       assert(errors.nonEmpty, s"Should have errors for def at top level, got: $errors")
       assert(
         errors.exists(_.toString.contains("def statement only allowed in block elements")),

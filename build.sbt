@@ -224,7 +224,7 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
       "org.jline" % "jline-terminal" % "3.30.6",
       "org.jline" % "jline-terminal-jni" % "3.30.6",
       "org.jline" % "jline-reader" % "3.30.6",
-      "org.graalvm.sdk" % "nativeimage" % "24.1.2" % Provided
+      "org.graalvm.sdk" % "nativeimage" % "24.1.2"
     )
   )
   .jsConfigure(project => project.enablePlugins(ScalaJSBundlerPlugin))
@@ -264,6 +264,7 @@ lazy val cli = crossProject(JVMPlatform, JSPlatform)
     assembly / mainClass := Some("chester.cli.Main"),
     assembly / assemblyJarName := "chester-cli-assembly.jar",
     assembly / assemblyMergeStrategy := {
+      case PathList("module-info.class")                           => MergeStrategy.discard
       case PathList("META-INF", "MANIFEST.MF")                  => MergeStrategy.discard
       case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".sf"))  => MergeStrategy.discard
       case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".dsa")) => MergeStrategy.discard

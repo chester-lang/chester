@@ -118,6 +118,7 @@ object ElabContext:
     "Level",
     "U",
     "Universe",
+    "+",
     "true",
     "false",
     "List",
@@ -129,8 +130,13 @@ object ElabContext:
     val tele = Vector(Telescope(Vector(stringParam), Implicitness.Explicit))
     val unitTy = AST.TupleType(Vector.empty, None)
     val printlnTy = AST.Pi(tele, unitTy, Vector(ElabContext.defaultEffects("io")), None)
+    val intParam = Param(Uniqid.make, "x", AST.IntegerType(None), Implicitness.Explicit, None)
+    val intParam2 = Param(Uniqid.make, "y", AST.IntegerType(None), Implicitness.Explicit, None)
+    val intTele = Vector(Telescope(Vector(intParam, intParam2), Implicitness.Explicit))
+    val plusTy = AST.Pi(intTele, AST.IntegerType(None), Vector.empty, None)
     Map(
       "println" -> printlnTy,
+      "+" -> plusTy,
       "Level" -> AST.Type(AST.LevelLit(0, None), None)
     )
   }
@@ -672,7 +678,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         elems.headOption match
           case Some(CST.Symbol("def", _)) =>
             c.ctx.reporter.report(
-              ElabProblem.UnboundVariable("def statement only allowed in block elements, not at top level or in expressions", span)
+              ElabProblem.UnboundVariable("def statement only allowed in block elements, not in expression position", span)
             )
             val metaId = Uniqid.make[AST]
             val ast = AST.Ref(metaId, "def", span)
@@ -682,7 +688,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             Result.Done
           case Some(CST.Symbol("let", _)) =>
             c.ctx.reporter.report(
-              ElabProblem.UnboundVariable("let statement only allowed in block elements, not at top level or in expressions", span)
+              ElabProblem.UnboundVariable("let statement only allowed in block elements, not in expression position", span)
             )
             val metaId = Uniqid.make[AST]
             val ast = AST.Ref(metaId, "let", span)
@@ -692,7 +698,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             Result.Done
           case Some(CST.Symbol("effect", _)) =>
             c.ctx.reporter.report(
-              ElabProblem.UnboundVariable("effect statement only allowed in block elements, not at top level or in expressions", span)
+              ElabProblem.UnboundVariable("effect statement only allowed in block elements, not in expression position", span)
             )
             val metaId = Uniqid.make[AST]
             val ast = AST.Ref(metaId, "effect", span)
@@ -702,7 +708,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             Result.Done
           case Some(CST.Symbol("record", _)) =>
             c.ctx.reporter.report(
-              ElabProblem.UnboundVariable("record statement only allowed in block elements, not at top level or in expressions", span)
+              ElabProblem.UnboundVariable("record statement only allowed in block elements, not in expression position", span)
             )
             val metaId = Uniqid.make[AST]
             val ast = AST.Ref(metaId, "record", span)
@@ -831,7 +837,7 @@ class ElabHandler extends Handler[ElabConstraint]:
             elaborateBlockLike(c.ctx, c.result, c.inferredTy, Vector(blockElem), None, span)
           case Some(CST.Symbol("let", _)) =>
             c.ctx.reporter.report(
-              ElabProblem.UnboundVariable("let statement only allowed in block elements, not at top level or in expressions", span)
+              ElabProblem.UnboundVariable("let statement only allowed in block elements, not in expression position", span)
             )
             val metaId = Uniqid.make[AST]
             val ast = AST.Ref(metaId, "let", span)
@@ -997,6 +1003,17 @@ class ElabHandler extends Handler[ElabConstraint]:
       span: Option[Span]
   )(using module: M, solver: module.Solver[ElabConstraint]): Result = {
     import module.given
+
+    elements.headOption.flatMap(extractPackageName) match
+      case Some(pkgName) =>
+        val innerResult = module.newOnceCell[ElabConstraint, AST](solver)
+        val innerTy = module.newOnceCell[ElabConstraint, AST](solver)
+        elaborateBlockLike(ctx, innerResult, innerTy, elements.tail, tail, span)
+        val pkgStmt = StmtAST.Pkg(pkgName, AST.MetaCell(HoldNotReadable(innerResult), span), span)
+        module.fill(solver, resultCell, AST.Block(Vector(pkgStmt), AST.Tuple(Vector.empty, span), span))
+        module.fill(solver, inferredTyCell, AST.TupleType(Vector.empty, span))
+        return Result.Done
+      case None => ()
 
     // Check if tail contains a def/let/record statement (which is not allowed)
     tail.foreach { t =>
@@ -1893,6 +1910,14 @@ class ElabHandler extends Handler[ElabConstraint]:
     case CST.SeqOf(elements, _) =>
       elements.headOption.exists { case CST.Symbol("enum", _) | CST.Symbol("coenum", _) => true; case _ => false }
     case _ => false
+  private def extractPackageName(cst: CST): Option[String] = cst match
+    case CST.SeqOf(elements, _) =>
+      elements.headOption.flatMap {
+        case CST.Symbol("package", _) =>
+          elements.lift(1).collect { case CST.Symbol(name, _) => name.stripSuffix(";") }
+        case _ => None
+      }
+    case _ => None
 
   private def parseEffectNames(list: CST.ListLiteral, ctx: ElabContext, span: Option[Span])(using
       module: SolverModule,

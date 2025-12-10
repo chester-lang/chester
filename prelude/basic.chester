@@ -1,0 +1,5 @@
+package prelude;
+
+def idInt(x: Integer) = x;
+def idString(x: String) = x;
+record Box(value: String);

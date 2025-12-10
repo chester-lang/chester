@@ -1,0 +1,4 @@
+package prelude;
+
+def zero() = 0;
+def add1(x: Integer) = x + 1;
