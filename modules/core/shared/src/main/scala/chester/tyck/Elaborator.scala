@@ -428,8 +428,7 @@ class ElabHandler extends Handler[ElabConstraint]:
       case Some(AST.NaturalType(_)) =>
         c.cst match
           case CST.IntegerLiteral(value, span) if value.sign >= 0 =>
-            module.fill(solver, c.result, AST.IntLit(value, span))
-            // No need to fill expectedTy (read-only); rely on unification to respect Natural
+            module.fill(solver, c.result, AST.NaturalLit(value, span))
             Result.Done
           case _ =>
             val inferredTy = module.newOnceCell[ElabConstraint, AST](solver)
@@ -2602,6 +2601,8 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
       AST.Block(elements.map(substituteSolutionsStmt), substituteSolutions(tail), span)
     case AST.StringLit(value, span) => ast
     case AST.IntLit(value, span)    => ast
+    case AST.NaturalLit(value, span) =>
+      AST.NaturalLit(value, span)
 
     case AST.Type(level, span) =>
       AST.Type(substituteSolutions(level), span)
@@ -2636,17 +2637,6 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.App(func, args, implicitArgs, span) =>
       val normalizedFunc = substituteSolutions(func)
       val normalizedArgs = args.map(arg => Arg(substituteSolutions(arg.value), arg.implicitness))
-
-      normalizedFunc match
-        case AST.Lam(Vector(telescope), body @ AST.ListType(listElem, bodySpan), _) if !implicitArgs =>
-          val params = telescope.params
-          if params.length == 1 && normalizedArgs.length == 1 then
-            val param = params.head
-            listElem match
-              case AST.Ref(id, _, _) if id == param.id =>
-                return AST.ListType(normalizedArgs.head.value, span.orElse(bodySpan))
-              case _ => ()
-        case _ => ()
       AST.App(normalizedFunc, normalizedArgs, implicitArgs, span)
 
     case AST.Let(id, name, ty, value, body, span) =>

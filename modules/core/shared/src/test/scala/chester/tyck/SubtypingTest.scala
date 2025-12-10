@@ -78,7 +78,7 @@ class SubtypingTest extends FunSuite:
 
   test("annotated integer list has type List(Integer)") {
     runAsync {
-      val (ast, ty, errors) = elaborateExpr("[1]: List(Integer)")
+      val (ast, ty, errors) = elaborateExpr("[1]: List(Integer)", ensureCoreType = true)
 
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ast.isDefined, "AST should be defined")
@@ -92,7 +92,7 @@ class SubtypingTest extends FunSuite:
 
   test("annotated string list has type List(String)") {
     runAsync {
-      val (ast, ty, errors) = elaborateExpr("""["a"]: List(String)""")
+      val (ast, ty, errors) = elaborateExpr("""["a"]: List(String)""", ensureCoreType = true)
 
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ast.isDefined, "AST should be defined")
@@ -106,7 +106,7 @@ class SubtypingTest extends FunSuite:
 
   test("integer literal defaults to Integer") {
     runAsync {
-      val (_, ty, errors) = elaborateExpr("42")
+      val (_, ty, errors) = elaborateExpr("42", ensureCoreType = true)
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ty.isDefined, "Type should be defined")
       ty.get match {
@@ -118,7 +118,7 @@ class SubtypingTest extends FunSuite:
 
   test("annotated Natural literal is Natural") {
     runAsync {
-      val (_, ty, errors) = elaborateExpr("42: Natural")
+      val (_, ty, errors) = elaborateExpr("42: Natural", ensureCoreType = true)
       assert(errors.isEmpty, s"Should have no errors, got: $errors")
       assert(ty.isDefined, "Type should be defined")
       ty.get match {

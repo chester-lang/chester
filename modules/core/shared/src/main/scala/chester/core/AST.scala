@@ -177,6 +177,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case Block(elements: Vector[StmtAST], tail: AST, override val span: Option[Span]) extends AST(span)
   case StringLit(value: String, override val span: Option[Span]) extends AST(span)
   case IntLit(value: BigInt, override val span: Option[Span]) extends AST(span)
+  case NaturalLit(value: BigInt, override val span: Option[Span]) extends AST(span)
   case LevelLit(value: BigInt, override val span: Option[Span]) extends AST(span)
   case Type(level: AST, override val span: Option[Span]) extends AST(span)
   case TypeOmega(level: AST, override val span: Option[Span]) extends AST(span)
@@ -215,6 +216,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
     case AST.StringLit(value, _) =>
       text("\"") <> text(value) <> text("\"")
     case AST.IntLit(value, _) =>
+      text(value.toString)
+    case AST.NaturalLit(value, _) =>
       text(value.toString)
     case AST.LevelLit(value, _) =>
       text(value.toString)
@@ -306,6 +309,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       ()
     case AST.IntLit(_, _) =>
       ()
+    case AST.NaturalLit(_, _) =>
+      ()
     case AST.LevelLit(_, _) =>
       ()
     case AST.Type(level, _) =>
@@ -376,6 +381,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.StringLit(value, span)
     case AST.IntLit(value, span) =>
       AST.IntLit(value, span)
+    case AST.NaturalLit(value, span) =>
+      AST.NaturalLit(value, span)
     case AST.LevelLit(value, span) =>
       AST.LevelLit(value, span)
     case AST.Type(level, span) =>

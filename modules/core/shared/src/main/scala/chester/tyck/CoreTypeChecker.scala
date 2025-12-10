@@ -63,11 +63,73 @@ object CoreTypeChecker:
       case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, normalizeType(body), span)
   }
 
+  private def eraseSpans(ast: AST): AST = {
+    ast match
+      case AST.Ref(id, name, _)         => AST.Ref(id, name, None)
+      case AST.Tuple(elems, _)          => AST.Tuple(elems.map(eraseSpans), None)
+      case AST.ListLit(elems, _)        => AST.ListLit(elems.map(eraseSpans), None)
+      case AST.Block(elems, tail, _)    => AST.Block(elems.map(eraseSpansStmt), eraseSpans(tail), None)
+      case AST.StringLit(v, _)          => AST.StringLit(v, None)
+      case AST.IntLit(v, _)             => AST.IntLit(v, None)
+      case AST.NaturalLit(v, _)         => AST.NaturalLit(v, None)
+      case AST.LevelLit(v, _)           => AST.LevelLit(v, None)
+      case AST.Type(level, _)           => AST.Type(eraseSpans(level), None)
+      case AST.TypeOmega(level, _)      => AST.TypeOmega(eraseSpans(level), None)
+      case AST.AnyType(_)               => AST.AnyType(None)
+      case AST.StringType(_)            => AST.StringType(None)
+      case AST.NaturalType(_)           => AST.NaturalType(None)
+      case AST.IntegerType(_)           => AST.IntegerType(None)
+      case AST.LevelType(_)             => AST.LevelType(None)
+      case AST.TupleType(elems, _)      => AST.TupleType(elems.map(eraseSpans), None)
+      case AST.ListType(elem, _)        => AST.ListType(eraseSpans(elem), None)
+      case AST.Pi(teles, res, effs, _) =>
+        val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
+        AST.Pi(nTeles, eraseSpans(res), effs, None)
+      case AST.Lam(teles, body, _) =>
+        val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
+        AST.Lam(nTeles, eraseSpans(body), None)
+      case AST.App(func, args, implicitArgs, _) =>
+        AST.App(eraseSpans(func), args.map(a => Arg(eraseSpans(a.value), a.implicitness)), implicitArgs, None)
+      case AST.Let(id, name, ty, value, body, _) =>
+        AST.Let(id, name, ty.map(eraseSpans), eraseSpans(value), eraseSpans(body), None)
+      case AST.Ann(expr, ty, _)        => AST.Ann(eraseSpans(expr), eraseSpans(ty), None)
+      case AST.RecordTypeRef(id, name, _) =>
+        AST.RecordTypeRef(id, name, None)
+      case AST.RecordCtor(id, name, args, _) =>
+        AST.RecordCtor(id, name, args.map(eraseSpans), None)
+      case AST.FieldAccess(target, field, _) =>
+        AST.FieldAccess(eraseSpans(target), field, None)
+      case AST.EnumTypeRef(id, name, _) =>
+        AST.EnumTypeRef(id, name, None)
+      case AST.EnumCaseRef(enumId, caseId, enumName, caseName, _) =>
+        AST.EnumCaseRef(enumId, caseId, enumName, caseName, None)
+      case AST.EnumCtor(enumId, caseId, enumName, caseName, args, _) =>
+        AST.EnumCtor(enumId, caseId, enumName, caseName, args.map(eraseSpans), None)
+      case AST.MetaCell(cell, _) => AST.MetaCell(cell, None)
+  }
+
+  private def eraseSpansStmt(stmt: StmtAST): StmtAST = stmt match
+    case StmtAST.ExprStmt(expr, _) => StmtAST.ExprStmt(eraseSpans(expr), None)
+    case StmtAST.Def(id, name, teles, resTy, body, _) =>
+      val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
+      StmtAST.Def(id, name, nTeles, resTy.map(eraseSpans), eraseSpans(body), None)
+    case StmtAST.Record(id, name, fields, _) =>
+      val nFields = fields.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))
+      StmtAST.Record(id, name, nFields, None)
+    case StmtAST.Enum(id, name, cases, _) =>
+      val nCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
+      StmtAST.Enum(id, name, nCases, None)
+    case StmtAST.Pkg(name, body, _) =>
+      StmtAST.Pkg(name, eraseSpans(body), None)
+
+  private def sameType(a: AST, b: AST): Boolean =
+    eraseSpans(normalizeType(a)) == eraseSpans(normalizeType(b))
+
   /** Entry point to check whether an AST is well-typed according to a simple dependent type checker. */
   def typeChecks(ast: AST): Boolean = infer(ast, Map.empty, Map.empty, Map.empty).isDefined
 
   private def check(ast: AST, expected: AST, env: Env, records: RecordEnv, enums: EnumEnv): Boolean =
-    infer(ast, env, records, enums).exists(t => normalizeType(t) == normalizeType(expected))
+    infer(ast, env, records, enums).exists(t => sameType(t, expected))
 
   /** Extract sort (Type vs TypeΩ) and its level for a type-of-type. */
   private case class Sort(isOmega: Boolean, level: Int)
@@ -86,6 +148,7 @@ object CoreTypeChecker:
       case AST.Ref(id, _, _)     => env.get(id)
       case AST.StringLit(_, _)   => Some(AST.StringType(None))
       case AST.IntLit(_, _)      => Some(AST.IntegerType(None))
+      case AST.NaturalLit(_, _)  => Some(AST.NaturalType(None))
       case AST.LevelLit(_, span) => Some(AST.LevelType(span))
       case AST.AnyType(span)     => Some(AST.Type(AST.LevelLit(0, None), span))
       case AST.StringType(span)  => Some(AST.Type(AST.LevelLit(0, None), span))
@@ -128,14 +191,15 @@ object CoreTypeChecker:
         val elemTys = elems.map(infer(_, env, records, enums))
         if elemTys.nonEmpty && elemTys.forall(_.isDefined) then
           val headTy = elemTys.head.get
-          if elemTys.flatten.forall(t => normalizeType(t) == normalizeType(headTy)) then Some(AST.ListType(headTy, span)) else None
+          if elemTys.flatten.forall(t => sameType(t, headTy)) then Some(AST.ListType(headTy, span)) else None
         else None
       case AST.ListType(elem, span) =>
         infer(elem, env, records, enums).map(_ => AST.Type(AST.LevelLit(0, None), span))
       case AST.Ann(expr, ty, _) =>
         if check(expr, ty, env, records, enums) then Some(ty) else None
       case AST.App(func, args, _, span) =>
-        infer(func, env, records, enums) match
+        val funcTyOpt = infer(func, env, records, enums)
+        funcTyOpt match
           case Some(AST.Pi(teles, resTy, _, _)) =>
             val params = teles.flatMap(_.params)
             if params.length != args.length then None
@@ -146,8 +210,21 @@ object CoreTypeChecker:
                 Some(normalizeType(substituteInType(resTy, subst)))
               else None
             }
-          case _ => None
-      case AST.Lam(_, _, _) => None // cannot infer lambda without expected type
+          case _ =>
+            func match
+              case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == args.length =>
+                val params = teles.flatMap(_.params)
+                val argsOk = args.zip(params).forall { case (arg, param) => check(arg.value, param.ty, env, records, enums) }
+                if argsOk then
+                  val subst = params.map(_.id).zip(args.map(_.value)).toMap
+                  Some(normalizeType(substituteInType(body, subst)))
+                else None
+              case _ => None
+      case AST.Lam(teles, body, span) =>
+        val env1 = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> p.ty)))
+        infer(body, env1, records, enums).map { bodyTy =>
+          AST.Pi(teles, bodyTy, Vector.empty, span)
+        }
       case AST.Pi(teles, res, effs, span) =>
         val env1 = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> AST.Type(AST.LevelLit(0, None), None))))
         if teles.forall(_.params.forall(p => infer(p.ty, env1, records, enums).isDefined)) &&
