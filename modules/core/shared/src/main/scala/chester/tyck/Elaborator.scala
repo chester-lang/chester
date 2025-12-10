@@ -12,6 +12,8 @@ import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
 import chester.tyck.CoreTypeChecker.normalizeType
 import cats.data.NonEmptyVector
 
+private val DebugUnboundLogging = false
+
 /** Elaboration problems */
 enum ElabProblem(val span0: Option[Span]) extends Problem:
   case UnboundVariable(name: String, override val span0: Option[Span]) extends ElabProblem(span0)
@@ -604,8 +606,9 @@ class ElabHandler extends Handler[ElabConstraint]:
                 Result.Done
               else {
                 // Unbound variable - report error and recover
-                println(s"[debug-unbound] symbol $name at $span in asType=${c.asType}, cst=${c.cst}, ctxBindings=${c.ctx.bindings.keySet}")
-                c.ctx.reporter.report(ElabProblem.UnboundVariable(name, span))
+            if DebugUnboundLogging then
+              println(s"[debug-unbound] symbol $name at $span in asType=${c.asType}, cst=${c.cst}, ctxBindings=${c.ctx.bindings.keySet}")
+            c.ctx.reporter.report(ElabProblem.UnboundVariable(name, span))
 
                 // Error recovery: create a meta-variable to continue elaboration
                 val metaId = Uniqid.make[AST]
@@ -1551,7 +1554,7 @@ class ElabHandler extends Handler[ElabConstraint]:
         ctx.reporter.report(ElabProblem.UnboundVariable("Expected name after def", span))
         "<error>"
 
-    println(s"[trace] def elems: $elems")
+    if DebugUnboundLogging then println(s"[trace] def elems: $elems")
     // Collect telescopes (lists for implicit, tuples for explicit)
     // IMPORTANT: We need to accumulate context as we go, so later telescopes can reference earlier parameters
     var idx = 2
@@ -1559,26 +1562,26 @@ class ElabHandler extends Handler[ElabConstraint]:
     var accumulatedCtx = ctx
 
     while idx < elems.length && (elems(idx).isInstanceOf[CST.ListLiteral] || elems(idx).isInstanceOf[CST.Tuple]) do
-      println(s"[trace] handling telescope element at idx=$idx: ${elems(idx)}")
+      if DebugUnboundLogging then println(s"[trace] handling telescope element at idx=$idx: ${elems(idx)}")
       elems(idx) match
         case CST.ListLiteral(params, _) =>
-          println(s"[trace] before parsing list telescope, ctx=${accumulatedCtx.bindings.keySet}")
+          if DebugUnboundLogging then println(s"[trace] before parsing list telescope, ctx=${accumulatedCtx.bindings.keySet}")
           val telescope = parseTelescopeFromCST(params, Implicitness.Implicit, accumulatedCtx)(using module, solver)
           telescopes += telescope
-          println(s"[trace] parsed list telescope with ${telescope.params.size} params")
+          if DebugUnboundLogging then println(s"[trace] parsed list telescope with ${telescope.params.size} params")
           // Update context with parameters from this telescope
           telescope.params.foreach { param =>
             val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
             module.fill(solver, paramTyCell, param.ty)
             accumulatedCtx = accumulatedCtx.bind(param.name, param.id, paramTyCell)
-            println(s"[trace] added ${param.name}, bindings now=${accumulatedCtx.bindings.keySet}")
+            if DebugUnboundLogging then println(s"[trace] added ${param.name}, bindings now=${accumulatedCtx.bindings.keySet}")
           }
           idx += 1
         case CST.Tuple(params, _) =>
-          println(s"[trace] before parsing tuple telescope, ctx=${accumulatedCtx.bindings.keySet}")
+          if DebugUnboundLogging then println(s"[trace] before parsing tuple telescope, ctx=${accumulatedCtx.bindings.keySet}")
           val telescope = parseTelescopeFromCST(params, Implicitness.Explicit, accumulatedCtx)(using module, solver)
           telescopes += telescope
-          println(s"[trace] parsed tuple telescope with ${telescope.params.size} params")
+          if DebugUnboundLogging then println(s"[trace] parsed tuple telescope with ${telescope.params.size} params")
           // Update context with parameters from this telescope
           telescope.params.foreach { param =>
             val paramTyCell = module.newOnceCell[ElabConstraint, AST](solver)
