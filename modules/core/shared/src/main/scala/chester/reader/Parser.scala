@@ -3,7 +3,7 @@ package chester.reader
 import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable.ArrayBuffer
 
-import chester.core.CST
+import chester.core.{CST, CommentKind}
 import chester.error.{Pos, Reporter, Span, SpanInFile}
 import cats.data.NonEmptyVector
 
@@ -11,7 +11,7 @@ object Parser {
 
   case class ParseResult(cst: CST, rest: Seq[Token])
 
-  private class ParserState(val tokens: Seq[Token], val reporter: Reporter[ParseError]) {
+  private class ParserState(val tokens: Seq[Token], val reporter: Reporter[ParseError], val preserveComments: Boolean) {
     private var position = 0
 
     def hasNext: Boolean = position < tokens.length && !current.exists(_.isInstanceOf[Token.EOF])
@@ -19,8 +19,12 @@ object Parser {
     def advance(): Unit = if (hasNext) position += 1
     def getRest: Seq[Token] = tokens.drop(position)
 
+    def skipWhitespace(): Unit =
+      while (hasNext && current.exists(_.isWhitespace)) advance()
+
     def skipTrivia(): Unit =
-      while (hasNext && current.exists(t => t.isWhitespace || t.isComment)) advance()
+      if preserveComments then skipWhitespace()
+      else while (hasNext && current.exists(t => t.isWhitespace || t.isComment)) advance()
 
     def recordError(message: String, span: Span): Unit =
       reporter.report(ParseError(message, Some(span)))
@@ -40,8 +44,8 @@ object Parser {
     *   - elements: statements terminated by semicolons
     *   - tail: final expression (no semicolon after it)
     */
-  def parseFile(tokens: Seq[Token])(using reporter: Reporter[ParseError]): CST = {
-    val state = new ParserState(tokens, reporter)
+  def parseFile(tokens: Seq[Token], preserveComments: Boolean = false)(using reporter: Reporter[ParseError]): CST = {
+    val state = new ParserState(tokens, reporter, preserveComments)
     state.skipTrivia()
 
     // Handle empty file
@@ -93,8 +97,8 @@ object Parser {
     CST.Block(elements.toVector, tail, Some(startSpan.combine(endSpan)))
   }
 
-  def parse(tokens: Seq[Token])(using reporter: Reporter[ParseError]): ParseResult = {
-    val state = new ParserState(tokens, reporter)
+  def parse(tokens: Seq[Token], preserveComments: Boolean = false)(using reporter: Reporter[ParseError]): ParseResult = {
+    val state = new ParserState(tokens, reporter, preserveComments)
     state.skipTrivia()
 
     if (!state.hasNext) {
@@ -142,6 +146,9 @@ object Parser {
           case Token.Identifier(parts, span) =>
             state.advance()
             CST.Symbol(parts.map(_.text).mkString, Some(span))
+          case Token.Comment(value, span, kind) if state.preserveComments =>
+            state.advance()
+            CST.Comment(value.asString, kind, Some(span))
           case _ =>
             // Error recovery: skip unexpected token and continue
             state.recordError(s"Unexpected token: ${token.tokenType}", token.span)

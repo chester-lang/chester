@@ -172,6 +172,37 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     } yield ()
   }
 
+  private def formatFile(input: String): F[Unit] = {
+    val path = io.pathOps.of(input)
+    for {
+      exists <- IO.exists(path)
+      _ <-
+        if !exists then IO.println(s"Input file '$input' does not exist.", toStderr = true)
+        else {
+          IO.readString(path).flatMap { content =>
+            given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
+            val source = Source(FileNameAndContent(input, content))
+            val parsed = for {
+              chars <- CharReader.read(source)
+              tokens <- Tokenizer.tokenize(chars)
+            } yield Parser.parseFile(tokens, preserveComments = true)
+
+            val parseProblems = parseReporter.getReports
+            if parseProblems.nonEmpty then printLines(renderProblems(parseProblems, source), toStderr = true)
+            else {
+              parsed match
+                case Left(err) =>
+                  printLines(renderProblems(Seq(err), source), toStderr = true)
+                case Right(cst) =>
+                  val rendered = cst.toDoc.toString
+                  IO.writeString(path, rendered, writeMode = WriteMode.Overwrite)
+                    .flatMap(_ => IO.println(s"Wrote formatted code to '${io.pathOps.asString(path)}'."))
+            }
+          }
+        }
+    } yield ()
+  }
+
   private def ensureDir(pathStr: String): F[io.Path] = {
     val p = io.pathOps.of(pathStr)
     for {
@@ -248,6 +279,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       compileFile(input, output)
     case Config.CompileTS(input, output) =>
       compileToTypeScript(input, output)
+    case Config.Format(input) =>
+      formatFile(input)
   }
 }
 

@@ -2,6 +2,7 @@ package chester.reader
 
 import scala.language.experimental.genericNumberLiterals
 
+import chester.core.CommentKind
 import chester.error.*
 import chester.i18n.*
 import chester.utils.codepointToString
@@ -38,7 +39,7 @@ enum Token extends SpanRequired {
   case At(span: Span)
   case EOF(span: Span)
   case Whitespace(span: Span, hasNewline: Boolean = false)
-  case Comment(text: Text, span: Span)
+  case Comment(text: Text, span: Span, kind: CommentKind)
   case IntegerLiteral(value: Text, span: Span)
   case RationalLiteral(value: Text, span: Span)
   case StringLiteral(value: Text, span: Span)
@@ -52,8 +53,8 @@ enum Token extends SpanRequired {
   }
 
   def isComment: Boolean = this match {
-    case Comment(_, _) => true
-    case _             => false
+    case Comment(_, _, _) => true
+    case _                => false
   }
 
   def containsNewline: Boolean = this match {
@@ -74,7 +75,7 @@ enum Token extends SpanRequired {
     case At(_)                 => t"at '@'"
     case EOF(_)                => t"end of file"
     case Whitespace(_, _)      => t"whitespace"
-    case Comment(_, _)         => t"comment"
+    case Comment(_, _, _)      => t"comment"
     case IntegerLiteral(_, _)  => t"integer literal"
     case RationalLiteral(_, _) => t"rational literal"
     case StringLiteral(_, _)   => t"string literal"

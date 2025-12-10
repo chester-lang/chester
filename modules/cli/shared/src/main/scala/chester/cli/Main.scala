@@ -15,6 +15,7 @@ object Main {
        |  $progName [run] [file]                 Start the REPL or type-check a file
        |  $progName compile <file> [--output <path>]  Type-check and emit the elaborated AST
        |  $progName ts <file|dir> [--output <path>]   Type-check and emit TypeScript for a file or directory
+       |  $progName format <file>                Format a Chester source file in-place
        |  $progName version                      Show version information
        |  $progName help                         Show this help message
        |""".stripMargin
@@ -44,6 +45,8 @@ object Main {
       parseCompile(rest)
     case "ts" :: rest =>
       parseCompileTS(rest)
+    case "format" :: rest =>
+      parseFormat(rest)
     case head :: Nil if !head.startsWith("-") =>
       Right(Config.Run(Some(head)))
     case other =>
@@ -103,5 +106,11 @@ object Main {
           case Some(_) => Left("ts accepts only one input path")
 
     loop(args, output = None, input = None)
+  }
+
+  private def parseFormat(args: List[String]): Either[String, Config] = args match {
+    case file :: Nil => Right(Config.Format(file))
+    case Nil         => Left("format requires an input file")
+    case _           => Left("format accepts only one input file")
   }
 }

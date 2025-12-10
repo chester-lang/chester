@@ -1,6 +1,7 @@
 package chester.reader
 import scala.language.experimental.genericNumberLiterals
 
+import chester.core.CommentKind
 import chester.error.{Pos, Span, SpanInFile}
 import chester.reader.{Offset, Source}
 import chester.utils.WithUTF16
@@ -161,8 +162,9 @@ class TokenizerTest extends munit.FunSuite {
       case _ => fail("Expected Identifier")
     }
     tokens(1) match {
-      case Token.Comment(text, _) =>
+      case Token.Comment(text, _, kind) =>
         assertEquals(text.asString, " this is a comment")
+        assertEquals(kind, CommentKind.Line)
       case _ => fail("Expected Comment")
     }
     tokens(2) match {
@@ -183,8 +185,9 @@ class TokenizerTest extends munit.FunSuite {
       case _ => fail("Expected Identifier")
     }
     tokens(1) match {
-      case Token.Comment(text, _) =>
-        assertEquals(text.asString, " comment */")
+      case Token.Comment(text, _, kind) =>
+        assertEquals(text.asString, " comment ")
+        assertEquals(kind, CommentKind.Block)
       case _ => fail("Expected Comment")
     }
     tokens(2) match {

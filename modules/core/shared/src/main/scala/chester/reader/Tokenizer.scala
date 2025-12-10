@@ -3,6 +3,7 @@ package chester.reader
 import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable.ArrayBuffer
 
+import chester.core.CommentKind
 import chester.error.{Span, SpanInFile}
 import chester.i18n.*
 import chester.syntax.IdentifierRules
@@ -177,12 +178,12 @@ object Tokenizer {
     state.advance()
 
     val chars = ArrayBuffer.empty[StringChar]
-    while (state.hasNext && state.current.get.text != "\n") {
+    while (state.hasNext && state.current.get.text != "\n" && state.current.get.text != "\r") {
       chars += state.current.get
       state.advance()
     }
 
-    Token.Comment(chars.toVector, state.spanFrom(start))
+    Token.Comment(chars.toVector, state.spanFrom(start), CommentKind.Line)
   }
 
   /** Read block comment with error recovery:
@@ -206,10 +207,15 @@ object Tokenizer {
         state.advance()
       } else if (state.current.get.text == "*" && state.peek(1).exists(_.text == "/")) {
         depth -= 1
-        chars += state.current.get
-        state.advance()
-        chars += state.current.get
-        state.advance()
+        if depth > 0 then
+          chars += state.current.get
+          state.advance()
+          chars += state.current.get
+          state.advance()
+        else
+          // Final closing delimiter - consume but do not include in comment text
+          state.advance()
+          state.advance()
       } else {
         chars += state.current.get
         state.advance()
@@ -221,7 +227,7 @@ object Tokenizer {
       throw TokenizeException(t"Unclosed block comment (closed at end of file)", state.spanFrom(start))
     }
 
-    Token.Comment(chars.toVector, state.spanFrom(start))
+    Token.Comment(chars.toVector, state.spanFrom(start), CommentKind.Block)
   }
 
   /** Read string literal with error recovery:

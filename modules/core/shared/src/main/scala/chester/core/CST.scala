@@ -17,6 +17,7 @@ enum CST(val span: Option[Span]) extends ToDoc with SpanOptional derives ReadWri
   case StringLiteral(value: String, override val span: Option[Span]) extends CST(span)
   case IntegerLiteral(value: BigInt, override val span: Option[Span]) extends CST(span)
   case SeqOf(elements: NonEmptyVector[CST], override val span: Option[Span]) extends CST(span)
+  case Comment(text: String, kind: CommentKind, override val span: Option[Span]) extends CST(span)
 
   def toDoc(using options: DocConf): Doc = this match
     case CST.Symbol(name, _) =>
@@ -37,3 +38,7 @@ enum CST(val span: Option[Span]) extends ToDoc with SpanOptional derives ReadWri
       text(value.toString)
     case CST.SeqOf(elements, _) =>
       hsep(elements.toVector.map(_.toDoc), text(" "))
+    case CST.Comment(content, kind, _) =>
+      kind match
+        case CommentKind.Line  => text("//") <> text(content)
+        case CommentKind.Block => text("/*") <> text(content) <> text("*/")
