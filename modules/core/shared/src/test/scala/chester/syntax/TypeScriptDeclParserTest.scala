@@ -113,6 +113,64 @@ class TypeScriptDeclParserTest extends FunSuite {
     }
   }
 
+  test("parse snippet from NodeJS process.d.ts") {
+    val source =
+      """|/**
+         | * Extracted from @types/node@22.7.0 (process.d.ts)
+         | * Memory and CPU usage shapes are simple enough to exercise the declaration parser.
+         | */
+         |interface MemoryUsage {
+         |  rss: number;
+         |  heapTotal: number;
+         |  heapUsed: number;
+         |  external: number;
+         |  arrayBuffers: number;
+         |}
+         |
+         |interface CpuUsage {
+         |  user: number;
+         |  system: number;
+         |}
+         |
+         |interface ProcessRelease {
+         |  name: string;
+         |  sourceUrl?: string | undefined;
+         |  headersUrl?: string | undefined;
+         |  libUrl?: string | undefined;
+         |  lts?: string | undefined;
+         |}
+         |""".stripMargin
+    val sourceRef = Source(FileNameAndContent("node-process.d.ts", source))
+    val ast = TypeScriptDeclParser.parse(source, sourceRef)
+
+    ast match {
+      case TypeScriptAST.Program(statements, _) =>
+        assertEquals(statements.length, 3, "Should parse three interfaces from NodeJS snippet")
+        val names = statements.collect { case TypeScriptAST.InterfaceDeclaration(name, _, _, _, _) => name }.toSet
+        assertEquals(names, Set("MemoryUsage", "CpuUsage", "ProcessRelease"))
+
+        val processReleaseMembers = statements.collectFirst {
+          case TypeScriptAST.InterfaceDeclaration("ProcessRelease", _, _, members, _) => members
+        }.getOrElse(fail("ProcessRelease interface should be present"))
+
+        val sourceUrlMember = processReleaseMembers.find(_.name == "sourceUrl").getOrElse(fail("sourceUrl member missing"))
+        sourceUrlMember.memberType match {
+          case InterfaceMemberType.PropertySignature(TypeScriptType.UnionType(types, _), isOptional, _) =>
+            assert(isOptional, "sourceUrl should be optional")
+            val typeNames = types.map {
+              case TypeScriptType.PrimitiveType(name, _)  => name
+              case TypeScriptType.TypeReference(name, _, _) => name
+              case other                                   => fail(s"Unexpected type in union: $other")
+            }.toSet
+            assertEquals(typeNames, Set("string", "undefined"))
+          case other =>
+            fail(s"Expected union property signature for sourceUrl, got $other")
+        }
+      case other =>
+        fail(s"Expected Program with interfaces, got $other")
+    }
+  }
+
   test("parse empty file") {
     val source = ""
     val sourceRef = Source(FileNameAndContent("test.d.ts", source))
