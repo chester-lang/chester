@@ -41,7 +41,7 @@ object TypeScriptBackend:
 
   /** Entry point: lower a Chester AST into a TypeScript program. */
   def lowerProgram(ast: AST, config: Config = Config()): TypeScriptAST.Program =
-    val lowered = lowerAsStatements(ast, config)
+    val lowered = lowerAsStatements(ast, config, topLevel = true)
     TypeScriptAST.Program(lowered, ast.span)
 
   /** Lower a Chester statement into zero or more TypeScript statements. */
@@ -79,18 +79,31 @@ object TypeScriptBackend:
         Vector(TypeScriptAST.EnumDeclaration(name, members.toVector, isConst = false, stmt.span))
 
       case StmtAST.Pkg(name, body, span) =>
-        val inner = lowerAsStatements(body, config)
+        val inner = lowerAsStatements(body, config, topLevel = true)
         Vector(TypeScriptAST.NamespaceDeclaration(name, inner, span))
 
   /** Lower a block-like AST into a list of statements, appending a return for the tail when necessary. */
-  private def lowerAsStatements(ast: AST, config: Config): Vector[TypeScriptAST] =
+  private def lowerAsStatements(ast: AST, config: Config, topLevel: Boolean = false): Vector[TypeScriptAST] =
     ast match
       case AST.Block(elems, tail, _) =>
         val loweredElems = elems.flatMap(lowerStmt(_, config))
-        val tailStmt = TypeScriptAST.Return(Some(lowerExpr(tail, config)), tail.span)
-        loweredElems :+ tailStmt
+        val tailExpr = lowerExpr(tail, config)
+        val tailIsUnit = tailExpr match
+          case TypeScriptAST.Array(e, _) if e.isEmpty => true
+          case TypeScriptAST.Identifier("undefined", _) => true
+          case _ => false
+        val tailStmt =
+          if topLevel && tailIsUnit then Vector.empty
+          else Vector(TypeScriptAST.Return(Some(tailExpr), tail.span))
+        (loweredElems ++ tailStmt).toVector
       case other =>
-        Vector(TypeScriptAST.Return(Some(lowerExpr(other, config)), other.span))
+        val expr = lowerExpr(other, config)
+        val stmt =
+          if topLevel && (expr == TypeScriptAST.UndefinedLiteral(other.span) || (expr match
+              case TypeScriptAST.Array(e, _) if e.isEmpty => true
+              case _                                      => false)) then Vector.empty
+          else Vector(TypeScriptAST.Return(Some(expr), other.span))
+        stmt
 
   /** Lower a Chester expression to a TypeScript expression. */
   private def lowerExpr(expr: AST, config: Config): TypeScriptAST =
@@ -119,6 +132,11 @@ object TypeScriptBackend:
       case AST.Lam(telescopes, body, span) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         TypeScriptAST.Arrow(params.toVector, lowerExpr(body, config), span)
+
+      case AST.App(AST.Ref(_, "+", _), args, _, span) if args.length == 2 =>
+        val left = lowerExpr(args(0).value, config)
+        val right = lowerExpr(args(1).value, config)
+        TypeScriptAST.BinaryOp(left, "+", right, span)
 
       case AST.App(func, args, _, span) =>
         val callee = lowerExpr(func, config)

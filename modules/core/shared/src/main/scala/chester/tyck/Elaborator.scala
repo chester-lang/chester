@@ -762,6 +762,13 @@ class ElabHandler extends Handler[ElabConstraint]:
               tryHandleDotSequence(c.ctx, c.result, c.inferredTy, false, elems, span) match
                 case Some(r) => r
                 case None =>
+                  // Binary operator sugar: lhs op rhs
+                  elems match
+                    case Vector(lhs, CST.Symbol(op, opSpan), rhs) if c.ctx.isBuiltin(op) =>
+                      val argTuple: CST.Tuple = CST.Tuple(Vector(lhs, rhs), combinedSpan(Vector(lhs, rhs)))
+                      val funcCst = CST.Symbol(op, opSpan)
+                      handleFunctionApplication(c.ctx, c.asType, c.result, c.inferredTy, funcCst, None, argTuple, span)
+                    case _ =>
                   annotationPattern(elems) match
                     case Some((exprCst, typeCst)) =>
                       handleAnnotatedExpression(c.ctx, c.result, c.inferredTy, exprCst, typeCst, span)
@@ -1094,13 +1101,14 @@ class ElabHandler extends Handler[ElabConstraint]:
       elem match
         case CST.SeqOf(seqElems, _) if seqElems.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
           val elems = seqElems.toVector
-          val info = defInfoMap(elem)
           val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, currentCtx)
-          handleDefStatement(defConstraint, elems, elem.span, info.id, info.tyCell, currentCtx, defInfoMap)(using module, solver)
+          val defMeta = defInfoMap(elem)
+          handleDefStatement(defConstraint, elems, elem.span, defMeta.id, defMeta.tyCell, currentCtx, defInfoMap)(using module, solver)
+          val updated = defInfoMap(elem)
           // Construct a Stmt placeholder with MetaCells for body/result type
-          val bodyAst = AST.MetaCell(HoldNotReadable(elemResult), elem.span)
-          val resTyAst = info.resultTyCell.map(c => AST.MetaCell(HoldNotReadable(c), elem.span))
-          val stmt = StmtAST.Def(info.id, info.name, info.telescopes, resTyAst, bodyAst, elem.span)
+          val bodyAst = AST.MetaCell(HoldNotReadable(updated.resultCell), elem.span)
+          val resTyAst = updated.resultTyCell.map(c => AST.MetaCell(HoldNotReadable(c), elem.span))
+          val stmt = StmtAST.Def(updated.id, updated.name, updated.telescopes, resTyAst, bodyAst, elem.span)
           elaboratedElemsBuffer += stmt
         case CST.SeqOf(seqElems, span) if seqElems.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } =>
           val (maybeName, maybeBody) = (seqElems.lift(1), seqElems.lift(2))

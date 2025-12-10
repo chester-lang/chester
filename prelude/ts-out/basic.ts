@@ -1,13 +1,11 @@
 namespace prelude {
-    function idInt() {
+    function idInt(x: number) {
         return x;
     };
-function idString() {
+function idString(x: string) {
         return x;
     };
 interface Box {
         value: string;
     };
-return [];
 };
-return [];

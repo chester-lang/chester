@@ -2,13 +2,7 @@ namespace prelude {
     function zero() {
         return 0;
     };
-function add1() {
-        return () => {
-            x;
-+;
-return 1;
-        }();
+function add1(x: number) {
+        return x + 1;
     };
-return [];
 };
-return [];
