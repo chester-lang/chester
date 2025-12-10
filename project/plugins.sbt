@@ -6,6 +6,7 @@ addSbtPlugin("com.eed3si9n.ifdef" % "sbt-ifdef" % "0.4.1")
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.5.6")
 addSbtPlugin("ch.epfl.scala" % "sbt-scalajs-bundler" % "0.21.1")
 addSbtPlugin("org.scalablytyped.converter" % "sbt-converter" % "1.0.0-beta44")
+addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.3.1")
 
 // cli tools
 addSbtPlugin("com.timushev.sbt" % "sbt-updates" % "0.6.4")

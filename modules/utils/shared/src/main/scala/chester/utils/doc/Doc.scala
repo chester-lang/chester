@@ -50,7 +50,7 @@ case class Group(doc: Doc) extends Doc {
 }
 
 val maxWidth = Integer.MAX_VALUE
-export PrettyPrinter.defaultWidth
+val defaultWidth: Width = PrettyPrinter.defaultWidth
 
 def renderToDocument(doc: Doc, w: Width = maxWidth)(using
     printer: DocPrinter

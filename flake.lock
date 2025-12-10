@@ -1,5 +1,26 @@
 {
   "nodes": {
+    "devshell": {
+      "inputs": {
+        "nixpkgs": [
+          "typelevel-nix",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1764011051,
+        "narHash": "sha256-M7SZyPZiqZUR/EiiBJnmyUbOi5oE/03tCeFrTiUZchI=",
+        "owner": "numtide",
+        "repo": "devshell",
+        "rev": "17ed8d9744ebe70424659b0ef74ad6d41fc87071",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "devshell",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -37,7 +58,32 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "squish-find-the-brains": "squish-find-the-brains",
+        "typelevel-nix": "typelevel-nix"
+      }
+    },
+    "squish-find-the-brains": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1763722937,
+        "narHash": "sha256-kd4a05c6wPOqT89+G01EEVSQpXEqLur52U+rioBPy3M=",
+        "owner": "7mind",
+        "repo": "squish-find-the-brains",
+        "rev": "af1943c259bfe6a132c25ceb6dbe3648a6856b42",
+        "type": "github"
+      },
+      "original": {
+        "owner": "7mind",
+        "repo": "squish-find-the-brains",
+        "type": "github"
       }
     },
     "systems": {
@@ -52,6 +98,30 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "typelevel-nix": {
+      "inputs": {
+        "devshell": "devshell",
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1765301495,
+        "narHash": "sha256-lTgPc0ym7WsbnY7JxNq00AwfbbYeZHfl+fgXrBReoZI=",
+        "owner": "typelevel",
+        "repo": "typelevel-nix",
+        "rev": "70bd996e1a803249644b6e474c9bd195d4508a00",
+        "type": "github"
+      },
+      "original": {
+        "owner": "typelevel",
+        "repo": "typelevel-nix",
         "type": "github"
       }
     }

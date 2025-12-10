@@ -1,4 +1,6 @@
 import scala.scalanative.build._
+import sbtassembly.AssemblyPlugin.autoImport._
+import sbtassembly.{MergeStrategy, PathList}
 
 version := "0.1.0-SNAPSHOT"
 scalaVersion := "3.7.4"
@@ -221,7 +223,8 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
       "org.jline" % "jline" % "3.30.6",
       "org.jline" % "jline-terminal" % "3.30.6",
       "org.jline" % "jline-terminal-jni" % "3.30.6",
-      "org.jline" % "jline-reader" % "3.30.6"
+      "org.jline" % "jline-reader" % "3.30.6",
+      "org.graalvm.sdk" % "nativeimage" % "24.1.2" % Provided
     )
   )
   .jsConfigure(project => project.enablePlugins(ScalaJSBundlerPlugin))
@@ -256,6 +259,19 @@ lazy val cli = crossProject(JVMPlatform, JSPlatform)
   )
   .jsSettings(
     scalaJSUseMainModuleInitializer := true
+  )
+  .jvmSettings(
+    assembly / mainClass := Some("chester.cli.Main"),
+    assembly / assemblyJarName := "chester-cli-assembly.jar",
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "MANIFEST.MF")                  => MergeStrategy.discard
+      case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".sf"))  => MergeStrategy.discard
+      case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".dsa")) => MergeStrategy.discard
+      case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".rsa")) => MergeStrategy.discard
+      case PathList("META-INF", "versions", "9", "module-info.class") => MergeStrategy.first
+      case PathList("META-INF", xs @ _*)                               => MergeStrategy.first
+      case x                                                           => (assembly / assemblyMergeStrategy).value(x)
+    }
   )
 
 lazy val cliJVM = cli.jvm
