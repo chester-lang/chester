@@ -23,6 +23,19 @@ jobs:
 
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
+        with:
+          cache: true
+          cache-dependency-path: |
+            **/project/build.properties
+            **/project/plugins.sbt
+
+      - name: Cache .chesterPluginIC
+        uses: actions/cache@v4
+        with:
+          path: .chesterPluginIC
+          key: chester-plugin-ic-${{ runner.os }}-${{ hashFiles('**/build.sbt', '**/project/plugins.sbt') }}
+          restore-keys: |
+            chester-plugin-ic-${{ runner.os }}-
 
       - name: Run tests
         run: |
