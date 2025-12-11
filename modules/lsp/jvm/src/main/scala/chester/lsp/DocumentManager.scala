@@ -24,6 +24,8 @@ class DocumentManager:
       DocumentAnalyzer.analyze(uri, text)
     }
 
+  def text(uri: String): Option[String] = textFor(uri)
+
   private def textFor(uri: String): Option[String] =
     openDocs.get(uri).orElse(readFromDisk(uri))
 

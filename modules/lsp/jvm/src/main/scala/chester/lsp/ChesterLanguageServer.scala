@@ -10,8 +10,10 @@ import scala.jdk.CollectionConverters.*
 import scala.language.experimental.genericNumberLiterals
 import scala.util.Try
 
+import chester.core.AST
 import chester.error.Span
 import chester.tyck.SymbolIndex
+import chester.uniqid.UniqidOf
 import chester.utils.asInt
 import org.eclipse.lsp4j.*
 import org.eclipse.lsp4j.jsonrpc.messages.Either
@@ -65,7 +67,7 @@ class ChesterTextDocumentService(documents: DocumentManager) extends TextDocumen
       val uri = params.getTextDocument.getUri
       val pos = params.getPosition
       resolveTarget(uri, pos) match
-        case Some((span, _)) =>
+        case Some((_, span, _)) =>
           val loc = toLocation(span, uri)
           val locs: java.util.List[? <: Location] = util.List.of(loc)
           Either.forLeft(locs)
@@ -78,27 +80,42 @@ class ChesterTextDocumentService(documents: DocumentManager) extends TextDocumen
       val uri = params.getTextDocument.getUri
       val pos = params.getPosition
       resolveTarget(uri, pos) match
-        case Some((_, analysis)) =>
+        case Some((id, _, analysis)) =>
           val includeDecl = Option(params.getContext).exists(_.isIncludeDeclaration)
-          val idOpt = analysis.index.findSymbolAt(pos.getLine, pos.getCharacter)
-          idOpt match
-            case Some(id) =>
-              val refSpans = analysis.index.usages(id)
-              val defLoc = analysis.index.definition(id).filter(_ => includeDecl).map(entry => toLocation(entry.span, uri))
-              val refLocs = refSpans.map(s => toLocation(s, uri))
-              (defLoc.toVector ++ refLocs).asJava.asInstanceOf[java.util.List[? <: Location]]
-            case None =>
-              util.List.of[Location]().asInstanceOf[java.util.List[? <: Location]]
+          val refSpans = analysis.index.usages(id)
+          val defLoc = analysis.index.definition(id).filter(_ => includeDecl).map(entry => toLocation(entry.span, uri))
+          val refLocs = refSpans.map(s => toLocation(s, uri))
+          (defLoc.toVector ++ refLocs).asJava.asInstanceOf[java.util.List[? <: Location]]
         case None =>
           util.List.of[Location]().asInstanceOf[java.util.List[? <: Location]]
     }
 
-  private def resolveTarget(uri: String, pos: Position): Option[(Span, DocumentAnalysis)] =
+  private def resolveTarget(uri: String, pos: Position): Option[(UniqidOf[AST], Span, DocumentAnalysis)] =
     documents.analyze(uri).toOption.flatMap { analysis =>
-      analysis.index.findSymbolAt(pos.getLine, pos.getCharacter).flatMap { id =>
-        analysis.index.definition(id).map(_.span -> analysis)
+      val index = analysis.index
+      val idFromPos = index.findSymbolAt(pos.getLine, pos.getCharacter)
+      val idFromText =
+        idFromPos.orElse {
+          documents.text(uri).flatMap { text =>
+            val lines = text.linesIterator.toVector
+            if pos.getLine < lines.length then
+              val line = lines(pos.getLine)
+              val word = extractWord(line, pos.getCharacter)
+              index.definitions.collectFirst { case (id, entry) if entry.name == word => id }
+            else None
+          }
+        }
+
+      idFromText.flatMap { id =>
+        val defSpan = index.definition(id).map(_.span).orElse(index.usages(id).headOption)
+        defSpan.map(span => (id, span, analysis))
       }
     }
+
+  private def extractWord(line: String, col: Int): String =
+    val start = line.take(col).reverse.takeWhile(_.isLetterOrDigit).reverse
+    val end = line.drop(col).takeWhile(_.isLetterOrDigit)
+    (start + end).trim
 
   private def toLocation(span: Span, fallbackUri: String): Location =
     val range = Range(

@@ -42,8 +42,7 @@ case class SymbolIndex(
       definitions.toVector.flatMap { case (id, entry) =>
         if contains(entry.span, line, character) then Some((id, entry.span)) else None
       } ++ references.toVector.flatMap { case (id, spans) =>
-        if definitions.contains(id) then spans.flatMap(s => if contains(s, line, character) then Some((id, s)) else None)
-        else Vector.empty
+        spans.flatMap(s => if contains(s, line, character) then Some((id, s)) else None)
       }
 
     candidates.sortBy((_, span) => spanSize(span)).headOption.map(_._1)
@@ -56,23 +55,31 @@ object SymbolIndex:
   def fromAst(ast: AST): SymbolIndex =
     val defs = mutable.Map.empty[UniqidOf[AST], DefinitionEntry]
     val refs = mutable.Map.empty[UniqidOf[AST], mutable.Builder[Span, Vector[Span]]]
+    val names = mutable.Map.empty[UniqidOf[AST], String]
 
-    def recordRef(id: UniqidOf[AST], span: Option[Span]): Unit =
+    def recordRef(id: UniqidOf[AST], span: Option[Span], name: Option[String]): Unit =
+      name.foreach(n => names.getOrElseUpdate(id, n))
       span.foreach { s =>
         val builder = refs.getOrElseUpdate(id, Vector.newBuilder[Span])
         builder += s
       }
 
+    def pickSpan(spans: Seq[Option[Span]]): Option[Span] =
+      spans.collectFirst { case Some(s) => s }
+
     def walkStmt(stmt: StmtAST): Unit = stmt match
       case StmtAST.ExprStmt(expr, _) =>
         walkAst(expr)
       case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
-        span.foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Def, name, s)))
+        pickSpan(Seq(span, body.span, resultTy.flatMap(_.span))).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Def, name, s)))
+        names.update(id, name)
         telescopes.foreach(walkTele)
         resultTy.foreach(walkAst)
         walkAst(body)
       case StmtAST.Record(id, name, fields, span) =>
-        span.foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Record, name, s)))
+        val fieldSpans = fields.flatMap(_.ty.span)
+        pickSpan(Seq(span) ++ fieldSpans.map(Some(_))).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Record, name, s)))
+        names.update(id, name)
         fields.foreach(walkParam)
       case StmtAST.Enum(_, _, typeParams, cases, _) =>
         typeParams.foreach(walkParam)
@@ -95,8 +102,8 @@ object SymbolIndex:
       tele.params.foreach(walkParam)
 
     def walkAst(ast: AST): Unit = ast match
-      case AST.Ref(id, _, span) =>
-        recordRef(id, span)
+      case AST.Ref(id, name, span) =>
+        recordRef(id, span, Some(name))
       case AST.Tuple(elements, _) =>
         elements.foreach(walkAst)
       case AST.ListLit(elements, _) =>
@@ -127,10 +134,10 @@ object SymbolIndex:
       case AST.Ann(expr, ty, _) =>
         walkAst(expr)
         walkAst(ty)
-      case AST.RecordTypeRef(id, _, span) =>
-        recordRef(id, span)
-      case AST.RecordCtor(id, _, args, span) =>
-        recordRef(id, span)
+      case AST.RecordTypeRef(id, name, span) =>
+        recordRef(id, span, Some(name))
+      case AST.RecordCtor(id, name, args, span) =>
+        recordRef(id, span, Some(name))
         args.foreach(walkAst)
       case AST.FieldAccess(target, _, _) =>
         walkAst(target)
@@ -149,4 +156,14 @@ object SymbolIndex:
         walkAst(level)
 
     walkAst(ast)
+
+    // Backfill definitions for IDs we saw in references but had no declaration spans.
+    refs.foreach { case (id, builder) =>
+      if !defs.contains(id) then
+        builder.result().headOption.foreach { span =>
+          val name = names.getOrElse(id, "<unknown>")
+          defs.update(id, DefinitionEntry(DefinitionKind.Def, name, span))
+        }
+    }
+
     SymbolIndex(defs.toMap, refs.view.mapValues(_.result()).toMap)
