@@ -326,6 +326,7 @@ lazy val lspJVM = lsp.jvm
 lazy val intellijPlugin = project
   .in(file("modules/intellij-plugin"))
   .enablePlugins(SbtIdeaPlugin)
+  .dependsOn(lspJVM)
   .settings(
     commonSettings,
     name := "chester-intellij-plugin",

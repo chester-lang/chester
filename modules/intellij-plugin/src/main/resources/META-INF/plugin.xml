@@ -7,6 +7,6 @@
   <depends>com.intellij.modules.platform</depends>
 
   <extensions defaultExtensionNs="com.intellij">
-    <preloadingActivity implementation="chester.intellij.ChesterLspPreloadingActivity"/>
+    <postStartupActivity implementation="chester.intellij.ChesterLspStartupActivity"/>
   </extensions>
 </idea-plugin>
