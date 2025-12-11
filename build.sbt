@@ -2,6 +2,9 @@ import scala.scalanative.build._
 import scala.scalanative.sbtplugin.ScalaNativePlugin.autoImport._
 import sbtassembly.AssemblyPlugin.autoImport._
 import sbtassembly.{MergeStrategy, PathList}
+import org.jetbrains.sbtidea.SbtIdeaPlugin
+import org.jetbrains.sbtidea.Keys._
+import org.jetbrains.sbtidea.packaging.PackagingMethod
 
 version := "0.1.0-SNAPSHOT"
 scalaVersion := "3.7.4"
@@ -11,7 +14,10 @@ addCommandAlias("updates", "reload plugins; dependencyUpdates; reload return; de
 
 Global / excludeLintKeys ++= Set(
   lspJVM / nativeImageJvm,
-  lspJVM / nativeImageVersion
+  lspJVM / nativeImageVersion,
+  intellijBuild,
+  intellijPlatform,
+  intellijPluginName
 )
 
 // Shared settings for all projects
@@ -130,7 +136,8 @@ lazy val root = project
     cliJVM,
     cliJS,
     cliNative,
-    lspJVM
+    lspJVM,
+    intellijPlugin
   )
   .settings(
     name := "chester",
@@ -315,3 +322,19 @@ lazy val lsp = crossProject(JVMPlatform)
   .jvmConfigure(_.enablePlugins(NativeImagePlugin))
 
 lazy val lspJVM = lsp.jvm
+
+lazy val intellijPlugin = project
+  .in(file("modules/intellij-plugin"))
+  .enablePlugins(SbtIdeaPlugin)
+  .settings(
+    commonSettings,
+    name := "chester-intellij-plugin",
+    intellijPluginName := "chester-intellij-plugin",
+    intellijBuild := "242.20224.54",
+    intellijPlatform := IntelliJPlatform.IdeaCommunity,
+    resolvers += "jitpack" at "https://jitpack.io",
+    packageMethod := PackagingMethod.Standalone(),
+    libraryDependencies ++= Seq(
+      "com.github.ballerina-platform" % "lsp4intellij" % "25ef74cd90"
+    )
+  )

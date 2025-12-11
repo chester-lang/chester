@@ -1,0 +1,12 @@
+<idea-plugin>
+  <id>chester.intellij.plugin</id>
+  <name>Chester LSP</name>
+  <vendor email="dev@chester-lang.org">Chester</vendor>
+  <description>Integrates the Chester language server via LSP4IntelliJ.</description>
+
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <preloadingActivity implementation="chester.intellij.ChesterLspPreloadingActivity"/>
+  </extensions>
+</idea-plugin>
