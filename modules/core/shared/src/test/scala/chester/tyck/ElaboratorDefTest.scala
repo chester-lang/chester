@@ -119,3 +119,23 @@ class ElaboratorDefTest extends munit.FunSuite:
       assert(!errors.exists(_.toString.contains("Unbound variable")), s"Should not have unbound variable error for id, got: $errors")
     }
   }
+
+  test("record constructor application in block elaborates") {
+    runAsync {
+      val (_, ty, errors) = elaborateExpr("{ record Pair(x: Integer, y: Integer); Pair(1, 2) }")
+
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
+      assert(ty.nonEmpty, "Type should be produced for record constructor application")
+    }
+  }
+
+  test("record field access after constructor works in block") {
+    runAsync {
+      val (_, ty, errors) = elaborateExpr("{ record Pair(x: Integer, y: Integer); let p: Pair.t = Pair(1, 2); p.x }")
+
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
+      ty match
+        case Some(AST.IntegerType(_)) => ()
+        case other                    => fail(s"Expected Integer type, got: $other")
+    }
+  }

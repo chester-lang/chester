@@ -2253,14 +2253,12 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
   val explicitTypeArgs = c.explicitTypeArgResults.flatMap(module.readStable(solver, _))
   val explicitArgs = c.argResults.flatMap(module.readStable(solver, _))
 
-  module.readStable(solver, c.funcTy) match
+  val funcTyOpt = module.readStable(solver, c.funcTy).map(substituteSolutions(_))
+
+  funcTyOpt match
     case Some(AST.MetaCell(HoldNotReadable(cell), _)) =>
-      // Wait until the referenced type is available
-      if module.hasStableValue(solver, cell.asInstanceOf[module.CellAny]) then
-        // Try again with substituted solution
-        module.fill(solver, c.funcTy.asInstanceOf[module.CellRW[AST]], substituteSolutions(AST.MetaCell(HoldNotReadable(cell), None)))
-        Result.Waiting(cell.asInstanceOf[module.CellAny])
-      else Result.Waiting(cell.asInstanceOf[module.CellAny])
+      // Underlying type not solved yet; wait for it to become available without refilling the once cell
+      Result.Waiting(cell.asInstanceOf[module.CellAny])
 
     case Some(piTy @ AST.Pi(telescopes, resultTy, _, _)) =>
       // Resolve MetaCells in telescopes (parameter types may contain unresolved cells)
