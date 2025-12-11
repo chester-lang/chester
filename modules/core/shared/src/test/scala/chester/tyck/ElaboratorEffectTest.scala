@@ -120,3 +120,42 @@ class ElaboratorEffectTest extends FunSuite:
       assert(errors.nonEmpty, "Expected error when calling flip without required effect annotation in bad")
     }
   }
+
+  test("effects remain lexically scoped within blocks") {
+    runAsync {
+      val code =
+        """{
+          |  {
+          |    effect local;
+          |  };
+          |  def bad(): Integer / [local] = 1;
+          |  bad
+          |}""".stripMargin
+
+      val (_, _, errors) = elaborateFile(code)
+      assert(errors.nonEmpty, "Effect declared in inner block should not be visible outside its scope")
+    }
+  }
+
+  test("outer effects are visible in nested blocks") {
+    runAsync {
+      val code =
+        """{
+          |  effect outer;
+          |  def outerUse(): Integer / [outer] = 1;
+          |  {
+          |    def inner(): Integer / [outer] = outerUse();
+          |    inner
+          |  }
+          |}""".stripMargin
+
+      val (_, innerTy, errors) = elaborateFile(code, ensureCoreType = true)
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
+
+      innerTy match
+        case Some(AST.Pi(_, _, effects, _)) =>
+          assertEquals(effects.map(_.name).toSet, Set("outer"), clue = s"inner should carry the outer effect, got $effects")
+        case other =>
+          fail(s"Expected Pi type for inner reference, got: $other")
+    }
+  }
