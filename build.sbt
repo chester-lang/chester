@@ -124,7 +124,8 @@ lazy val root = project
     jsTypingsJS,
     cliJVM,
     cliJS,
-    cliNative
+    cliNative,
+    lspJVM
   )
   .settings(
     name := "chester",
@@ -285,3 +286,21 @@ lazy val cli = crossProject(JVMPlatform, JSPlatform, NativePlatform)
 lazy val cliJVM = cli.jvm
 lazy val cliJS = cli.js
 lazy val cliNative = cli.native
+
+lazy val lsp = crossProject(JVMPlatform)
+  .crossType(CrossType.Full)
+  .in(file("modules/lsp"))
+  .dependsOn(core, utils)
+  .settings(
+    commonSettings,
+    name := "chester-lsp",
+    libraryDependencies ++= Seq(
+      "org.scalameta" %%% "munit" % "1.2.1" % Test
+    )
+  )
+  .jvmSettings(
+    Compile / mainClass := Some("chester.lsp.Main"),
+    libraryDependencies ++= lspDependencies
+  )
+
+lazy val lspJVM = lsp.jvm
