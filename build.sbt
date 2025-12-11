@@ -5,6 +5,8 @@ import sbtassembly.{MergeStrategy, PathList}
 import org.jetbrains.sbtidea.SbtIdeaPlugin
 import org.jetbrains.sbtidea.Keys._
 import org.jetbrains.sbtidea.packaging.PackagingMethod
+import org.scalajs.linker.interface.OutputPatterns
+import scala.sys.process._
 
 version := "0.1.0-SNAPSHOT"
 scalaVersion := "3.7.4"
@@ -116,6 +118,64 @@ lazy val jsTypings = crossProject(JSPlatform)
 
 lazy val jsTypingsJS = jsTypings.js
 
+lazy val pnpmInstall = taskKey[Unit]("Install site dependencies with pnpm")
+lazy val pnpmBuild = taskKey[Unit]("Build the Next.js site with pnpm")
+lazy val pnpmDev = taskKey[Unit]("Run the Next.js dev server with pnpm")
+lazy val copyWebRepl = taskKey[File]("Build and copy the browser REPL bundle into site/public/scala")
+
+lazy val webRepl = project
+  .in(file("modules/web-repl"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(cliJS)
+  .settings(
+    commonSettings,
+    name := "chester-web-repl",
+    scalaJSUseMainModuleInitializer := false,
+    Compile / scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+        .withOutputPatterns(OutputPatterns.fromJSFile("web-repl.js"))
+        .withSourceMap(true)
+    },
+    copyWebRepl := {
+      (Compile / fullLinkJS).value
+      val outDir = (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+      val out = outDir / "web-repl.js"
+      val rootDir = (ThisBuild / baseDirectory).value
+      val targetDir = rootDir / "site" / "public" / "scala"
+      IO.createDirectory(targetDir)
+      val dest = targetDir / "web-repl.js"
+      IO.copyFile(out, dest)
+      val map = outDir / "web-repl.js.map"
+      if (map.exists()) IO.copyFile(map, targetDir / "web-repl.js.map")
+      dest
+    }
+  )
+
+lazy val site = project
+  .in(file("site"))
+  .settings(
+    name := "chester-site",
+    publish / skip := true,
+    pnpmInstall := {
+      val log = streams.value.log
+      val exit = Process(Seq("pnpm", "install", "--frozen-lockfile"), baseDirectory.value) ! log
+      if (exit != 0) sys.error("pnpm install failed")
+    },
+    pnpmBuild := {
+      pnpmInstall.value
+      val log = streams.value.log
+      val exit = Process(Seq("pnpm", "build"), baseDirectory.value) ! log
+      if (exit != 0) sys.error("pnpm build failed")
+    },
+    pnpmDev := {
+      pnpmInstall.value
+      val log = streams.value.log
+      log.info("Starting Next.js dev server with pnpm (Ctrl+C to stop)")
+      val exit = Process(Seq("pnpm", "dev"), baseDirectory.value) ! log
+      if (exit != 0) sys.error("pnpm dev failed")
+    }
+  )
+
 // Root project
 lazy val root = project
   .in(file("."))
@@ -133,11 +193,13 @@ lazy val root = project
     KiamaJS,
     KiamaNative,
     jsTypingsJS,
+    webRepl,
     cliJVM,
     cliJS,
     cliNative,
     lspJVM,
-    intellijPlugin
+    intellijPlugin,
+    site
   )
   .settings(
     name := "chester",
