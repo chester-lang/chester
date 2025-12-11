@@ -1,11 +1,11 @@
 package chester.lsp
 
-import java.net.URI
-import java.nio.file.{Files, Paths}
-
 import scala.collection.mutable
 import scala.language.experimental.genericNumberLiterals
 import scala.util.Try
+
+import java.net.URI
+import java.nio.file.{Files, Paths}
 
 class DocumentManager:
   private val openDocs = mutable.Map.empty[String, String]
@@ -20,15 +20,14 @@ class DocumentManager:
     openDocs.remove(uri)
 
   def analyze(uri: String): Either[Seq[String], DocumentAnalysis] =
-    textFor(uri).toRight(Seq(s"Document '$uri' is not available")).flatMap { text =>
-      DocumentAnalyzer.analyze(uri, text)
-    }
+    textFor(uri).toRight(Seq(s"Document '$uri' is not available")).flatMap(text => DocumentAnalyzer.analyze(uri, text))
 
   def text(uri: String): Option[String] = textFor(uri)
 
   private def textFor(uri: String): Option[String] =
     openDocs.get(uri).orElse(readFromDisk(uri))
 
-  private def readFromDisk(uri: String): Option[String] =
+  private def readFromDisk(uri: String): Option[String] = {
     val maybePath = Try(Paths.get(new URI(uri))).orElse(Try(Paths.get(uri)))
     maybePath.toOption.flatMap(path => Try(new String(Files.readAllBytes(path))).toOption)
+  }

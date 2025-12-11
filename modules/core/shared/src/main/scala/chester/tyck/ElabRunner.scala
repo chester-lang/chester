@@ -11,17 +11,19 @@ import chester.utils.elab.*
 /** Shared elaboration helpers usable by both tests and the LSP. */
 object ElabRunner:
 
-  def elaborateExpr(input: String, ensureCoreType: Boolean = false): (Option[AST], Option[AST], Vector[ElabProblem]) =
+  def elaborateExpr(input: String, ensureCoreType: Boolean = false): (Option[AST], Option[AST], Vector[ElabProblem]) = {
     val source = Source(FileNameAndContent("repl.chester", input))
     elaborateSource(source, parseAsFile = false, ensureCoreType)
+  }
 
-  def elaborateFile(input: String, ensureCoreType: Boolean = false): (Option[AST], Option[AST], Vector[ElabProblem]) =
+  def elaborateFile(input: String, ensureCoreType: Boolean = false): (Option[AST], Option[AST], Vector[ElabProblem]) = {
     val source = Source(FileNameAndContent("file.chester", input))
     elaborateSource(source, parseAsFile = true, ensureCoreType)
+  }
 
   def elaborateModule(inputs: Seq[String], ensureCoreType: Boolean = false)(using
       ExecutionContext
-  ): (Seq[Option[AST]], Seq[Option[AST]], Vector[ElabProblem]) =
+  ): (Seq[Option[AST]], Seq[Option[AST]], Vector[ElabProblem]) = {
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
 
@@ -47,18 +49,20 @@ object ElabRunner:
       }
 
     (asts, tys, elabReporter.getReports)
+  }
 
-  def elaborateSource(source: Source, parseAsFile: Boolean, ensureCoreType: Boolean = false): (Option[AST], Option[AST], Vector[ElabProblem]) =
+  def elaborateSource(source: Source, parseAsFile: Boolean, ensureCoreType: Boolean = false): (Option[AST], Option[AST], Vector[ElabProblem]) = {
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
 
     val parsed = for
       chars <- CharReader.read(source)
       tokens <- Tokenizer.tokenize(chars)
-    yield
-      val cst: CST =
+    yield {
+      val cst: CST = {
         if parseAsFile then Parser.parseFile(tokens)
         else Parser.parse(tokens).cst
+      }
 
       given module: ProceduralSolverModule.type = ProceduralSolverModule
 
@@ -86,7 +90,9 @@ object ElabRunner:
         }
 
       (zonkedResult, zonkedTy)
+    }
 
     parsed match
       case Right((ast, ty)) => (ast, ty, elabReporter.getReports)
       case Left(err)        => (None, None, Vector(ElabProblem.UnboundVariable(err.toString, None)))
+  }

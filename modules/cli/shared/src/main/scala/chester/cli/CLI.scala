@@ -23,9 +23,10 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
 
   private case class ReplState(loaded: Vector[String]) {
     def withLoaded(code: String): ReplState = copy(loaded = loaded :+ code)
-    def combineInput(input: String): String =
+    def combineInput(input: String): String = {
       if loaded.isEmpty then input
       else s"{\n${(loaded :+ input).mkString("\n")}\n}"
+    }
   }
 
   private val EmptyState = ReplState(Vector.empty)
@@ -150,12 +151,13 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
           val rendered = renderProblems(coreProblems, source = Source(FileNameAndContent("<core>", "")))
           IO.println("Core type checker failed; skipping type display.", toStderr = true)
             .flatMap(_ => printLines(rendered, toStderr = true))
-        else
+        else {
           maybeTy match
             case Some(tpe) =>
               IO.println(s"Type: ${tpe.toDoc.toString}")
             case None =>
               IO.println("No type information available.", toStderr = true)
+        }
   }
 
   private def runRepl(): F[Unit] = {
@@ -169,13 +171,14 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                 IO.println("Goodbye.")
               case TypeCommand(_, expr) =>
                 val exprStr = Option(expr).map(_.trim).getOrElse("")
-                val action =
+                val action = {
                   if exprStr.isEmpty then IO.println("Usage: :t <expression>", toStderr = true)
                   else showType(exprStr, state)
+                }
                 action.flatMap(_ => loop(state))
               case LoadCommand(_, pathStr) =>
                 val fileStr = Option(pathStr).map(_.trim).getOrElse("")
-                val action: F[ReplState] =
+                val action: F[ReplState] = {
                   if fileStr.isEmpty then IO.println("Usage: :l <file>", toStderr = true).map(_ => state)
                   else {
                     val path = io.pathOps.of(fileStr)
@@ -201,6 +204,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                       }
                     }
                   }
+                }
                 action.flatMap(loop)
               case _ =>
                 val combined = state.combineInput(line)

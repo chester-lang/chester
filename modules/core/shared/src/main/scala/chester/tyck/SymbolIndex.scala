@@ -19,7 +19,7 @@ case class SymbolIndex(
     references: Map[UniqidOf[AST], Vector[Span]]
 ):
 
-  private def contains(span: Span, line: Int, character: Int): Boolean =
+  private def contains(span: Span, line: Int, character: Int): Boolean = {
     val start = span.range.start
     val end = span.range.end
     val startLine = start.line.asInt
@@ -32,37 +32,41 @@ case class SymbolIndex(
     else if line == startLine then character >= startCol
     else if line == endLine then character < endCol
     else true
+  }
 
   private def spanSize(span: Span): Int =
     span.range.end.index.unicode.asInt - span.range.start.index.unicode.asInt
 
   /** Locate the nearest symbol (def/record) ID at the given zero-based position. */
-  def findSymbolAt(line: Int, character: Int): Option[UniqidOf[AST]] =
-    val candidates =
+  def findSymbolAt(line: Int, character: Int): Option[UniqidOf[AST]] = {
+    val candidates = {
       definitions.toVector.flatMap { case (id, entry) =>
         if contains(entry.span, line, character) then Some((id, entry.span)) else None
       } ++ references.toVector.flatMap { case (id, spans) =>
         spans.flatMap(s => if contains(s, line, character) then Some((id, s)) else None)
       }
+    }
 
     candidates.sortBy((_, span) => spanSize(span)).headOption.map(_._1)
+  }
 
   def definition(id: UniqidOf[AST]): Option[DefinitionEntry] = definitions.get(id)
 
   def usages(id: UniqidOf[AST]): Vector[Span] = references.getOrElse(id, Vector.empty)
 
 object SymbolIndex:
-  def fromAst(ast: AST): SymbolIndex =
+  def fromAst(ast: AST): SymbolIndex = {
     val defs = mutable.Map.empty[UniqidOf[AST], DefinitionEntry]
     val refs = mutable.Map.empty[UniqidOf[AST], mutable.Builder[Span, Vector[Span]]]
     val names = mutable.Map.empty[UniqidOf[AST], String]
 
-    def recordRef(id: UniqidOf[AST], span: Option[Span], name: Option[String]): Unit =
+    def recordRef(id: UniqidOf[AST], span: Option[Span], name: Option[String]): Unit = {
       name.foreach(n => names.getOrElseUpdate(id, n))
       span.foreach { s =>
         val builder = refs.getOrElseUpdate(id, Vector.newBuilder[Span])
         builder += s
       }
+    }
 
     def pickSpan(spans: Seq[Option[Span]]): Option[Span] =
       spans.collectFirst { case Some(s) => s }
@@ -83,20 +87,17 @@ object SymbolIndex:
         fields.foreach(walkParam)
       case StmtAST.Enum(_, _, typeParams, cases, _) =>
         typeParams.foreach(walkParam)
-        cases.foreach { c =>
-          c.params.foreach(walkParam)
-        }
+        cases.foreach(c => c.params.foreach(walkParam))
       case StmtAST.Coenum(_, _, typeParams, cases, _) =>
         typeParams.foreach(walkParam)
-        cases.foreach { c =>
-          c.params.foreach(walkParam)
-        }
+        cases.foreach(c => c.params.foreach(walkParam))
       case StmtAST.Pkg(_, body, _) =>
         walkAst(body)
 
-    def walkParam(param: chester.core.Param): Unit =
+    def walkParam(param: chester.core.Param): Unit = {
       walkAst(param.ty)
       param.default.foreach(walkAst)
+    }
 
     def walkTele(tele: Telescope): Unit =
       tele.params.foreach(walkParam)
@@ -167,3 +168,4 @@ object SymbolIndex:
     }
 
     SymbolIndex(defs.toMap, refs.view.mapValues(_.result()).toMap)
+  }
