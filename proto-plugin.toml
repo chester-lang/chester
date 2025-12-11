@@ -3,7 +3,7 @@ type = "cli"
 
 [platform]
 [platform.linux]
-archs = ["x86_64"]
+archs = ["x86_64", "aarch64"]
 download-file = "chester-{os}-{arch}.tar.gz"
 
 [platform.macos]
