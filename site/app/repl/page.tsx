@@ -1,16 +1,32 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+
+export const dynamic = 'force-static';
+export const ssr = false;
+
+type TerminalHandle = {
+  write: (s: string) => void;
+  writeln: (s: string) => void;
+  loadAddon: (addon: any) => void;
+  open: (el: HTMLElement) => void;
+  dispose: () => void;
+  onData: (cb: (data: string) => void) => { dispose: () => void };
+  options?: any;
+};
+
+type FitAddonHandle = {
+  fit: () => void;
+  dispose?: () => void;
+};
 
 type ReplCallbacks = {
   readLine(prompt: string): Promise<string | null | undefined>;
   print(line: string, isError?: boolean): void;
 };
 
-const createReadline = (terminal: Terminal) => (prompt: string): Promise<string | null> =>
+const createReadline = (terminal: TerminalHandle) => (prompt: string): Promise<string | null> =>
   new Promise((resolve) => {
     let buffer = '';
     terminal.write(prompt);
@@ -42,41 +58,53 @@ const createReadline = (terminal: Terminal) => (prompt: string): Promise<string 
   });
 
 export default function ReplPage() {
-  const termRef = useRef<Terminal | null>(null);
+  const termRef = useRef<TerminalHandle | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
-    const terminal = new Terminal({
-      convertEol: true,
-      cursorBlink: true,
-      disableStdin: false,
-      fontFamily: 'JetBrains Mono, SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace',
-      theme: {
-        background: '#0c0f1a',
-        foreground: '#e8edf5',
-        cursor: '#7ce7ff'
-      }
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(containerRef.current);
-    fitAddon.fit();
-    termRef.current = terminal;
-
-    const callbacks: ReplCallbacks = {
-      readLine: createReadline(terminal),
-      print: (line, isError = false) => {
-        if (isError) terminal.writeln(`\u001b[31m${line}\u001b[0m`);
-        else terminal.writeln(line);
-      }
-    };
+    let disposed = false;
+    let fitAddon: FitAddonHandle | null = null;
 
     const start = async () => {
+      let terminal: TerminalHandle | null = null;
       try {
-        const module: any = await import('/scala/web-repl.js');
+        const [{ Terminal }, { FitAddon }]: any = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
+
+        if (disposed) return;
+
+        const terminal = new Terminal({
+          convertEol: true,
+          cursorBlink: true,
+          disableStdin: false,
+          fontFamily: 'JetBrains Mono, SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace',
+          theme: {
+            background: '#0c0f1a',
+            foreground: '#e8edf5',
+            cursor: '#7ce7ff'
+          }
+        });
+        fitAddon = new FitAddon();
+        terminal.loadAddon(fitAddon);
+        terminal.open(container);
+        fitAddon!.fit();
+        termRef.current = terminal;
+
+        const callbacks: ReplCallbacks = {
+          readLine: createReadline(terminal),
+          print: (line, isError = false) => {
+            if (isError) terminal.writeln(`\u001b[31m${line}\u001b[0m`);
+            else terminal.writeln(line);
+          }
+        };
+
+        const module: any = await import(
+          /* webpackIgnore: true */
+          new URL('/scala/web-repl.js', window.location.href).toString()
+        );
         if (!module?.startRepl) {
           throw new Error('startRepl not found. Run `sbt webRepl/copyWebRepl` first.');
         }
@@ -84,18 +112,23 @@ export default function ReplPage() {
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         setError(message);
-        terminal.writeln(`\u001b[31mREPL failed: ${message}\u001b[0m`);
+        if (terminal) {
+          (terminal as any).writeln(`\u001b[31mREPL failed: ${message}\u001b[0m`);
+        }
       }
     };
 
     start();
 
-    const onResize = () => fitAddon.fit();
+    const onResize = () => {
+      if (fitAddon) fitAddon.fit();
+    };
     window.addEventListener('resize', onResize);
 
     return () => {
       window.removeEventListener('resize', onResize);
-      terminal.dispose();
+      disposed = true;
+      termRef.current?.dispose();
     };
   }, []);
 
