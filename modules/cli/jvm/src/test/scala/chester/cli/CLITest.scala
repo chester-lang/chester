@@ -72,3 +72,27 @@ class CLITest extends FunSuite:
     assert(output.contains("=> 2"), clue = output)
     assert(output.contains("Type: Integer"), clue = output)
   }
+
+  test(":l loads file definitions for later expressions") {
+    val tmpDir = os.temp.dir()
+    val src = tmpDir / "pair.chester"
+    val code =
+      """record Box(value: Integer);
+        |def inc(x: Integer) = x + 1;""".stripMargin
+    os.write.over(src, code)
+
+    val terminal = ScriptedTerminal(
+      List(
+        LineRead(s":l ${src.toString}"),
+        LineRead("inc(41)")
+      )
+    )
+    given Terminal[Id] = terminal
+
+    val output = capture {
+      CLI.run[Id](Config.Run(None))
+    }
+
+    assert(output.contains("Loaded"), clue = output)
+    assert(output.contains("=> 42"), clue = output)
+  }

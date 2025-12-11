@@ -19,6 +19,16 @@ import chester.utils.term.{EndOfFile, LineRead, ReadLineResult, StatusError, Use
 class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
   private given DocConf = DocConf.Default
   private val TypeCommand = "^:(t|type)(?:\\s+(.*))?$".r
+  private val LoadCommand = "^:(l|load)(?:\\s+(.*))?$".r
+
+  private case class ReplState(loaded: Vector[String]) {
+    def withLoaded(code: String): ReplState = copy(loaded = loaded :+ code)
+    def combineInput(input: String): String =
+      if loaded.isEmpty then input
+      else s"{\n${(loaded :+ input).mkString("\n")}\n}"
+  }
+
+  private val EmptyState = ReplState(Vector.empty)
 
   private object ReplInfo extends TerminalInfo {
     override def checkInputStatus(input: String): InputStatus = Complete
@@ -127,8 +137,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     }
   }
 
-  private def showType(expr: String): F[Unit] = {
-    val source = Source(FileNameAndContent("<stdin>", expr))
+  private def showType(expr: String, state: ReplState): F[Unit] = {
+    val source = Source(FileNameAndContent("<stdin>", state.combineInput(expr)))
     analyze(source) match
       case Left(errors) =>
         printLines(errors, toStderr = true)
@@ -150,7 +160,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
 
   private def runRepl(): F[Unit] = {
     Terminal.runTerminal(TerminalInit.Default) {
-      def loop(using term: InTerminal[F]): F[Unit] = {
+      def loop(state: ReplState)(using term: InTerminal[F]): F[Unit] = {
         InTerminal.readline(ReplInfo).flatMap {
           case LineRead(line) =>
             val trimmed = line.trim
@@ -161,13 +171,43 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                 val exprStr = Option(expr).map(_.trim).getOrElse("")
                 val action =
                   if exprStr.isEmpty then IO.println("Usage: :t <expression>", toStderr = true)
-                  else showType(exprStr)
-                action.flatMap(_ => loop)
+                  else showType(exprStr, state)
+                action.flatMap(_ => loop(state))
+              case LoadCommand(_, pathStr) =>
+                val fileStr = Option(pathStr).map(_.trim).getOrElse("")
+                val action: F[ReplState] =
+                  if fileStr.isEmpty then IO.println("Usage: :l <file>", toStderr = true).map(_ => state)
+                  else {
+                    val path = io.pathOps.of(fileStr)
+                    IO.exists(path).flatMap { exists =>
+                      if !exists then IO.println(s"Input file '$fileStr' does not exist.", toStderr = true).map(_ => state)
+                      else {
+                        IO.readString(path).flatMap { content =>
+                          val source = Source(FileNameAndContent(fileStr, content))
+                          analyze(source) match
+                            case Left(errors) =>
+                              printLines(errors, toStderr = true).map(_ => state)
+                            case Right((ast, _)) =>
+                              given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+                              CoreTypeChecker.typeCheck(ast)
+                              val coreProblems = coreReporter.getReports
+                              if coreProblems.nonEmpty then
+                                val rendered = renderProblems(coreProblems, source = Source(FileNameAndContent("<core>", "")))
+                                IO.println("Core type checker failed; not loading file.", toStderr = true)
+                                  .flatMap(_ => printLines(rendered, toStderr = true))
+                                  .map(_ => state)
+                              else IO.println(s"Loaded $fileStr.").map(_ => state.withLoaded(content))
+                        }
+                      }
+                    }
+                  }
+                action.flatMap(loop)
               case _ =>
-                showAnalysis(analyze(Source(FileNameAndContent("<stdin>", line))), None)
-                  .flatMap(_ => loop)
+                val combined = state.combineInput(line)
+                showAnalysis(analyze(Source(FileNameAndContent("<stdin>", combined))), None)
+                  .flatMap(_ => loop(state))
           case StatusError(message) =>
-            IO.println(s"Input error: $message", toStderr = true).flatMap(_ => loop)
+            IO.println(s"Input error: $message", toStderr = true).flatMap(_ => loop(state))
           case UserInterrupted =>
             IO.println("Interrupted.")
           case EndOfFile =>
@@ -175,7 +215,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
         }
       }
 
-      loop
+      loop(EmptyState)
     }
   }
 
