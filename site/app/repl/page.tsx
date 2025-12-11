@@ -1,32 +1,19 @@
 'use client';
 
+import type { Terminal } from '@xterm/xterm';
+import type { FitAddon } from '@xterm/addon-fit';
 import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 
 export const dynamic = 'force-static';
 export const ssr = false;
 
-type TerminalHandle = {
-  write: (s: string) => void;
-  writeln: (s: string) => void;
-  loadAddon: (addon: any) => void;
-  open: (el: HTMLElement) => void;
-  dispose: () => void;
-  onData: (cb: (data: string) => void) => { dispose: () => void };
-  options?: any;
-};
-
-type FitAddonHandle = {
-  fit: () => void;
-  dispose?: () => void;
-};
-
 type ReplCallbacks = {
   readLine(prompt: string): Promise<string | null | undefined>;
   print(line: string, isError?: boolean): void;
 };
 
-const createReadline = (terminal: TerminalHandle) => (prompt: string): Promise<string | null> =>
+const createReadline = (terminal: Terminal) => (prompt: string): Promise<string | null> =>
   new Promise((resolve) => {
     let buffer = '';
     terminal.write(prompt);
@@ -58,7 +45,7 @@ const createReadline = (terminal: TerminalHandle) => (prompt: string): Promise<s
   });
 
 export default function ReplPage() {
-  const termRef = useRef<TerminalHandle | null>(null);
+  const termRef = useRef<Terminal | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,12 +54,15 @@ export default function ReplPage() {
     if (!container) return;
 
     let disposed = false;
-    let fitAddon: FitAddonHandle | null = null;
+    let fitAddon: FitAddon | null = null;
 
     const start = async () => {
-      let terminal: TerminalHandle | null = null;
+      let terminal: Terminal | null = null;
       try {
-        const [{ Terminal }, { FitAddon }]: any = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
+        const [{ Terminal }, { FitAddon }] = await Promise.all([
+          import('@xterm/xterm') as Promise<typeof import('@xterm/xterm')>,
+          import('@xterm/addon-fit') as Promise<typeof import('@xterm/addon-fit')>
+        ]);
 
         if (disposed) return;
 
@@ -90,7 +80,7 @@ export default function ReplPage() {
         fitAddon = new FitAddon();
         terminal.loadAddon(fitAddon);
         terminal.open(container);
-        fitAddon!.fit();
+        fitAddon.fit();
         termRef.current = terminal;
 
         const callbacks: ReplCallbacks = {
