@@ -45,11 +45,12 @@ jobs:
 
       - name: Build Scala Native CLI
         run: |
-          sbt --batch "cliNative/nativeLink"
+          sbt --batch "cliNative/nativeLink" "lspJVM/nativeImage"
 
       - name: Package binary
         shell: bash
         run: |
+          # Package CLI native binary
           BIN_PATH=$(find modules/cli/native/target -maxdepth 6 -type f -perm -111 -name 'chester-cli' | head -n 1)
           if [ -z "$BIN_PATH" ]; then
             BIN_PATH=$(find modules/cli/native/target -maxdepth 6 -type f -perm -111 | head -n 1)
@@ -68,11 +69,27 @@ jobs:
           ARTIFACT="chester-${{ matrix.target }}.tar.gz"
           tar -czf "$ARTIFACT" -C "$STAGING" .
 
+          # Package LSP native binary (GraalVM native-image)
+          LSP_BIN=$(find modules/lsp/jvm/target/native-image -maxdepth 3 -type f -perm -111 -name 'chester-lsp*' | head -n 1)
+          if [ -n "$LSP_BIN" ]; then
+            chmod +x "$LSP_BIN"
+            LSP_STAGING="release-lsp-${{ matrix.target }}"
+            mkdir -p "$LSP_STAGING"
+            cp "$LSP_BIN" "$LSP_STAGING/chester-lsp"
+            cp LICENSE README.md "$LSP_STAGING/"
+            LSP_ARTIFACT="chester-lsp-${{ matrix.target }}.tar.gz"
+            tar -czf "$LSP_ARTIFACT" -C "$LSP_STAGING" .
+          else
+            echo "LSP native binary not found; skipping LSP packaging" >&2
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: chester-${{ matrix.target }}
-          path: chester-${{ matrix.target }}.tar.gz
+          path: |
+            chester-${{ matrix.target }}.tar.gz
+            chester-lsp-${{ matrix.target }}.tar.gz
 
   publish:
     name: Publish release

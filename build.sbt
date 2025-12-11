@@ -287,6 +287,9 @@ lazy val cliJVM = cli.jvm
 lazy val cliJS = cli.js
 lazy val cliNative = cli.native
 
+import sbtnativeimage.NativeImagePlugin
+import sbtnativeimage.NativeImagePlugin.autoImport._
+
 lazy val lsp = crossProject(JVMPlatform)
   .crossType(CrossType.Full)
   .in(file("modules/lsp"))
@@ -300,7 +303,10 @@ lazy val lsp = crossProject(JVMPlatform)
   )
   .jvmSettings(
     Compile / mainClass := Some("chester.lsp.Main"),
-    libraryDependencies ++= lspDependencies
+    libraryDependencies ++= lspDependencies,
+    nativeImageJvm := "graalvm-community",
+    nativeImageVersion := "23.0.1"
   )
+  .jvmConfigure(_.enablePlugins(NativeImagePlugin))
 
 lazy val lspJVM = lsp.jvm

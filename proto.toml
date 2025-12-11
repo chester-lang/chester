@@ -20,6 +20,9 @@ aarch64 = "arm64"
 [install.exes.chester]
 exe-path = "chester"
 primary = true
+[install.exes."chester-lsp"]
+exe-path = "chester-lsp"
+primary = false
 
 [resolve]
 git-url = "https://github.com/chester-lang/chester"

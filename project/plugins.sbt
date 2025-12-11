@@ -11,3 +11,4 @@ addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.3.1")
 // cli tools
 addSbtPlugin("com.timushev.sbt" % "sbt-updates" % "0.6.4")
 addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.14.4")
+addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.3.4")
