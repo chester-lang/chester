@@ -9,6 +9,11 @@ organization := "chester"
 
 addCommandAlias("updates", "reload plugins; dependencyUpdates; reload return; dependencyUpdates;")
 
+Global / excludeLintKeys ++= Set(
+  lspJVM / nativeImageJvm,
+  lspJVM / nativeImageVersion
+)
+
 // Shared settings for all projects
 lazy val commonSettings = Seq(
   semanticdbEnabled := true,
