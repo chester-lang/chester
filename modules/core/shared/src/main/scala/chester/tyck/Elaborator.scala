@@ -479,10 +479,60 @@ object ElabHandler extends Handler[ElabConstraint]:
     def addInferConstraint(cst: CST, result: CellRW[AST], inferredTy: CellRW[AST], ctx: ElabContext, asType: Boolean = false): Unit =
       module.addConstraint(solver, ElabConstraint.Infer(cst, result, inferredTy, ctx, asType))
 
+    def rewriteEffectQualifiers(cst: CST, effectName: String): CST = cst match
+      case CST.SeqOf(elems, span) =>
+        val buf = scala.collection.mutable.ArrayBuffer.empty[CST]
+        var idx = 0
+        while idx < elems.length do
+          elems(idx) match
+            case CST.Symbol(name, _) if name == effectName && idx + 1 < elems.length &&
+                elems(idx + 1).isInstanceOf[CST.Symbol] && elems(idx + 1).asInstanceOf[CST.Symbol].name == "." =>
+              idx += 2 // drop qualifier and dot
+            case other =>
+              buf += rewriteEffectQualifiers(other, effectName)
+              idx += 1
+        CST.SeqOf(NonEmptyVector.fromVectorUnsafe(buf.toVector), span)
+      case CST.Tuple(elements, span) =>
+        CST.Tuple(elements.map(rewriteEffectQualifiers(_, effectName)), span)
+      case CST.ListLiteral(elements, span) =>
+        CST.ListLiteral(elements.map(rewriteEffectQualifiers(_, effectName)), span)
+      case CST.Block(elements, tail, span) =>
+        CST.Block(elements.map(rewriteEffectQualifiers(_, effectName)), tail.map(rewriteEffectQualifiers(_, effectName)), span)
+      case other => other
+
     // Check if we've already filled the result and type - if so, we're done (avoid re-processing)
     if module.hasStableValue(solver, c.result) && module.hasStableValue(solver, c.inferredTy) then return Result.Done
 
     c.cst match
+      case CST.SeqOf(seqElems, span) if {
+            val v = seqElems.toVector
+            v.length >= 5 &&
+            v.headOption.exists(_.isInstanceOf[CST.Symbol]) &&
+            v.head.asInstanceOf[CST.Symbol].name == "handle" &&
+            v.lift(2).exists {
+              case CST.Symbol("with", _) => true
+              case _                     => false
+            } &&
+            v.lift(3).exists(_.isInstanceOf[CST.Symbol]) &&
+            v.lift(4).exists(_.isInstanceOf[CST.Block])
+          } =>
+        val v = seqElems.toVector
+        val bodyCst = v(1)
+        val effectName = v(3).asInstanceOf[CST.Symbol].name
+        val handlerBlock = rewriteEffectQualifiers(v(4), effectName).asInstanceOf[CST.Block]
+        val rewrittenBody = rewriteEffectQualifiers(bodyCst, effectName)
+
+        val handlerElems = handlerBlock.tail match
+          case Some(tailElem) => handlerBlock.elements :+ tailElem
+          case None           => handlerBlock.elements
+
+        val (bodyElems, bodyTail) = rewrittenBody match
+          case CST.Block(elems, tail, _) => (elems, tail)
+          case other                     => (Vector.empty[CST], Some(other))
+        val mergedBlock = CST.Block(handlerElems ++ bodyElems, bodyTail, span.orElse(bodyCst.span))
+        module.addConstraint(solver, ElabConstraint.Infer(mergedBlock, c.result, c.inferredTy, c.ctx, c.asType))
+        Result.Done
+
       // Integer literal: default to Integer, but in type mode treat as a level literal
       case CST.IntegerLiteral(value, span) =>
         if c.asType && value.sign >= 0 then
@@ -2605,8 +2655,13 @@ private def handleAssembleDef[M <: SolverModule](c: ElabConstraint.AssembleDef)(
     )
 
   val piTy = AST.Pi(c.telescopes, finalResultTy, if c.effectAnnotated then c.effects else requiredEffects.toVector, c.span)
-  module.fill(solver, c.inferredTy, normalizeType(piTy))
-  module.fill(solver, c.defTypeCell, normalizeType(piTy))
+  val normalizedPi = normalizeType(piTy)
+  module.fill(solver, c.inferredTy, normalizedPi)
+  if module.hasStableValue(solver, c.defTypeCell) then
+    module.readStable(solver, c.defTypeCell.asInstanceOf[module.CellR[AST]]) match
+      case Some(existingTy) => unify(existingTy, normalizedPi, c.span, c.ctx)
+      case None             => module.fill(solver, c.defTypeCell, normalizedPi)
+  else module.fill(solver, c.defTypeCell, normalizedPi)
 
   Result.Done
 }
