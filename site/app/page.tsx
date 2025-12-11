@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import ReplTerminal from './repl/ReplTerminal';
 
 export const dynamic = 'force-static';
 
@@ -7,26 +8,55 @@ type Feature = {
   body: string;
 };
 
+type ContextCard = {
+  title: string;
+  body: string;
+};
+
+type SetupCommand = {
+  label: string;
+  cmd: string;
+};
+
 const features: Feature[] = [
   {
-    title: 'Latest React + Next.js',
-    body: 'Running on React 19 and Next.js 16 with app router defaults, server components, and the newest rendering pipeline.'
+    title: 'Effect-aware core',
+    body: 'Functions, records, enums, and Pi types stay explicit about effects with an optional CPS rewrite when you want it.'
   },
   {
-    title: 'Typed by default',
-    body: 'Strict TypeScript 5.9 config with modern bundler resolution, so imports stay clean and errors surface early.'
+    title: 'Readable TypeScript output',
+    body: 'Lower a Chester program into a small, predictable TypeScript AST that works for codegen experiments or direct interop.'
   },
   {
-    title: 'pnpm-first workflow',
-    body: 'Lean install, deterministic lockfile, and fast dev server spins up with a single command.'
+    title: 'One pipeline everywhere',
+    body: 'The CLI, LSP, and browser REPL all run on the same Scala pipeline—no separate “web mode” to maintain.'
   },
   {
-    title: 'Scala.js optional',
-    body: 'The marketing site lives entirely in Next.js—no Scala.js dependency unless you want to embed widgets later.'
+    title: 'Practical ergonomics',
+    body: 'A small language surface that favors data-first code and preserves intent when moved between tools.'
   }
 ];
 
-const commands = ['pnpm install --frozen-lockfile', 'pnpm dev', 'pnpm build && pnpm start'];
+const context: ContextCard[] = [
+  {
+    title: 'What is Chester?',
+    body: 'A typed language with an effects story and a built-in TypeScript backend, implemented in Scala with both JVM and Scala.js targets.'
+  },
+  {
+    title: 'Why this site?',
+    body: 'Showcase the language, ship a browser REPL backed by the real CLI bundle, and keep the getting-started story lightweight.'
+  },
+  {
+    title: 'How to try it locally',
+    body: 'Build the Scala.js bundle with sbt webRepl/copyWebRepl, then run pnpm dev. The same bundle powers /repl and the inline REPL below.'
+  }
+];
+
+const setupCommands: SetupCommand[] = [
+  { label: 'Install site deps', cmd: 'pnpm install --frozen-lockfile' },
+  { label: 'Build the REPL bundle', cmd: 'sbt webRepl/copyWebRepl' },
+  { label: 'Run the site', cmd: 'pnpm dev' }
+];
 
 export default function HomePage() {
   return (
@@ -34,39 +64,61 @@ export default function HomePage() {
       <section className="hero">
         <div className="hero-copy">
           <div className="pill">
-            Chester website · <strong>React 19 + Next.js 16</strong>
+            Chester · <strong>typed language + tooling</strong>
           </div>
-          <h1>New Chester site, purpose-built for speed.</h1>
+          <h1>Typed programs that stay honest about effects and ship as TypeScript.</h1>
           <p>
-            A clean, TypeScript-first Next.js surface that keeps Scala.js out of the critical path. Iterate fast, publish
-            faster, and keep the language story front and center.
+            Chester keeps the language small but the tooling serious: one Scala pipeline lowers to TypeScript, powers the CLI
+            and LSP, and can live inside the browser through a shared Scala.js bundle.
           </p>
+          <div className="stat-grid">
+            <div className="stat-card">
+              <span className="stat-label">TypeScript backend</span>
+              <p>Records, enums, functions, and effects lower into a predictable TS AST.</p>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Effect story</span>
+              <p>Optional CPS rewrite keeps IO explicit when you need it.</p>
+            </div>
+          </div>
           <div className="cta">
             <Link className="btn primary" href="https://github.com/chester-lang">
               View Chester on GitHub →
             </Link>
-            <Link className="btn secondary" href="https://nextjs.org/docs" target="_blank" rel="noreferrer">
-              Next.js docs
+            <Link className="btn secondary" href="/repl">
+              Open full REPL
             </Link>
           </div>
         </div>
 
-        <div className="panel">
-          <img alt="Chester logomark" className="logo" src="/chester-logo.svg" />
-          <h3>Up and running in seconds</h3>
-          <p>Use pnpm everywhere. No extra sbt wiring is needed to work on the site.</p>
-          <ul className="stack-list">
-            {commands.map((cmd) => (
-              <li key={cmd} className="stack-item">
-                <span>›</span>
-                <strong>{cmd}</strong>
+        <div className="panel hero-panel">
+          <div className="hero-panel__header">
+            <div className="pill">Browser REPL</div>
+            <span className="muted">Same Scala.js bundle as the CLI</span>
+          </div>
+          <p className="hero-panel__copy">
+            Build once with <code>sbt webRepl/copyWebRepl</code> and the site will serve <code>/scala/web-repl.js</code> to power
+            the REPL inline.
+          </p>
+          <ReplTerminal compact />
+          <ul className="stack-list hero-stack">
+            {setupCommands.map((step) => (
+              <li key={step.cmd} className="stack-item">
+                <div className="stack-item__label">{step.label}</div>
+                <code>{step.cmd}</code>
               </li>
             ))}
           </ul>
-          <div className="code-block">
-            <code>pnpm dev</code>
-          </div>
         </div>
+      </section>
+
+      <section className="context-grid">
+        {context.map((item) => (
+          <article key={item.title} className="context-card">
+            <h3>{item.title}</h3>
+            <p>{item.body}</p>
+          </article>
+        ))}
       </section>
 
       <section className="feature-grid">
@@ -82,12 +134,12 @@ export default function HomePage() {
       </section>
 
       <footer className="footer">
-        <div>Built with pnpm, ready for Vercel/Node 18+.</div>
+        <div>Shared Scala pipeline powering CLI, LSP, and this REPL.</div>
         <div className="tags">
           <span className="tag">Next 16.0.8</span>
           <span className="tag">React 19.2.1</span>
           <span className="tag">TypeScript 5.9</span>
-          <span className="tag">pnpm 10</span>
+          <span className="tag">Scala.js bundle for the REPL</span>
         </div>
       </footer>
     </>

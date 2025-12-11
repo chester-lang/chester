@@ -51,6 +51,12 @@ a {
   align-items: center;
 }
 
+.hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .hero-copy h1 {
   margin: 12px 0;
   font-size: clamp(32px, 4vw, 52px);
@@ -63,6 +69,36 @@ a {
   color: var(--muted);
   font-size: 18px;
   line-height: 1.6;
+}
+
+.stat-grid {
+  margin: 10px 0 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.stat-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.stat-label {
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.muted {
+  color: var(--muted);
 }
 
 .pill {
@@ -139,6 +175,50 @@ a {
   margin: 0 0 12px;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.hero-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hero-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hero-panel__copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.hero-stack {
+  margin-top: 6px;
+}
+
+.hero-stack .stack-item {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stack-item__label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.hero-stack code {
+  background: #0b1021;
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: #dfe8ff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .panel .logo {
@@ -219,6 +299,32 @@ a {
   line-height: 1.5;
 }
 
+.context-grid {
+  margin-top: 48px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.context-card {
+  padding: 18px 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.05));
+  box-shadow: var(--shadow);
+}
+
+.context-card h3 {
+  margin: 0 0 8px;
+  letter-spacing: 0.1px;
+}
+
+.context-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .footer {
   margin-top: 52px;
   display: flex;
@@ -263,6 +369,11 @@ a {
   letter-spacing: 0.1px;
 }
 
+.terminal-hint {
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .terminal-body {
   padding: 10px;
   background: #0c0f1a;
@@ -271,6 +382,10 @@ a {
 .xterm {
   padding: 8px;
   min-height: 360px;
+}
+
+.terminal-wrapper--compact .xterm {
+  min-height: 240px;
 }
 
 @media (max-width: 720px) {
