@@ -6,5 +6,8 @@ object VersionInfo {
   private val fallback = "0.1.0-SNAPSHOT"
 
   val current: String =
-    Option(getClass.getPackage.getImplementationVersion).getOrElse(fallback)
+    sys.props
+      .get("chester.version")
+      .orElse(sys.env.get("CHESTER_VERSION"))
+      .getOrElse(fallback)
 }

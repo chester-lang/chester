@@ -1,0 +1,26 @@
+name = "chester"
+type = "cli"
+
+[platform]
+[platform.linux]
+archs = ["x86_64"]
+download-file = "chester-{os}-{arch}.tar.gz"
+
+[platform.macos]
+archs = ["aarch64"]
+download-file = "chester-{os}-{arch}.tar.gz"
+
+[install]
+download-url = "https://github.com/chester-lang/chester/releases/download/v{version}/{download_file}"
+
+[install.arch]
+aarch64 = "arm64"
+
+[install.exes]
+[install.exes.chester]
+exe-path = "chester"
+primary = true
+
+[resolve]
+git-url = "https://github.com/chester-lang/chester"
+version-pattern = "^v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)"

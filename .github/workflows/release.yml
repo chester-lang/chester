@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-native:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: macos-14
+            target: macos-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Install native toolchain (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld libunwind-dev libgc-dev
+
+      - name: Build Scala Native CLI
+        run: |
+          sbt --batch "cliNative/nativeLink"
+
+      - name: Package binary
+        shell: bash
+        run: |
+          BIN_PATH=$(find modules/cli/native/target -maxdepth 6 -type f -perm -111 -name 'chester-cli' | head -n 1)
+          if [ -z "$BIN_PATH" ]; then
+            BIN_PATH=$(find modules/cli/native/target -maxdepth 6 -type f -perm -111 | head -n 1)
+          fi
+
+          if [ -z "$BIN_PATH" ]; then
+            echo "Native binary not found" >&2
+            exit 1
+          fi
+          chmod +x "$BIN_PATH"
+
+          STAGING="release-${{ matrix.target }}"
+          mkdir -p "$STAGING"
+          cp "$BIN_PATH" "$STAGING/chester"
+          cp LICENSE README.md "$STAGING/"
+          ARTIFACT="chester-${{ matrix.target }}.tar.gz"
+          tar -czf "$ARTIFACT" -C "$STAGING" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chester-${{ matrix.target }}
+          path: chester-${{ matrix.target }}.tar.gz
+
+  publish:
+    name: Publish release
+    needs: build-native
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/chester-*.tar.gz

@@ -1,4 +1,5 @@
 import scala.scalanative.build._
+import scala.scalanative.sbtplugin.ScalaNativePlugin.autoImport._
 import sbtassembly.AssemblyPlugin.autoImport._
 import sbtassembly.{MergeStrategy, PathList}
 
@@ -122,7 +123,8 @@ lazy val root = project
     KiamaNative,
     jsTypingsJS,
     cliJVM,
-    cliJS
+    cliJS,
+    cliNative
   )
   .settings(
     name := "chester",
@@ -245,7 +247,7 @@ lazy val utilsJVM = utils.jvm
 lazy val utilsJS = utils.js
 lazy val utilsNative = utils.native
 
-lazy val cli = crossProject(JVMPlatform, JSPlatform)
+lazy val cli = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Full)
   .in(file("modules/cli"))
   .dependsOn(core, utils)
@@ -274,6 +276,12 @@ lazy val cli = crossProject(JVMPlatform, JSPlatform)
       case x                                                           => (assembly / assemblyMergeStrategy).value(x)
     }
   )
+  .nativeSettings(
+    commonNativeSettings,
+    Compile / mainClass := Some("chester.cli.Main"),
+    nativeConfig ~= (_.withMode(Mode.releaseFull).withLTO(LTO.full))
+  )
 
 lazy val cliJVM = cli.jvm
 lazy val cliJS = cli.js
+lazy val cliNative = cli.native
