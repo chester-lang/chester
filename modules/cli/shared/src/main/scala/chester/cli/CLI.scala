@@ -18,6 +18,7 @@ import chester.utils.term.{EndOfFile, LineRead, ReadLineResult, StatusError, Use
 
 class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
   private given DocConf = DocConf.Default
+  private val TypeCommand = "^:(t|type)(?:\\s+(.*))?$".r
 
   private object ReplInfo extends TerminalInfo {
     override def checkInputStatus(input: String): InputStatus = Complete
@@ -126,17 +127,45 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     }
   }
 
+  private def showType(expr: String): F[Unit] = {
+    val source = Source(FileNameAndContent("<stdin>", expr))
+    analyze(source) match
+      case Left(errors) =>
+        printLines(errors, toStderr = true)
+      case Right((ast, maybeTy)) =>
+        given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+        CoreTypeChecker.typeCheck(ast)
+        val coreProblems = coreReporter.getReports
+        if coreProblems.nonEmpty then
+          val rendered = renderProblems(coreProblems, source = Source(FileNameAndContent("<core>", "")))
+          IO.println("Core type checker failed; skipping type display.", toStderr = true)
+            .flatMap(_ => printLines(rendered, toStderr = true))
+        else
+          maybeTy match
+            case Some(tpe) =>
+              IO.println(s"Type: ${tpe.toDoc.toString}")
+            case None =>
+              IO.println("No type information available.", toStderr = true)
+  }
+
   private def runRepl(): F[Unit] = {
     Terminal.runTerminal(TerminalInit.Default) {
       def loop(using term: InTerminal[F]): F[Unit] = {
         InTerminal.readline(ReplInfo).flatMap {
           case LineRead(line) =>
             val trimmed = line.trim
-            if (trimmed == ":quit" || trimmed == ":q") IO.println("Goodbye.")
-            else {
-              showAnalysis(analyze(Source(FileNameAndContent("<stdin>", line))), None)
-                .flatMap(_ => loop)
-            }
+            trimmed match
+              case ":quit" | ":q" =>
+                IO.println("Goodbye.")
+              case TypeCommand(_, expr) =>
+                val exprStr = Option(expr).map(_.trim).getOrElse("")
+                val action =
+                  if exprStr.isEmpty then IO.println("Usage: :t <expression>", toStderr = true)
+                  else showType(exprStr)
+                action.flatMap(_ => loop)
+              case _ =>
+                showAnalysis(analyze(Source(FileNameAndContent("<stdin>", line))), None)
+                  .flatMap(_ => loop)
           case StatusError(message) =>
             IO.println(s"Input error: $message", toStderr = true).flatMap(_ => loop)
           case UserInterrupted =>

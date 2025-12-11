@@ -7,7 +7,7 @@ import scala.annotation.experimental
 
 import cats.Id
 import chester.utils.io.impl.given
-import chester.utils.term.given
+import chester.utils.term.*
 import os.Path
 
 @experimental
@@ -24,6 +24,19 @@ class CLITest extends FunSuite:
       }
     }
     baos.toString("UTF-8")
+
+  private class ScriptedTerminal(script: List[ReadLineResult]) extends Terminal[Id], InTerminal[Id]:
+    private val queue = scala.collection.mutable.Queue.from(script)
+
+    override def runTerminal[T](init: TerminalInit, block: InTerminal[Id] ?=> T): T =
+      block(using this)
+
+    override def writeln(line: fansi.Str): Id[Unit] = ()
+
+    override def readline(info: TerminalInfo): ReadLineResult =
+      if queue.nonEmpty then queue.dequeue() else EndOfFile
+
+    override def getHistory: Id[Seq[String]] = Vector.empty
 
   test("ts command writes output file for single input") {
     val tmpDir = os.temp.dir()
@@ -46,4 +59,16 @@ class CLITest extends FunSuite:
       CLI.run[Id](Config.Help)
     }
     assert(output.contains("Usage:"), clue = output)
+  }
+
+  test("repl :t prints inferred type") {
+    val terminal = ScriptedTerminal(List(LineRead("1+1"), LineRead(":t 1")))
+    given Terminal[Id] = terminal
+
+    val output = capture {
+      CLI.run[Id](Config.Run(None))
+    }
+
+    assert(output.contains("=> 2"), clue = output)
+    assert(output.contains("Type: Integer"), clue = output)
   }
