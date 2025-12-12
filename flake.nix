@@ -7,13 +7,21 @@
     typelevel-nix.url = "github:typelevel/typelevel-nix";
     typelevel-nix.inputs.nixpkgs.follows = "nixpkgs";
     typelevel-nix.inputs.flake-utils.follows = "flake-utils";
-    squish-find-the-brains.url = "github:7mind/squish-find-the-brains";
-    squish-find-the-brains.inputs.nixpkgs.follows = "nixpkgs";
-    squish-find-the-brains.inputs.flake-utils.follows = "flake-utils";
+    sbt-derivation.url = "github:zaninime/sbt-derivation";
+    sbt-derivation.inputs.nixpkgs.follows = "nixpkgs";
+    sbt-derivation.inputs.flake-utils.follows = "flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils, typelevel-nix, squish-find-the-brains }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      typelevel-nix,
+      sbt-derivation,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs {
           inherit system;
@@ -21,43 +29,21 @@
         };
         src = pkgs.lib.cleanSource ./.;
 
-        # sbt launcher (will auto-download 2.0.0-RC7 from project/build.properties)
-        sbt = pkgs.sbt.override {
-          jre = pkgs.jdk21;
-        };
+        sbt = pkgs.sbt.override { jre = pkgs.jdk21; };
 
-        # Offline, reproducible coursier cache based on generated lockfile
-        coursierCache = squish-find-the-brains.lib.mkCoursierCache {
-          pkgs = pkgs;
-          lockfilePath = ./deps.lock.json;
-        };
-
-        # sbt setup script and inputs wired to the cached dependencies
-        sbtSetup = squish-find-the-brains.lib.mkSbtSetup {
-          pkgs = pkgs;
-          coursierCache = coursierCache;
-          jdk = pkgs.jdk21;
-        };
-
-        cliPkg = pkgs.stdenv.mkDerivation {
+        cliPkg = sbt-derivation.lib.mkSbtDerivation {
+          inherit pkgs src;
+          overrides = { inherit sbt; };
           pname = "chester";
           version = "0.1.0";
-          src = src;
-          nativeBuildInputs = sbtSetup.nativeBuildInputs ++ [ pkgs.nodejs_20 ];
+          depsSha256 = "sha256-0/oOQWo1az/ZGgcBizmTQbUDXnTxw6IuRz+BIeEnP0I=";
+          nativeBuildInputs = [ pkgs.nodejs_20 ];
+          depsWarmupCommand = ''
+            export SBT_OPTS="-Dchester.intellijPlugin.enabled=false ${"$"}{SBT_OPTS:-}"
+            sbt --batch ";reload plugins; update; reload return; project cliJVM; update; assembly"
+          '';
           buildPhase = ''
-            export TMPDIR=${"$"}{TMPDIR:-/tmp}
-            export HOME=${"$"}TMPDIR/sbt-home
-            export COURSIER_CACHE=${"$"}HOME/.cache/coursier
-            export SBT_GLOBAL_BASE=${"$"}HOME/.sbt
-            export SBT_BOOT_DIRECTORY=${"$"}HOME/.sbt/boot
-            export JAVA_HOME=${pkgs.jdk21}
-            export JAVA_TOOL_OPTIONS="-Duser.home=${"$"}HOME"
-            export SBT_OPTS="-Dsbt.offline=true -Dsbt.boot.directory=${"$"}SBT_BOOT_DIRECTORY -Dsbt.coursier.home=${"$"}COURSIER_CACHE ${"$"}{SBT_OPTS:-}"
-
-            mkdir -p "${"$"}COURSIER_CACHE/cache" "${"$"}SBT_GLOBAL_BASE" "${"$"}HOME/.ivy2"
-            cp -r ${coursierCache}/https "${"$"}COURSIER_CACHE/cache/"
-            chmod -R u+w "${"$"}COURSIER_CACHE"
-
+            export SBT_OPTS="-Dchester.intellijPlugin.enabled=false ${"$"}{SBT_OPTS:-}"
             sbt --batch cliJVM/assembly
           '';
           installPhase = ''

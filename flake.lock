@@ -59,11 +59,11 @@
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
-        "squish-find-the-brains": "squish-find-the-brains",
+        "sbt-derivation": "sbt-derivation",
         "typelevel-nix": "typelevel-nix"
       }
     },
-    "squish-find-the-brains": {
+    "sbt-derivation": {
       "inputs": {
         "flake-utils": [
           "flake-utils"
@@ -73,16 +73,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1763722937,
-        "narHash": "sha256-kd4a05c6wPOqT89+G01EEVSQpXEqLur52U+rioBPy3M=",
-        "owner": "7mind",
-        "repo": "squish-find-the-brains",
-        "rev": "af1943c259bfe6a132c25ceb6dbe3648a6856b42",
+        "lastModified": 1698464090,
+        "narHash": "sha256-Pnej7WZIPomYWg8f/CZ65sfW85IfIUjYhphMMg7/LT0=",
+        "owner": "zaninime",
+        "repo": "sbt-derivation",
+        "rev": "6762cf2c31de50efd9ff905cbcc87239995a4ef9",
         "type": "github"
       },
       "original": {
-        "owner": "7mind",
-        "repo": "squish-find-the-brains",
+        "owner": "zaninime",
+        "repo": "sbt-derivation",
         "type": "github"
       }
     },

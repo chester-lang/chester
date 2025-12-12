@@ -198,7 +198,6 @@ lazy val root = project
     cliJS,
     cliNative,
     lspJVM,
-    intellijPlugin,
     site
   )
   .settings(
@@ -385,19 +384,32 @@ lazy val lsp = crossProject(JVMPlatform)
 
 lazy val lspJVM = lsp.jvm
 
-lazy val intellijPlugin = project
-  .in(file("modules/intellij-plugin"))
-  .enablePlugins(SbtIdeaPlugin)
-  .dependsOn(lspJVM)
-  .settings(
-    commonSettings,
-    name := "chester-intellij-plugin",
-    intellijPluginName := "chester-intellij-plugin",
-    intellijBuild := "242.20224.54",
-    intellijPlatform := IntelliJPlatform.IdeaCommunity,
-    resolvers += "jitpack" at "https://jitpack.io",
-    packageMethod := PackagingMethod.Standalone(),
-    libraryDependencies ++= Seq(
-      "com.github.ballerina-platform" % "lsp4intellij" % "25ef74cd90"
+lazy val intellijPlugin = {
+  val intellijPluginEnabled =
+    !sys.props.get("chester.intellijPlugin.enabled").exists(_.equalsIgnoreCase("false"))
+
+  val baseSettings: Seq[Setting[_]] =
+    commonSettings ++ Seq(
+      name := "chester-intellij-plugin",
+      intellijPluginName := "chester-intellij-plugin",
+      intellijBuild := "242.20224.54",
+      intellijPlatform := IntelliJPlatform.IdeaCommunity,
+      resolvers += "jitpack" at "https://jitpack.io",
+      packageMethod := PackagingMethod.Standalone(),
+      libraryDependencies ++= Seq(
+        "com.github.ballerina-platform" % "lsp4intellij" % "25ef74cd90"
+      )
     )
-  )
+
+  val withSkips = project
+    .in(file("modules/intellij-plugin"))
+    .dependsOn(lspJVM)
+    .settings(baseSettings: _*)
+    .settings(
+      // Allow disabling IntelliJ downloads in sandboxed builds (e.g. Nix) via -Dchester.intellijPlugin.enabled=false
+      Compile / skip := !intellijPluginEnabled,
+      Test / skip := !intellijPluginEnabled
+    )
+
+  if (intellijPluginEnabled) withSkips.enablePlugins(SbtIdeaPlugin) else withSkips
+}
