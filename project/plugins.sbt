@@ -7,9 +7,9 @@ addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.5.6")
 addSbtPlugin("ch.epfl.scala" % "sbt-scalajs-bundler" % "0.21.1")
 addSbtPlugin("org.scalablytyped.converter" % "sbt-converter" % "1.0.0-beta44")
 addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.3.1")
+addSbtPlugin("org.jetbrains.scala" % "sbt-idea-plugin" % "5.0.8")
+addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.3.4")
 
 // cli tools
 addSbtPlugin("com.timushev.sbt" % "sbt-updates" % "0.6.4")
 addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.14.4")
-addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.3.4")
-addSbtPlugin("org.jetbrains.scala" % "sbt-idea-plugin" % "5.0.8")

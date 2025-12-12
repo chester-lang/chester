@@ -198,6 +198,7 @@ lazy val root = project
     cliJS,
     cliNative,
     lspJVM,
+    intellijPlugin,
     site
   )
   .settings(
@@ -340,14 +341,14 @@ lazy val cli = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     assembly / mainClass := Some("chester.cli.Main"),
     assembly / assemblyJarName := "chester-cli-assembly.jar",
     assembly / assemblyMergeStrategy := {
-      case PathList("module-info.class")                           => MergeStrategy.discard
-      case PathList("META-INF", "MANIFEST.MF")                  => MergeStrategy.discard
+      case PathList("module-info.class")                                              => MergeStrategy.discard
+      case PathList("META-INF", "MANIFEST.MF")                                        => MergeStrategy.discard
       case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".sf"))  => MergeStrategy.discard
       case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".dsa")) => MergeStrategy.discard
       case PathList("META-INF", xs @ _*) if xs.exists(_.toLowerCase.endsWith(".rsa")) => MergeStrategy.discard
-      case PathList("META-INF", "versions", "9", "module-info.class") => MergeStrategy.first
-      case PathList("META-INF", xs @ _*)                               => MergeStrategy.first
-      case x                                                           => (assembly / assemblyMergeStrategy).value(x)
+      case PathList("META-INF", "versions", "9", "module-info.class")                 => MergeStrategy.first
+      case PathList("META-INF", xs @ _*)                                              => MergeStrategy.first
+      case x                                                                          => (assembly / assemblyMergeStrategy).value(x)
     }
   )
   .nativeSettings(
@@ -384,12 +385,13 @@ lazy val lsp = crossProject(JVMPlatform)
 
 lazy val lspJVM = lsp.jvm
 
-lazy val intellijPlugin = {
-  val intellijPluginEnabled =
-    !sys.props.get("chester.intellijPlugin.enabled").exists(_.equalsIgnoreCase("false"))
-
-  val baseSettings: Seq[Setting[_]] =
-    commonSettings ++ Seq(
+lazy val intellijPlugin = if (!sys.props.get("chester.intellijPlugin.enabled").exists(_.equalsIgnoreCase("false"))) {
+  project
+    .in(file("modules/intellij-plugin"))
+    .enablePlugins(SbtIdeaPlugin)
+    .dependsOn(lspJVM)
+    .settings(
+      commonSettings,
       name := "chester-intellij-plugin",
       intellijPluginName := "chester-intellij-plugin",
       intellijBuild := "242.20224.54",
@@ -400,16 +402,7 @@ lazy val intellijPlugin = {
         "com.github.ballerina-platform" % "lsp4intellij" % "25ef74cd90"
       )
     )
-
-  val withSkips = project
-    .in(file("modules/intellij-plugin"))
-    .dependsOn(lspJVM)
-    .settings(baseSettings: _*)
-    .settings(
-      // Allow disabling IntelliJ downloads in sandboxed builds (e.g. Nix) via -Dchester.intellijPlugin.enabled=false
-      Compile / skip := !intellijPluginEnabled,
-      Test / skip := !intellijPluginEnabled
-    )
-
-  if (intellijPluginEnabled) withSkips.enablePlugins(SbtIdeaPlugin) else withSkips
+} else {
+  project
+    .in(file("modules/intellij-plugin-disabled"))
 }
