@@ -7,8 +7,14 @@ import scala.language.experimental.genericNumberLiterals
 import chester.core.AST
 import chester.syntax.{InterfaceMemberType, TypeScriptAST, TypeScriptType}
 import chester.tyck.ElabTestUtils
+import chester.utils.doc.{DocConf, render, *, given}
 
 class TypeScriptBackendTest extends FunSuite:
+
+  private given DocConf = DocConf.Default
+
+  private def normalize(output: String): String =
+    output.linesIterator.map(_.trim).filter(_.nonEmpty).mkString("\n").trim
 
   test("function def lowers to function declaration and tail return") {
     val code =
@@ -25,6 +31,31 @@ class TypeScriptBackendTest extends FunSuite:
     program.statements.lastOption match
       case Some(TypeScriptAST.Return(Some(TypeScriptAST.Identifier("id", _)), _)) => ()
       case other                                                                 => fail(s"Expected return of id, got $other")
+  }
+
+  test("backend renders a simple program shape") {
+    val code =
+      """{ record Box(value: String);
+        |  def add1(x: Integer) = x + 1;
+        |  add1(41) }""".stripMargin
+
+    val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+    assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+    val program = TypeScriptBackend.lowerProgram(astOpt.get)
+    val rendered = normalize(render(program.toDoc).toString)
+
+    val expected = normalize(
+      """interface Box {
+        |value: string;
+        |};
+        |function add1(x: number) {
+        |return x + 1;
+        |};
+        |return add1(41);""".stripMargin
+    )
+
+    assertEquals(rendered, expected)
   }
 
   test("record lowers to interface declaration") {
