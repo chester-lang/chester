@@ -8,9 +8,9 @@ import org.jetbrains.sbtidea.packaging.PackagingMethod
 import org.scalajs.linker.interface.OutputPatterns
 import scala.sys.process._
 
-version := "0.1.0-SNAPSHOT"
-scalaVersion := "3.7.4"
-organization := "chester"
+ThisBuild / version := "0.1.0-SNAPSHOT"
+ThisBuild / scalaVersion := "3.7.4"
+ThisBuild / organization := "chester"
 
 addCommandAlias("updates", "reload plugins; dependencyUpdates; reload return; dependencyUpdates;")
 
@@ -301,7 +301,7 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
       "org.jline" % "jline-terminal" % "3.30.6",
       "org.jline" % "jline-terminal-jni" % "3.30.6",
       "org.jline" % "jline-reader" % "3.30.6",
-      "org.graalvm.sdk" % "nativeimage" % "24.1.2"
+      "org.graalvm.sdk" % "nativeimage" % "25.0.1"
     )
   )
   .jsConfigure(project => project.enablePlugins(ScalaJSBundlerPlugin))
