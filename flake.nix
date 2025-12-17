@@ -36,7 +36,7 @@
           overrides = { inherit sbt; };
           pname = "chester";
           version = "0.1.0";
-          depsSha256 = "sha256-0/oOQWo1az/ZGgcBizmTQbUDXnTxw6IuRz+BIeEnP0I=";
+          depsSha256 = "sha256-P1anO0TQ9C1b78uQUut/6rSdJU6LdMv1FJoHwD6tWPY=";
           nativeBuildInputs = [ pkgs.nodejs_20 ];
           depsWarmupCommand = ''
             export SBT_OPTS="-Dchester.intellijPlugin.enabled=false ${"$"}{SBT_OPTS:-}"
