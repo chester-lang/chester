@@ -113,6 +113,20 @@ class TypeScriptDeclParserTest extends FunSuite {
     }
   }
 
+  test("parse optional parameters without hanging") {
+    val source = "declare function f(x?: string, y?: number): void;"
+    val sourceRef = Source(FileNameAndContent("optional-params.d.ts", source))
+    val ast = TypeScriptDeclParser.parse(source, sourceRef)
+
+    ast match {
+      case TypeScriptAST.Program(Vector(func: TypeScriptAST.FunctionDeclaration), _) =>
+        assertEquals(func.name, "f")
+        assert(func.params.length >= 2, s"Expected at least two parameters, got ${func.params.length}")
+      case other =>
+        fail(s"Expected single function declaration, got $other")
+    }
+  }
+
   test("parse snippet from NodeJS process.d.ts") {
     val source =
       """|/**

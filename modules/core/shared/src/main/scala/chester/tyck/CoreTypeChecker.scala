@@ -44,6 +44,8 @@ object CoreTypeChecker:
   private def substituteInTypeStmt(stmt: StmtAST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): StmtAST = {
     stmt match
       case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteInType(expr, subst), span)
+      case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
+        StmtAST.JSImport(id, localName, modulePath, kind, substituteInType(ty, subst), span)
       case StmtAST.Def(id, name, teles, resTy, body, span) =>
         val newTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
         StmtAST.Def(id, name, newTeles, resTy.map(substituteInType(_, subst)), substituteInType(body, subst), span)
@@ -101,6 +103,8 @@ object CoreTypeChecker:
   private def normalizeTypeStmt(stmt: StmtAST): StmtAST = {
     stmt match
       case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(normalizeType(expr), span)
+      case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
+        StmtAST.JSImport(id, localName, modulePath, kind, normalizeType(ty), span)
       case StmtAST.Def(id, name, teles, resTy, body, span) =>
         val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
         StmtAST.Def(id, name, nTeles, resTy.map(normalizeType), normalizeType(body), span)
@@ -165,6 +169,8 @@ object CoreTypeChecker:
 
   private def eraseSpansStmt(stmt: StmtAST): StmtAST = stmt match
     case StmtAST.ExprStmt(expr, _) => StmtAST.ExprStmt(eraseSpans(expr), None)
+    case StmtAST.JSImport(id, localName, modulePath, kind, ty, _) =>
+      StmtAST.JSImport(id, localName, modulePath, kind, eraseSpans(ty), None)
     case StmtAST.Def(id, name, teles, resTy, body, _) =>
       val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
       StmtAST.Def(id, name, nTeles, resTy.map(eraseSpans), eraseSpans(body), None)
@@ -215,6 +221,7 @@ object CoreTypeChecker:
 
   private def hasMetaStmt(stmt: StmtAST): Boolean = stmt match
     case StmtAST.ExprStmt(expr, _) => hasMeta(expr)
+    case StmtAST.JSImport(_, _, _, _, ty, _) => hasMeta(ty)
     case StmtAST.Def(_, _, teles, resTy, body, _) =>
       teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || resTy.exists(hasMeta) || hasMeta(body)
     case StmtAST.Record(_, _, fields, _) => fields.exists(f => hasMeta(f.ty))
@@ -446,6 +453,9 @@ object CoreTypeChecker:
   private def checkStmt(stmt: StmtAST, env: Env, records: RecordEnv, enums: EnumEnv)(using Reporter[ElabProblem]): Unit = {
     stmt match
       case StmtAST.ExprStmt(expr, _) => infer(expr, env, records, enums)
+      case StmtAST.JSImport(_, _, _, _, ty, _) =>
+        // Treat as a value binding whose type must be well-formed.
+        infer(ty, env, records, enums)
       case StmtAST.Def(_, _, teles, resTy, body, _) =>
         val paramEnv = teles.foldLeft(env)((e, tel) => tel.params.foldLeft(e)((acc, p) => acc + (p.id -> p.ty)))
         resTy match
@@ -459,6 +469,8 @@ object CoreTypeChecker:
 
   private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env = {
     stmt match
+      case StmtAST.JSImport(id, _, _, _, ty, _) =>
+        env + (id -> ty)
       case StmtAST.Def(id, _, teles, resTy, _, _) =>
         val resultTy = resTy.getOrElse(AST.Type(AST.LevelLit(0, None), None))
         val pi = AST.Pi(teles, resultTy, Vector.empty, None)

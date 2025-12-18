@@ -74,6 +74,10 @@ object SymbolIndex:
     def walkStmt(stmt: StmtAST): Unit = stmt match
       case StmtAST.ExprStmt(expr, _) =>
         walkAst(expr)
+      case StmtAST.JSImport(id, localName, _, _, ty, span) =>
+        pickSpan(Seq(span, ty.span)).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Def, localName, s)))
+        names.update(id, localName)
+        walkAst(ty)
       case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
         pickSpan(Seq(span, body.span, resultTy.flatMap(_.span))).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Def, name, s)))
         names.update(id, name)

@@ -3,7 +3,7 @@ package chester.tyck
 import scala.collection.mutable
 import scala.language.experimental.genericNumberLiterals
 
-import chester.core.{AST, CST, EffectRef, EnumCase, Implicitness, Param, StmtAST, Telescope}
+import chester.core.{AST, CST, EffectRef, EnumCase, Implicitness, JSImportKind, Param, StmtAST, Telescope}
 import chester.error.Span
 import chester.tyck.ElabConstraint
 import chester.tyck.ElabContext
@@ -70,7 +70,7 @@ object ElaboratorBlocks:
         val elems = elements.toVector
         elems.headOption match
           case Some(CST.Symbol("def", _)) | Some(CST.Symbol("effect", _)) | Some(CST.Symbol("record", _)) | Some(CST.Symbol("enum", _)) |
-              Some(CST.Symbol("coenum", _)) =>
+              Some(CST.Symbol("coenum", _)) | Some(CST.Symbol("import", _)) =>
             val blockElem = CST.SeqOf(NonEmptyVector.fromVectorUnsafe(elems), span)
             elaborateBlockLike(c.ctx, c.result, c.inferredTy, Vector(blockElem), None, span)
           case Some(CST.Symbol("let", _)) =>
@@ -150,6 +150,7 @@ object ElaboratorBlocks:
       if isDefStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("def statement not allowed in tail position", t.span))
       if isLetStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("let statement not allowed in tail position", t.span))
       if isRecordStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("record statement not allowed in tail position", t.span))
+      if isImportStatement(t) then ctx.reporter.report(ElabProblem.UnboundVariable("import statement not allowed in tail position", t.span))
       if isEnumStatement(t) then
         ctx.reporter.report(ElabProblem.UnboundVariable("enum/coenum statement not allowed in tail position; terminate with ';'", t.span))
     }
@@ -225,6 +226,68 @@ object ElaboratorBlocks:
       val elemType = module.newOnceCell[ElabConstraint, AST](solver)
 
       elem match
+        case CST.SeqOf(seqElems, span) if seqElems.toVector.headOption.exists { case CST.Symbol("import", _) => true; case _ => false } =>
+          val elems = seqElems.toVector
+
+          def parsedImport: Option[(JSImportKind, String, String)] = {
+            // Supported forms:
+            // - import x from "mod"
+            // - import * as x from "mod"
+            elems match
+              case Vector(_, CST.Symbol("*", _), CST.Symbol("as", _), CST.Symbol(local, _), CST.Symbol("from", _), CST.StringLiteral(mod, _)) =>
+                Some((JSImportKind.Namespace, local, mod))
+              case Vector(_, CST.Symbol(local, _), CST.Symbol("from", _), CST.StringLiteral(mod, _)) =>
+                Some((JSImportKind.Namespace, local, mod))
+              case Vector(_, CST.Symbol(local, _), CST.StringLiteral(mod, _)) =>
+                // Shorthand: import x "mod"
+                Some((JSImportKind.Namespace, local, mod))
+              case _ => None
+          }
+
+          parsedImport match
+            case Some((kind, localName, modulePath)) =>
+              val normalizedModule = JSImportSignature.normalizeModuleSpecifier(modulePath)
+              val sig = currentCtx.jsImports
+                .get(normalizedModule)
+                .orElse(currentCtx.jsImports.get(modulePath))
+                .getOrElse(JSImportSignature(Vector.empty, kind))
+
+              val recordName = JSImportSignature.recordTypeNameFor(normalizedModule)
+              val recordFields = JSImportSignature.freshenParams(sig.fields)
+
+              val (recordId, recordStmtOpt, ctxWithRecord) =
+                currentCtx.lookupRecord(recordName) match
+                  case Some(defn) =>
+                    val updated = currentCtx.updateRecord(recordName, recordFields)
+                    (defn.id, None, updated)
+                  case None =>
+                    val recId = Uniqid.make[AST]
+                    val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+                    val placeholderCtx = currentCtx.registerRecordPlaceholder(recordName, recId, ctorTyCell).updateRecord(recordName, recordFields)
+                    val ctorType = AST.Pi(
+                      Vector(Telescope(recordFields, Implicitness.Explicit)),
+                      AST.RecordTypeRef(recId, recordName, span),
+                      Vector.empty,
+                      span
+                    )
+                    module.fill(solver, ctorTyCell, ctorType)
+                    (recId, Some(StmtAST.Record(recId, recordName, recordFields, span)), placeholderCtx)
+
+              val localId = Uniqid.make[AST]
+              val localTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+              val localTy = AST.RecordTypeRef(recordId, recordName, span)
+              module.fill(solver, localTyCell, localTy)
+              currentCtx = ctxWithRecord.bind(localName, localId, localTyCell)
+
+              recordStmtOpt.foreach(elaboratedElemsBuffer += _)
+              elaboratedElemsBuffer += StmtAST.JSImport(localId, localName, modulePath, kind, localTy, span)
+              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+            case None =>
+              currentCtx.reporter.report(ElabProblem.UnboundVariable("Unsupported import syntax", span))
+              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+              elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), span), span)
         case CST.SeqOf(seqElems, _) if seqElems.toVector.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
           val elems = seqElems.toVector
           val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, currentCtx)
@@ -336,6 +399,11 @@ object ElaboratorBlocks:
   private def isRecordStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>
       elements.toVector.headOption.exists { case CST.Symbol("record", _) => true; case _ => false }
+    case _ => false
+
+  private def isImportStatement(cst: CST): Boolean = cst match
+    case CST.SeqOf(elements, _) =>
+      elements.toVector.headOption.exists { case CST.Symbol("import", _) => true; case _ => false }
     case _ => false
   private def isEnumStatement(cst: CST): Boolean = cst match
     case CST.SeqOf(elements, _) =>

@@ -44,6 +44,7 @@ case class ElabContext(
     types: Map[UniqidOf[AST], CellRW[AST]], // Variable ID -> type cell mapping
     defBodies: Map[UniqidOf[AST], CellRW[AST]] = Map.empty, // Definition ID -> AST cell mapping
     effects: Map[String, EffectRef] = ElabContext.defaultEffects, // Declared effects
+    jsImports: Map[String, JSImportSignature] = Map.empty, // JSImport (module path) -> signature
     recordsByName: Map[String, ElabContext.RecordDef] = Map.empty,
     recordsById: Map[UniqidOf[AST], ElabContext.RecordDef] = Map.empty,
     enumsByName: Map[String, ElabContext.EnumDef] = Map.empty,
@@ -342,6 +343,8 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST = {
 private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST], AST]): StmtAST = stmt match
   case StmtAST.ExprStmt(expr, span) =>
     StmtAST.ExprStmt(substituteInType(expr, substitutions), span)
+  case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
+    StmtAST.JSImport(id, localName, modulePath, kind, substituteInType(ty, substitutions), span)
   case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
     val newTelescopes = telescopes.map { tel =>
       Telescope(
@@ -785,6 +788,16 @@ object ElabHandler extends Handler[ElabConstraint]:
                 )
                 val metaId = Uniqid.make[AST]
                 val ast = AST.Ref(metaId, "record", span)
+                module.fill(solver, c.result, ast)
+                val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
+                module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
+                Result.Done
+              case Some(CST.Symbol("import", _)) =>
+                c.ctx.reporter.report(
+                  ElabProblem.UnboundVariable("import statement only allowed in block elements, not in expression position", span)
+                )
+                val metaId = Uniqid.make[AST]
+                val ast = AST.Ref(metaId, "import", span)
                 module.fill(solver, c.result, ast)
                 val metaTy = module.newOnceCell[ElabConstraint, AST](solver)
                 module.fill(solver, c.inferredTy, AST.MetaCell(HoldNotReadable(metaTy), span))
@@ -2234,6 +2247,7 @@ private def occursIn[M <: SolverModule](
 private def occursInStmt[M <: SolverModule](cell: Any, stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): Boolean = {
   stmt match
     case StmtAST.ExprStmt(expr, _) => occursIn(cell, expr)
+    case StmtAST.JSImport(_, _, _, _, ty, _) => occursIn(cell, ty)
     case StmtAST.Def(_, _, teles, resTy, body, _) =>
       teles.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || resTy.exists(occursIn(cell, _)) || occursIn(cell, body)
     case StmtAST.Record(_, _, fields, _) =>
@@ -2351,6 +2365,7 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
       def firstUnresolvedStmt(stmt: StmtAST): Option[module.CellAny] = {
         stmt match
           case StmtAST.ExprStmt(expr, _) => firstUnresolved(expr)
+          case StmtAST.JSImport(_, _, _, _, ty, _) => firstUnresolved(ty)
           case StmtAST.Def(_, _, teles, resTy, body, _) =>
             teles.iterator
               .flatMap(_.params.iterator)
@@ -2616,6 +2631,7 @@ private def handleAssembleDef[M <: SolverModule](c: ElabConstraint.AssembleDef)(
 
   def gatherEffectsStmt(stmt: StmtAST): Set[EffectRef] = stmt match
     case StmtAST.ExprStmt(expr, _) => gatherEffects(expr)
+    case StmtAST.JSImport(_, _, _, _, ty, _) => gatherEffects(ty)
     case StmtAST.Def(_, _, teles, resTy, body, _) =>
       teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(
         body
@@ -2781,6 +2797,8 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
 private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): StmtAST = {
   stmt match
     case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteSolutions(expr), span)
+    case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
+      StmtAST.JSImport(id, localName, modulePath, kind, substituteSolutions(ty), span)
     case StmtAST.Def(id, name, teles, resTy, body, span) =>
       val newTeles =
         teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))

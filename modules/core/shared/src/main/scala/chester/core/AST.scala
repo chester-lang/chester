@@ -98,6 +98,14 @@ given [T]: ReadWriter[HoldNotReadable[T]] = holdNotReadableRW.asInstanceOf[ReadW
 
 enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOptional derives ReadWriter:
   case ExprStmt(expr: AST, override val span: Option[Span]) extends StmtAST(span)
+  case JSImport(
+      id: UniqidOf[AST],
+      localName: String,
+      modulePath: String,
+      kind: JSImportKind,
+      ty: AST,
+      override val span: Option[Span]
+  ) extends StmtAST(span)
   case Def(id: UniqidOf[AST], name: String, telescopes: Vector[Telescope], resultTy: Option[AST], body: AST, override val span: Option[Span])
       extends StmtAST(span)
   case Record(id: UniqidOf[AST], name: String, fields: Vector[Param], override val span: Option[Span]) extends StmtAST(span)
@@ -109,6 +117,11 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
 
   def toDoc(using options: DocConf): Doc = this match
     case StmtAST.ExprStmt(expr, _) => expr.toDoc
+    case StmtAST.JSImport(_, localName, modulePath, kind, _, _) =>
+      val importDoc = kind match
+        case JSImportKind.Namespace => text("* as ") <> text(localName)
+        case JSImportKind.Default   => text(localName)
+      text("import") <+> importDoc <+> text("from") <+> text("\"") <> text(modulePath) <> text("\"")
     case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
@@ -218,6 +231,9 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
   def collectUniqids(collector: UniqidCollector): Unit = this match
     case StmtAST.ExprStmt(expr, _) =>
       expr.collectUniqids(collector)
+    case StmtAST.JSImport(id, _, _, _, ty, _) =>
+      collector(id)
+      ty.collectUniqids(collector)
     case StmtAST.Def(id, _, telescopes, resultTy, body, _) =>
       collector(id)
       telescopes.foreach(_.collectUniqids(collector))
@@ -240,6 +256,8 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
   def mapUniqids(mapper: UniqidReplacer): StmtAST = this match
     case StmtAST.ExprStmt(expr, span) =>
       StmtAST.ExprStmt(expr.mapUniqids(mapper), span)
+    case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
+      StmtAST.JSImport(mapper(id), localName, modulePath, kind, ty.mapUniqids(mapper), span)
     case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
       StmtAST.Def(
         mapper(id),
@@ -274,6 +292,10 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       )
     case StmtAST.Pkg(name, body, span) =>
       StmtAST.Pkg(name, body.mapUniqids(mapper), span)
+
+enum JSImportKind derives ReadWriter:
+  case Namespace
+  case Default
 
 enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOptional derives ReadWriter:
   case Ref(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)

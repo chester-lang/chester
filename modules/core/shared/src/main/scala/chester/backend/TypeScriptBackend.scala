@@ -7,6 +7,7 @@ import chester.error.Span
 import chester.syntax.{
   CatchClause as TSCatchClause,
   EnumMember as TSEnumMember,
+  ImportSpecifier as TSImportSpecifier,
   InterfaceMember as TSInterfaceMember,
   InterfaceMemberType as TSInterfaceMemberType,
   Modifier as TSModifier,
@@ -51,6 +52,12 @@ object TypeScriptBackend:
       case StmtAST.ExprStmt(expr, _) =>
         Vector(TypeScriptAST.ExpressionStatement(lowerExpr(expr, config), stmt.span))
 
+      case StmtAST.JSImport(_, localName, modulePath, kind, _, span) =>
+        val spec = kind match
+          case chester.core.JSImportKind.Namespace => TSImportSpecifier.Namespace(localName, span)
+          case chester.core.JSImportKind.Default   => TSImportSpecifier.Default(localName, span)
+        Vector(TypeScriptAST.ImportDeclaration(Vector(spec), modulePath, stmt.span))
+
       case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         val retTy = resultTy.map(t => lowerType(t, config))
@@ -81,7 +88,11 @@ object TypeScriptBackend:
 
       case StmtAST.Pkg(name, body, span) =>
         val inner = lowerAsStatements(body, config, topLevel = true)
-        Vector(TypeScriptAST.NamespaceDeclaration(name, inner, span))
+        val (imports, rest) = inner.partition {
+          case _: TypeScriptAST.ImportDeclaration => true
+          case _                                  => false
+        }
+        (imports ++ Vector(TypeScriptAST.NamespaceDeclaration(name, rest, span))).toVector
   }
 
   /** Lower a block-like AST into a list of statements, appending a return for the tail when necessary. */

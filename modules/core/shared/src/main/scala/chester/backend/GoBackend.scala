@@ -26,6 +26,10 @@ object GoBackend:
       case StmtAST.ExprStmt(expr, span) =>
         (packageName, Vector(GoAST.ExprStmt(lowerExpr(expr, config), span)))
 
+      case StmtAST.JSImport(_, _, _, _, _, _) =>
+        // JSImport is a JS/TS-only construct; ignore when lowering to Go.
+        (packageName, Vector.empty)
+
       case StmtAST.Def(_, name, telescopes, resultTy, body, span) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         val results = resultTy.map(t => Vector(lowerResultField(t, config))).getOrElse(Vector.empty)
