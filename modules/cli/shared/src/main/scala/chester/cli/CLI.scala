@@ -9,8 +9,9 @@ import chester.backend.TypeScriptBackend
 import chester.tyck.{CoreTypeChecker, ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, substituteSolutions}
 import chester.error.VectorReporter
 import chester.interop.typescript.TypeScriptToChester
+import chester.interop.golang.GoToChester
 import chester.syntax.TypeScriptDeclParser
-import chester.tyck.{JSImportSignature, JSImportSignature as JSImportSupport}
+import chester.tyck.{JSImportSignature, JSImportSignature as JSImportSupport, GoImportSignature}
 import chester.transform.EffectCPS
 import chester.utils.doc.DocConf
 import chester.utils.elab.ProceduralSolverModule
@@ -47,7 +48,11 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     problems.map(p => p.renderDoc(using summon[DocConf], reader).toString)
   }
 
-  private def analyze(source: Source, jsImports: Map[String, JSImportSignature] = Map.empty): Either[Seq[String], (AST, Option[AST])] = {
+  private def analyze(
+      source: Source,
+      jsImports: Map[String, JSImportSignature] = Map.empty,
+      goImports: Map[String, GoImportSignature] = Map.empty
+  ): Either[Seq[String], (AST, Option[AST])] = {
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
 
@@ -68,7 +73,9 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
           val solver = module.makeSolver[ElabConstraint](new ElabHandlerConf(module))
           val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
           val tyCell = module.newOnceCell[ElabConstraint, AST](solver)
-          val ctx = ElabContext(bindings = Map.empty, types = Map.empty, jsImports = jsImports, reporter = elabReporter)
+          // Merge Go imports into jsImports for now (both use similar Param-based signatures)
+          val allImports = jsImports ++ goImports.map { case (k, v) => (k, JSImportSignature(v.fields)) }
+          val ctx = ElabContext(bindings = Map.empty, types = Map.empty, jsImports = allImports, reporter = elabReporter)
 
           module.addConstraint(solver, ElabConstraint.InferTopLevel(cst, resultCell, tyCell, ctx))
           module.run(solver)
@@ -544,6 +551,22 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
 
   private def encodeNpmRegistryPath(pkgName: String): String =
     if pkgName.startsWith("@") then pkgName.replace("/", "%2F") else pkgName
+
+  // Go import support (stub for future implementation)
+  // To enable: build tools/go-type-extractor and ensure Go toolchain is available
+  private def resolveGoImportSignatures(source: Source, content: String): F[Map[String, GoImportSignature]] = {
+    // TODO: Uncomment when Go toolchain integration is needed
+    // val specifiers = extractGoImportSpecifiers(source).getOrElse(Set.empty)
+    // if (specifiers.nonEmpty) {
+    //   // Call go-type-extractor utility
+    //   ...
+    // }
+    Runner.pure(Map.empty)
+  }
+
+  private def extractGoImportSpecifiers(source: Source): Option[Set[String]] = {
+    extractJSImportSpecifiers(source).map(_.filter(_.startsWith("go:")))
+  }
 
   def run(config: Config): F[Unit] = config match {
     case Config.Version =>
