@@ -13,7 +13,15 @@ import chester.uniqid.Uniqid
   */
 object GoToChester:
 
-  /** Generate a GoImportSignature from JSON output of the go-type-extractor utility. */
+  /** Generate a GoImportSignature from Go source code (using portable Scala parser). */
+  def fromGoSource(goSource: String, sourceRef: chester.reader.Source, packagePath: String): GoImportSignature = {
+    import chester.syntax.GoDeclParser
+    val json = GoDeclParser.parse(goSource, sourceRef)
+    val jsonStr = ujson.write(json)
+    packageSignature(jsonStr, packagePath)
+  }
+
+  /** Generate a GoImportSignature from JSON output (legacy format from go-type-extractor).  */
   def packageSignature(jsonOutput: String, packagePath: String): GoImportSignature = {
     val parsed = ujson.read(jsonOutput)
     val exports = extractExports(parsed)
