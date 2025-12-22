@@ -88,6 +88,9 @@ export default function HomePage() {
             <Link className="btn secondary" href="/repl">
               Open full REPL
             </Link>
+            <Link className="btn secondary" href="/docs/">
+              Read Documentation
+            </Link>
           </div>
         </div>
 

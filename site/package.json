@@ -5,10 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:full": "../scripts/build-docs.sh && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "docs:build": "cd ../docs && ./dev.sh build-all",
+    "docs:serve": "cd ../docs && ./dev.sh serve",
+    "docs:update-translations": "cd ../docs && ./dev.sh update"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

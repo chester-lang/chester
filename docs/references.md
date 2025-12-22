@@ -1,0 +1,1 @@
+https://github.com/rust-lang/mdBook/pull/2286/files

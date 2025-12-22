@@ -176,6 +176,21 @@ lazy val site = project
     }
   )
 
+lazy val docsRepl = project
+  .in(file("docs/js"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(cliJS)
+  .settings(
+    commonSettings,
+    name := "chester-docs-repl",
+    scalaJSUseMainModuleInitializer := false,
+    Compile / scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+        .withOutputPatterns(OutputPatterns.fromJSFile("main.js"))
+        .withSourceMap(true)
+    }
+  )
+
 // Root project
 lazy val root = project
   .in(file("."))
@@ -199,7 +214,8 @@ lazy val root = project
     cliNative,
     lspJVM,
     intellijPlugin,
-    site
+    site,
+    docsRepl
   )
   .settings(
     name := "chester",
