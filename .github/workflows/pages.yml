@@ -61,6 +61,26 @@ jobs:
       - name: Build Scala.js REPL bundle
         run: sbt --batch "webRepl/copyWebRepl"
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mdbook
+        run: cargo install mdbook --version ^0.4
+
+      - name: Build Chester REPL for Docs
+        run: sbt --batch "docsRepl/fullLinkJS"
+
+      - name: Build Documentation
+        run: |
+          cd docs
+          ./dev.sh build
+          cd ..
+
+      - name: Copy Documentation to Site
+        run: |
+          mkdir -p site/public/docs
+          cp -r docs/book/* site/public/docs/
+
       - name: Install site dependencies
         run: pnpm install --frozen-lockfile
         working-directory: site
