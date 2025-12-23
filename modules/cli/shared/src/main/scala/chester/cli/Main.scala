@@ -15,7 +15,8 @@ object Main {
        |  $progName [run] [file]                 Start the REPL or type-check a file
        |  $progName compile <file> [--output <path>]  Type-check and emit the elaborated AST
        |  $progName ts <file|dir> [--output <path>]   Type-check and emit TypeScript for a file or directory
-       |  $progName go <file|dir> [--output <path>]   Type-check and emit Go for a file or directory
+       |  $progName go <file|dir> [--output <path>] [--go-sigs <file>]  Type-check and emit Go for a file or directory
+       |  $progName go-extract <packages...> [--output <file>]  Extract Go package type signatures
        |  $progName format <file>                Format a Chester source file in-place
        |  $progName version                      Show version information
        |  $progName help                         Show this help message
@@ -48,6 +49,8 @@ object Main {
       parseCompileTS(rest)
     case "go" :: rest =>
       parseCompileGo(rest)
+    case "go-extract" :: rest =>
+      parseExtractGoTypes(rest)
     case "format" :: rest =>
       parseFormat(rest)
     case head :: Nil if !head.startsWith("-") =>
@@ -112,23 +115,44 @@ object Main {
   }
 
   private def parseCompileGo(args: List[String]): Either[String, Config] = {
-    def loop(rest: List[String], output: Option[String], input: Option[String]): Either[String, Config] = rest match
+    def loop(rest: List[String], output: Option[String], input: Option[String], goSigs: Option[String]): Either[String, Config] = rest match
       case Nil =>
         input match
-          case Some(in) => Right(Config.CompileGo(in, output))
+          case Some(in) => Right(Config.CompileGo(in, output, goSigs))
           case None     => Left("go requires an input file or directory")
       case ("--output" | "-o") :: value :: tail =>
-        loop(tail, Some(value), input)
+        loop(tail, Some(value), input, goSigs)
       case ("--output" | "-o") :: Nil =>
         Left("go option --output requires a value")
+      case "--go-sigs" :: value :: tail =>
+        loop(tail, output, input, Some(value))
+      case "--go-sigs" :: Nil =>
+        Left("go option --go-sigs requires a value")
       case opt :: _ if opt.startsWith("-") =>
         Left(s"Unknown go option: $opt")
       case value :: tail =>
         input match
-          case None    => loop(tail, output, Some(value))
+          case None    => loop(tail, output, Some(value), goSigs)
           case Some(_) => Left("go accepts only one input path")
 
-    loop(args, output = None, input = None)
+    loop(args, output = None, input = None, goSigs = None)
+  }
+
+  private def parseExtractGoTypes(args: List[String]): Either[String, Config] = {
+    def loop(rest: List[String], output: Option[String], packages: Vector[String]): Either[String, Config] = rest match
+      case Nil =>
+        if packages.isEmpty then Left("go-extract requires at least one package name")
+        else Right(Config.ExtractGoTypes(packages, output))
+      case ("--output" | "-o") :: value :: tail =>
+        loop(tail, Some(value), packages)
+      case ("--output" | "-o") :: Nil =>
+        Left("go-extract option --output requires a value")
+      case opt :: _ if opt.startsWith("-") =>
+        Left(s"Unknown go-extract option: $opt")
+      case value :: tail =>
+        loop(tail, output, packages :+ value)
+
+    loop(args, output = None, packages = Vector.empty)
   }
 
   private def parseFormat(args: List[String]): Either[String, Config] = args match {

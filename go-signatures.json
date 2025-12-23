@@ -1,0 +1,32 @@
+{
+  "packages": {
+    "fmt": {
+      "functions": {
+      "Sprintln": { "type": "Function" },
+      "Fprint": { "type": "Function" },
+      "Sscanf": { "type": "Function" },
+      "Scanln": { "type": "Function" },
+      "Sscanln": { "type": "Function" },
+      "Println": { "type": "Function" },
+      "Printf": { "type": "Function" },
+      "Sscan": { "type": "Function" },
+      "Sprint": { "type": "Function" },
+      "Fscanf": { "type": "Function" },
+      "Sprintf": { "type": "Function" },
+      "Append": { "type": "Function" },
+      "Fscanln": { "type": "Function" },
+      "Errorf": { "type": "Function" },
+      "Fprintf": { "type": "Function" },
+      "Print": { "type": "Function" },
+      "Fprintln": { "type": "Function" },
+      "Scanf": { "type": "Function" },
+      "FormatString": { "type": "Function" },
+      "Fscan": { "type": "Function" },
+      "Scan": { "type": "Function" },
+      "Appendf": { "type": "Function" },
+      "String": { "type": "Function" },
+      "Appendln": { "type": "Function" }
+      }
+    }
+  }
+}

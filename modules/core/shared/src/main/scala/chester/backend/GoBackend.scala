@@ -3,7 +3,7 @@ package chester.backend
 import scala.language.experimental.genericNumberLiterals
 
 import chester.core.{AST, EnumCase, Param, StmtAST, Telescope}
-import chester.syntax.{GoAST, GoCompositeElement, GoField, GoType, GoTypeParam, GoTypeSpec, GoValueDeclKind, GoValueSpec}
+import chester.syntax.{GoAST, GoCompositeElement, GoField, GoImportSpec, GoType, GoTypeParam, GoTypeSpec, GoValueDeclKind, GoValueSpec}
 import chester.transform.EffectCPS
 
 /** Backend lowering from Chester core `AST` into a lightweight Go AST for code generation. */
@@ -17,7 +17,63 @@ object GoBackend:
   /** Entry point: lower a Chester AST into a Go file. */
   def lowerProgram(ast: AST, config: Config = Config(), packageName: String = "main"): GoAST.File = {
     val (pkg, decls) = lowerAsDeclarations(ast, config, packageName, topLevel = true)
-    GoAST.File(pkg, Vector.empty, decls, ast.span)
+    
+    // Separate type/function declarations from executable statements
+    val (typeFuncDecls, execStmts) = decls.partition {
+      case _: GoAST.TypeDecl | _: GoAST.FuncDecl | _: GoAST.ValueDecl => true
+      case _ => false
+    }
+    
+    // If there are executable statements (returns, expr stmts), wrap them in main()
+    val allDecls = if (execStmts.nonEmpty) {
+      // Convert return statements to expression statements or println for main()
+      val mainStmts = execStmts.map {
+        case GoAST.Return(Vector(expr), span) =>
+          // For non-unit returns, print the result using fmt.Println
+          expr match {
+            case GoAST.NilLiteral(_) | GoAST.CompositeLiteral(_, Vector(), _) =>
+              // Unit value - just ignore
+              GoAST.ExprStmt(expr, span)
+            case _ =>
+              // Non-unit value - print it
+              val fmtPrintln = GoAST.Selector(GoAST.Identifier("fmt", span), "Println", span)
+              GoAST.ExprStmt(GoAST.Call(fmtPrintln, Vector(expr), span), span)
+          }
+        case other => other
+      }
+      
+      val mainBody = GoAST.Block(mainStmts.toVector, ast.span)
+      val mainFunc = GoAST.FuncDecl(
+        name = "main",
+        typeParams = Vector.empty,
+        params = Vector.empty,
+        results = Vector.empty,
+        body = Some(mainBody),
+        receiver = None,
+        span = ast.span
+      )
+      typeFuncDecls :+ mainFunc
+    } else {
+      typeFuncDecls
+    }
+    
+    // Check if we need to import fmt (if we're printing results)
+    val needsFmt = execStmts.exists {
+      case GoAST.Return(Vector(expr), _) =>
+        expr match {
+          case GoAST.NilLiteral(_) | GoAST.CompositeLiteral(_, Vector(), _) => false
+          case _ => true
+        }
+      case _ => false
+    }
+    
+    val imports = if (needsFmt) {
+      Vector(GoImportSpec(None, "fmt", ast.span))
+    } else {
+      Vector.empty
+    }
+    
+    GoAST.File(pkg, imports, allDecls.toVector, ast.span)
   }
 
   /** Lower a Chester statement into zero or more Go declarations/statements. */
@@ -148,13 +204,8 @@ object GoBackend:
       case AST.Let(_, name, _, value, body, span) =>
         val valueExpr = lowerExpr(value, config)
         val assign = GoAST.Assign(Vector(GoAST.Identifier(name, span)), Vector(valueExpr), ":=", span)
-        val block = GoAST.Block(
-          Vector(
-            assign,
-            GoAST.Return(Vector(lowerExpr(body, config)), body.span)
-          ),
-          span
-        )
+        val bodyExpr = lowerExpr(body, config)
+        val block = GoAST.Block(Vector(assign, GoAST.ExprStmt(bodyExpr, span)), span)
         GoAST.Call(GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector.empty, block, span), Vector.empty, span)
 
       case AST.Ann(expr, _, _) =>
@@ -183,11 +234,20 @@ object GoBackend:
         val ctor = GoAST.Selector(GoAST.Identifier(enumName, span), caseName, span)
         GoAST.Call(ctor, args.map(a => lowerExpr(a, config)), span)
 
-      // Blocks become IIFEs to preserve expression-ness
+      // Blocks become IIFEs only when they have statements; otherwise just return the tail
       case AST.Block(elems, tail, span) =>
         val stmts = elems.flatMap(lowerStmt(_, config, "main")._2)
-        val ret = GoAST.Return(Vector(lowerExpr(tail, config)), tail.span)
-        GoAST.Call(GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector.empty, GoAST.Block((stmts :+ ret).toVector, span), span), Vector.empty, span)
+        if (stmts.isEmpty) {
+          // No statements, just return the tail expression directly
+          lowerExpr(tail, config)
+        } else {
+          // Has statements, need IIFE to execute them
+          val tailExpr = lowerExpr(tail, config)
+          val block = GoAST.Block((stmts :+ GoAST.Return(Vector(tailExpr), span)).toVector, span)
+          // Create IIFE without explicit return type (Go will infer it)
+          val iife = GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector.empty, block, span)
+          GoAST.Call(iife, Vector.empty, span)
+        }
 
       // Fallback
       case _ =>

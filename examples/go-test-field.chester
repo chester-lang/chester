@@ -1,0 +1,4 @@
+// Test simple field access without function call
+import go "fmt";
+
+go.fmt

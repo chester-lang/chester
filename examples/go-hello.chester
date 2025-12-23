@@ -1,8 +1,6 @@
-// Simple hello example without Go imports
-// Demonstrates pure Chester code compilation to Go
+// Go FFI hello example with proper imports
+// Uses Go's fmt package
 
-def getMessage(): String = {
-  "Hello from Chester compiled to Go!"
-};
+import go "fmt";
 
-getMessage()
+go.fmt.Printf("Hello from Chester with Go FFI!\n")

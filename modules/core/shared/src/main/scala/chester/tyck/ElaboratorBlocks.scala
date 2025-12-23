@@ -233,56 +233,140 @@ object ElaboratorBlocks:
             // Supported forms:
             // - import x from "mod"
             // - import * as x from "mod"
+            // - import x "mod"  (shorthand)
+            // - import go "pkg"  (Go package import)
             elems match
               case Vector(_, CST.Symbol("*", _), CST.Symbol("as", _), CST.Symbol(local, _), CST.Symbol("from", _), CST.StringLiteral(mod, _)) =>
                 Some((JSImportKind.Namespace, local, mod))
               case Vector(_, CST.Symbol(local, _), CST.Symbol("from", _), CST.StringLiteral(mod, _)) =>
                 Some((JSImportKind.Namespace, local, mod))
               case Vector(_, CST.Symbol(local, _), CST.StringLiteral(mod, _)) =>
-                // Shorthand: import x "mod"
+                // Shorthand: import x "mod" or import go "pkg"
                 Some((JSImportKind.Namespace, local, mod))
               case _ => None
           }
 
           parsedImport match
             case Some((kind, localName, modulePath)) =>
-              val normalizedModule = JSImportSignature.normalizeModuleSpecifier(modulePath)
-              val sig = currentCtx.jsImports
-                .get(normalizedModule)
-                .orElse(currentCtx.jsImports.get(modulePath))
-                .getOrElse(JSImportSignature(Vector.empty, kind))
+              // Detect if this is a Go import by checking if localName is "go"
+              val isGoImport = localName == "go"
+              
+              if isGoImport then {
+                // Handle Go package import with nested structure
+                // For `import go "fmt"`, create: go.fmt.Printf, go.fmt.Println, etc.
+                val normalizedPkg = GoImportSignature.normalizePackagePath(modulePath)
+                val goSig = currentCtx.jsImports  // Go imports are merged into jsImports in CLI
+                  .get(normalizedPkg)
+                  .orElse(currentCtx.jsImports.get(modulePath))
+                  .map(jsSig => GoImportSignature(jsSig.fields, normalizedPkg))
+                  .getOrElse {
+                    // Create placeholder with empty fields if package not found
+                    GoImportSignature(Vector.empty, normalizedPkg)
+                  }
 
-              val recordName = JSImportSignature.recordTypeNameFor(normalizedModule)
-              val recordFields = JSImportSignature.freshenParams(sig.fields)
+                // Create the package record (e.g., GoImport_fmt) with function fields
+                val packageRecordName = GoImportSignature.recordTypeNameFor(normalizedPkg)
+                val packageFields = GoImportSignature.freshenParams(goSig.fields)
 
-              val (recordId, recordStmtOpt, ctxWithRecord) =
-                currentCtx.lookupRecord(recordName) match
-                  case Some(defn) =>
-                    val updated = currentCtx.updateRecord(recordName, recordFields)
-                    (defn.id, None, updated)
-                  case None =>
-                    val recId = Uniqid.make[AST]
-                    val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-                    val placeholderCtx = currentCtx.registerRecordPlaceholder(recordName, recId, ctorTyCell).updateRecord(recordName, recordFields)
-                    val ctorType = AST.Pi(
-                      Vector(Telescope(recordFields, Implicitness.Explicit)),
-                      AST.RecordTypeRef(recId, recordName, span),
-                      Vector.empty,
-                      span
-                    )
-                    module.fill(solver, ctorTyCell, ctorType)
-                    (recId, Some(StmtAST.Record(recId, recordName, recordFields, span)), placeholderCtx)
+                val (packageRecordId, packageRecordStmtOpt, ctxWithPackageRecord) =
+                  currentCtx.lookupRecord(packageRecordName) match
+                    case Some(defn) =>
+                      val updated = currentCtx.updateRecord(packageRecordName, packageFields)
+                      (defn.id, None, updated)
+                    case None =>
+                      val recId = Uniqid.make[AST]
+                      val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+                      val placeholderCtx = currentCtx.registerRecordPlaceholder(packageRecordName, recId, ctorTyCell).updateRecord(packageRecordName, packageFields)
+                      val ctorType = AST.Pi(
+                        Vector(Telescope(packageFields, Implicitness.Explicit)),
+                        AST.RecordTypeRef(recId, packageRecordName, span),
+                        Vector.empty,
+                        span
+                      )
+                      module.fill(solver, ctorTyCell, ctorType)
+                      (recId, Some(StmtAST.Record(recId, packageRecordName, packageFields, span)), placeholderCtx)
 
-              val localId = Uniqid.make[AST]
-              val localTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-              val localTy = AST.RecordTypeRef(recordId, recordName, span)
-              module.fill(solver, localTyCell, localTy)
-              currentCtx = ctxWithRecord.bind(localName, localId, localTyCell)
+                // Now create the wrapper record for `go` with a field for the package
+                // This allows `go.fmt.Printf` to work
+                val packageName = modulePath.split('/').lastOption.getOrElse(modulePath).replace(".", "_")
+                val wrapperRecordName = s"GoImport_$localName"
+                val wrapperField = Param(
+                  Uniqid.make[AST],
+                  packageName, // "fmt"
+                  AST.RecordTypeRef(packageRecordId, packageRecordName, span),
+                  Implicitness.Explicit,
+                  None
+                )
 
-              recordStmtOpt.foreach(elaboratedElemsBuffer += _)
-              elaboratedElemsBuffer += StmtAST.JSImport(localId, localName, modulePath, kind, localTy, span)
-              module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
-              module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+                val (wrapperRecordId, wrapperRecordStmtOpt, ctxWithWrapperRecord) =
+                  ctxWithPackageRecord.lookupRecord(wrapperRecordName) match
+                    case Some(defn) =>
+                      val updated = ctxWithPackageRecord.updateRecord(wrapperRecordName, Vector(wrapperField))
+                      (defn.id, None, updated)
+                    case None =>
+                      val recId = Uniqid.make[AST]
+                      val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+                      val placeholderCtx = ctxWithPackageRecord.registerRecordPlaceholder(wrapperRecordName, recId, ctorTyCell).updateRecord(wrapperRecordName, Vector(wrapperField))
+                      val ctorType = AST.Pi(
+                        Vector(Telescope(Vector(wrapperField), Implicitness.Explicit)),
+                        AST.RecordTypeRef(recId, wrapperRecordName, span),
+                        Vector.empty,
+                        span
+                      )
+                      module.fill(solver, ctorTyCell, ctorType)
+                      (recId, Some(StmtAST.Record(recId, wrapperRecordName, Vector(wrapperField), span)), placeholderCtx)
+
+                val localId = Uniqid.make[AST]
+                val localTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+                val localTy = AST.RecordTypeRef(wrapperRecordId, wrapperRecordName, span)
+                module.fill(solver, localTyCell, localTy)
+                currentCtx = ctxWithWrapperRecord.bind(localName, localId, localTyCell)
+
+                packageRecordStmtOpt.foreach(elaboratedElemsBuffer += _)
+                wrapperRecordStmtOpt.foreach(elaboratedElemsBuffer += _)
+                elaboratedElemsBuffer += StmtAST.JSImport(localId, localName, modulePath, kind, localTy, span)
+                module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+                module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+              } else {
+                // Handle JS/TS import (existing logic)
+                val normalizedModule = JSImportSignature.normalizeModuleSpecifier(modulePath)
+                val sig = currentCtx.jsImports
+                  .get(normalizedModule)
+                  .orElse(currentCtx.jsImports.get(modulePath))
+                  .getOrElse(JSImportSignature(Vector.empty, kind))
+
+                val recordName = JSImportSignature.recordTypeNameFor(normalizedModule)
+                val recordFields = JSImportSignature.freshenParams(sig.fields)
+
+                val (recordId, recordStmtOpt, ctxWithRecord) =
+                  currentCtx.lookupRecord(recordName) match
+                    case Some(defn) =>
+                      val updated = currentCtx.updateRecord(recordName, recordFields)
+                      (defn.id, None, updated)
+                    case None =>
+                      val recId = Uniqid.make[AST]
+                      val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+                      val placeholderCtx = currentCtx.registerRecordPlaceholder(recordName, recId, ctorTyCell).updateRecord(recordName, recordFields)
+                      val ctorType = AST.Pi(
+                        Vector(Telescope(recordFields, Implicitness.Explicit)),
+                        AST.RecordTypeRef(recId, recordName, span),
+                        Vector.empty,
+                        span
+                      )
+                      module.fill(solver, ctorTyCell, ctorType)
+                      (recId, Some(StmtAST.Record(recId, recordName, recordFields, span)), placeholderCtx)
+
+                val localId = Uniqid.make[AST]
+                val localTyCell = module.newOnceCell[ElabConstraint, AST](solver)
+                val localTy = AST.RecordTypeRef(recordId, recordName, span)
+                module.fill(solver, localTyCell, localTy)
+                currentCtx = ctxWithRecord.bind(localName, localId, localTyCell)
+
+                recordStmtOpt.foreach(elaboratedElemsBuffer += _)
+                elaboratedElemsBuffer += StmtAST.JSImport(localId, localName, modulePath, kind, localTy, span)
+                module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
+                module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+              }
             case None =>
               currentCtx.reporter.report(ElabProblem.UnboundVariable("Unsupported import syntax", span))
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))

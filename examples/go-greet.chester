@@ -1,8 +1,9 @@
-// Greeting function example
-// Pure Chester without effects
+// Go FFI greet example with effects
 
-def greet(name: String): String = {
-  "Hello, " + name + "!"
+import go "fmt";
+
+def greet(name: String): Unit / io = {
+  go.fmt.Printf("Hello, %s!\n", name)
 };
 
-greet("Chester")
+greet("Chester from Go FFI")

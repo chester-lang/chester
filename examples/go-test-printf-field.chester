@@ -1,0 +1,4 @@
+// Test accessing Printf function field
+import go "fmt";
+
+go.fmt.Printf
