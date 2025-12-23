@@ -1,6 +1,8 @@
-// Simple Go FFI example - file level syntax
+// Simple hello example without Go imports
+// Demonstrates pure Chester code compilation to Go
 
-import go "fmt";
+def getMessage(): String = {
+  "Hello from Chester compiled to Go!"
+};
 
-// Direct Printf call  
-go.fmt.Printf("Hello from Chester compiled to Go!\n")
+getMessage()
