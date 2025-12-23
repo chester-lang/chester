@@ -17,13 +17,13 @@ object GoBackend:
   /** Entry point: lower a Chester AST into a Go file. */
   def lowerProgram(ast: AST, config: Config = Config(), packageName: String = "main"): GoAST.File = {
     val (pkg, decls) = lowerAsDeclarations(ast, config, packageName, topLevel = true)
-    
+
     // Separate type/function declarations from executable statements
     val (typeFuncDecls, execStmts) = decls.partition {
       case _: GoAST.TypeDecl | _: GoAST.FuncDecl | _: GoAST.ValueDecl => true
-      case _ => false
+      case _                                                          => false
     }
-    
+
     // If there are executable statements (returns, expr stmts), wrap them in main()
     val allDecls = if (execStmts.nonEmpty) {
       // Convert return statements to expression statements or println for main()
@@ -41,7 +41,7 @@ object GoBackend:
           }
         case other => other
       }
-      
+
       val mainBody = GoAST.Block(mainStmts.toVector, ast.span)
       val mainFunc = GoAST.FuncDecl(
         name = "main",
@@ -56,23 +56,23 @@ object GoBackend:
     } else {
       typeFuncDecls
     }
-    
+
     // Check if we need to import fmt (if we're printing results)
     val needsFmt = execStmts.exists {
       case GoAST.Return(Vector(expr), _) =>
         expr match {
           case GoAST.NilLiteral(_) | GoAST.CompositeLiteral(_, Vector(), _) => false
-          case _ => true
+          case _                                                            => true
         }
       case _ => false
     }
-    
+
     val imports = if (needsFmt) {
       Vector(GoImportSpec(None, "fmt", ast.span))
     } else {
       Vector.empty
     }
-    
+
     GoAST.File(pkg, imports, allDecls.toVector, ast.span)
   }
 

@@ -7,8 +7,8 @@ import upickle.default.*
 
 /** Representation of a Go package's exported value-level members.
   *
-  * This is used to type Chester `import` bindings from Go packages by synthesizing
-  * a record type whose fields correspond to exported functions, types, etc.
+  * This is used to type Chester `import` bindings from Go packages by synthesizing a record type whose fields correspond to exported functions,
+  * types, etc.
   */
 final case class GoImportSignature(
     fields: Vector[Param],
@@ -28,14 +28,13 @@ object GoImportSignature:
   def recordTypeNameFor(spec: String): String = {
     val normalized = normalizePackagePath(spec)
     val builder = new java.lang.StringBuilder("GoImport_")
-    normalized.foreach { ch =>
-      if ch.isLetterOrDigit then builder.append(ch) else builder.append('_')
-    }
+    normalized.foreach(ch => if ch.isLetterOrDigit then builder.append(ch) else builder.append('_'))
     builder.toString
   }
 
   /** Freshen parameter IDs so signatures can be re-used safely across elaborations. */
-  def freshenParams(fields: Vector[Param]): Vector[Param] =
+  def freshenParams(fields: Vector[Param]): Vector[Param] = {
     import chester.uniqid.Uniqid
     import chester.core.Implicitness
     fields.map(p => p.copy(id = Uniqid.make, implicitness = Implicitness.Explicit))
+  }

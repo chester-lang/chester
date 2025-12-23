@@ -488,8 +488,9 @@ object ElabHandler extends Handler[ElabConstraint]:
         var idx = 0
         while idx < elems.length do
           elems(idx) match
-            case CST.Symbol(name, _) if name == effectName && idx + 1 < elems.length &&
-                elems(idx + 1).isInstanceOf[CST.Symbol] && elems(idx + 1).asInstanceOf[CST.Symbol].name == "." =>
+            case CST.Symbol(name, _)
+                if name == effectName && idx + 1 < elems.length &&
+                  elems(idx + 1).isInstanceOf[CST.Symbol] && elems(idx + 1).asInstanceOf[CST.Symbol].name == "." =>
               idx += 2 // drop qualifier and dot
             case other =>
               buf += rewriteEffectQualifiers(other, effectName)
@@ -2246,7 +2247,7 @@ private def occursIn[M <: SolverModule](
 
 private def occursInStmt[M <: SolverModule](cell: Any, stmt: StmtAST)(using module: M, solver: module.Solver[ElabConstraint]): Boolean = {
   stmt match
-    case StmtAST.ExprStmt(expr, _) => occursIn(cell, expr)
+    case StmtAST.ExprStmt(expr, _)           => occursIn(cell, expr)
     case StmtAST.JSImport(_, _, _, _, ty, _) => occursIn(cell, ty)
     case StmtAST.Def(_, _, teles, resTy, body, _) =>
       teles.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || resTy.exists(occursIn(cell, _)) || occursIn(cell, body)
@@ -2364,7 +2365,7 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
 
       def firstUnresolvedStmt(stmt: StmtAST): Option[module.CellAny] = {
         stmt match
-          case StmtAST.ExprStmt(expr, _) => firstUnresolved(expr)
+          case StmtAST.ExprStmt(expr, _)           => firstUnresolved(expr)
           case StmtAST.JSImport(_, _, _, _, ty, _) => firstUnresolved(ty)
           case StmtAST.Def(_, _, teles, resTy, body, _) =>
             teles.iterator
@@ -2630,7 +2631,7 @@ private def handleAssembleDef[M <: SolverModule](c: ElabConstraint.AssembleDef)(
   }
 
   def gatherEffectsStmt(stmt: StmtAST): Set[EffectRef] = stmt match
-    case StmtAST.ExprStmt(expr, _) => gatherEffects(expr)
+    case StmtAST.ExprStmt(expr, _)           => gatherEffects(expr)
     case StmtAST.JSImport(_, _, _, _, ty, _) => gatherEffects(ty)
     case StmtAST.Def(_, _, teles, resTy, body, _) =>
       teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(

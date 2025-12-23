@@ -799,23 +799,23 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
   def scan(l: Width, out: OutGroup)(c: TreeCont): Trampoline[TreeCont] = {
     step { (p: PPosition, dq: Dq) =>
       if (dq.isEmpty) {
-        More(() => {
+        More { () =>
           for {
             o1 <- c(p + l, emptyDq)
             o2 <- out(false)(o1)
           } yield o2
-        })
+        }
       } else {
         val (s, grp) = dq.last
         val n = (
           s,
           (h: Horizontal) => { (o1: Out) =>
-            More(() => {
+            More { () =>
               for {
                 o2 <- out(h)(o1)
                 o3 <- grp(h)(o2)
               } yield o3
-            })
+            }
           }
         )
         prune(c)(p + l, dq.init :+ n)
@@ -827,12 +827,12 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
     {
       Done { (r: Remaining) =>
         if (dq.isEmpty) {
-          More(() => {
+          More { () =>
             for {
               o <- c1(p, emptyDq)
               layout <- o(r)
             } yield layout
-          })
+          }
         } else {
           val (s, grp) = dq.head
           if (p > s + r) {
@@ -844,12 +844,12 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
               } yield layout
             }
           } else {
-            More(() => {
+            More { () =>
               for {
                 o <- c1(p, dq)
                 layout <- o(r)
               } yield layout
-            })
+            }
           }
         }
       }
@@ -862,12 +862,12 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
         c(p, emptyDq)
       } else if (dq.length == 1) {
         val (s1, grp1) = dq.last
-        More(() => {
+        More { () =>
           for {
             o1 <- c(p, emptyDq)
             o2 <- grp1(true)(o1)
           } yield o2
-        })
+        }
       } else {
         val (s1, grp1) = dq.last
         val (s2, grp2) = dq.init.last
@@ -875,12 +875,12 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
           s2,
           (h: Horizontal) => { (o1: Out) =>
             val o3 = { (r: Remaining) =>
-              More(() => {
+              More { () =>
                 for {
                   o2 <- grp1(p <= s1 + r)(o1)
                   layout <- o2(r)
                 } yield layout
-              })
+              }
             }
             More(() => grp2(h)(o3))
           }
@@ -891,11 +891,11 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
   }
 
   def output(o: Out, r: Int, entry: Entry): More[Buffer] = {
-    More(() => {
+    More { () =>
       for {
         buffer <- o(r)
       } yield entry +: buffer
-    })
+    }
   }
 
   def insert(len: Int, entry: Entry): Doc = {
@@ -918,12 +918,12 @@ trait AbstractPrettyPrinter extends PrettyPrinterBase {
 
     def <>(e: Doc): Doc = {
       new Doc((iw: IW) => { (c1: TreeCont) =>
-        More(() => {
+        More { () =>
           for {
             c2 <- e(iw)(c1)
             c3 <- f(iw)(c2)
           } yield c3
-        })
+        }
       })
     }
 

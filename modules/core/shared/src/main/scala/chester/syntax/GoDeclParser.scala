@@ -11,12 +11,11 @@ import spire.math.Natural
 /** Lightweight parser for Go source files to extract type signatures.
   *
   * This parser extracts exported (capitalized) declarations:
-  * - Function signatures: `func Name(params) returns`
-  * - Struct types: `type Name struct { fields }`
-  * - Interface types: `type Name interface { methods }`
+  *   - Function signatures: `func Name(params) returns`
+  *   - Struct types: `type Name struct { fields }`
+  *   - Interface types: `type Name interface { methods }`
   *
-  * Unlike a full Go parser, this focuses on extracting type information
-  * for Chester FFI bindings, not compiling Go code.
+  * Unlike a full Go parser, this focuses on extracting type information for Chester FFI bindings, not compiling Go code.
   */
 class GoDeclParser(source: String, sourceRef: Source):
   private case class Cursor(index: WithUTF16, line: Natural, column: WithUTF16, utf16Index: Int):
@@ -140,8 +139,7 @@ class GoDeclParser(source: String, sourceRef: Source):
           advance()
   }
 
-  /** Parse Go source and extract type information in JSON format.
-    * Returns a ujson.Value with structure matching go-type-extractor output.
+  /** Parse Go source and extract type information in JSON format. Returns a ujson.Value with structure matching go-type-extractor output.
     */
   def parseToJson(): ujson.Value = {
     val packageName = extractPackageName()
@@ -151,16 +149,16 @@ class GoDeclParser(source: String, sourceRef: Source):
 
     skipTrivia()
     while !eof do
-      if consumeKeyword("func") then
-        parseFunctionDecl().foreach(functions += _)
+      if consumeKeyword("func") then parseFunctionDecl().foreach(functions += _)
       else if consumeKeyword("type") then
         parseTypeDecl() match
-          case Some(("struct", name, value)) => structs += value
+          case Some(("struct", name, value))    => structs += value
           case Some(("interface", name, value)) => interfaces += value
-          case _ => ()
-      else
+          case _                                => ()
+      else {
         // Skip unknown content
         advance()
+      }
       skipTrivia()
 
     ujson.Obj(
@@ -179,9 +177,10 @@ class GoDeclParser(source: String, sourceRef: Source):
       val name = readIdentifier().getOrElse("main")
       cursor = saved
       name
-    else
+    else {
       cursor = saved
       "main"
+    }
   }
 
   private def parseFunctionDecl(): Option[ujson.Value] = {
@@ -195,23 +194,24 @@ class GoDeclParser(source: String, sourceRef: Source):
     // Check for return type
     skipTrivia()
     val results = if peekChar('(') then
-      //Multiple returns
+      // Multiple returns
       skipBalanced('(', ')')
       ujson.Arr() // TODO: Parse return types
     else if peekCodePoint.exists(cp => isIdentStart(cp) || cp == '*' || cp == '[') then
       // Single return type
       skipTypeExpression()
       ujson.Arr() // TODO: Parse return type
-    else
-      ujson.Arr()
+    else ujson.Arr()
 
     skipToStatementEnd()
 
-    Some(ujson.Obj(
-      "name" -> name,
-      "params" -> params,
-      "results" -> results
-    ))
+    Some(
+      ujson.Obj(
+        "name" -> name,
+        "params" -> params,
+        "results" -> results
+      )
+    )
   }
 
   private def parseTypeDecl(): Option[(String, String, ujson.Value)] = {
@@ -221,20 +221,33 @@ class GoDeclParser(source: String, sourceRef: Source):
     skipTrivia()
     if consumeKeyword("struct") then
       val fields = parseStructFields()
-      Some(("struct", name, ujson.Obj(
-        "name" -> name,
-        "fields" -> fields
-      )))
+      Some(
+        (
+          "struct",
+          name,
+          ujson.Obj(
+            "name" -> name,
+            "fields" -> fields
+          )
+        )
+      )
     else if consumeKeyword("interface") then
       val methods = parseInterfaceMethods()
-      Some(("interface", name, ujson.Obj(
-        "name" -> name,
-        "methods" -> methods
-      )))
-    else
+      Some(
+        (
+          "interface",
+          name,
+          ujson.Obj(
+            "name" -> name,
+            "methods" -> methods
+          )
+        )
+      )
+    else {
       // Other type (alias, etc.) - skip
       skipToStatementEnd()
       None
+    }
   }
 
   private def parseStructFields(): ujson.Arr = {
@@ -268,7 +281,7 @@ class GoDeclParser(source: String, sourceRef: Source):
           skipBalanced('(', ')') // params
           skipTrivia()
           if peekChar('(') then skipBalanced('(', ')') // results
-          else skipTypeExpression()// single result
+          else skipTypeExpression() // single result
 
           methods += ujson.Obj(
             "name" -> methodName,
@@ -286,7 +299,7 @@ class GoDeclParser(source: String, sourceRef: Source):
   private def readTypeName(): String = {
     skipTrivia()
     val builder = new java.lang.StringBuilder
-    
+
     // Handle pointer
     while peekChar('*') do
       builder.append('*')
@@ -300,9 +313,10 @@ class GoDeclParser(source: String, sourceRef: Source):
       if peekChar(']') then
         builder.append(']')
         advance()
-      else
+      else {
         skipBalanced('[', ']')
         builder.append(']')
+      }
       skipTrivia()
 
     // Read the base type name
@@ -314,7 +328,7 @@ class GoDeclParser(source: String, sourceRef: Source):
           builder.append('.')
           readIdentifier() match
             case Some(typeName) => builder.append(typeName)
-            case _ => ()
+            case _              => ()
       case _ => ()
 
     val result = builder.toString
@@ -330,7 +344,7 @@ class GoDeclParser(source: String, sourceRef: Source):
   }
 
   private def skipToNextField(): Unit = {
-    //Skip to newline or closing brace
+    // Skip to newline or closing brace
     while !eof && !peekChar('\n') && !peekChar('}') do
       if peekChar('{') then skipBalanced('{', '}')
       else advance()

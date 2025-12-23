@@ -396,11 +396,11 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
           elements.flatMap(walk) ++ tail.toVector.flatMap(walk)
         case chester.core.CST.SeqOf(elements, _) =>
           val elems = elements.toVector
-          val here =
+          val here = {
             if elems.headOption.exists { case chester.core.CST.Symbol("import", _) => true; case _ => false }
-            then
-              elems.collectFirst { case chester.core.CST.StringLiteral(mod, _) => mod }.toVector
+            then elems.collectFirst { case chester.core.CST.StringLiteral(mod, _) => mod }.toVector
             else Vector.empty
+          }
           here ++ elems.flatMap(walk)
         case chester.core.CST.Tuple(elements, _) =>
           elements.flatMap(walk)
@@ -456,12 +456,13 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
             else {
               IO.listFiles(pnpmDir).flatMap { entries =>
                 val candidates = entries.filter(p => io.pathOps.baseName(p).startsWith("@types+node@"))
-                def firstOk(xs: Seq[io.Path]): F[Option[io.Path]] =
+                def firstOk(xs: Seq[io.Path]): F[Option[io.Path]] = {
                   xs.headOption match
                     case None => Runner.pure(None)
                     case Some(p) =>
                       val base = io.pathOps.join(io.pathOps.join(io.pathOps.join(p, "node_modules"), "@types"), "node")
                       IO.exists(base).flatMap(ex => if ex then Runner.pure(Some(base)) else firstOk(xs.tail))
+                }
                 firstOk(candidates)
               }
             }
@@ -518,12 +519,13 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
             val candidates =
               if subpath.isEmpty then baseCandidates else baseCandidates ++ Vector(subpath + ".d.ts", subpath + "/index.d.ts")
 
-            def firstExisting(paths: Vector[String]): F[Option[String]] =
+            def firstExisting(paths: Vector[String]): F[Option[String]] = {
               paths.headOption match
                 case None => Runner.pure(None)
                 case Some(rel) =>
                   val full = rel.split('/').foldLeft(packageDir)((p, seg) => io.pathOps.join(p, seg))
                   IO.exists(full).flatMap(ex => if ex then IO.readString(full).map(Some(_)) else firstExisting(paths.tail))
+            }
 
             firstExisting(candidates)
           }
@@ -537,10 +539,11 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       val pkg = parts.take(2).mkString("/")
       val rest = parts.drop(2).mkString("/")
       (pkg, rest)
-    else
+    else {
       val pkg = parts.headOption.getOrElse(moduleSpec)
       val rest = parts.drop(1).mkString("/")
       (pkg, rest)
+    }
   }
 
   private def toDefinitelyTypedPackage(pkgName: String): String = {
@@ -555,7 +558,11 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
 
   // Go import support (stub for future implementation)
   // To enable: build tools/go-type-extractor and ensure Go toolchain is available
-  private def resolveGoImportSignatures(source: Source, content: String, preloadedSigs: Map[String, JSImportSignature] = Map.empty): F[Map[String, GoImportSignature]] = {
+  private def resolveGoImportSignatures(
+      source: Source,
+      content: String,
+      preloadedSigs: Map[String, JSImportSignature] = Map.empty
+  ): F[Map[String, GoImportSignature]] = {
     // For now, convert preloaded JSImportSignatures to GoImportSignatures
     val goSigs = preloadedSigs.map { case (key, jsImportSig) =>
       key -> GoImportSignature(jsImportSig.fields, key)
@@ -563,9 +570,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     Runner.pure(goSigs)
   }
 
-  private def extractGoImportSpecifiers(source: Source): Option[Set[String]] = {
+  private def extractGoImportSpecifiers(source: Source): Option[Set[String]] =
     extractJSImportSpecifiers(source).map(_.filter(_.startsWith("go:")))
-  }
 
   private def targetGoPath(inputPath: io.Path, outDir: io.Path): io.Path = {
     val name = io.pathOps.baseName(inputPath)
@@ -595,16 +601,20 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                     // For now, create stub function types since our JSON doesn't have full signatures yet
                     // Each function gets type: (...args: Any) -> String
                     val funcType = AST.Pi(
-                      Vector(chester.core.Telescope(
-                        Vector(chester.core.Param(
-                          id = chester.uniqid.Uniqid.make[AST],
-                          name = "args",
-                          ty = AST.AnyType(None),
-                          implicitness = chester.core.Implicitness.Explicit,
-                          default = None
-                        )),
-                        chester.core.Implicitness.Explicit
-                      )),
+                      Vector(
+                        chester.core.Telescope(
+                          Vector(
+                            chester.core.Param(
+                              id = chester.uniqid.Uniqid.make[AST],
+                              name = "args",
+                              ty = AST.AnyType(None),
+                              implicitness = chester.core.Implicitness.Explicit,
+                              default = None
+                            )
+                          ),
+                          chester.core.Implicitness.Explicit
+                        )
+                      ),
                       AST.StringType(None), // Assume returns String
                       Vector.empty, // No effects for now
                       None
@@ -625,8 +635,7 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                   Map.empty[String, JSImportSignature]
               }
             }
-          else
-            IO.println(s"Warning: Go signatures file not found: $path", toStderr = true).map(_ => Map.empty)
+          else IO.println(s"Warning: Go signatures file not found: $path", toStderr = true).map(_ => Map.empty)
         }
       case None => Runner.pure(Map.empty)
     }
@@ -668,16 +677,16 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                           val src = Source(FileNameAndContent(io.pathOps.asString(p), content))
                           loadGoSignaturesIfProvided(goSigsFile).flatMap { preloadedSigs =>
                             resolveGoImportSignatures(src, content, preloadedSigs).flatMap { goImports =>
-                            analyze(src, goImports = goImports) match
-                              case Left(errors) =>
-                                printLines(errors, toStderr = true)
-                              case Right((ast, _)) =>
-                                val goProg = GoBackend.lowerProgram(ast)
-                                val rendered = goProg.toDoc.toString
-                                val outPath = targetGoPath(p, outDir)
-                                IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
-                                  .flatMap(_ => IO.println(s"Wrote Go code to '${io.pathOps.asString(outPath)}'."))
-                           }
+                              analyze(src, goImports = goImports) match
+                                case Left(errors) =>
+                                  printLines(errors, toStderr = true)
+                                case Right((ast, _)) =>
+                                  val goProg = GoBackend.lowerProgram(ast)
+                                  val rendered = goProg.toDoc.toString
+                                  val outPath = targetGoPath(p, outDir)
+                                  IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
+                                    .flatMap(_ => IO.println(s"Wrote Go code to '${io.pathOps.asString(outPath)}'."))
+                            }
                           }
                         }
                       }
@@ -690,19 +699,19 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
               val defaultOut = if inStr.contains(".") then inStr.replaceAll("\\.[^.]+$", ".go") else s"$inStr.go"
               val outFileStr = output.getOrElse(defaultOut)
               val outPath = io.pathOps.of(outFileStr)
-              
+
               IO.readString(inPath).flatMap { content =>
                 val src = Source(FileNameAndContent(inStr, content))
                 loadGoSignaturesIfProvided(goSigsFile).flatMap { preloadedSigs =>
                   resolveGoImportSignatures(src, content, preloadedSigs).flatMap { goImports =>
-                  analyze(src, goImports = goImports) match
-                    case Left(errors) =>
-                      printLines(errors, toStderr = true)
-                    case Right((ast, _)) =>
-                      val goProg = GoBackend.lowerProgram(ast)
-                      val rendered = goProg.toDoc.toString
-                      IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
-                        .flatMap(_ => IO.println(s"Wrote Go code to '${io.pathOps.asString(outPath)}'."))
+                    analyze(src, goImports = goImports) match
+                      case Left(errors) =>
+                        printLines(errors, toStderr = true)
+                      case Right((ast, _)) =>
+                        val goProg = GoBackend.lowerProgram(ast)
+                        val rendered = goProg.toDoc.toString
+                        IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
+                          .flatMap(_ => IO.println(s"Wrote Go code to '${io.pathOps.asString(outPath)}'."))
                   }
                 }
               }

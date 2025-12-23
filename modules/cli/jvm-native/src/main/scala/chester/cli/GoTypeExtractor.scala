@@ -37,7 +37,7 @@ object GoTypeExtractor {
 
     // Parse the output
     val functions = parseGoDoc(pkgPath, docOutput)
-    
+
     // Store in cache for later JSON generation
     signatureCache(pkgPath) = functions
 
@@ -111,11 +111,11 @@ object GoTypeExtractor {
 
     val params = scala.collection.mutable.ArrayBuffer[ParamInfo]()
     val parts = paramsStr.split(",").map(_.trim)
-    
+
     for (part <- parts) {
       // Check for variadic: "a ...any" or "...any"
       val variadicPattern = """(\w+)?\s*\.\.\.(\w+)""".r
-      
+
       variadicPattern.findFirstMatchIn(part) match {
         case Some(m) =>
           // Variadic parameter
@@ -123,7 +123,7 @@ object GoTypeExtractor {
           val typeStr = m.group(2)
           val chesterType = mapGoTypeString(typeStr)
           params += ParamInfo(name, ChesterType.Variadic(chesterType))
-          
+
         case None =>
           // Regular parameter: "name type" or just "type"
           val tokens = part.split("\\s+").filter(_.nonEmpty)
@@ -138,7 +138,7 @@ object GoTypeExtractor {
           }
       }
     }
-    
+
     params.toVector
   }
 
@@ -165,12 +165,11 @@ object GoTypeExtractor {
     val normalized = goType.trim
 
     normalized match {
-      case "string" => ChesterType.String
-      case "int" | "int8" | "int16" | "int32" | "int64" |
-           "uint" | "uint8" | "uint16" | "uint32" | "uint64" => ChesterType.Int
-      case "float32" | "float64" => ChesterType.Float
-      case "bool" => ChesterType.Bool
-      case "error" => ChesterType.Any // Error interface
+      case "string"                                                                                         => ChesterType.String
+      case "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8" | "uint16" | "uint32" | "uint64" => ChesterType.Int
+      case "float32" | "float64"                                                                            => ChesterType.Float
+      case "bool"                                                                                           => ChesterType.Bool
+      case "error"                                                                                          => ChesterType.Any // Error interface
       case t if t.startsWith("[]") =>
         val elemType = mapGoTypeString(t.drop(2))
         ChesterType.Array(elemType)
@@ -180,7 +179,7 @@ object GoTypeExtractor {
       case t if t.startsWith("map[") =>
         ChesterType.Any // Maps -> Any for now
       case "interface{}" | "any" => ChesterType.Any
-      case _ => ChesterType.Any // Unknown types
+      case _                     => ChesterType.Any // Unknown types
     }
   }
 
@@ -202,12 +201,12 @@ object GoTypeExtractor {
   /** Chester type representation */
   sealed trait ChesterType {
     def toChesterAST(span: Option[chester.error.Span] = None): AST = this match {
-      case ChesterType.String => AST.StringType(span)
-      case ChesterType.Int => AST.IntegerType(span)
-      case ChesterType.Float => AST.AnyType(span) // No FloatType exists, use Any
-      case ChesterType.Bool => AST.AnyType(span) // No BoolType exists, use Any
-      case ChesterType.Any => AST.AnyType(span)
-      case ChesterType.Unit => AST.TupleType(Vector.empty, span)
+      case ChesterType.String      => AST.StringType(span)
+      case ChesterType.Int         => AST.IntegerType(span)
+      case ChesterType.Float       => AST.AnyType(span) // No FloatType exists, use Any
+      case ChesterType.Bool        => AST.AnyType(span) // No BoolType exists, use Any
+      case ChesterType.Any         => AST.AnyType(span)
+      case ChesterType.Unit        => AST.TupleType(Vector.empty, span)
       case ChesterType.Array(elem) =>
         // Array T -> List T approximation
         AST.AnyType(span) // TODO: proper list type
@@ -267,49 +266,55 @@ object GoTypeExtractor {
 
   /** Save extracted signatures to JSON file with detailed parameter information */
   def saveToJson(signatures: Map[String, JSImportSignature], outputPath: Path): Unit = {
-    val packagesJson = signatures.map { case (pkgPath, sig) =>
-      // Get cached detailed signatures if available
-      val detailedSigs = signatureCache.getOrElse(pkgPath, Map.empty)
-      
-      val funcsJson = sig.fields.map { param =>
-        detailedSigs.get(param.name) match {
-          case Some(funcSig) =>
-            // Output detailed signature with parameters and return type
-            val paramsJson = if (funcSig.params.nonEmpty) {
-              val paramsList = funcSig.params.map { p =>
-                val typeStr = chesterTypeToString(p.ty)
-                s"""        { "name": "${p.name}", "type": "$typeStr" }"""
-              }.mkString(",\n")
-              s"""\n$paramsList\n        """
-            } else {
-              ""
-            }
-            
-            val returnTypeStr = chesterTypeToString(funcSig.returnType)
-            val effectsJson = if (funcSig.effects.nonEmpty) {
-              s""",
+    val packagesJson = signatures
+      .map { case (pkgPath, sig) =>
+        // Get cached detailed signatures if available
+        val detailedSigs = signatureCache.getOrElse(pkgPath, Map.empty)
+
+        val funcsJson = sig.fields
+          .map { param =>
+            detailedSigs.get(param.name) match {
+              case Some(funcSig) =>
+                // Output detailed signature with parameters and return type
+                val paramsJson = if (funcSig.params.nonEmpty) {
+                  val paramsList = funcSig.params
+                    .map { p =>
+                      val typeStr = chesterTypeToString(p.ty)
+                      s"""        { "name": "${p.name}", "type": "$typeStr" }"""
+                    }
+                    .mkString(",\n")
+                  s"""\n$paramsList\n        """
+                } else {
+                  ""
+                }
+
+                val returnTypeStr = chesterTypeToString(funcSig.returnType)
+                val effectsJson = if (funcSig.effects.nonEmpty) {
+                  s""",
         "effects": [${funcSig.effects.map(e => s""""$e"""").mkString(", ")}]"""
-            } else {
-              ""
-            }
-            
-            s"""      "${param.name}": {
+                } else {
+                  ""
+                }
+
+                s"""      "${param.name}": {
         "params": [$paramsJson],
         "returns": "$returnTypeStr"$effectsJson
       }"""
-          case None =>
-            // Fallback to simple format if detailed signature not available
-            s"""      "${param.name}": { "type": "Function" }"""
-        }
-      }.mkString(",\n")
-      
-      s"""    "$pkgPath": {
+              case None =>
+                // Fallback to simple format if detailed signature not available
+                s"""      "${param.name}": { "type": "Function" }"""
+            }
+          }
+          .mkString(",\n")
+
+        s"""    "$pkgPath": {
       "functions": {
 $funcsJson
       }
     }"""
-    }.mkString(",\n")
-    
+      }
+      .mkString(",\n")
+
     val json = s"""{
   "packages": {
 $packagesJson
@@ -321,16 +326,16 @@ $packagesJson
 
   /** Convert ChesterType to JSON-friendly string representation */
   private def chesterTypeToString(ty: ChesterType): String = ty match {
-    case ChesterType.String => "string"
-    case ChesterType.Int => "int"  
-    case ChesterType.Float => "float"
-    case ChesterType.Bool => "bool"
-    case ChesterType.Any => "any"
-    case ChesterType.Unit => "unit"
+    case ChesterType.String      => "string"
+    case ChesterType.Int         => "int"
+    case ChesterType.Float       => "float"
+    case ChesterType.Bool        => "bool"
+    case ChesterType.Any         => "any"
+    case ChesterType.Unit        => "unit"
     case ChesterType.Array(elem) => s"[]${chesterTypeToString(elem)}"
-    case ChesterType.Tuple(elems) => 
+    case ChesterType.Tuple(elems) =>
       s"(${elems.map(chesterTypeToString).mkString(", ")})"
-    case ChesterType.Variadic(elem) => s"...${chesterTypeToString(elem)}"
+    case ChesterType.Variadic(elem)           => s"...${chesterTypeToString(elem)}"
     case ChesterType.Function(params, ret, _) => "function"
-}
+  }
 }

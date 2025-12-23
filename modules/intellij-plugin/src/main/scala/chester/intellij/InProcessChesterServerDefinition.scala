@@ -16,29 +16,34 @@ private class InProcessChesterConnectionProvider extends StreamConnectionProvide
   private val serverInput = PipedInputStream(clientOutput)
   private val serverOutput = PipedOutputStream(clientInput)
 
-  private val executor = Executors.newSingleThreadExecutor(r => {
+  private val executor = Executors.newSingleThreadExecutor { r =>
     val t = Thread(r, "chester-lsp-in-process")
     t.setDaemon(true)
     t
-  })
+  }
 
-  override def start(): Unit =
+  override def start(): Unit = {
     executor.submit(new Runnable {
-      override def run(): Unit =
+      override def run(): Unit = {
         val server = ChesterLanguageServer()
         val launcher = LSPLauncher.createServerLauncher(server, serverInput, serverOutput)
         server.connect(launcher.getRemoteProxy)
         launcher.startListening().get()
+      }
     })
+  }
 
   override def getInputStream: InputStream = clientInput
 
   override def getOutputStream: OutputStream = clientOutput
 
-  override def stop(): Unit =
-    try serverInput.close() catch case _: Throwable => ()
-    try serverOutput.close() catch case _: Throwable => ()
+  override def stop(): Unit = {
+    try serverInput.close()
+    catch case _: Throwable => ()
+    try serverOutput.close()
+    catch case _: Throwable => ()
     executor.shutdownNow()
+  }
 
 /** Language server definition that reuses Chester LSP directly from the plugin classpath. */
 case class InProcessChesterServerDefinition(language: String) extends LanguageServerDefinition:

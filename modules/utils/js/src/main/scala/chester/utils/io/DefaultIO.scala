@@ -138,7 +138,8 @@ given DefaultIO: IO[Future] {
             case null      => None
             case s: Double => Some(s.asInt)
           }))
-        })
+        }
+      )
       p.future
     }
   }

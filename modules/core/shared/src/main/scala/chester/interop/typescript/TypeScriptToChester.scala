@@ -21,8 +21,7 @@ object TypeScriptToChester:
     val normalized = JSImportSupport.normalizeModuleSpecifier(moduleSpecifier)
     val moduleBody = selectModuleBody(program, moduleSpecifier, normalized).getOrElse(program match
       case TypeScriptAST.Program(stmts, _) => stmts
-      case other                           => Vector(other)
-    )
+      case other                           => Vector(other))
     val exports = exportedValueFields(moduleBody)
     JSImportSignature(exports)
   }
@@ -77,7 +76,7 @@ object TypeScriptToChester:
     AST.Pi(Vector(Telescope(params, Implicitness.Explicit)), retTy, Vector.empty, None)
   }
 
-  private def chesterTypeFromTs(tsType: TypeScriptType): AST =
+  private def chesterTypeFromTs(tsType: TypeScriptType): AST = {
     tsType match
       case TypeScriptType.PrimitiveType("string", span) => AST.StringType(span)
       case TypeScriptType.PrimitiveType("number", span) => AST.IntegerType(span)
@@ -108,24 +107,25 @@ object TypeScriptToChester:
           case _                                  => AST.AnyType(span)
       case _ =>
         AST.AnyType(tsType.span)
+  }
 
   extension (tsType: TypeScriptType)
     private def span: Option[chester.error.Span] = tsType match
-      case TypeScriptType.PrimitiveType(_, span)         => span
-      case TypeScriptType.TypeReference(_, _, span)      => span
-      case TypeScriptType.ArrayType(_, span)             => span
-      case TypeScriptType.TupleType(_, span)             => span
-      case TypeScriptType.UnionType(_, span)             => span
-      case TypeScriptType.IntersectionType(_, span)      => span
-      case TypeScriptType.FunctionType(_, _, span)       => span
-      case TypeScriptType.ObjectType(_, span)            => span
-      case TypeScriptType.LiteralType(_, span)           => span
-      case TypeScriptType.KeyofType(_, span)             => span
-      case TypeScriptType.TypeofType(_, span)            => span
-      case TypeScriptType.IndexedAccessType(_, _, span)  => span
-      case TypeScriptType.MappedType(_, _, _, span)      => span
+      case TypeScriptType.PrimitiveType(_, span)        => span
+      case TypeScriptType.TypeReference(_, _, span)     => span
+      case TypeScriptType.ArrayType(_, span)            => span
+      case TypeScriptType.TupleType(_, span)            => span
+      case TypeScriptType.UnionType(_, span)            => span
+      case TypeScriptType.IntersectionType(_, span)     => span
+      case TypeScriptType.FunctionType(_, _, span)      => span
+      case TypeScriptType.ObjectType(_, span)           => span
+      case TypeScriptType.LiteralType(_, span)          => span
+      case TypeScriptType.KeyofType(_, span)            => span
+      case TypeScriptType.TypeofType(_, span)           => span
+      case TypeScriptType.IndexedAccessType(_, _, span) => span
+      case TypeScriptType.MappedType(_, _, _, span)     => span
       case TypeScriptType.ConditionalType(_, _, _, _, span) =>
         span
-      case TypeScriptType.InferType(_, span)             => span
+      case TypeScriptType.InferType(_, span)              => span
       case TypeScriptType.TemplateLiteralType(_, _, span) => span
-      case TypeScriptType.ParenthesizedType(_, span)     => span
+      case TypeScriptType.ParenthesizedType(_, span)      => span

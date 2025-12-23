@@ -220,7 +220,7 @@ object CoreTypeChecker:
     case AST.LevelType(_)                  => false
 
   private def hasMetaStmt(stmt: StmtAST): Boolean = stmt match
-    case StmtAST.ExprStmt(expr, _) => hasMeta(expr)
+    case StmtAST.ExprStmt(expr, _)           => hasMeta(expr)
     case StmtAST.JSImport(_, _, _, _, ty, _) => hasMeta(ty)
     case StmtAST.Def(_, _, teles, resTy, body, _) =>
       teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || resTy.exists(hasMeta) || hasMeta(body)
@@ -452,7 +452,7 @@ object CoreTypeChecker:
 
   private def checkStmt(stmt: StmtAST, env: Env, records: RecordEnv, enums: EnumEnv)(using Reporter[ElabProblem]): Unit = {
     stmt match
-      case StmtAST.ExprStmt(expr, _) => infer(expr, env, records, enums)
+      case StmtAST.ExprStmt(expr, _)           => infer(expr, env, records, enums)
       case StmtAST.JSImport(_, _, _, _, ty, _) =>
         // Treat as a value binding whose type must be well-formed.
         infer(ty, env, records, enums)

@@ -12,8 +12,7 @@ import scala.scalajs.js.Thenable.Implicits.*
 import scala.scalajs.js.annotation.*
 
 // Simplified terminal that stores output instead of printing
-private class DocsTerminal(outputBuffer: collection.mutable.ArrayBuffer[String])(using Runner[Future])
-    extends InTerminalNoHistory[Future] {
+private class DocsTerminal(outputBuffer: collection.mutable.ArrayBuffer[String])(using Runner[Future]) extends InTerminalNoHistory[Future] {
 
   override def writeln(line: fansi.Str): Future[Unit] = {
     outputBuffer += line.render
@@ -36,11 +35,12 @@ private given DocsRunner: Runner[Future] {
 
   override def map[A, B](fa: Future[A])(f: A => B): Future[B] = fa.map(f)
 
-  override def tailRecM[A, B](a: A)(f: A => Future[Either[A, B]]): Future[B] =
+  override def tailRecM[A, B](a: A)(f: A => Future[Either[A, B]]): Future[B] = {
     f(a).flatMap {
       case Left(a1) => tailRecM(a1)(f)
       case Right(b) => Future.successful(b)
     }
+  }
 }
 
 private given DocsSpawn: Spawn[Future] {
@@ -98,11 +98,12 @@ private final case class DocsIO(outputBuffer: collection.mutable.ArrayBuffer[Str
   override def workingDir: Future[String] = Future.successful("/")
 }
 
-private def makeTerminal(outputBuffer: collection.mutable.ArrayBuffer[String])(using Runner[Future]): Terminal[Future] =
+private def makeTerminal(outputBuffer: collection.mutable.ArrayBuffer[String])(using Runner[Future]): Terminal[Future] = {
   new Terminal[Future] {
     override def runTerminal[T](init: TerminalInit, block: InTerminal[Future] ?=> Future[T]): Future[T] =
       block(using new DocsTerminal(outputBuffer))
   }
+}
 
 @JSExportTopLevel("ChesterREPL")
 object ReplApi {
@@ -111,7 +112,7 @@ object ReplApi {
   def evaluate(code: String): js.Promise[String] = {
     given Runner[Future] = DocsRunner
     given Spawn[Future] = DocsSpawn
-    
+
     val outputBuffer = collection.mutable.ArrayBuffer.empty[String]
     given IO[Future] = DocsIO(outputBuffer)
     given Terminal[Future] = makeTerminal(outputBuffer)
@@ -150,4 +151,3 @@ object ReplApi {
       |""".stripMargin
   }
 }
-

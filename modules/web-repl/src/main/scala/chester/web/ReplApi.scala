@@ -40,11 +40,12 @@ private given BrowserRunner: Runner[Future] {
 
   override def map[A, B](fa: Future[A])(f: A => B): Future[B] = fa.map(f)
 
-  override def tailRecM[A, B](a: A)(f: A => Future[Either[A, B]]): Future[B] =
+  override def tailRecM[A, B](a: A)(f: A => Future[Either[A, B]]): Future[B] = {
     f(a).flatMap {
       case Left(a1) => tailRecM(a1)(f)
       case Right(b) => Future.successful(b)
     }
+  }
 }
 
 private given BrowserSpawn: Spawn[Future] {
@@ -99,11 +100,12 @@ private final case class BrowserIO(callbacks: ReplCallbacks) extends IO[Future] 
   override def workingDir: Future[String] = Future.successful("/")
 }
 
-private def makeTerminal(callbacks: ReplCallbacks)(using Runner[Future]): Terminal[Future] =
+private def makeTerminal(callbacks: ReplCallbacks)(using Runner[Future]): Terminal[Future] = {
   new Terminal[Future] {
     override def runTerminal[T](init: TerminalInit, block: InTerminal[Future] ?=> Future[T]): Future[T] =
       block(using new JsTerminal(callbacks))
   }
+}
 
 @JSExportTopLevel("startRepl")
 def startRepl(callbacks: ReplCallbacks): js.Promise[Unit] = {

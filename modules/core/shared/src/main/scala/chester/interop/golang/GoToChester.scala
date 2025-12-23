@@ -8,8 +8,7 @@ import chester.uniqid.Uniqid
 
 /** Bridge from Go type information (JSON format) into Chester types.
   *
-  * This converts Go package exports (functions, interfaces, structs) into
-  * Chester type signatures for type checking.
+  * This converts Go package exports (functions, interfaces, structs) into Chester type signatures for type checking.
   */
 object GoToChester:
 
@@ -21,7 +20,7 @@ object GoToChester:
     packageSignature(jsonStr, packagePath)
   }
 
-  /** Generate a GoImportSignature from JSON output (legacy format from go-type-extractor).  */
+  /** Generate a GoImportSignature from JSON output (legacy format from go-type-extractor). */
   def packageSignature(jsonOutput: String, packagePath: String): GoImportSignature = {
     val parsed = ujson.read(jsonOutput)
     val exports = extractExports(parsed)
@@ -67,27 +66,33 @@ object GoToChester:
   }
 
   private def chesterTypeFromFunction(funcJson: ujson.Value): AST = {
-    val params = funcJson.obj.get("params").map { paramsJson =>
-      paramsJson.arr.zipWithIndex.map { case (paramJson, idx) =>
-        val name = paramJson.obj.get("name").map(_.str).getOrElse(s"param$idx")
-        val typeName = paramJson.obj("type").str
-        val paramType = goTypeToChester(typeName)
-        Param(Uniqid.make, name, paramType, Implicitness.Explicit, None)
-      }.toVector
-    }.getOrElse(Vector.empty)
+    val params = funcJson.obj
+      .get("params")
+      .map { paramsJson =>
+        paramsJson.arr.zipWithIndex.map { case (paramJson, idx) =>
+          val name = paramJson.obj.get("name").map(_.str).getOrElse(s"param$idx")
+          val typeName = paramJson.obj("type").str
+          val paramType = goTypeToChester(typeName)
+          Param(Uniqid.make, name, paramType, Implicitness.Explicit, None)
+        }.toVector
+      }
+      .getOrElse(Vector.empty)
 
-    val results = funcJson.obj.get("results").map { resultsJson =>
-      resultsJson.arr.map { resultJson =>
-        val typeName = resultJson.obj("type").str
-        goTypeToChester(typeName)
-      }.toVector
-    }.getOrElse(Vector.empty)
+    val results = funcJson.obj
+      .get("results")
+      .map { resultsJson =>
+        resultsJson.arr.map { resultJson =>
+          val typeName = resultJson.obj("type").str
+          goTypeToChester(typeName)
+        }.toVector
+      }
+      .getOrElse(Vector.empty)
 
     // Go functions can return multiple values - represent as tuple
     val returnType = results match
-      case Vector()     => AST.TupleType(Vector.empty, None) // void
+      case Vector()       => AST.TupleType(Vector.empty, None) // void
       case Vector(single) => single
-      case multiple    => AST.TupleType(multiple, None)
+      case multiple       => AST.TupleType(multiple, None)
 
     AST.Pi(Vector(Telescope(params, Implicitness.Explicit)), returnType, Vector.empty, None)
   }
@@ -114,13 +119,11 @@ object GoToChester:
   private def goTypeToChester(goType: String): AST = {
     goType match
       // Primitives
-      case "string" => AST.StringType(None)
-      case "int" | "int8" | "int16" | "int32" | "int64" |
-           "uint" | "uint8" | "uint16" | "uint32" | "uint64" |
-           "byte" | "rune" => AST.IntegerType(None)
+      case "string"                                                                                                           => AST.StringType(None)
+      case "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "byte" | "rune" => AST.IntegerType(None)
       case "float32" | "float64" => AST.AnyType(None) // TODO: Add float type to Chester
-      case "bool" => AST.AnyType(None) // TODO: Add bool type to Chester
-      case "error" => AST.AnyType(None) // Go's error interface
+      case "bool"                => AST.AnyType(None) // TODO: Add bool type to Chester
+      case "error"               => AST.AnyType(None) // Go's error interface
 
       // Slices and arrays
       case s if s.startsWith("[]") =>

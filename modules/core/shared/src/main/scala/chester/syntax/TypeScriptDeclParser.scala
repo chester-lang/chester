@@ -238,10 +238,11 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
       consumeKeyword("as", skip = true)
       val local = readIdentifier(skip = true).map(_._1).getOrElse("Unknown")
       specifiers += ImportSpecifier.Namespace(local, spanFrom(start, cursor))
-    else
+    else {
       // default import
       val local = readIdentifier(skip = false).map(_._1).getOrElse("Unknown")
       specifiers += ImportSpecifier.Default(local, spanFrom(start, cursor))
+    }
 
     consumeKeyword("from", skip = true)
     val source = readStringLiteral(skip = true).map(_._1).getOrElse("")
@@ -353,7 +354,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
         advance()
         TypeScriptType.PrimitiveType("any", spanFrom(startCursor, cursor))
       else parsed
-    else
+    else {
       readStringLiteral() match
         case Some((lit, _, end)) =>
           val span = spanFrom(startCursor, end)
@@ -379,6 +380,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
             advance()
             TypeScriptType.PrimitiveType("any", spanFrom(startCursor, cursor))
           else parsed
+    }
   }
 
   private def readQualifiedName(): Option[(String, Cursor)] = {
@@ -444,13 +446,13 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
 
   private def parseDeclaration(start: Cursor): TypeScriptAST = {
     skipTrivia()
-    if consumeKeyword("module", skip = false).isDefined || consumeKeyword("namespace", skip = false).isDefined then
-      parseModule(start)
-    else
+    if consumeKeyword("module", skip = false).isDefined || consumeKeyword("namespace", skip = false).isDefined then parseModule(start)
+    else {
       consumeKeyword("function", skip = false)
         .map(_ => parseFunction(start, modifiers = Vector(Modifier.Declare)))
         .orElse(parseDeclareVariable(start).orElse(Some(TypeScriptAST.Empty(spanFrom(start, cursor)))))
         .get
+    }
   }
 
   private def parseModule(start: Cursor): TypeScriptAST = {
@@ -501,8 +503,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
       val paramType = if maybeConsume(':') then Some(parseTypeReference()) else None
       // Optional params are treated as having an explicit type; we don't model `undefined` here.
       val effectiveType = paramType.orElse(if isOptional then Some(TypeScriptType.PrimitiveType("any", spanFrom(paramStart, cursor))) else None)
-      if maybeConsume('=') then
-        skipToParamBoundary()
+      if maybeConsume('=') then skipToParamBoundary()
       params += Parameter(name, effectiveType, None, isRest, spanFrom(paramStart, cursor))
       skipTrivia()
       if peekChar(',') then
@@ -532,8 +533,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
       maybeConsume('?')
       val paramType = if maybeConsume(':') then Some(parseTypeReference()) else None
       // Default value: `x: T = ...` (we don't model it, just skip so we don't get stuck)
-      if maybeConsume('=') then
-        skipToParamBoundary()
+      if maybeConsume('=') then skipToParamBoundary()
       params += Parameter(name, paramType, None, isRest, spanFrom(paramStart, cursor))
       skipTrivia()
       if peekChar(',') then
@@ -633,7 +633,13 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
         consumeKeyword("from", skip = true)
         val src = readStringLiteral(skip = true).map(_._1)
         maybeConsume(';')
-        return TypeScriptAST.ExportDeclaration(None, Vector(ExportSpecifier.All(None, spanFrom(start, cursor))), src, isDefault, spanFrom(start, cursor))
+        return TypeScriptAST.ExportDeclaration(
+          None,
+          Vector(ExportSpecifier.All(None, spanFrom(start, cursor))),
+          src,
+          isDefault,
+          spanFrom(start, cursor)
+        )
       else parseStatement()
     }.orElse {
       skipUnknownToken()

@@ -250,12 +250,12 @@ object ElaboratorBlocks:
             case Some((kind, localName, modulePath)) =>
               // Detect if this is a Go import by checking if localName is "go"
               val isGoImport = localName == "go"
-              
+
               if isGoImport then {
                 // Handle Go package import with nested structure
                 // For `import go "fmt"`, create: go.fmt.Printf, go.fmt.Println, etc.
                 val normalizedPkg = GoImportSignature.normalizePackagePath(modulePath)
-                val goSig = currentCtx.jsImports  // Go imports are merged into jsImports in CLI
+                val goSig = currentCtx.jsImports // Go imports are merged into jsImports in CLI
                   .get(normalizedPkg)
                   .orElse(currentCtx.jsImports.get(modulePath))
                   .map(jsSig => GoImportSignature(jsSig.fields, normalizedPkg))
@@ -268,7 +268,7 @@ object ElaboratorBlocks:
                 val packageRecordName = GoImportSignature.recordTypeNameFor(normalizedPkg)
                 val packageFields = GoImportSignature.freshenParams(goSig.fields)
 
-                val (packageRecordId, packageRecordStmtOpt, ctxWithPackageRecord) =
+                val (packageRecordId, packageRecordStmtOpt, ctxWithPackageRecord) = {
                   currentCtx.lookupRecord(packageRecordName) match
                     case Some(defn) =>
                       val updated = currentCtx.updateRecord(packageRecordName, packageFields)
@@ -276,7 +276,8 @@ object ElaboratorBlocks:
                     case None =>
                       val recId = Uniqid.make[AST]
                       val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-                      val placeholderCtx = currentCtx.registerRecordPlaceholder(packageRecordName, recId, ctorTyCell).updateRecord(packageRecordName, packageFields)
+                      val placeholderCtx =
+                        currentCtx.registerRecordPlaceholder(packageRecordName, recId, ctorTyCell).updateRecord(packageRecordName, packageFields)
                       val ctorType = AST.Pi(
                         Vector(Telescope(packageFields, Implicitness.Explicit)),
                         AST.RecordTypeRef(recId, packageRecordName, span),
@@ -285,6 +286,7 @@ object ElaboratorBlocks:
                       )
                       module.fill(solver, ctorTyCell, ctorType)
                       (recId, Some(StmtAST.Record(recId, packageRecordName, packageFields, span)), placeholderCtx)
+                }
 
                 // Now create the wrapper record for `go` with a field for the package
                 // This allows `go.fmt.Printf` to work
@@ -298,7 +300,7 @@ object ElaboratorBlocks:
                   None
                 )
 
-                val (wrapperRecordId, wrapperRecordStmtOpt, ctxWithWrapperRecord) =
+                val (wrapperRecordId, wrapperRecordStmtOpt, ctxWithWrapperRecord) = {
                   ctxWithPackageRecord.lookupRecord(wrapperRecordName) match
                     case Some(defn) =>
                       val updated = ctxWithPackageRecord.updateRecord(wrapperRecordName, Vector(wrapperField))
@@ -306,7 +308,9 @@ object ElaboratorBlocks:
                     case None =>
                       val recId = Uniqid.make[AST]
                       val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
-                      val placeholderCtx = ctxWithPackageRecord.registerRecordPlaceholder(wrapperRecordName, recId, ctorTyCell).updateRecord(wrapperRecordName, Vector(wrapperField))
+                      val placeholderCtx = ctxWithPackageRecord
+                        .registerRecordPlaceholder(wrapperRecordName, recId, ctorTyCell)
+                        .updateRecord(wrapperRecordName, Vector(wrapperField))
                       val ctorType = AST.Pi(
                         Vector(Telescope(Vector(wrapperField), Implicitness.Explicit)),
                         AST.RecordTypeRef(recId, wrapperRecordName, span),
@@ -315,6 +319,7 @@ object ElaboratorBlocks:
                       )
                       module.fill(solver, ctorTyCell, ctorType)
                       (recId, Some(StmtAST.Record(recId, wrapperRecordName, Vector(wrapperField), span)), placeholderCtx)
+                }
 
                 val localId = Uniqid.make[AST]
                 val localTyCell = module.newOnceCell[ElabConstraint, AST](solver)
@@ -338,7 +343,7 @@ object ElaboratorBlocks:
                 val recordName = JSImportSignature.recordTypeNameFor(normalizedModule)
                 val recordFields = JSImportSignature.freshenParams(sig.fields)
 
-                val (recordId, recordStmtOpt, ctxWithRecord) =
+                val (recordId, recordStmtOpt, ctxWithRecord) = {
                   currentCtx.lookupRecord(recordName) match
                     case Some(defn) =>
                       val updated = currentCtx.updateRecord(recordName, recordFields)
@@ -355,6 +360,7 @@ object ElaboratorBlocks:
                       )
                       module.fill(solver, ctorTyCell, ctorType)
                       (recId, Some(StmtAST.Record(recId, recordName, recordFields, span)), placeholderCtx)
+                }
 
                 val localId = Uniqid.make[AST]
                 val localTyCell = module.newOnceCell[ElabConstraint, AST](solver)

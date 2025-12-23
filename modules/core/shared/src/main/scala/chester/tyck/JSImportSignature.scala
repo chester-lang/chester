@@ -24,9 +24,7 @@ object JSImportSignature:
     val normalized = normalizeModuleSpecifier(spec)
     val builder = new java.lang.StringBuilder("JSImport_")
     // Avoid `java.util.stream.*` (not available on Scala.js).
-    normalized.foreach { ch =>
-      if ch.isLetterOrDigit then builder.append(ch) else builder.append('_')
-    }
+    normalized.foreach(ch => if ch.isLetterOrDigit then builder.append(ch) else builder.append('_'))
     builder.toString
   }
 
