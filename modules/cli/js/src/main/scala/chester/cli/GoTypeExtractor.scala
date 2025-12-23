@@ -1,6 +1,7 @@
 package chester.cli
 
 import chester.tyck.{JSImportSignature}
+import scala.language.experimental.genericNumberLiterals
 
 /** Go type extractor is not supported on Scala.js targets. */
 object GoTypeExtractor {
