@@ -2,30 +2,193 @@
   "packages": {
     "fmt": {
       "functions": {
-      "Sprintln": { "type": "Function" },
-      "Fprint": { "type": "Function" },
-      "Sscanf": { "type": "Function" },
-      "Scanln": { "type": "Function" },
-      "Sscanln": { "type": "Function" },
-      "Println": { "type": "Function" },
-      "Printf": { "type": "Function" },
-      "Sscan": { "type": "Function" },
-      "Sprint": { "type": "Function" },
-      "Fscanf": { "type": "Function" },
-      "Sprintf": { "type": "Function" },
-      "Append": { "type": "Function" },
-      "Fscanln": { "type": "Function" },
-      "Errorf": { "type": "Function" },
-      "Fprintf": { "type": "Function" },
-      "Print": { "type": "Function" },
-      "Fprintln": { "type": "Function" },
-      "Scanf": { "type": "Function" },
-      "FormatString": { "type": "Function" },
-      "Fscan": { "type": "Function" },
-      "Scan": { "type": "Function" },
-      "Appendf": { "type": "Function" },
-      "String": { "type": "Function" },
-      "Appendln": { "type": "Function" }
+      "Sprintln": {
+        "params": [
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "string",
+        "effects": ["io"]
+      },
+      "Fprint": {
+        "params": [
+        { "name": "w", "type": "any" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Sscanf": {
+        "params": [
+        { "name": "str", "type": "string" },
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Scanln": {
+        "params": [
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Sscanln": {
+        "params": [
+        { "name": "str", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Println": {
+        "params": [
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Printf": {
+        "params": [
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Sscan": {
+        "params": [
+        { "name": "str", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Sprint": {
+        "params": [
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "string",
+        "effects": ["io"]
+      },
+      "Fscanf": {
+        "params": [
+        { "name": "r", "type": "any" },
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Sprintf": {
+        "params": [
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "string",
+        "effects": ["io"]
+      },
+      "Append": {
+        "params": [
+        { "name": "b", "type": "[]any" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "[]any",
+        "effects": ["io"]
+      },
+      "Fscanln": {
+        "params": [
+        { "name": "r", "type": "any" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Errorf": {
+        "params": [
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "any",
+        "effects": ["io"]
+      },
+      "Fprintf": {
+        "params": [
+        { "name": "w", "type": "any" },
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Print": {
+        "params": [
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Fprintln": {
+        "params": [
+        { "name": "w", "type": "any" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Scanf": {
+        "params": [
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "FormatString": {
+        "params": [
+        { "name": "state", "type": "any" },
+        { "name": "verb", "type": "any" }
+        ],
+        "returns": "string",
+        "effects": ["io"]
+      },
+      "Fscan": {
+        "params": [
+        { "name": "r", "type": "any" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Scan": {
+        "params": [
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "(any, any)",
+        "effects": ["io"]
+      },
+      "Appendf": {
+        "params": [
+        { "name": "b", "type": "[]any" },
+        { "name": "format", "type": "string" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "[]any",
+        "effects": ["io"]
+      },
+      "String": {
+        "params": [],
+        "returns": "any",
+        "effects": ["io"]
+      },
+      "Appendln": {
+        "params": [
+        { "name": "b", "type": "[]any" },
+        { "name": "a", "type": "...any" }
+        ],
+        "returns": "[]any",
+        "effects": ["io"]
+      }
       }
     }
   }

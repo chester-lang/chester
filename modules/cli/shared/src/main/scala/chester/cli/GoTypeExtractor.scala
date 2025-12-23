@@ -27,6 +27,9 @@ object GoTypeExtractor {
     }.toMap
   }
 
+  // Cache to store detailed function signatures for JSON output
+  private val signatureCache = scala.collection.mutable.Map[String, Map[String, FunctionSignature]]()
+
   /** Extract a single Go package using go doc */
   private def extractPackage(pkgPath: String): Try[JSImportSignature] = Try {
     // Use `go doc -all <package>` to get all exported symbols
@@ -34,6 +37,9 @@ object GoTypeExtractor {
 
     // Parse the output
     val functions = parseGoDoc(pkgPath, docOutput)
+    
+    // Store in cache for later JSON generation
+    signatureCache(pkgPath) = functions
 
     // Convert to JSImportSignature format (reusing JS import infrastructure)
     val params = functions.map { case (name, funcSig) =>
@@ -99,28 +105,41 @@ object GoTypeExtractor {
     FunctionSignature(params, returnType, effects)
   }
 
-  /** Parse parameter list */
+  /** Parse parameter list with improved variadic handling */
   private def parseParams(paramsStr: String): Vector[ParamInfo] = {
     if (paramsStr.trim.isEmpty) return Vector.empty
 
-    // Simple parsing: split by comma (this is naive but works for basic cases)
+    val params = scala.collection.mutable.ArrayBuffer[ParamInfo]()
     val parts = paramsStr.split(",").map(_.trim)
-
-    parts.map { part =>
-      // Format: "name type" or "name, name2 type" or "...type" (variadic)
-      val isVariadic = part.startsWith("...")
-      val cleanPart = if (isVariadic) part.drop(3) else part
-
-      // Extract last word as type
-      val tokens = cleanPart.split("\\s+")
-      val typeStr = tokens.lastOption.getOrElse("interface{}")
-      val name = if (tokens.length > 1) tokens.init.mkString(" ") else "arg"
-
-      val chesterType = mapGoTypeString(typeStr)
-      val finalType = if (isVariadic) ChesterType.Variadic(chesterType) else chesterType
-
-      ParamInfo(name, finalType)
-    }.toVector
+    
+    for (part <- parts) {
+      // Check for variadic: "a ...any" or "...any"
+      val variadicPattern = """(\w+)?\s*\.\.\.(\w+)""".r
+      
+      variadicPattern.findFirstMatchIn(part) match {
+        case Some(m) =>
+          // Variadic parameter
+          val name = Option(m.group(1)).filter(_.nonEmpty).getOrElse("args")
+          val typeStr = m.group(2)
+          val chesterType = mapGoTypeString(typeStr)
+          params += ParamInfo(name, ChesterType.Variadic(chesterType))
+          
+        case None =>
+          // Regular parameter: "name type" or just "type"
+          val tokens = part.split("\\s+").filter(_.nonEmpty)
+          if (tokens.nonEmpty) {
+            val (name, typeStr) = if (tokens.length >= 2) {
+              (tokens.init.mkString(" "), tokens.last)
+            } else {
+              ("arg", tokens.head)
+            }
+            val chesterType = mapGoTypeString(typeStr)
+            params += ParamInfo(name, chesterType)
+          }
+      }
+    }
+    
+    params.toVector
   }
 
   /** Parse return type */
@@ -246,13 +265,44 @@ object GoTypeExtractor {
     }
   }
 
-  /** Save extracted signatures to JSON file */
+  /** Save extracted signatures to JSON file with detailed parameter information */
   def saveToJson(signatures: Map[String, JSImportSignature], outputPath: Path): Unit = {
-    // Build JSON manually as a string to avoid ujson complexity
     val packagesJson = signatures.map { case (pkgPath, sig) =>
+      // Get cached detailed signatures if available
+      val detailedSigs = signatureCache.getOrElse(pkgPath, Map.empty)
+      
       val funcsJson = sig.fields.map { param =>
-        s"""      "${param.name}": { "type": "Function" }"""
+        detailedSigs.get(param.name) match {
+          case Some(funcSig) =>
+            // Output detailed signature with parameters and return type
+            val paramsJson = if (funcSig.params.nonEmpty) {
+              val paramsList = funcSig.params.map { p =>
+                val typeStr = chesterTypeToString(p.ty)
+                s"""        { "name": "${p.name}", "type": "$typeStr" }"""
+              }.mkString(",\n")
+              s"""\n$paramsList\n        """
+            } else {
+              ""
+            }
+            
+            val returnTypeStr = chesterTypeToString(funcSig.returnType)
+            val effectsJson = if (funcSig.effects.nonEmpty) {
+              s""",
+        "effects": [${funcSig.effects.map(e => s""""$e"""").mkString(", ")}]"""
+            } else {
+              ""
+            }
+            
+            s"""      "${param.name}": {
+        "params": [$paramsJson],
+        "returns": "$returnTypeStr"$effectsJson
+      }"""
+          case None =>
+            // Fallback to simple format if detailed signature not available
+            s"""      "${param.name}": { "type": "Function" }"""
+        }
       }.mkString(",\n")
+      
       s"""    "$pkgPath": {
       "functions": {
 $funcsJson
@@ -268,4 +318,19 @@ $packagesJson
 
     Files.writeString(outputPath, json)
   }
+
+  /** Convert ChesterType to JSON-friendly string representation */
+  private def chesterTypeToString(ty: ChesterType): String = ty match {
+    case ChesterType.String => "string"
+    case ChesterType.Int => "int"  
+    case ChesterType.Float => "float"
+    case ChesterType.Bool => "bool"
+    case ChesterType.Any => "any"
+    case ChesterType.Unit => "unit"
+    case ChesterType.Array(elem) => s"[]${chesterTypeToString(elem)}"
+    case ChesterType.Tuple(elems) => 
+      s"(${elems.map(chesterTypeToString).mkString(", ")})"
+    case ChesterType.Variadic(elem) => s"...${chesterTypeToString(elem)}"
+    case ChesterType.Function(params, ret, _) => "function"
+}
 }
