@@ -6,7 +6,7 @@ import chester.core.{AST, Telescope, Implicitness, Param, EffectRef, JSImportKin
 import chester.tyck.{GoImportSignature, JSImportSignature}
 import upickle.default.*
 
-import java.nio.file.{Files, Path, Paths}
+import java.nio.file.{Files, Paths}
 import scala.sys.process.*
 import scala.util.{Failure, Success, Try}
 
@@ -265,7 +265,7 @@ object GoTypeExtractor {
   }
 
   /** Save extracted signatures to JSON file with detailed parameter information */
-  def saveToJson(signatures: Map[String, JSImportSignature], outputPath: Path): Unit = {
+  def saveToJson(signatures: Map[String, JSImportSignature], outputPath: String): Unit = {
     val packagesJson = signatures
       .map { case (pkgPath, sig) =>
         // Get cached detailed signatures if available
@@ -321,7 +321,7 @@ $packagesJson
   }
 }"""
 
-    Files.writeString(outputPath, json)
+    Files.writeString(Paths.get(outputPath), json)
   }
 
   /** Convert ChesterType to JSON-friendly string representation */

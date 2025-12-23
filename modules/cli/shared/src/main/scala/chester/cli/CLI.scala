@@ -646,8 +646,9 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       try {
         val signatures = GoTypeExtractor.extractPackages(packages)
         val outPath = output.map(io.pathOps.of).getOrElse(io.pathOps.of("go-signatures.json"))
-        GoTypeExtractor.saveToJson(signatures, java.nio.file.Paths.get(io.pathOps.asString(outPath)))
-        IO.println(s"Wrote Go signatures to '${io.pathOps.asString(outPath)}'.")
+        val outPathStr = io.pathOps.asString(outPath)
+        GoTypeExtractor.saveToJson(signatures, outPathStr)
+        IO.println(s"Wrote Go signatures to '${outPathStr}'.")
       } catch {
         case e: Exception =>
           IO.println(s"Error extracting Go types: ${e.getMessage}", toStderr = true)
