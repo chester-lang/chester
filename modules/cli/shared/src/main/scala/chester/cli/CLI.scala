@@ -6,6 +6,7 @@ import chester.core.AST
 import chester.error.*
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.backend.TypeScriptBackend
+import chester.backend.GoBackend
 import chester.tyck.{CoreTypeChecker, ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, substituteSolutions}
 import chester.error.VectorReporter
 import chester.interop.typescript.TypeScriptToChester
@@ -568,6 +569,78 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     extractJSImportSpecifiers(source).map(_.filter(_.startsWith("go:")))
   }
 
+  private def targetGoPath(inputPath: io.Path, outDir: io.Path): io.Path = {
+    val name = io.pathOps.baseName(inputPath)
+    val goName =
+      if name.contains(".") then name.replaceAll("\\.[^.]+$", ".go") else s"$name.go"
+    // If outDir path ends with .go, use it directly (single file output)
+    val outDirStr = io.pathOps.asString(outDir)
+    if outDirStr.endsWith(".go") then outDir
+    else io.pathOps.join(outDir, goName)
+  }
+
+  private def compileToGo(input: String, output: Option[String]): F[Unit] = {
+    val inPath = io.pathOps.of(input)
+    for {
+      exists <- IO.exists(inPath)
+      _ <-
+        if !exists then IO.println(s"Input path '$input' does not exist.", toStderr = true)
+        else {
+          IO.isDirectory(inPath).flatMap { isDir =>
+            if isDir then {
+              // Directory: compile all .chester files to go-out/
+              val defaultOut = io.pathOps.join(inPath, "go-out")
+              val outBaseStr = output.getOrElse(io.pathOps.asString(defaultOut))
+              ensureDir(outBaseStr).flatMap { outDir =>
+                IO.listFiles(inPath)
+                  .map(_.filter(p => io.pathOps.baseName(p).endsWith(".chester")))
+                  .flatMap { paths =>
+                    paths.foldLeft(Runner.pure[F, Unit](())) { (acc, p) =>
+                      acc.flatMap { _ =>
+                        IO.readString(p).flatMap { content =>
+                          val src = Source(FileNameAndContent(io.pathOps.asString(p), content))
+                          resolveGoImportSignatures(src, content).flatMap { goImports =>
+                            analyze(src, goImports = goImports) match
+                              case Left(errors) =>
+                                printLines(errors, toStderr = true)
+                              case Right((ast, _)) =>
+                                val goProg = GoBackend.lowerProgram(ast)
+                                val rendered = goProg.toDoc.toString
+                                val outPath = targetGoPath(p, outDir)
+                                IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
+                                  .flatMap(_ => IO.println(s"Wrote Go code to '${io.pathOps.asString(outPath)}'."))
+                          }
+                        }
+                      }
+                    }
+                  }
+              }
+            } else {
+              // Single file: compile to specified output or input.go
+              val inStr = io.pathOps.asString(inPath)
+              val defaultOut = if inStr.contains(".") then inStr.replaceAll("\\.[^.]+$", ".go") else s"$inStr.go"
+              val outFileStr = output.getOrElse(defaultOut)
+              val outPath = io.pathOps.of(outFileStr)
+              
+              IO.readString(inPath).flatMap { content =>
+                val src = Source(FileNameAndContent(inStr, content))
+                resolveGoImportSignatures(src, content).flatMap { goImports =>
+                  analyze(src, goImports = goImports) match
+                    case Left(errors) =>
+                      printLines(errors, toStderr = true)
+                    case Right((ast, _)) =>
+                      val goProg = GoBackend.lowerProgram(ast)
+                      val rendered = goProg.toDoc.toString
+                      IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
+                        .flatMap(_ => IO.println(s"Wrote Go code to '${io.pathOps.asString(outPath)}'."))
+                }
+              }
+            }
+          }
+        }
+    } yield ()
+  }
+
   def run(config: Config): F[Unit] = config match {
     case Config.Version =>
       IO.println(s"Chester version: ${VersionInfo.current}")
@@ -581,6 +654,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       compileFile(input, output)
     case Config.CompileTS(input, output) =>
       compileToTypeScript(input, output)
+    case Config.CompileGo(input, output) =>
+      compileToGo(input, output)
     case Config.Format(input) =>
       formatFile(input)
   }

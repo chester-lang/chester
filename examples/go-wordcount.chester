@@ -1,0 +1,44 @@
+// Simple file word counter demonstrating Chester → Go compilation with FFI
+// This example uses Go's standard library for file I/O with proper effect annotations
+
+{
+  // Import Go standard library packages
+  import go "os";
+  import go "bufio";  
+  import go "strings";
+  import go "fmt";
+
+  // Read file and count words - requires io effect
+  def countWords(filename: String): Integer / io = {
+    // Open file using Go's os.Open (I/O operation)
+    let file = go.os.Open(filename);
+    
+    // Create scanner using bufio
+    let scanner = go.bufio.NewScanner(file);
+    
+    let wordCount = 0;
+    
+    // Scan file line by line (I/O operation)
+    while (scanner.Scan()) {
+      let line = scanner.Text();
+      let words = go.strings.Fields(line);
+      wordCount = wordCount + len(words);
+    };
+    
+    // Close file (I/O operation)
+    file.Close();
+    
+    wordCount
+  };
+
+  // Main function - requires io effect for file operations and printing
+  def main(): Unit / io = {
+    let filename = "test.txt";
+    let count = countWords(filename);
+    // Printf is I/O operation
+    go.fmt.Printf("Word count: %d\n", count);
+  };
+
+  // Call main
+  main()
+}

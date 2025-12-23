@@ -1,0 +1,9 @@
+// Simple Go FFI example with proper def syntax
+
+import go "fmt";
+
+def greet(name: String): Unit / io = {
+  go.fmt.Printf("Hello, %s!\n", name)
+};
+
+greet("Chester")

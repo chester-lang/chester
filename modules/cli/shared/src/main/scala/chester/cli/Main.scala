@@ -15,6 +15,7 @@ object Main {
        |  $progName [run] [file]                 Start the REPL or type-check a file
        |  $progName compile <file> [--output <path>]  Type-check and emit the elaborated AST
        |  $progName ts <file|dir> [--output <path>]   Type-check and emit TypeScript for a file or directory
+       |  $progName go <file|dir> [--output <path>]   Type-check and emit Go for a file or directory
        |  $progName format <file>                Format a Chester source file in-place
        |  $progName version                      Show version information
        |  $progName help                         Show this help message
@@ -45,6 +46,8 @@ object Main {
       parseCompile(rest)
     case "ts" :: rest =>
       parseCompileTS(rest)
+    case "go" :: rest =>
+      parseCompileGo(rest)
     case "format" :: rest =>
       parseFormat(rest)
     case head :: Nil if !head.startsWith("-") =>
@@ -104,6 +107,26 @@ object Main {
         input match
           case None    => loop(tail, output, Some(value))
           case Some(_) => Left("ts accepts only one input path")
+
+    loop(args, output = None, input = None)
+  }
+
+  private def parseCompileGo(args: List[String]): Either[String, Config] = {
+    def loop(rest: List[String], output: Option[String], input: Option[String]): Either[String, Config] = rest match
+      case Nil =>
+        input match
+          case Some(in) => Right(Config.CompileGo(in, output))
+          case None     => Left("go requires an input file or directory")
+      case ("--output" | "-o") :: value :: tail =>
+        loop(tail, Some(value), input)
+      case ("--output" | "-o") :: Nil =>
+        Left("go option --output requires a value")
+      case opt :: _ if opt.startsWith("-") =>
+        Left(s"Unknown go option: $opt")
+      case value :: tail =>
+        input match
+          case None    => loop(tail, output, Some(value))
+          case Some(_) => Left("go accepts only one input path")
 
     loop(args, output = None, input = None)
   }

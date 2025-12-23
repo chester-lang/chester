@@ -1,0 +1,6 @@
+// Simple Go FFI example - file level syntax
+
+import go "fmt";
+
+// Direct Printf call  
+go.fmt.Printf("Hello from Chester compiled to Go!\n")
