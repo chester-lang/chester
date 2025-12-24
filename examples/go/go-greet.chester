@@ -2,8 +2,9 @@
 
 import go "fmt";
 
-def greet(name: String): Unit / io = {
-  go.fmt.Printf("Hello, %s!\n", name)
+def greet(name: String): Unit / [io] = {
+  go.fmt.Printf(name);
+  ()
 };
 
 greet("Chester from Go FFI")

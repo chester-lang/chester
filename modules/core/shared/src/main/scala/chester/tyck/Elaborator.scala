@@ -22,6 +22,7 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
   case NotAFunction(ty: AST, override val span0: Option[Span]) extends ElabProblem(span0)
   case NotAUniverse(ty: AST, override val span0: Option[Span]) extends ElabProblem(span0)
   case UnknownEffect(name: String, override val span0: Option[Span]) extends ElabProblem(span0)
+  case UnitValueUsedAsType(override val span0: Option[Span]) extends ElabProblem(span0)
 
   override def stage: Problem.Stage = Problem.Stage.TYCK
   override def severity: Problem.Severity = Problem.Severity.Error
@@ -37,6 +38,8 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
       (Doc.text("Not a universe type: "): ToDoc) <> ty.toDoc
     case ElabProblem.UnknownEffect(name, _) =>
       Doc.text(s"Unknown effect: $name")
+    case ElabProblem.UnitValueUsedAsType(_) =>
+      Doc.text("Unit is the type; use Unit in type positions and () only as a value")
 
 /** Elaboration context tracking bindings and types during CST to AST conversion */
 case class ElabContext(
@@ -689,6 +692,8 @@ object ElabHandler extends Handler[ElabConstraint]:
         }
 
         if c.asType then
+          if elements.isEmpty then
+            c.ctx.reporter.report(ElabProblem.UnitValueUsedAsType(span))
           module.fill(solver, c.result, AST.TupleType(tupleElems, span))
           module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), span))
         else {
@@ -1032,7 +1037,116 @@ object ElabHandler extends Handler[ElabConstraint]:
     def fillResultOnce(cell: module.CellRW[AST], value: AST): Unit =
       if !module.hasStableValue(solver, cell) then module.fill(solver, cell, value)
 
+    def handleFieldAccess(lhs: CST, field: String): Result = {
+      val targetResult = module.newOnceCell[ElabConstraint, AST](solver)
+      val targetTy = module.newOnceCell[ElabConstraint, AST](solver)
+      module.addConstraint(solver, ElabConstraint.Infer(lhs, targetResult, targetTy, ctx, asType = asType))
+      val targetAst = AST.MetaCell(HoldNotReadable(targetResult), lhs.span)
+      val accessAst = AST.FieldAccess(targetAst, field, span)
+      fillResultOnce(resultCell, accessAst)
+      module.readStable(solver, targetTy) match
+        case None =>
+          // Try to use a known binding type (if lhs is a symbol) before deferring
+          lhs match
+            case CST.Symbol(sym, _) =>
+              (for
+                id <- ctx.lookup(sym)
+                tyCell <- ctx.lookupType(id)
+                ty <- module.readStable(solver, tyCell)
+              yield (id, ty)) match
+                case Some((_, AST.RecordTypeRef(recId, _, _))) =>
+                  ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == field)) match
+                    case Some(param) => fillResultOnce(inferredTyCell, param.ty)
+                    case None        => fillResultOnce(inferredTyCell, AST.AnyType(span))
+                case _ => ()
+            case _ => ()
+          // If we still haven't produced a type, defer to the eventual target type
+          if !module.hasSomeValue(solver, inferredTyCell.asInstanceOf[module.CellAny]) then
+            fillResultOnce(inferredTyCell, AST.MetaCell(HoldNotReadable(targetTy), span))
+          Result.Done
+        case Some(AST.RecordTypeRef(recId, _, _)) =>
+          ctx.lookupRecordById(recId) match
+            case Some(rec) =>
+              rec.fields.find(_.name == field) match
+                case Some(param) =>
+                  fillResultOnce(inferredTyCell, param.ty)
+                  Result.Done
+                case None =>
+                  // Unknown field on a known record type – fall back to Any to keep solving
+                  fillResultOnce(inferredTyCell, AST.AnyType(span))
+                  Result.Done
+            case None =>
+              // Should not happen; fall back conservatively
+              fillResultOnce(inferredTyCell, AST.AnyType(span))
+              Result.Done
+        case Some(_) =>
+          // Field access on non-record type – yield Any to avoid dangling metas
+          fillResultOnce(inferredTyCell, AST.AnyType(span))
+          Result.Done
+    }
+
     elems match
+      case _ if elems.length > 3 && elems.lastOption.exists(_.isInstanceOf[CST.Symbol]) &&
+            elems.lift(elems.length - 2).exists {
+              case CST.Symbol(".", _) => true
+              case _                  => false
+            } =>
+        val dottedSymbols = {
+          val positionsOk = elems.indices.forall { idx =>
+            if idx % 2 == 0 then elems(idx).isInstanceOf[CST.Symbol]
+            else elems(idx) match
+              case CST.Symbol(".", _) => true
+              case _                  => false
+          }
+          if positionsOk then Some(elems.indices.collect { case idx if idx % 2 == 0 => elems(idx).asInstanceOf[CST.Symbol] }.toVector)
+          else None
+        }
+
+        dottedSymbols match
+          case Some(symbols) if symbols.length >= 2 =>
+            val head = symbols.head
+            ctx.lookup(head.name).flatMap(ctx.lookupType).flatMap(module.readStable(solver, _)) match
+              case Some(initialTy) =>
+                val baseRef = AST.Ref(ctx.lookup(head.name).get, head.name, head.span)
+                val (finalExpr, finalTyOpt) = symbols.tail.foldLeft((baseRef: AST, Option(initialTy))) { case ((exprAcc, tyOpt), sym) =>
+                  val nextExpr = AST.FieldAccess(exprAcc, sym.name, sym.span.orElse(span))
+                  val nextTy = tyOpt match
+                    case Some(AST.RecordTypeRef(recId, _, _)) =>
+                      ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == sym.name)).map(_.ty)
+                    case _ => None
+                  (nextExpr, nextTy)
+                }
+                fillResultOnce(resultCell, finalExpr)
+                finalTyOpt match
+                  case Some(finalTy) =>
+                    fillResultOnce(inferredTyCell, finalTy)
+                    Some(Result.Done)
+                  case None =>
+                    Some(handleFieldAccess(
+                      if symbols.length == 2 then head
+                      else {
+                        val lhsElems = elems.dropRight(2)
+                        if lhsElems.length == 1 then lhsElems.head
+                        else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(lhsElems), ElabSupport.combinedSpan(lhsElems))
+                      },
+                      symbols.last.name
+                    ))
+              case None =>
+                val fieldSym = elems.last.asInstanceOf[CST.Symbol]
+                val lhsElems = elems.dropRight(2)
+                val lhs = {
+                  if lhsElems.length == 1 then lhsElems.head
+                  else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(lhsElems), ElabSupport.combinedSpan(lhsElems))
+                }
+                Some(handleFieldAccess(lhs, fieldSym.name))
+          case _ =>
+            val fieldSym = elems.last.asInstanceOf[CST.Symbol]
+            val lhsElems = elems.dropRight(2)
+            val lhs = {
+              if lhsElems.length == 1 then lhsElems.head
+              else CST.SeqOf(NonEmptyVector.fromVectorUnsafe(lhsElems), ElabSupport.combinedSpan(lhsElems))
+            }
+            Some(handleFieldAccess(lhs, fieldSym.name))
       case Vector(CST.Symbol(name, _), CST.Symbol(".", _), CST.Symbol("t", _)) =>
         ctx.lookupEnum(name) match
           case Some(en) =>
@@ -1119,51 +1233,7 @@ object ElabHandler extends Handler[ElabConstraint]:
                 fillResultOnce(inferredTyCell, AST.AnyType(span))
                 Some(Result.Done)
       case Vector(lhs, CST.Symbol(".", _), CST.Symbol(field, _)) =>
-        val targetResult = module.newOnceCell[ElabConstraint, AST](solver)
-        val targetTy = module.newOnceCell[ElabConstraint, AST](solver)
-        module.addConstraint(solver, ElabConstraint.Infer(lhs, targetResult, targetTy, ctx, asType = asType))
-        val targetAst = AST.MetaCell(HoldNotReadable(targetResult), lhs.span)
-        val accessAst = AST.FieldAccess(targetAst, field, span)
-        fillResultOnce(resultCell, accessAst)
-        module.readStable(solver, targetTy) match
-          case None =>
-            // Try to use a known binding type (if lhs is a symbol) before deferring
-            lhs match
-              case CST.Symbol(sym, _) =>
-                (for
-                  id <- ctx.lookup(sym)
-                  tyCell <- ctx.lookupType(id)
-                  ty <- module.readStable(solver, tyCell)
-                yield (id, ty)) match
-                  case Some((id, AST.RecordTypeRef(recId, _, _))) =>
-                    ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == field)) match
-                      case Some(param) => fillResultOnce(inferredTyCell, param.ty)
-                      case None        => fillResultOnce(inferredTyCell, AST.AnyType(span))
-                  case _ => ()
-              case _ => ()
-            // If we still haven't produced a type, defer to the eventual target type
-            if !module.hasSomeValue(solver, inferredTyCell.asInstanceOf[module.CellAny]) then
-              fillResultOnce(inferredTyCell, AST.MetaCell(HoldNotReadable(targetTy), span))
-            Some(Result.Done)
-          case Some(AST.RecordTypeRef(recId, _, _)) =>
-            ctx.lookupRecordById(recId) match
-              case Some(rec) =>
-                rec.fields.find(_.name == field) match
-                  case Some(param) =>
-                    fillResultOnce(inferredTyCell, param.ty)
-                    Some(Result.Done)
-                  case None =>
-                    // Unknown field on a known record type – fall back to Any to keep solving
-                    fillResultOnce(inferredTyCell, AST.AnyType(span))
-                    Some(Result.Done)
-              case None =>
-                // Should not happen; fall back conservatively
-                fillResultOnce(inferredTyCell, AST.AnyType(span))
-                Some(Result.Done)
-          case Some(_) =>
-            // Field access on non-record type – yield Any to avoid dangling metas
-            fillResultOnce(inferredTyCell, AST.AnyType(span))
-            Some(Result.Done)
+        Some(handleFieldAccess(lhs, field))
       case _ => None
   }
 

@@ -1,19 +1,20 @@
 package main
+import "fmt"
 
 func countWords(text string) int {
-    return func() {
-        return 42
-    }()
+    return 42
 }
 
 func processFile(filename string) int {
     return func() {
         func() {
             text := "sample text content"
-return text
+text
         }()
 return countWords(text)
     }()
 }
 
-return processFile("test.txt")
+func main() {
+    fmt.Println(processFile("test.txt"))
+}

@@ -1,0 +1,11 @@
+// Go FFI hello example with proper imports
+// Uses Go's fmt package
+
+import go "fmt";
+
+def main(): Unit / [io] = {
+  go.fmt.Printf("Hello from Chester with Go FFI!");
+  ()
+};
+
+main()
