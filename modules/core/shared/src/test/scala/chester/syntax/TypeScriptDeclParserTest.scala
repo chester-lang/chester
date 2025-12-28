@@ -127,6 +127,47 @@ class TypeScriptDeclParserTest extends FunSuite {
     }
   }
 
+  test("parse interface method signatures") {
+    val source =
+      """|interface Console {
+         |  log(message?: string, ...optionalParams: any[]): void;
+         |}
+         |""".stripMargin
+    val sourceRef = Source(FileNameAndContent("console.d.ts", source))
+    val ast = TypeScriptDeclParser.parse(source, sourceRef)
+
+    ast match {
+      case TypeScriptAST.Program(Vector(TypeScriptAST.InterfaceDeclaration(_, _, _, members, _)), _) =>
+        members.headOption match
+          case Some(InterfaceMember("log", InterfaceMemberType.MethodSignature(params, returnType), _)) =>
+            assert(params.nonEmpty, "Expected method parameters to be parsed")
+            returnType match
+              case TypeScriptType.PrimitiveType("void", _) => ()
+              case other                                   => fail(s"Expected void return type, got $other")
+          case other =>
+            fail(s"Expected method signature member, got $other")
+      case other =>
+        fail(s"Expected Program with interface, got $other")
+    }
+  }
+
+  test("parse export assignment") {
+    val source =
+      """|declare module "node:console" {
+         |  export = globalThis.console;
+         |}
+         |""".stripMargin
+    val sourceRef = Source(FileNameAndContent("export-assign.d.ts", source))
+    val ast = TypeScriptDeclParser.parse(source, sourceRef)
+
+    ast match {
+      case TypeScriptAST.Program(Vector(TypeScriptAST.NamespaceDeclaration(_, body, _)), _) =>
+        body.collectFirst { case TypeScriptAST.ExportAssignment(_, _) => () }.getOrElse(fail("Missing export assignment"))
+      case other =>
+        fail(s"Expected module namespace with export assignment, got $other")
+    }
+  }
+
   test("parse snippet from NodeJS process.d.ts") {
     val source =
       """|/**

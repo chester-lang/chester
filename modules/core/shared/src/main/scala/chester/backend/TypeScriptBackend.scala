@@ -69,14 +69,18 @@ object TypeScriptBackend:
         Vector(fn)
 
       case StmtAST.Record(_, name, fields, _) =>
-        val members = fields.map { f =>
-          TSInterfaceMember(
-            f.name,
-            TSInterfaceMemberType.PropertySignature(lowerType(f.ty, config), isOptional = false, isReadonly = false),
-            None
-          )
+        if name.startsWith("JSImport_") || name.startsWith("GoImport_") then
+          Vector.empty
+        else {
+          val members = fields.map { f =>
+            TSInterfaceMember(
+              f.name,
+              TSInterfaceMemberType.PropertySignature(lowerType(f.ty, config), isOptional = false, isReadonly = false),
+              None
+            )
+          }
+          Vector(TypeScriptAST.InterfaceDeclaration(name, Vector.empty, Vector.empty, members.toVector, stmt.span))
         }
-        Vector(TypeScriptAST.InterfaceDeclaration(name, Vector.empty, Vector.empty, members.toVector, stmt.span))
 
       case StmtAST.Enum(_, name, _, cases, _) =>
         val members = cases.map(c => TSEnumMember(c.name, None, None))

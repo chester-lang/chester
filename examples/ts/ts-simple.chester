@@ -1,0 +1,6 @@
+// Simple pure example - no effects, no imports
+
+def add(x: Integer, y: Integer): Integer = x + y;
+
+add(40, 2);
+()

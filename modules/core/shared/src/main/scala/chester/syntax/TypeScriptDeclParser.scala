@@ -205,6 +205,9 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
         .orElse(consumeKeyword("type", skip = true).map { case (start, _) => parseTypeAlias(start) })
         .orElse(consumeKeyword("function", skip = true).map { case (start, _) => parseFunction(start, modifiers = Vector.empty) })
         .orElse(parseVariableWithoutDeclare())
+        .orElse(consumeKeyword("module", skip = true).map { case (start, _) => parseModule(start) })
+        .orElse(consumeKeyword("namespace", skip = true).map { case (start, _) => parseModule(start) })
+        .orElse(consumeKeyword("global", skip = true).map { case (start, _) => parseGlobal(start) })
         .orElse(consumeKeyword("declare", skip = true).map { case (start, _) => parseDeclaration(start) })
         .orElse(consumeKeyword("export", skip = true).map { case (start, _) => parseExport(start) })
     }
@@ -277,20 +280,50 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     if expectChar('{') then
       skipTrivia()
       while !peekChar('}') && !eof do
-        readIdentifier(skip = false) match
-          case Some((name, memberStart, _)) =>
-            val isOptional = maybeConsume('?')
-            if expectChar(':') then
-              val memberType = parseTypeReference()
-              val span = spanFrom(memberStart, cursor)
-              members += InterfaceMember(name, InterfaceMemberType.PropertySignature(memberType, isOptional, false), span)
-              maybeConsume(';')
-            else {
-              // Skip until end of line to avoid infinite loops
-              skipToLineEnd()
-            }
-          case None =>
-            skipUnknownToken()
+        val memberStart = cursor
+        val isReadonly = consumeKeyword("readonly", skip = false).isDefined
+        if isReadonly then skipTrivia()
+        if peekChar('(') then
+          val params = parseParameterList()
+          val returnType = if maybeConsume(':') then parseTypeReference() else TypeScriptType.PrimitiveType("any", spanFrom(memberStart, cursor))
+          val span = spanFrom(memberStart, cursor)
+          members += InterfaceMember("", InterfaceMemberType.CallSignature(params, returnType), span)
+          maybeConsume(';')
+        else if peekChar('[') then
+          advance()
+          val paramName = readIdentifier(skip = true).map(_._1).getOrElse("key")
+          maybeConsume(':')
+          val paramType = if eof then TypeScriptType.PrimitiveType("any", spanFrom(memberStart, cursor)) else parseTypeReference()
+          expectChar(']')
+          val returnType = if maybeConsume(':') then parseTypeReference() else TypeScriptType.PrimitiveType("any", spanFrom(memberStart, cursor))
+          val span = spanFrom(memberStart, cursor)
+          val param = Parameter(paramName, Some(paramType), None, isRest = false, spanFrom(memberStart, cursor))
+          members += InterfaceMember("", InterfaceMemberType.IndexSignature(Vector(param), returnType), span)
+          maybeConsume(';')
+        else
+          readIdentifier(skip = false) match
+            case Some((name, memberStart, _)) =>
+              val isOptional = maybeConsume('?')
+              skipTrivia()
+              if peekChar('(') then
+                skipBalanced('<', '>')
+                val params = parseParameterList()
+                val returnType =
+                  if maybeConsume(':') then parseTypeReference() else TypeScriptType.PrimitiveType("any", spanFrom(memberStart, cursor))
+                val span = spanFrom(memberStart, cursor)
+                members += InterfaceMember(name, InterfaceMemberType.MethodSignature(params, returnType), span)
+                maybeConsume(';')
+              else if expectChar(':') then
+                val memberType = parseTypeReference()
+                val span = spanFrom(memberStart, cursor)
+                members += InterfaceMember(name, InterfaceMemberType.PropertySignature(memberType, isOptional, isReadonly), span)
+                maybeConsume(';')
+              else {
+                // Skip until end of line to avoid infinite loops
+                skipToLineEnd()
+              }
+            case None =>
+              skipUnknownToken()
         skipTrivia()
       expectChar('}')
     members.toVector
@@ -447,6 +480,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
   private def parseDeclaration(start: Cursor): TypeScriptAST = {
     skipTrivia()
     if consumeKeyword("module", skip = false).isDefined || consumeKeyword("namespace", skip = false).isDefined then parseModule(start)
+    else if consumeKeyword("global", skip = false).isDefined then parseGlobal(start)
     else {
       consumeKeyword("function", skip = false)
         .map(_ => parseFunction(start, modifiers = Vector(Modifier.Declare)))
@@ -468,6 +502,20 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
         skipTrivia()
       expectChar('}')
     TypeScriptAST.NamespaceDeclaration(name, body.toVector, spanFrom(start, cursor))
+  }
+
+  private def parseGlobal(start: Cursor): TypeScriptAST = {
+    skipTrivia()
+    val body = mutable.ArrayBuffer[TypeScriptAST]()
+    if expectChar('{') then
+      skipTrivia()
+      while !peekChar('}') && !eof do
+        parseStatement() match
+          case Some(stmt) => body += stmt
+          case None       => skipUnknownToken()
+        skipTrivia()
+      expectChar('}')
+    TypeScriptAST.NamespaceDeclaration("global", body.toVector, spanFrom(start, cursor))
   }
 
   private def parseFunction(start: Cursor, modifiers: Vector[Modifier]): TypeScriptAST = {
@@ -640,12 +688,29 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
           isDefault,
           spanFrom(start, cursor)
         )
+      else if maybeConsume('=') then
+        skipTrivia()
+        val expr = readQualifiedName()
+          .map((name, _) => qualifiedNameToExpr(name, spanFrom(start, cursor)))
+          .getOrElse(TypeScriptAST.Identifier("Unknown", spanFrom(start, cursor)))
+        maybeConsume(';')
+        return TypeScriptAST.ExportAssignment(expr, spanFrom(start, cursor))
       else parseStatement()
     }.orElse {
       skipUnknownToken()
       None
     }
     TypeScriptAST.ExportDeclaration(inner, Vector.empty, None, isDefault, spanFrom(start, cursor))
+  }
+
+  private def qualifiedNameToExpr(name: String, span: Option[Span]): TypeScriptAST = {
+    val parts = name.split('.').toVector.filter(_.nonEmpty)
+    parts.headOption match
+      case None => TypeScriptAST.Identifier("Unknown", span)
+      case Some(head) =>
+        parts.drop(1).foldLeft(TypeScriptAST.Identifier(head, span)) { case (acc, part) =>
+          TypeScriptAST.PropertyAccess(acc, part, span)
+        }
   }
 
 object TypeScriptDeclParser:

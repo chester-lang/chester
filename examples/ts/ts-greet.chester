@@ -1,0 +1,8 @@
+// Node.js greet example with a parameter
+
+import console "node:console";
+
+def greet(name: String) = console.log(name);
+
+greet("Chester");
+()

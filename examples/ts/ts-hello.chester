@@ -1,0 +1,8 @@
+// Node.js hello example using the console module
+
+import console "node:console";
+
+def main() = console.log("Hello from Chester on Node!");
+
+main();
+()

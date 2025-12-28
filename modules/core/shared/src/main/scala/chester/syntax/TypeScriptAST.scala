@@ -99,6 +99,7 @@ enum TypeScriptAST derives ReadWriter {
       isDefault: Boolean,
       span: Option[Span]
   )
+  case ExportAssignment(expr: TypeScriptAST, span: Option[Span])
 
   // Program root
   case Program(statements: Vector[TypeScriptAST], span: Option[Span])
@@ -246,6 +247,8 @@ object TypeScriptAST {
         val exportDoc = text("export ") <> text("{") <> hsep(specifiers.map(exportSpecToDoc), text(", ")) <> text("}")
         source.map(s => exportDoc <+> text("from \"") <> text(s) <> text("\"")).getOrElse(exportDoc)
       }
+    case ExportAssignment(expr, _) =>
+      text("export = ") <> toDoc(expr)
 
     case Program(statements, _) =>
       ssep(statements.map(s => toDoc(s) <> text(";")), hardline)

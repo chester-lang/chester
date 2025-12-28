@@ -1,0 +1,10 @@
+// Node.js path join example
+
+import path "node:path";
+
+def joinPath(base: String, name: String): String = path.join(base, name);
+
+def main() = joinPath("/tmp", "demo.txt");
+
+main();
+()

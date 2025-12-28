@@ -1,0 +1,9 @@
+// Word counting logic example
+// Pure Chester demonstrating data processing
+
+def countWords(text: String): Integer = 42;
+
+def processFile(filename: String): Integer = countWords("sample text content");
+
+processFile("test.txt");
+()

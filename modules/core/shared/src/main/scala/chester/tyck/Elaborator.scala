@@ -2481,6 +2481,12 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
       // Separate implicit and explicit parameters
       val implicitParams = resolvedTelescopes.filter(_.implicitness == Implicitness.Implicit).flatMap(_.params)
       val explicitParams = resolvedTelescopes.filter(_.implicitness == Implicitness.Explicit).flatMap(_.params)
+      val restParamOpt = explicitParams.lastOption.flatMap { param =>
+        substituteSolutions(param.ty) match
+          case AST.ListType(elem, _) => Some((param, elem))
+          case _                     => None
+      }
+      val fixedParams = restParamOpt.map(_ => explicitParams.dropRight(1)).getOrElse(explicitParams)
 
       // Build arguments: use provided explicit type args for implicit params, create metas for rest
       val implicitArgs = if explicitTypeArgs.nonEmpty then
@@ -2531,51 +2537,95 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
       }
 
       // Check explicit argument arity
-      if explicitArgs.size != explicitParams.size then
-        c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
-        module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
-        module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-        return Result.Done
+      restParamOpt match
+        case Some(_) =>
+          if explicitArgs.size < fixedParams.size then
+            c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
+            module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
+            module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+            return Result.Done
+        case None =>
+          if explicitArgs.size != explicitParams.size then
+            c.ctx.reporter.report(ElabProblem.NotAFunction(func, c.span))
+            module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
+            module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+            return Result.Done
 
       // Type check arguments synchronously (not via constraints to avoid loops)
       // This may fill the implicit arg MetaCells through unification
       val implicitSubst = implicitParams.map(_.id).zip(implicitArgs).toMap
       var runningSubst = implicitSubst
-      val allTypeChecksPassed = explicitParams.zip(c.argTypes).zipWithIndex.forall { case ((param, argTyCell), idx) =>
-        val baseParamTy = substituteSolutions(param.ty)
-        val expectedParamTy = substituteInType(baseParamTy, runningSubst)
-        val typeCheckOk = module.readStable(solver, argTyCell) match
-          case Some(actualArgTy) =>
-            expectedParamTy match
-              case metaExpected @ AST.MetaCell(_, _) =>
-                unify(metaExpected, actualArgTy, c.span, c.ctx) match
-                  case UnifyResult.Success => true
-                  case UnifyResult.Failure(_) =>
-                    c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
-                    false
-              case _ =>
-                actualArgTy match
-                  case AST.MetaCell(_, _) =>
-                    if !module.hasStableValue(solver, argTyCell.asInstanceOf[module.CellRW[AST]]) then
-                      module.fill(solver, argTyCell.asInstanceOf[module.CellRW[AST]], expectedParamTy)
-                    true
-                  case _ =>
-                    // Try unification first (for implicit argument inference), then subtyping
-                    unify(expectedParamTy, actualArgTy, c.span, c.ctx) match
-                      case UnifyResult.Success    => true
-                      case UnifyResult.Failure(_) =>
-                        // Unification failed, try subtyping: actualArgTy <: expectedParamTy
-                        if isSubtype(actualArgTy, expectedParamTy, c.span, c.ctx) then true
-                        else {
-                          c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
-                          false
-                        }
-          case None => true // Not stable yet, will be checked later
-        if typeCheckOk then
-          // Extend substitution with this explicit argument for later parameters
-          explicitArgs.lift(idx).foreach(argAst => runningSubst = runningSubst + (param.id -> argAst))
-        typeCheckOk
+      val fixedTypeChecksPassed = fixedParams.zip(c.argTypes.take(fixedParams.size)).zipWithIndex.forall {
+        case ((param, argTyCell), idx) =>
+          val baseParamTy = substituteSolutions(param.ty)
+          val expectedParamTy = substituteInType(baseParamTy, runningSubst)
+          val typeCheckOk = module.readStable(solver, argTyCell) match
+            case Some(actualArgTy) =>
+              expectedParamTy match
+                case metaExpected @ AST.MetaCell(_, _) =>
+                  unify(metaExpected, actualArgTy, c.span, c.ctx) match
+                    case UnifyResult.Success => true
+                    case UnifyResult.Failure(_) =>
+                      c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
+                      false
+                case _ =>
+                  actualArgTy match
+                    case AST.MetaCell(_, _) =>
+                      if !module.hasStableValue(solver, argTyCell.asInstanceOf[module.CellRW[AST]]) then
+                        module.fill(solver, argTyCell.asInstanceOf[module.CellRW[AST]], expectedParamTy)
+                      true
+                    case _ =>
+                      // Try unification first (for implicit argument inference), then subtyping
+                      unify(expectedParamTy, actualArgTy, c.span, c.ctx) match
+                        case UnifyResult.Success    => true
+                        case UnifyResult.Failure(_) =>
+                          // Unification failed, try subtyping: actualArgTy <: expectedParamTy
+                          if isSubtype(actualArgTy, expectedParamTy, c.span, c.ctx) then true
+                          else {
+                            c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedParamTy, actualArgTy, c.span))
+                            false
+                          }
+            case None => true // Not stable yet, will be checked later
+          if typeCheckOk then
+            // Extend substitution with this explicit argument for later parameters
+            explicitArgs.lift(idx).foreach(argAst => runningSubst = runningSubst + (param.id -> argAst))
+          typeCheckOk
       }
+
+      val restTypeChecksPassed = restParamOpt match
+        case Some((restParam, restElemTy)) =>
+          val baseElemTy = substituteSolutions(restElemTy)
+          val expectedElemTy = substituteInType(baseElemTy, runningSubst)
+          c.argTypes.drop(fixedParams.size).forall { argTyCell =>
+            module.readStable(solver, argTyCell) match
+              case Some(actualArgTy) =>
+                expectedElemTy match
+                  case metaExpected @ AST.MetaCell(_, _) =>
+                    unify(metaExpected, actualArgTy, c.span, c.ctx) match
+                      case UnifyResult.Success => true
+                      case UnifyResult.Failure(_) =>
+                        c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedElemTy, actualArgTy, c.span))
+                        false
+                  case _ =>
+                    actualArgTy match
+                      case AST.MetaCell(_, _) =>
+                        if !module.hasStableValue(solver, argTyCell.asInstanceOf[module.CellRW[AST]]) then
+                          module.fill(solver, argTyCell.asInstanceOf[module.CellRW[AST]], expectedElemTy)
+                        true
+                      case _ =>
+                        unify(expectedElemTy, actualArgTy, c.span, c.ctx) match
+                          case UnifyResult.Success    => true
+                          case UnifyResult.Failure(_) =>
+                            if isSubtype(actualArgTy, expectedElemTy, c.span, c.ctx) then true
+                            else {
+                              c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedElemTy, actualArgTy, c.span))
+                              false
+                            }
+              case None => true
+          }
+        case None => true
+
+      val allTypeChecksPassed = fixedTypeChecksPassed && restTypeChecksPassed
 
       if !allTypeChecksPassed then
         module.fill(solver, c.result, AST.Ref(Uniqid.make, "<error>", c.span))
@@ -2603,8 +2653,14 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
       }
 
       // Perform substitution: replace parameter references in result type with resolved arguments
-      val allParams = implicitParams ++ explicitParams
-      val allArgs = resolvedImplicitArgs ++ explicitArgs
+      val restArgForSubst = restParamOpt.map { _ =>
+        val restArgs = explicitArgs.drop(fixedParams.size)
+        AST.ListLit(restArgs.toVector, c.span)
+      }
+      val paramsForSubst = fixedParams ++ restParamOpt.map(_._1).toVector
+      val argsForSubst = explicitArgs.take(fixedParams.size) ++ restArgForSubst.toVector
+      val allParams = implicitParams ++ paramsForSubst
+      val allArgs = resolvedImplicitArgs ++ argsForSubst
       val appValue = func match
         case AST.EnumCaseRef(enumId, caseId, enumName, caseName, _) =>
           AST.EnumCtor(enumId, caseId, enumName, caseName, allArgs, c.span)

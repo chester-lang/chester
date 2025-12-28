@@ -430,15 +430,19 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
   }
 
   private def resolveNodeBuiltinDts(normalizedModule: String): F[Option[String]] = {
+    val parts = normalizedModule.split('/').toVector.filter(_.nonEmpty)
+    val (dirParts, fileName) =
+      if parts.isEmpty then (Vector.empty[String], "index.d.ts") else (parts.dropRight(1), parts.last + ".d.ts")
+    val subpath = if parts.isEmpty then "" else parts.mkString("/")
     findTypesNodeBase().flatMap {
       case None => Runner.pure(None)
       case Some(base) =>
-        val parts = normalizedModule.split('/').toVector.filter(_.nonEmpty)
-        val (dirParts, fileName) =
-          if parts.isEmpty then (Vector.empty[String], "index.d.ts") else (parts.dropRight(1), parts.last + ".d.ts")
         val dir = dirParts.foldLeft(base)((p, seg) => io.pathOps.join(p, seg))
         val fullPath = io.pathOps.join(dir, fileName)
         IO.exists(fullPath).flatMap(ok => if ok then IO.readString(fullPath).map(Some(_)) else Runner.pure(None))
+    }.flatMap {
+      case some @ Some(_) => Runner.pure(some)
+      case None           => fetchAndReadPackageTypes("@types/node", subpath)
     }
   }
 
