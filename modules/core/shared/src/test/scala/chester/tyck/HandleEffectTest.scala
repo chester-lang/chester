@@ -63,4 +63,59 @@ class HandleEffectTest extends FunSuite {
       case AST.IntegerType(_) => ()
       case other              => fail(s"Expected Integer type, got: $other")
   }
+
+  test("handled blocks can contain local lets and builtin calls") {
+    val code =
+      """{
+        |  effect magic { def ping(): Integer };
+        |
+        |  def good(): Unit / [io] =
+        |    handle {
+        |      let x = magic.ping();
+        |      println("ok")
+        |    } with magic {
+        |      def ping(): Integer = 40
+        |    };
+        |
+        |  good
+        |}""".stripMargin
+
+    val (_, goodTy, errors) = elaborateFile(code, ensureCoreType = true)
+    assert(errors.isEmpty, s"Expected no errors, got: $errors")
+    goodTy match
+      case Some(AST.Pi(_, _, effects, _)) =>
+        assert(effects.map(_.name).contains("io"), s"good should include io effect due println, got: $effects")
+      case other =>
+        fail(s"Expected function type for good, got: $other")
+  }
+
+  test("nested handlers can discharge multiple effects") {
+    val code =
+      """{
+        |  effect magic { def ping(): Integer };
+        |  effect other { def pong(): Integer };
+        |
+        |  def pure(): Integer / [] =
+        |    handle {
+        |      handle {
+        |        magic.ping() + other.pong()
+        |      } with magic {
+        |        def ping(): Integer = 10
+        |      }
+        |    } with other {
+        |      def pong(): Integer = 32
+        |    };
+        |
+        |  pure
+        |}""".stripMargin
+
+    val (_, pureTy, errors) = elaborateFile(code, ensureCoreType = true)
+    assert(errors.isEmpty, s"Expected nested handlers to discharge both effects, got: $errors")
+
+    pureTy match
+      case Some(AST.Pi(_, _, effects, _)) =>
+        assertEquals(effects.map(_.name).toSet, Set.empty[String], s"pure should have no residual effects, got: $effects")
+      case other =>
+        fail(s"Expected pure to have function type, got: $other")
+  }
 }

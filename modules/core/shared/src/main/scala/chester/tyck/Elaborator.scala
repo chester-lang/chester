@@ -2731,13 +2731,16 @@ private def handleAssembleDef[M <: SolverModule](c: ElabConstraint.AssembleDef)(
     }
   }
 
+  def calleeEffects(callee: AST): Set[EffectRef] = callee match
+    case r: AST.Ref        => effectsFromRef(r)
+    case AST.Ann(expr, _, _) => calleeEffects(expr)
+    case _                 => Set.empty
+
   // Compute required effects by scanning the body for calls whose types carry effect rows
   def gatherEffects(ast: AST): Set[EffectRef] = {
     ast match
       case AST.App(func, args, _, _) =>
-        val fromFuncType = func match
-          case r: AST.Ref => effectsFromRef(r)
-          case _          => Set.empty[EffectRef]
+        val fromFuncType = calleeEffects(func)
         fromFuncType ++ gatherEffects(func) ++ args.flatMap(a => gatherEffects(a.value))
       case AST.Block(elements, tail, _) =>
         elements.flatMap(gatherEffectsStmt).toSet ++ gatherEffects(tail)
