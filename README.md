@@ -3,6 +3,9 @@
 Chester is a statically-typed functional language that compiles to TypeScript, featuring an advanced effect system and seamless JavaScript/TypeScript interoperability.
 
 > [!WARNING]
+> Current version of this project are mostly written by generative large language model. Low quality code is expected. I mainly only oversee the architectural design
+
+> [!WARNING]
 > Chester is under active development. The language design and implementation are not stable.
 
 ## Key Features
