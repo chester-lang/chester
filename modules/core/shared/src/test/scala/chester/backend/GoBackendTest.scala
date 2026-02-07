@@ -38,3 +38,18 @@ class GoBackendTest extends FunSuite:
 
     assertEquals(rendered, expected)
   }
+
+  test("unit lowers to struct{} return type and nil value") {
+    val code =
+      """{ def noop(x: Integer): Unit = ();
+        |  () }""".stripMargin
+
+    val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+    assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+    val file = GoBackend.lowerProgram(astOpt.get, packageName = "main")
+    val rendered = normalize(render(file.toDoc).toString)
+
+    assert(rendered.contains("func noop(x int) struct {}"), s"Expected unit type to lower to struct {}, got:\n$rendered")
+    assert(rendered.contains("return nil"), s"Expected unit value to lower to nil, got:\n$rendered")
+  }

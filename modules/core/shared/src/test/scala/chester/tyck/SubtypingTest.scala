@@ -212,7 +212,7 @@ class SubtypingTest extends FunSuite:
         case other => fail(s"Expected println to have function type, got: $other")
 
       val (_, _, defErrors) = elaborateExpr("""{
-        def log(msg: String): () / [io] = println(msg);
+        def log(msg: String): Unit / [io] = println(msg);
         log("hi")
       }""")
       assert(defErrors.isEmpty, s"Function using println should elaborate without errors, got: $defErrors")
@@ -222,7 +222,7 @@ class SubtypingTest extends FunSuite:
   test("println cannot be used where no effects are allowed") {
     runAsync {
       val (_, _, errors) = elaborateExpr("""{
-        def bad(msg: String): () / [] = println(msg);
+        def bad(msg: String): Unit / [] = println(msg);
         bad("oops")
       }""")
 
@@ -235,7 +235,7 @@ class SubtypingTest extends FunSuite:
       val (_, tys, errors) = elaborateModule(
         Seq(
           "package p; def f(x: String): String = g(x);",
-          "package p; def g(y: String): String = y; def main(): () / [io] = println(f(\"hi\"));"
+          "package p; def g(y: String): String = y; def main(): Unit / [io] = println(f(\"hi\"));"
         )
       )
 

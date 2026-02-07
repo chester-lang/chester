@@ -177,12 +177,15 @@ object GoBackend:
           span
         )
       case AST.Tuple(elems, span) =>
-        val sliceType = GoType.Slice(GoType.Named("any", span), span)
-        GoAST.CompositeLiteral(
-          sliceType,
-          elems.map(e => GoCompositeElement(None, lowerExpr(e, config), e.span)).toVector,
-          span
-        )
+        if elems.isEmpty then GoAST.NilLiteral(span)
+        else {
+          val sliceType = GoType.Slice(GoType.Named("any", span), span)
+          GoAST.CompositeLiteral(
+            sliceType,
+            elems.map(e => GoCompositeElement(None, lowerExpr(e, config), e.span)).toVector,
+            span
+          )
+        }
 
       // Lambdas and application
       case AST.Lam(telescopes, body, span) =>
@@ -276,8 +279,9 @@ object GoBackend:
       case AST.AnyType(span)     => GoType.Named("any", span)
       case AST.ListType(elem, span) =>
         GoType.Slice(lowerType(elem, config), span)
-      case AST.TupleType(_, span) =>
-        GoType.Slice(GoType.Named("any", span), span)
+      case AST.TupleType(elems, span) =>
+        if elems.isEmpty then GoType.Struct(Vector.empty, span)
+        else GoType.Slice(GoType.Named("any", span), span)
       case AST.Pi(telescopes, resultTy, _, span) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         val results = Vector(lowerResultField(resultTy, config))

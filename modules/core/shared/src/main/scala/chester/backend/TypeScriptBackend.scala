@@ -146,8 +146,10 @@ object TypeScriptBackend:
       case AST.ListLit(elems, span) =>
         TypeScriptAST.Array(elems.map(e => lowerExpr(e, config)), span)
       case AST.Tuple(elems, span) =>
-        // Emit tuple as array literal
-        TypeScriptAST.Array(elems.map(e => lowerExpr(e, config)), span)
+        if elems.isEmpty then TypeScriptAST.UndefinedLiteral(span)
+        else
+          // Emit tuple as array literal
+          TypeScriptAST.Array(elems.map(e => lowerExpr(e, config)), span)
 
       // Lambdas and application
       case AST.Lam(telescopes, body, span) =>
@@ -232,7 +234,8 @@ object TypeScriptBackend:
       case AST.ListType(elem, span) =>
         TypeScriptType.TypeReference("Array", Vector(lowerType(elem, config)), span)
       case AST.TupleType(elems, span) =>
-        TypeScriptType.TupleType(elems.map(e => lowerType(e, config)), span)
+        if elems.isEmpty then TypeScriptType.PrimitiveType("void", span)
+        else TypeScriptType.TupleType(elems.map(e => lowerType(e, config)), span)
       case AST.Pi(telescopes, resultTy, _, span) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         TypeScriptType.FunctionType(params.toVector, lowerType(resultTy, config), span)

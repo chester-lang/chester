@@ -103,3 +103,29 @@ class TypeScriptBackendTest extends FunSuite:
       assert(rendered.contains("""import * as fs from "node:fs";"""), s"Expected import declaration, got:\n$rendered")
     }
   }
+
+  test("unit lowers to void return type and undefined value") {
+    runAsync {
+      val code =
+        """{ def noop(x: Integer): Unit = ();
+          |  noop(1) }""".stripMargin
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+
+      val fnDecl = program.statements.collectFirst { case fn: TypeScriptAST.FunctionDeclaration => fn }
+      assert(fnDecl.isDefined, "Expected a function declaration")
+
+      fnDecl.get.returnType match
+        case Some(TypeScriptType.PrimitiveType("void", _)) => ()
+        case other                                        => fail(s"Expected void return type, got: $other")
+
+      fnDecl.get.body match
+        case TypeScriptAST.Block(stmts, _) =>
+          stmts.lastOption match
+            case Some(TypeScriptAST.Return(Some(TypeScriptAST.UndefinedLiteral(_)), _)) => ()
+            case other => fail(s"Expected function body to return undefined for unit, got: $other")
+        case other =>
+          fail(s"Expected function body to be a block, got: $other")
+    }
+  }
