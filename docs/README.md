@@ -148,7 +148,7 @@ The `theme/css/language-picker.css` provides styling for language switcher UI (i
 ### Missing Chester.js bundle
 
 The documentation expects a compiled Chester.js bundle at:
-- Source: `docs/js/target/scala-3.7.4-RC1/docs-opt/main.js`
+- Source: `docs/js/target/scala-*/chester-docs-repl-opt/main.js`
 - After build: copied to `book/main.js`
 
 Make sure to build the Chester JS bundle before building docs if you want interactive examples.

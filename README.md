@@ -28,13 +28,13 @@ sbt cliJVM/assembly
 
 ```bash
 # Start REPL
-java -jar modules/cli/jvm/target/scala-3.7.4/cli-assembly-*.jar
+java -jar modules/cli/jvm/target/scala-*/cli-assembly-*.jar
 
 # Run a file
-java -jar modules/cli/jvm/target/scala-3.7.4/cli-assembly-*.jar hello.chester
+java -jar modules/cli/jvm/target/scala-*/cli-assembly-*.jar hello.chester
 
 # Compile to TypeScript
-java -jar modules/cli/jvm/target/scala-3.7.4/cli-assembly-*.jar ts src/ --output dist
+java -jar modules/cli/jvm/target/scala-*/cli-assembly-*.jar ts src/ --output dist
 ```
 
 For detailed setup, see **[Getting Started](docs/src/guide/getting-started.md)** in the documentation.
@@ -134,7 +134,7 @@ chester ts example.chester --output dist
 
 ## Development
 
-- **Language**: Scala 3.7.4
+- **Language**: Scala 3.8.1
 - **Build Tool**: sbt
 - **Platforms**: JVM, JavaScript (Scala.js), Native (Scala Native)
 
@@ -160,4 +160,3 @@ sbt cliNative/nativeLink
 ## License
 
 See [LICENSE.md](LICENSE.md)
-

@@ -42,8 +42,12 @@ update_translations() {
     echo "Translations updated"
 }
 
-CHESTER_JS_PATH="js/target/scala-3.7.4/chester-docs-repl-opt/main.js"
+CHESTER_JS_PATH="$(ls -1d js/target/scala-*/chester-docs-repl-opt/main.js 2>/dev/null | head -n 1)"
 copy_chester_js() {
+    if [ -z "$CHESTER_JS_PATH" ] || [ ! -f "$CHESTER_JS_PATH" ]; then
+        echo "Error: Chester docs JS bundle not found. Build it first (e.g. run: sbt docsRepl/fullOptJS)."
+        exit 1
+    fi
     cp "$CHESTER_JS_PATH" "$1/main.js"
     cp "$CHESTER_JS_PATH.map" "$1/main.js.map"
 }

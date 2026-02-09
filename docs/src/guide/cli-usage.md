@@ -8,13 +8,13 @@ After building Chester (see [Getting Started](getting-started.md)), you can run 
 
 ```bash
 # Using the JAR
-java -jar modules/cli/jvm/target/scala-3.7.4/cli-assembly-*.jar
+java -jar modules/cli/jvm/target/scala-*/cli-assembly-*.jar
 
 # Or create an alias
-alias chester='java -jar modules/cli/jvm/target/scala-3.7.4/cli-assembly-*.jar'
+alias chester='java -jar modules/cli/jvm/target/scala-*/cli-assembly-*.jar'
 
 # Or use the native binary
-modules/cli/native/target/scala-3.7.4/cli-out
+modules/cli/native/target/scala-*/cli-out
 ```
 
 ## Commands

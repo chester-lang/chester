@@ -25,12 +25,12 @@ cd chester
 sbt cliJVM/assembly
 ```
 
-This creates an executable JAR at `modules/cli/jvm/target/scala-3.7.4/cli-assembly-*.jar`.
+This creates an executable JAR at `modules/cli/jvm/target/scala-*/cli-assembly-*.jar`.
 
 For convenience, create an alias:
 
 ```bash
-alias chester='java -jar modules/cli/jvm/target/scala-3.7.4/cli-assembly-*.jar'
+alias chester='java -jar modules/cli/jvm/target/scala-*/cli-assembly-*.jar'
 ```
 
 ### Build the Native Binary (Optional)
@@ -41,7 +41,7 @@ For faster startup, build a native executable:
 sbt cliNative/nativeLink
 ```
 
-The binary will be at `modules/cli/native/target/scala-3.7.4/cli-out`.
+The binary will be at `modules/cli/native/target/scala-*/cli-out`.
 
 ## Your First Chester Program
 

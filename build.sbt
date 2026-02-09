@@ -9,7 +9,7 @@ import org.scalajs.linker.interface.OutputPatterns
 import scala.sys.process._
 
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "3.7.4"
+ThisBuild / scalaVersion := "3.8.1"
 ThisBuild / organization := "chester"
 
 addCommandAlias("updates", "reload plugins; dependencyUpdates; reload return; dependencyUpdates;")
@@ -26,7 +26,7 @@ Global / excludeLintKeys ++= Set(
 lazy val commonSettings = Seq(
   semanticdbEnabled := true,
   semanticdbVersion := scalafixSemanticdb.revision,
-  scalaVersion := "3.7.4",
+  scalaVersion := "3.8.1",
   scalacOptions ++= Seq(
     "-encoding",
     "UTF-8",
@@ -57,7 +57,7 @@ lazy val commonNativeSettings = Seq(
 
 // Vendor settings for spire-native (Scala 3.4 migration)
 lazy val commonVendorSettings = Seq(
-  scalaVersion := "3.7.4",
+  scalaVersion := "3.8.1",
   scalacOptions ++= Seq(
     "-encoding",
     "UTF-8",
@@ -83,7 +83,7 @@ lazy val lspDependencies = Seq(
 )
 lazy val testingDependencies = Seq(
   "org.scala-sbt" %% "io" % "1.10.5" % Test,
-  "org.scalameta" %% "munit" % "1.2.1" % Test
+  "org.scalameta" %% "munit" % "1.2.2" % Test
 )
 lazy val vendoredKiama = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Full)
@@ -230,7 +230,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .settings(
     name := "chester-core",
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "munit" % "1.2.1" % Test
+      "org.scalameta" %%% "munit" % "1.2.2" % Test
     )
   )
   .jvmSettings(
@@ -301,8 +301,8 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .settings(
     name := "chester-utils",
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "munit" % "1.2.1" % Test,
-      "com.lihaoyi" %%% "upickle" % "4.4.1",
+      "org.scalameta" %%% "munit" % "1.2.2" % Test,
+      "com.lihaoyi" %%% "upickle" % "4.4.2",
       "com.lihaoyi" %%% "fastparse" % "3.1.1",
       "com.lihaoyi" %%% "fansi" % "0.5.1",
       "com.eed3si9n.ifdef" %%% "ifdef-annotation" % "0.4.1",
@@ -312,12 +312,12 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jvmSettings(
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "os-lib" % "0.11.6",
+      "com.lihaoyi" %% "os-lib" % "0.11.8",
       "org.jline" % "jline" % "3.30.6",
       "org.jline" % "jline-terminal" % "3.30.6",
       "org.jline" % "jline-terminal-jni" % "3.30.6",
       "org.jline" % "jline-reader" % "3.30.6",
-      "org.graalvm.sdk" % "nativeimage" % "25.0.1"
+      "org.graalvm.sdk" % "nativeimage" % "25.0.2"
     )
   )
   .jsConfigure(project => project.enablePlugins(ScalaJSBundlerPlugin))
@@ -330,7 +330,7 @@ lazy val utils = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .nativeSettings(
     commonNativeSettings,
     libraryDependencies ++= Seq(
-      "com.lihaoyi" %%% "os-lib" % "0.11.6"
+      "com.lihaoyi" %%% "os-lib" % "0.11.8"
     )
   )
 
@@ -347,7 +347,7 @@ lazy val cli = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     name := "chester-cli",
     Compile / mainClass := Some("chester.cli.Main"),
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "munit" % "1.2.1" % Test
+      "org.scalameta" %%% "munit" % "1.2.2" % Test
     )
   )
   .jsSettings(
@@ -388,7 +388,7 @@ lazy val lsp = crossProject(JVMPlatform)
     commonSettings,
     name := "chester-lsp",
     libraryDependencies ++= Seq(
-      "org.scalameta" %%% "munit" % "1.2.1" % Test
+      "org.scalameta" %%% "munit" % "1.2.2" % Test
     )
   )
   .jvmSettings(

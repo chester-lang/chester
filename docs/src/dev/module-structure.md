@@ -175,7 +175,7 @@ This is cross-compiled for JVM, JS, and Native.
 **`build.sbt`:**
 - Defines all modules and their dependencies
 - Configures cross-platform settings
-- Sets Scala version (3.7.4)
+- Sets Scala version (3.8.1)
 
 **Common Settings:**
 - Semantic DB enabled (for Metals/LSP)

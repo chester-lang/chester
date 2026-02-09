@@ -16,7 +16,7 @@ This section contains technical documentation for Chester's implementation detai
 
 ## Current Implementation
 
-Chester is implemented in Scala 3.7.4 with multi-platform support:
+Chester is implemented in Scala 3.8.1 with multi-platform support:
 
 - **JVM**: Standard Java Virtual Machine target
 - **JavaScript**: Via Scala.js for browser/Node.js
