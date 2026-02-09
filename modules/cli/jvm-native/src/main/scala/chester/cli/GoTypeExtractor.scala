@@ -70,23 +70,25 @@ object GoTypeExtractor {
 
       funcPattern.findFirstMatchIn(trimmed) match {
         case Some(m) =>
-          val name = m.group(1)
-          val params = m.group(2)
-          val returnType = m.group(3)
+          val name = Option(m.group(1)).getOrElse("")
+          val params = Option(m.group(2)).getOrElse("")
+          val returnType = Option(m.group(3)).getOrElse("")
 
-          val sig = parseFunctionSignature(pkgPath, params, returnType)
-          functions(name) = sig
+          if name.nonEmpty then
+            val sig = parseFunctionSignature(pkgPath, params, returnType)
+            functions(name) = sig
 
         case None =>
           // Try method pattern
           methodPattern.findFirstMatchIn(trimmed) match {
             case Some(m) =>
-              val name = m.group(1)
-              val params = m.group(2)
-              val returnType = m.group(3)
+              val name = Option(m.group(1)).getOrElse("")
+              val params = Option(m.group(2)).getOrElse("")
+              val returnType = Option(m.group(3)).getOrElse("")
 
-              val sig = parseFunctionSignature(pkgPath, params, returnType)
-              functions(name) = sig
+              if name.nonEmpty then
+                val sig = parseFunctionSignature(pkgPath, params, returnType)
+                functions(name) = sig
 
             case None => // Not a function line
           }
@@ -120,7 +122,7 @@ object GoTypeExtractor {
         case Some(m) =>
           // Variadic parameter
           val name = Option(m.group(1)).filter(_.nonEmpty).getOrElse("args")
-          val typeStr = m.group(2)
+          val typeStr = Option(m.group(2)).getOrElse("")
           val chesterType = mapGoTypeString(typeStr)
           params += ParamInfo(name, ChesterType.Variadic(chesterType))
 
