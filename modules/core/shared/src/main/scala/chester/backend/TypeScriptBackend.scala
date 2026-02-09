@@ -110,17 +110,22 @@ object TypeScriptBackend:
           case TypeScriptAST.Identifier("undefined", _) => true
           case _                                        => false
         val tailStmt = {
-          if topLevel && tailIsUnit then Vector.empty
+          if topLevel then
+            if tailIsUnit then Vector.empty
+            else Vector(TypeScriptAST.ExpressionStatement(tailExpr, tail.span))
           else Vector(TypeScriptAST.Return(Some(tailExpr), tail.span))
         }
         (loweredElems ++ tailStmt).toVector
       case other =>
         val expr = lowerExpr(other, config)
         val stmt = {
-          if topLevel && (expr == TypeScriptAST.UndefinedLiteral(other.span) || (expr match
-              case TypeScriptAST.Array(e, _) if e.isEmpty => true
-              case _                                      => false))
-          then Vector.empty
+          val isUnitExpr = expr == TypeScriptAST.UndefinedLiteral(other.span) || (expr match
+            case TypeScriptAST.Array(e, _) if e.isEmpty => true
+            case _                                      => false
+          )
+          if topLevel then
+            if isUnitExpr then Vector.empty
+            else Vector(TypeScriptAST.ExpressionStatement(expr, other.span))
           else Vector(TypeScriptAST.Return(Some(expr), other.span))
         }
         stmt

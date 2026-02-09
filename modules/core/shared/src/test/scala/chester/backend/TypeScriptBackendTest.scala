@@ -21,7 +21,7 @@ class TypeScriptBackendTest extends FunSuite:
   private def normalize(output: String): String =
     output.linesIterator.map(_.trim).filter(_.nonEmpty).mkString("\n").trim
 
-  test("function def lowers to function declaration and tail return") {
+  test("function def lowers to function declaration and top-level expression statement") {
     runAsync {
       val code =
         """{ def id(x: Integer) = x;
@@ -35,8 +35,8 @@ class TypeScriptBackendTest extends FunSuite:
       assertEquals(fnDecl.get.name, "id")
 
       program.statements.lastOption match
-        case Some(TypeScriptAST.Return(Some(TypeScriptAST.Identifier("id", _)), _)) => ()
-        case other                                                                 => fail(s"Expected return of id, got $other")
+        case Some(TypeScriptAST.ExpressionStatement(TypeScriptAST.Identifier("id", _), _)) => ()
+        case other => fail(s"Expected expression statement of id, got $other")
     }
   }
 
@@ -60,7 +60,7 @@ class TypeScriptBackendTest extends FunSuite:
           |function add1(x: number) {
           |return x + 1;
           |};
-          |return add1(41);""".stripMargin
+          |add1(41);""".stripMargin
       )
 
       assertEquals(rendered, expected)

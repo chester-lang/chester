@@ -32,10 +32,10 @@ type GoImport_go struct {
     fmt GoImport_fmt
 }
 
-func greet(name string) []any {
+func greet(name string) struct {} {
     return func() {
         go.fmt.Printf(name)
-return []any{}
+return nil
     }()
 }
 
