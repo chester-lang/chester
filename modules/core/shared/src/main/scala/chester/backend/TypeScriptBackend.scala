@@ -4,6 +4,7 @@ import scala.language.experimental.genericNumberLiterals
 
 import chester.core.{AST, Arg, EnumCase, Implicitness, Param, StmtAST, Telescope}
 import chester.error.Span
+import chester.uniqid.UniqidOf
 import chester.syntax.{
   CatchClause as TSCatchClause,
   EnumMember as TSEnumMember,
@@ -34,6 +35,8 @@ import chester.transform.EffectCPS
   */
 object TypeScriptBackend:
 
+  private type RecordEnv = Map[UniqidOf[AST], Vector[String]]
+
   final case class Config(
       /** Optionally apply a CPS-style type rewrite before lowering. Expression CPS requires typing; this flag only affects types. */
       applyEffectCPS: Boolean = false,
@@ -42,15 +45,19 @@ object TypeScriptBackend:
 
   /** Entry point: lower a Chester AST into a TypeScript program. */
   def lowerProgram(ast: AST, config: Config = Config()): TypeScriptAST.Program = {
-    val lowered = lowerAsStatements(ast, config, topLevel = true)
+    val lowered = lowerAsStatements(ast, config, collectRecordEnv(ast), topLevel = true)
     TypeScriptAST.Program(lowered, ast.span)
   }
 
   /** Lower a Chester statement into zero or more TypeScript statements. */
-  private def lowerStmt(stmt: StmtAST, config: Config): Vector[TypeScriptAST] = {
+  private def lowerStmt(stmt: StmtAST, config: Config, recordEnv: RecordEnv): Vector[TypeScriptAST] = {
     stmt match
+      case StmtAST.ExprStmt(AST.Let(_, name, _, value, _, span), _) =>
+        val declarator = TSVariableDeclarator(name, None, Some(lowerExpr(value, config, recordEnv)), span)
+        Vector(TypeScriptAST.VariableDeclaration(TSVarKind.Const, Vector(declarator), span))
+
       case StmtAST.ExprStmt(expr, _) =>
-        Vector(TypeScriptAST.ExpressionStatement(lowerExpr(expr, config), stmt.span))
+        Vector(TypeScriptAST.ExpressionStatement(lowerExpr(expr, config, recordEnv), stmt.span))
 
       case StmtAST.JSImport(_, localName, modulePath, kind, _, span) =>
         val spec = kind match
@@ -59,10 +66,10 @@ object TypeScriptBackend:
         Vector(TypeScriptAST.ImportDeclaration(Vector(spec), modulePath, stmt.span))
 
       case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
+        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
         val retTy = resultTy.map(t => lowerType(t, config))
         val fnBody = TypeScriptAST.Block(
-          Vector(TypeScriptAST.Return(Some(lowerExpr(body, config)), body.span)),
+          Vector(TypeScriptAST.Return(Some(lowerExpr(body, config, recordEnv)), body.span)),
           body.span
         )
         val fn = TypeScriptAST.FunctionDeclaration(name, params, retTy, fnBody, Vector.empty, stmt.span)
@@ -91,7 +98,7 @@ object TypeScriptBackend:
         Vector(TypeScriptAST.EnumDeclaration(name, members.toVector, isConst = false, stmt.span))
 
       case StmtAST.Pkg(name, body, span) =>
-        val inner = lowerAsStatements(body, config, topLevel = true)
+        val inner = lowerAsStatements(body, config, recordEnv, topLevel = true)
         val (imports, rest) = inner.partition {
           case _: TypeScriptAST.ImportDeclaration => true
           case _                                  => false
@@ -100,11 +107,11 @@ object TypeScriptBackend:
   }
 
   /** Lower a block-like AST into a list of statements, appending a return for the tail when necessary. */
-  private def lowerAsStatements(ast: AST, config: Config, topLevel: Boolean = false): Vector[TypeScriptAST] = {
+  private def lowerAsStatements(ast: AST, config: Config, recordEnv: RecordEnv, topLevel: Boolean = false): Vector[TypeScriptAST] = {
     ast match
       case AST.Block(elems, tail, _) =>
-        val loweredElems = elems.flatMap(lowerStmt(_, config))
-        val tailExpr = lowerExpr(tail, config)
+        val loweredElems = elems.flatMap(lowerStmt(_, config, recordEnv))
+        val tailExpr = lowerExpr(tail, config, recordEnv)
         val tailIsUnit = tailExpr match
           case TypeScriptAST.Array(e, _) if e.isEmpty   => true
           case TypeScriptAST.Identifier("undefined", _) => true
@@ -117,7 +124,7 @@ object TypeScriptBackend:
         }
         (loweredElems ++ tailStmt).toVector
       case other =>
-        val expr = lowerExpr(other, config)
+        val expr = lowerExpr(other, config, recordEnv)
         val stmt = {
           val isUnitExpr = expr == TypeScriptAST.UndefinedLiteral(other.span) || (expr match
             case TypeScriptAST.Array(e, _) if e.isEmpty => true
@@ -132,7 +139,7 @@ object TypeScriptBackend:
   }
 
   /** Lower a Chester expression to a TypeScript expression. */
-  private def lowerExpr(expr: AST, config: Config): TypeScriptAST = {
+  private def lowerExpr(expr: AST, config: Config, recordEnv: RecordEnv): TypeScriptAST = {
     expr match
       // Literals
       case AST.IntLit(value, span)     => TypeScriptAST.NumberLiteral(value.toString, span)
@@ -149,67 +156,65 @@ object TypeScriptBackend:
 
       // Collections
       case AST.ListLit(elems, span) =>
-        TypeScriptAST.Array(elems.map(e => lowerExpr(e, config)), span)
+        TypeScriptAST.Array(elems.map(e => lowerExpr(e, config, recordEnv)), span)
       case AST.Tuple(elems, span) =>
         if elems.isEmpty then TypeScriptAST.UndefinedLiteral(span)
         else
           // Emit tuple as array literal
-          TypeScriptAST.Array(elems.map(e => lowerExpr(e, config)), span)
+          TypeScriptAST.Array(elems.map(e => lowerExpr(e, config, recordEnv)), span)
 
       // Lambdas and application
       case AST.Lam(telescopes, body, span) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
-        TypeScriptAST.Arrow(params.toVector, lowerExpr(body, config), span)
+        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
+        TypeScriptAST.Arrow(params.toVector, lowerExpr(body, config, recordEnv), span)
 
       case AST.App(AST.Ref(_, "+", _), args, _, span) if args.length == 2 =>
-        val left = lowerExpr(args(0).value, config)
-        val right = lowerExpr(args(1).value, config)
+        val left = lowerExpr(args(0).value, config, recordEnv)
+        val right = lowerExpr(args(1).value, config, recordEnv)
         TypeScriptAST.BinaryOp(left, "+", right, span)
 
       case AST.App(func, args, _, span) =>
-        val callee = lowerExpr(func, config)
-        val loweredArgs = args.map(a => lowerExpr(a.value, config))
+        val callee = lowerExpr(func, config, recordEnv)
+        val loweredArgs = args.map(a => lowerExpr(a.value, config, recordEnv))
         TypeScriptAST.Call(callee, loweredArgs, span)
 
       // Let-binding as an IIFE
       case AST.Let(_, name, _, value, body, span) =>
-        val valueExpr = lowerExpr(value, config)
+        val valueExpr = lowerExpr(value, config, recordEnv)
         val declarator = TSVariableDeclarator(name, None, Some(valueExpr), span)
         val block = TypeScriptAST.Block(
           Vector(
             TypeScriptAST.VariableDeclaration(TSVarKind.Const, Vector(declarator), span),
-            TypeScriptAST.Return(Some(lowerExpr(body, config)), body.span)
+            TypeScriptAST.Return(Some(lowerExpr(body, config, recordEnv)), body.span)
           ),
           span
         )
         TypeScriptAST.Call(TypeScriptAST.Arrow(Vector.empty, block, span), Vector.empty, span)
 
       case AST.Ann(expr, _, _) =>
-        lowerExpr(expr, config)
+        lowerExpr(expr, config, recordEnv)
 
       // Data constructors and selections
-      case AST.RecordCtor(_, name, args, span) =>
-        val props = args.zipWithIndex.map { case (arg, idx) =>
-          val key = Left(s"_${idx + 1}")
-          TSObjectProperty(key, lowerExpr(arg, config), isShorthand = false, isMethod = false, span)
+      case AST.RecordCtor(id, _, args, span) =>
+        val props = recordEnv.get(id).toVector.flatten.zip(args).map { case (fieldName, arg) =>
+          TSObjectProperty(Left(fieldName), lowerExpr(arg, config, recordEnv), isShorthand = false, isMethod = false, span)
         }
-        val tagProp = TSObjectProperty(Left("_tag"), TypeScriptAST.StringLiteral(name, span), isShorthand = false, isMethod = false, span)
-        TypeScriptAST.Object((Vector(tagProp) ++ props).toVector, span)
+        TypeScriptAST.Object(props.toVector, span)
 
       case AST.FieldAccess(target, field, span) =>
-        TypeScriptAST.PropertyAccess(lowerExpr(target, config), field, span)
+        TypeScriptAST.PropertyAccess(lowerExpr(target, config, recordEnv), field, span)
 
       case AST.EnumCaseRef(_, _, enumName, caseName, span) =>
         TypeScriptAST.PropertyAccess(TypeScriptAST.Identifier(enumName, span), caseName, span)
 
       case AST.EnumCtor(_, _, enumName, caseName, args, span) =>
         val ctor = TypeScriptAST.PropertyAccess(TypeScriptAST.Identifier(enumName, span), caseName, span)
-        TypeScriptAST.Call(ctor, args.map(a => lowerExpr(a, config)), span)
+        TypeScriptAST.Call(ctor, args.map(a => lowerExpr(a, config, recordEnv)), span)
 
       // Blocks become IIFEs to preserve expression-ness
       case AST.Block(elems, tail, span) =>
-        val blockStmts = elems.flatMap(lowerStmt(_, config))
-        val ret = TypeScriptAST.Return(Some(lowerExpr(tail, config)), tail.span)
+        val blockStmts = elems.flatMap(lowerStmt(_, config, recordEnv))
+        val ret = TypeScriptAST.Return(Some(lowerExpr(tail, config, recordEnv)), tail.span)
         TypeScriptAST.Call(TypeScriptAST.Arrow(Vector.empty, TypeScriptAST.Block((blockStmts :+ ret).toVector, span), span), Vector.empty, span)
 
       // Fallback
@@ -217,12 +222,54 @@ object TypeScriptBackend:
         TypeScriptAST.Identifier("undefined", expr.span)
   }
 
+  private def collectRecordEnv(ast: AST): RecordEnv = {
+    def fromStmt(stmt: StmtAST): RecordEnv =
+      stmt match
+        case StmtAST.Record(id, _, fields, _) =>
+          Map(id -> fields.map(_.name))
+        case StmtAST.Def(_, _, _, _, body, _) =>
+          fromAst(body)
+        case StmtAST.ExprStmt(expr, _) =>
+          fromAst(expr)
+        case StmtAST.Pkg(_, body, _) =>
+          fromAst(body)
+        case _ =>
+          Map.empty
+
+    def fromAst(node: AST): RecordEnv =
+      node match
+        case AST.Block(elements, tail, _) =>
+          elements.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])(_ ++ fromStmt(_)) ++ fromAst(tail)
+        case AST.Let(_, _, _, value, body, _) =>
+          fromAst(value) ++ fromAst(body)
+        case AST.Lam(_, body, _) =>
+          fromAst(body)
+        case AST.App(func, args, _, _) =>
+          fromAst(func) ++ args.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])((acc, arg) => acc ++ fromAst(arg.value))
+        case AST.Ann(expr, ty, _) =>
+          fromAst(expr) ++ fromAst(ty)
+        case AST.Tuple(elements, _) =>
+          elements.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])(_ ++ fromAst(_))
+        case AST.ListLit(elements, _) =>
+          elements.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])(_ ++ fromAst(_))
+        case AST.RecordCtor(_, _, args, _) =>
+          args.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])(_ ++ fromAst(_))
+        case AST.FieldAccess(target, _, _) =>
+          fromAst(target)
+        case AST.EnumCtor(_, _, _, _, args, _) =>
+          args.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])(_ ++ fromAst(_))
+        case _ =>
+          Map.empty
+
+    fromAst(ast)
+  }
+
   /** Lower a Chester parameter into a TypeScript function parameter. */
-  private def lowerParam(param: Param, config: Config): TSParameter = {
+  private def lowerParam(param: Param, config: Config, recordEnv: RecordEnv): TSParameter = {
     TSParameter(
       name = param.name,
       paramType = Some(lowerType(param.ty, config)),
-      defaultValue = param.default.map(d => lowerExpr(d, config)),
+      defaultValue = param.default.map(d => lowerExpr(d, config, recordEnv)),
       isRest = false,
       span = None
     )
@@ -242,7 +289,7 @@ object TypeScriptBackend:
         if elems.isEmpty then TypeScriptType.PrimitiveType("void", span)
         else TypeScriptType.TupleType(elems.map(e => lowerType(e, config)), span)
       case AST.Pi(telescopes, resultTy, _, span) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
+        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config, Map.empty)))
         TypeScriptType.FunctionType(params.toVector, lowerType(resultTy, config), span)
       case AST.RecordTypeRef(_, name, span) =>
         TypeScriptType.TypeReference(name, Vector.empty, span)

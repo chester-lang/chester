@@ -104,6 +104,26 @@ class TypeScriptBackendTest extends FunSuite:
     }
   }
 
+  test("record constructor lowering preserves field names for field access semantics") {
+    runAsync {
+      val code =
+        """{ record Vec2d(x: Integer, y: Integer);
+          |  let v: Vec2d.t = Vec2d(1, 2);
+          |  v.x }""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = normalize(render(program.toDoc).toString)
+
+      assert(rendered.contains("x: 1"), s"Expected record constructor to use declared field name x, got:\n$rendered")
+      assert(rendered.contains("y: 2"), s"Expected record constructor to use declared field name y, got:\n$rendered")
+      assert(rendered.contains(".x"), s"Expected field access to remain named field access, got:\n$rendered")
+      assert(!rendered.contains("_1"), s"Did not expect positional record field names in lowered TS, got:\n$rendered")
+    }
+  }
+
   test("unit lowers to void return type and undefined value") {
     runAsync {
       val code =

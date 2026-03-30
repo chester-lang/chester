@@ -5,9 +5,12 @@ import scala.language.experimental.genericNumberLiterals
 import chester.core.{AST, EnumCase, Param, StmtAST, Telescope}
 import chester.syntax.{GoAST, GoCompositeElement, GoField, GoImportSpec, GoType, GoTypeParam, GoTypeSpec, GoValueDeclKind, GoValueSpec}
 import chester.transform.EffectCPS
+import chester.uniqid.UniqidOf
 
 /** Backend lowering from Chester core `AST` into a lightweight Go AST for code generation. */
 object GoBackend:
+
+  private type RecordEnv = Map[UniqidOf[AST], (String, Vector[String])]
 
   final case class Config(
       applyEffectCPS: Boolean = false,
@@ -19,7 +22,7 @@ object GoBackend:
 
   /** Entry point: lower a Chester AST into a Go file. */
   def lowerProgram(ast: AST, config: Config = Config(), packageName: String = "main"): GoAST.File = {
-    val (pkg, decls) = lowerAsDeclarations(ast, config, packageName, topLevel = true)
+    val (pkg, decls) = lowerAsDeclarations(ast, config, collectRecordEnv(ast), packageName, topLevel = true)
 
     // Separate type/function declarations from executable statements
     val (typeFuncDecls, execStmts) = decls.partition {
@@ -80,10 +83,14 @@ object GoBackend:
   }
 
   /** Lower a Chester statement into zero or more Go declarations/statements. */
-  private def lowerStmt(stmt: StmtAST, config: Config, packageName: String): (String, Vector[GoAST]) = {
+  private def lowerStmt(stmt: StmtAST, config: Config, recordEnv: RecordEnv, packageName: String): (String, Vector[GoAST]) = {
     stmt match
+      case StmtAST.ExprStmt(AST.Let(_, name, _, value, _, span), _) =>
+        val assign = GoAST.Assign(Vector(GoAST.Identifier(name, span)), Vector(lowerExpr(value, config, recordEnv)), ":=", span)
+        (packageName, Vector(assign))
+
       case StmtAST.ExprStmt(expr, span) =>
-        (packageName, Vector(GoAST.ExprStmt(lowerExpr(expr, config), span)))
+        (packageName, Vector(GoAST.ExprStmt(lowerExpr(expr, config, recordEnv), span)))
 
       case StmtAST.JSImport(_, _, _, _, _, _) =>
         // JSImport is a JS/TS-only construct; ignore when lowering to Go.
@@ -93,7 +100,7 @@ object GoBackend:
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         val results = resultTy.map(t => Vector(lowerResultField(t, config))).getOrElse(Vector.empty)
         val fnBody = GoAST.Block(
-          Vector(GoAST.Return(Vector(lowerExpr(body, config)), body.span)),
+          Vector(GoAST.Return(Vector(lowerExpr(body, config, recordEnv)), body.span)),
           body.span
         )
         val fn = GoAST.FuncDecl(
@@ -120,19 +127,19 @@ object GoBackend:
         (packageName, lowerEnumLike(name, cases, span))
 
       case StmtAST.Pkg(name, body, _) =>
-        val (_, inner) = lowerAsDeclarations(body, config, name, topLevel = true)
+        val (_, inner) = lowerAsDeclarations(body, config, recordEnv, name, topLevel = true)
         (name, inner)
   }
 
   /** Lower a block-like AST into a list of Go statements, appending a return for the tail when necessary. */
-  private def lowerAsDeclarations(ast: AST, config: Config, packageName: String, topLevel: Boolean): (String, Vector[GoAST]) = {
+  private def lowerAsDeclarations(ast: AST, config: Config, recordEnv: RecordEnv, packageName: String, topLevel: Boolean): (String, Vector[GoAST]) = {
     ast match
       case AST.Block(elems, tail, _) =>
         val (pkgAfterElems, loweredElems) = elems.foldLeft((packageName, Vector.empty[GoAST])) { case ((pkg, acc), stmt) =>
-          val (nextPkg, stmts) = lowerStmt(stmt, config, pkg)
+          val (nextPkg, stmts) = lowerStmt(stmt, config, recordEnv, pkg)
           (nextPkg, acc ++ stmts)
         }
-        val tailExpr = lowerExpr(tail, config)
+        val tailExpr = lowerExpr(tail, config, recordEnv)
         val tailIsUnit = tailExpr match
           case GoAST.NilLiteral(_)                                        => true
           case GoAST.CompositeLiteral(_, elements, _) if elements.isEmpty => true
@@ -143,7 +150,7 @@ object GoBackend:
         }
         (pkgAfterElems, (loweredElems ++ tailStmt).toVector)
       case other =>
-        val expr = lowerExpr(other, config)
+        val expr = lowerExpr(other, config, recordEnv)
         val tailIsUnit = expr match
           case GoAST.NilLiteral(_)                                        => true
           case GoAST.CompositeLiteral(_, elements, _) if elements.isEmpty => true
@@ -156,7 +163,7 @@ object GoBackend:
   }
 
   /** Lower a Chester expression to a Go expression node. */
-  private def lowerExpr(expr: AST, config: Config): GoAST = {
+  private def lowerExpr(expr: AST, config: Config, recordEnv: RecordEnv): GoAST = {
     expr match
       // Literals
       case AST.IntLit(value, span)     => GoAST.IntLiteral(value.toString, span)
@@ -176,7 +183,7 @@ object GoBackend:
         val sliceType = GoType.Slice(GoType.Named("any", span), span)
         GoAST.CompositeLiteral(
           sliceType,
-          elems.map(e => GoCompositeElement(None, lowerExpr(e, config), e.span)).toVector,
+          elems.map(e => GoCompositeElement(None, lowerExpr(e, config, recordEnv), e.span)).toVector,
           span
         )
       case AST.Tuple(elems, span) =>
@@ -185,7 +192,7 @@ object GoBackend:
           val sliceType = GoType.Slice(GoType.Named("any", span), span)
           GoAST.CompositeLiteral(
             sliceType,
-            elems.map(e => GoCompositeElement(None, lowerExpr(e, config), e.span)).toVector,
+            elems.map(e => GoCompositeElement(None, lowerExpr(e, config, recordEnv), e.span)).toVector,
             span
           )
         }
@@ -193,62 +200,63 @@ object GoBackend:
       // Lambdas and application
       case AST.Lam(telescopes, body, span) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
-        val fnBody = GoAST.Block(Vector(GoAST.Return(Vector(lowerExpr(body, config)), body.span)), body.span)
+        val fnBody = GoAST.Block(Vector(GoAST.Return(Vector(lowerExpr(body, config, recordEnv)), body.span)), body.span)
         GoAST.FuncLiteral(Vector.empty, params.toVector, Vector.empty, fnBody, span)
 
       case AST.App(AST.Ref(_, "+", _), args, _, span) if args.length == 2 =>
-        val left = lowerExpr(args(0).value, config)
-        val right = lowerExpr(args(1).value, config)
+        val left = lowerExpr(args(0).value, config, recordEnv)
+        val right = lowerExpr(args(1).value, config, recordEnv)
         GoAST.Binary(left, "+", right, span)
 
       case AST.App(func, args, _, span) =>
-        val callee = lowerExpr(func, config)
-        val loweredArgs = args.map(a => lowerExpr(a.value, config))
+        val callee = lowerExpr(func, config, recordEnv)
+        val loweredArgs = args.map(a => lowerExpr(a.value, config, recordEnv))
         GoAST.Call(callee, loweredArgs, span)
 
       // Let-binding as an IIFE
       case AST.Let(_, name, _, value, body, span) =>
-        val valueExpr = lowerExpr(value, config)
+        val valueExpr = lowerExpr(value, config, recordEnv)
         val assign = GoAST.Assign(Vector(GoAST.Identifier(name, span)), Vector(valueExpr), ":=", span)
-        val bodyExpr = lowerExpr(body, config)
+        val bodyExpr = lowerExpr(body, config, recordEnv)
         val block = GoAST.Block(Vector(assign, GoAST.Return(Vector(bodyExpr), span)), span)
         GoAST.Call(GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector(anyResultField(span)), block, span), Vector.empty, span)
 
       case AST.Ann(expr, _, _) =>
-        lowerExpr(expr, config)
+        lowerExpr(expr, config, recordEnv)
 
       // Data constructors and selections
-      case AST.RecordCtor(_, name, args, span) =>
-        val tagField = GoField(Vector("_tag"), GoType.Named("string", span), None, isEmbedded = false, isVariadic = false, span = span)
-        val argFields = args.zipWithIndex.map { case (_, idx) =>
-          GoField(Vector(s"_${idx + 1}"), GoType.Named("any", span), None, isEmbedded = false, isVariadic = false, span = span)
-        }
-        val structType = GoType.Struct((tagField +: argFields).toVector, span)
-        val tagElem = GoCompositeElement(Some(GoAST.Identifier("_tag", span)), GoAST.StringLiteral(name, span), span)
-        val elems = args.zipWithIndex.map { case (arg, idx) =>
-          GoCompositeElement(Some(GoAST.Identifier(s"_${idx + 1}", span)), lowerExpr(arg, config), arg.span)
-        }
-        GoAST.CompositeLiteral(structType, (Vector(tagElem) ++ elems).toVector, span)
+      case AST.RecordCtor(id, fallbackName, args, span) =>
+        recordEnv.get(id) match
+          case Some((recordName, fieldNames)) =>
+            val elems = fieldNames.zip(args).map { case (fieldName, arg) =>
+              GoCompositeElement(Some(GoAST.Identifier(fieldName, span)), lowerExpr(arg, config, recordEnv), arg.span)
+            }
+            GoAST.CompositeLiteral(GoType.Named(recordName, span), elems.toVector, span)
+          case None =>
+            val elems = args.zipWithIndex.map { case (arg, idx) =>
+              GoCompositeElement(Some(GoAST.Identifier(s"_${idx + 1}", span)), lowerExpr(arg, config, recordEnv), arg.span)
+            }
+            GoAST.CompositeLiteral(GoType.Named(fallbackName, span), elems.toVector, span)
 
       case AST.FieldAccess(target, field, span) =>
-        GoAST.Selector(lowerExpr(target, config), field, span)
+        GoAST.Selector(lowerExpr(target, config, recordEnv), field, span)
 
       case AST.EnumCaseRef(_, _, enumName, caseName, span) =>
         GoAST.Selector(GoAST.Identifier(enumName, span), caseName, span)
 
       case AST.EnumCtor(_, _, enumName, caseName, args, span) =>
         val ctor = GoAST.Selector(GoAST.Identifier(enumName, span), caseName, span)
-        GoAST.Call(ctor, args.map(a => lowerExpr(a, config)), span)
+        GoAST.Call(ctor, args.map(a => lowerExpr(a, config, recordEnv)), span)
 
       // Blocks become IIFEs only when they have statements; otherwise just return the tail
       case AST.Block(elems, tail, span) =>
-        val stmts = elems.flatMap(lowerStmt(_, config, "main")._2)
+        val stmts = elems.flatMap(lowerStmt(_, config, recordEnv, "main")._2)
         if (stmts.isEmpty) {
           // No statements, just return the tail expression directly
-          lowerExpr(tail, config)
+          lowerExpr(tail, config, recordEnv)
         } else {
           // Has statements, need IIFE to execute them
-          val tailExpr = lowerExpr(tail, config)
+          val tailExpr = lowerExpr(tail, config, recordEnv)
           val block = GoAST.Block((stmts :+ GoAST.Return(Vector(tailExpr), span)).toVector, span)
           val iife = GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector(anyResultField(span)), block, span)
           GoAST.Call(iife, Vector.empty, span)
@@ -257,6 +265,48 @@ object GoBackend:
       // Fallback
       case _ =>
         GoAST.NilLiteral(expr.span)
+  }
+
+  private def collectRecordEnv(ast: AST): RecordEnv = {
+    def fromStmt(stmt: StmtAST): RecordEnv =
+      stmt match
+        case StmtAST.Record(id, name, fields, _) =>
+          Map(id -> (name, fields.map(_.name)))
+        case StmtAST.Def(_, _, _, _, body, _) =>
+          fromAst(body)
+        case StmtAST.ExprStmt(expr, _) =>
+          fromAst(expr)
+        case StmtAST.Pkg(_, body, _) =>
+          fromAst(body)
+        case _ =>
+          Map.empty
+
+    def fromAst(node: AST): RecordEnv =
+      node match
+        case AST.Block(elements, tail, _) =>
+          elements.foldLeft(Map.empty[UniqidOf[AST], (String, Vector[String])])(_ ++ fromStmt(_)) ++ fromAst(tail)
+        case AST.Let(_, _, _, value, body, _) =>
+          fromAst(value) ++ fromAst(body)
+        case AST.Lam(_, body, _) =>
+          fromAst(body)
+        case AST.App(func, args, _, _) =>
+          fromAst(func) ++ args.foldLeft(Map.empty[UniqidOf[AST], (String, Vector[String])])((acc, arg) => acc ++ fromAst(arg.value))
+        case AST.Ann(expr, ty, _) =>
+          fromAst(expr) ++ fromAst(ty)
+        case AST.Tuple(elements, _) =>
+          elements.foldLeft(Map.empty[UniqidOf[AST], (String, Vector[String])])(_ ++ fromAst(_))
+        case AST.ListLit(elements, _) =>
+          elements.foldLeft(Map.empty[UniqidOf[AST], (String, Vector[String])])(_ ++ fromAst(_))
+        case AST.RecordCtor(_, _, args, _) =>
+          args.foldLeft(Map.empty[UniqidOf[AST], (String, Vector[String])])(_ ++ fromAst(_))
+        case AST.FieldAccess(target, _, _) =>
+          fromAst(target)
+        case AST.EnumCtor(_, _, _, _, args, _) =>
+          args.foldLeft(Map.empty[UniqidOf[AST], (String, Vector[String])])(_ ++ fromAst(_))
+        case _ =>
+          Map.empty
+
+    fromAst(ast)
   }
 
   /** Lower a Chester parameter into a Go function parameter. */
