@@ -11,6 +11,15 @@ import chester.utils.elab.*
 /** Shared elaboration helpers usable by both tests and the LSP. */
 object ElabRunner:
 
+  private[tyck] def validateCoreType(ast: AST): Vector[ElabProblem] = {
+    given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+    CoreTypeChecker.typeCheck(ast)
+    coreReporter.getReports
+  }
+
+  private def reportCoreTypeProblems(asts: Iterable[AST], reporter: VectorReporter[ElabProblem]): Unit =
+    asts.foreach(ast => validateCoreType(ast).foreach(reporter.report))
+
   def elaborateExpr(input: String, ensureCoreType: Boolean = false): (Option[AST], Option[AST], Vector[ElabProblem]) = {
     val source = Source(FileNameAndContent("repl.chester", input))
     elaborateSource(source, parseAsFile = false, ensureCoreType)
@@ -41,12 +50,7 @@ object ElabRunner:
     val asts = results.map(_._1)
     val tys = results.map(_._2)
 
-    if ensureCoreType && elabReporter.getReports.isEmpty then
-      asts.flatten.foreach { ast =>
-        given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
-        CoreTypeChecker.typeCheck(ast)
-        assert(coreReporter.getReports.isEmpty, s"CoreTypeChecker rejected elaborated AST in elaborateModule: ${coreReporter.getReports}")
-      }
+    if ensureCoreType && elabReporter.getReports.isEmpty then reportCoreTypeProblems(asts.flatten, elabReporter)
 
     (asts, tys, elabReporter.getReports)
   }
@@ -82,12 +86,7 @@ object ElabRunner:
       val zonkedResult = result.map(r => substituteSolutions(r)(using module, solver))
       val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
 
-      if ensureCoreType && elabReporter.getReports.isEmpty then
-        zonkedResult.foreach { ast =>
-          given coreReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
-          CoreTypeChecker.typeCheck(ast)
-          assert(coreReporter.getReports.isEmpty, s"CoreTypeChecker rejected elaborated AST: ${coreReporter.getReports}")
-        }
+      if ensureCoreType && elabReporter.getReports.isEmpty then reportCoreTypeProblems(zonkedResult, elabReporter)
 
       (zonkedResult, zonkedTy)
     }
