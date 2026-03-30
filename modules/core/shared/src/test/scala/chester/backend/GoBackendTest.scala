@@ -2,9 +2,18 @@ package chester.backend
 
 import munit.FunSuite
 
-import scala.language.experimental.genericNumberLiterals
+import java.nio.file.Files
 
+import scala.language.experimental.genericNumberLiterals
+import scala.sys.process.*
+
+import chester.core.{AST, BuiltinEffect, EffectRef, Implicitness, Param, Telescope}
+import chester.error.VectorReporter
+import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.tyck.ElabTestUtils
+import chester.tyck.{ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, GoImportSignature, JSImportSignature, substituteSolutions}
+import chester.uniqid.Uniqid
+import chester.utils.elab.ProceduralSolverModule
 import chester.utils.doc.{DocConf, render, *, given}
 
 class GoBackendTest extends FunSuite:
@@ -13,6 +22,61 @@ class GoBackendTest extends FunSuite:
 
   private def normalize(output: String): String =
     output.linesIterator.map(_.trim).filter(_.nonEmpty).mkString("\n").trim
+
+  private def commandExists(name: String): Boolean =
+    Process(Seq("sh", "-lc", s"command -v $name >/dev/null 2>&1")).! == 0
+
+  private def compileWithGoCompiler(rendered: String, fileName: String): Unit = {
+    val tempDir = Files.createTempDirectory("chester-go-test")
+    val sourcePath = tempDir.resolve(fileName)
+    Files.writeString(sourcePath, rendered)
+
+    val exitCode =
+      if commandExists("go") then
+        Process(Seq("go", "build", sourcePath.getFileName.toString), tempDir.toFile).!
+      else
+        Process(
+          Seq("nix", "shell", "nixpkgs#go", "--command", "sh", "-lc", s"go build ${sourcePath.getFileName}"),
+          tempDir.toFile
+        ).!
+
+    assertEquals(exitCode, 0, s"Expected generated Go to compile:\n$rendered")
+  }
+
+  private def elaborateWithGoImports(code: String, goImports: Map[String, GoImportSignature]): AST = {
+    given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
+    given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
+
+    val source = Source(FileNameAndContent("test.chester", code))
+    val cst = (for
+      chars <- CharReader.read(source)
+      tokens <- Tokenizer.tokenize(chars)
+    yield Parser.parseFile(tokens)).toOption.getOrElse(fail("Expected parse result"))
+
+    val module = ProceduralSolverModule
+    val solver = module.makeSolver[ElabConstraint](ElabHandlerConf(module))
+    val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
+    val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
+    val allImports = goImports.map { case (k, v) => k -> JSImportSignature(v.fields) }
+    val ctx = ElabContext(bindings = Map.empty, types = Map.empty, jsImports = allImports, reporter = elabReporter)
+
+    module.addConstraint(solver, ElabConstraint.InferTopLevel(cst, resultCell, typeCell, ctx))
+    module.run(solver)
+
+    assert(elabReporter.getReports.isEmpty, s"Elaboration failed: ${elabReporter.getReports}")
+    module.readStable(solver, resultCell).map(ast => substituteSolutions(ast)(using module, solver)).getOrElse(fail("Expected elaborated AST"))
+  }
+
+  private def fmtPrintfSignature: GoImportSignature = {
+    val argsParam = Param(Uniqid.make, "args", AST.AnyType(None), Implicitness.Explicit, None)
+    val printfTy = AST.Pi(
+      Vector(Telescope(Vector(argsParam), Implicitness.Explicit)),
+      AST.StringType(None),
+      Vector(EffectRef.Builtin(BuiltinEffect.Io)),
+      None
+    )
+    GoImportSignature(Vector(Param(Uniqid.make, "Printf", printfTy, Implicitness.Explicit, None)), "fmt")
+  }
 
   test("backend renders a simple program shape") {
     val code =
@@ -51,7 +115,7 @@ class GoBackendTest extends FunSuite:
     val rendered = normalize(render(file.toDoc).toString)
 
     assert(rendered.contains("func noop(x int) struct {}"), s"Expected unit type to lower to struct {}, got:\n$rendered")
-    assert(rendered.contains("return nil"), s"Expected unit value to lower to nil, got:\n$rendered")
+    assert(rendered.contains("return struct {}{}"), s"Expected unit value to lower to struct {}{}, got:\n$rendered")
   }
 
   test("let expression lowers to Go IIFE with explicit result type") {
@@ -114,4 +178,34 @@ class GoBackendTest extends FunSuite:
 
     assert(rendered.contains("func negate(flag bool) bool"), s"Expected Bool to lower to bool, got:\n$rendered")
     assert(rendered.contains("fmt.Println(negate(false))"), s"Expected false literal to stay boolean, got:\n$rendered")
+  }
+
+  test("generated Go for pure program compiles with Go compiler") {
+    val code =
+      """{ def add(x: Integer, y: Integer): Integer = {
+        |    x + y
+        |  };
+        |  add(40, 2) }""".stripMargin
+
+    val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+    assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+    val file = GoBackend.lowerProgram(astOpt.get, packageName = "main")
+    val rendered = render(file.toDoc).toString
+    compileWithGoCompiler(rendered, "pure.go")
+  }
+
+  test("generated Go for fmt FFI program compiles with Go compiler") {
+    val code =
+      """import go "fmt";
+        |def main(): Unit / [io] = {
+        |  go.fmt.Printf("Hello from Chester with Go FFI!");
+        |  ()
+        |};
+        |main()""".stripMargin
+
+    val ast = elaborateWithGoImports(code, Map("fmt" -> fmtPrintfSignature))
+    val file = GoBackend.lowerProgram(ast, packageName = "main")
+    val rendered = render(file.toDoc).toString
+    compileWithGoCompiler(rendered, "ffi.go")
   }
