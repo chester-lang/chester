@@ -283,6 +283,7 @@ object TypeScriptBackend:
       case AST.IntegerType(span) => TypeScriptType.PrimitiveType("number", span)
       case AST.NaturalType(span) => TypeScriptType.PrimitiveType("number", span)
       case AST.AnyType(span)     => TypeScriptType.PrimitiveType("any", span)
+      case AST.BoolType(span)    => TypeScriptType.PrimitiveType("boolean", span)
       case AST.ListType(elem, span) =>
         TypeScriptType.TypeReference("Array", Vector(lowerType(elem, config)), span)
       case AST.TupleType(elems, span) =>

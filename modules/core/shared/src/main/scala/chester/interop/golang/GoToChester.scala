@@ -122,7 +122,7 @@ object GoToChester:
       case "string"                                                                                                           => AST.StringType(None)
       case "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "byte" | "rune" => AST.IntegerType(None)
       case "float32" | "float64" => AST.AnyType(None) // TODO: Add float type to Chester
-      case "bool"                => AST.AnyType(None) // TODO: Add bool type to Chester
+      case "bool"                => AST.BoolType(None)
       case "error"               => AST.AnyType(None) // Go's error interface
 
       // Slices and arrays

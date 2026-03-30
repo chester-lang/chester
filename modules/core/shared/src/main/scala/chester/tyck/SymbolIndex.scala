@@ -116,7 +116,7 @@ object SymbolIndex:
       case AST.Block(elements, tail, _) =>
         elements.foreach(walkStmt)
         walkAst(tail)
-      case AST.StringLit(_, _) | AST.IntLit(_, _) | AST.NaturalLit(_, _) | AST.LevelLit(_, _) | AST.AnyType(_) | AST.StringType(_) |
+      case AST.StringLit(_, _) | AST.IntLit(_, _) | AST.NaturalLit(_, _) | AST.LevelLit(_, _) | AST.AnyType(_) | AST.BoolType(_) | AST.StringType(_) |
           AST.NaturalType(_) | AST.IntegerType(_) | AST.LevelType(_) =>
         ()
       case AST.TupleType(elements, _) =>

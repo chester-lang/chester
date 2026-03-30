@@ -145,6 +145,8 @@ object ElabContext:
     val intTele = Vector(Telescope(Vector(intParam, intParam2), Implicitness.Explicit))
     val plusTy = AST.Pi(intTele, AST.IntegerType(None), Vector.empty, None)
     Map(
+      "true" -> AST.BoolType(None),
+      "false" -> AST.BoolType(None),
       "println" -> printlnTy,
       "+" -> plusTy,
       "Level" -> AST.Type(AST.LevelLit(0, None), None)
@@ -576,6 +578,11 @@ object ElabHandler extends Handler[ElabConstraint]:
           val ast = AST.AnyType(None)
           module.fill(solver, c.result, ast)
           // Any has type Type(0)
+          module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
+          Result.Done
+        else if name == "Bool" then
+          val ast = AST.BoolType(span)
+          module.fill(solver, c.result, ast)
           module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
           Result.Done
         else if name == "Level" then
@@ -2155,6 +2162,7 @@ private def unify[M <: SolverModule](
     case (AST.LevelType(_), AST.LevelType(_)) => UnifyResult.Success
 
     case (AST.AnyType(_), AST.AnyType(_))           => UnifyResult.Success
+    case (AST.BoolType(_), AST.BoolType(_))         => UnifyResult.Success
     case (AST.StringType(_), AST.StringType(_))     => UnifyResult.Success
     case (AST.IntegerType(_), AST.IntegerType(_))   => UnifyResult.Success
     case (AST.ListType(e1, _), AST.ListType(e2, _)) => unify(e1, e2, span, ctx)
@@ -2251,6 +2259,9 @@ private def isSubtype[M <: SolverModule](
 
   // Any is only a subtype of itself when on the left
   if normTy1.isInstanceOf[AST.AnyType] then return normTy2.isInstanceOf[AST.AnyType]
+
+  // Bool is only a subtype of itself (and Any, handled above)
+  if normTy1.isInstanceOf[AST.BoolType] then return normTy2.isInstanceOf[AST.BoolType]
 
   // String is only a subtype of itself (and Any, handled above)
   if normTy1.isInstanceOf[AST.StringType] then return normTy2.isInstanceOf[AST.StringType]

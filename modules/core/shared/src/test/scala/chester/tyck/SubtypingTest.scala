@@ -49,6 +49,37 @@ class SubtypingTest extends FunSuite:
     }
   }
 
+  test("Bool type has type Type(0)") {
+    runAsync {
+      val (ast, ty, errors) = elaborateExpr("Bool")
+
+      assert(errors.isEmpty, s"Should have no errors, got: $errors")
+      assert(ast.isDefined, "AST should be defined")
+
+      ast.get match {
+        case AST.BoolType(_) => ()
+        case other           => fail(s"Expected BoolType, got: $other")
+      }
+
+      ty.get match {
+        case AST.Type(AST.LevelLit(level, _), _) => assertEquals(level, BigInt(0))
+        case other                               => fail(s"Expected Type(0), got: $other")
+      }
+    }
+  }
+
+  test("boolean values infer Bool") {
+    runAsync {
+      val (_, ty, errors) = elaborateExpr("true", ensureCoreType = true)
+
+      assert(errors.isEmpty, s"Should have no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+      ty.get match
+        case AST.BoolType(_) => ()
+        case other           => fail(s"Expected Bool type, got: $other")
+    }
+  }
+
   test("Any can accept any value") {
     runAsync {
       val (ast, ty, errors) = elaborateExpr("{ def f(x: Any) = x; f(42) }")

@@ -160,3 +160,17 @@ class TypeScriptBackendTest extends FunSuite:
         case other => fail(s"Expected unsupported expression fallback to be explicit undefined, got: $other")
     }
   }
+
+  test("Bool lowers to TypeScript boolean") {
+    runAsync {
+      val code = """{ def negate(flag: Bool): Bool = flag; negate(false) }"""
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = normalize(render(program.toDoc).toString)
+
+      assert(rendered.contains("function negate(flag: boolean): boolean"), s"Expected Bool to lower to boolean, got:\n$rendered")
+      assert(rendered.contains("negate(false);"), s"Expected false literal to stay boolean, got:\n$rendered")
+    }
+  }

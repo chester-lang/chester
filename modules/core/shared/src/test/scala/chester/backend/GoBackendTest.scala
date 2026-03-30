@@ -102,3 +102,16 @@ class GoBackendTest extends FunSuite:
     assert(rendered.contains("fmt.Println(v.x)"), s"Expected named field access in lowered Go, got:\n$rendered")
     assert(!rendered.contains("_1"), s"Did not expect positional record field names in lowered Go, got:\n$rendered")
   }
+
+  test("Bool lowers to Go bool") {
+    val code = """{ def negate(flag: Bool): Bool = flag; negate(false) }"""
+
+    val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+    assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+    val file = GoBackend.lowerProgram(astOpt.get, packageName = "main")
+    val rendered = normalize(render(file.toDoc).toString)
+
+    assert(rendered.contains("func negate(flag bool) bool"), s"Expected Bool to lower to bool, got:\n$rendered")
+    assert(rendered.contains("fmt.Println(negate(false))"), s"Expected false literal to stay boolean, got:\n$rendered")
+  }

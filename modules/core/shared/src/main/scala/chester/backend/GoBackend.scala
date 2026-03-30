@@ -329,6 +329,7 @@ object GoBackend:
       case AST.IntegerType(span) => GoType.Named("int", span)
       case AST.NaturalType(span) => GoType.Named("uint", span)
       case AST.AnyType(span)     => GoType.Named("any", span)
+      case AST.BoolType(span)    => GoType.Named("bool", span)
       case AST.ListType(elem, span) =>
         GoType.Slice(lowerType(elem, config), span)
       case AST.TupleType(elems, span) =>

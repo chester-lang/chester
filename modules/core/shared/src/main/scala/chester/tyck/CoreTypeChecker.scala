@@ -135,6 +135,7 @@ object CoreTypeChecker:
       case AST.Type(level, _)        => AST.Type(eraseSpans(level), None)
       case AST.TypeOmega(level, _)   => AST.TypeOmega(eraseSpans(level), None)
       case AST.AnyType(_)            => AST.AnyType(None)
+      case AST.BoolType(_)           => AST.BoolType(None)
       case AST.StringType(_)         => AST.StringType(None)
       case AST.NaturalType(_)        => AST.NaturalType(None)
       case AST.IntegerType(_)        => AST.IntegerType(None)
@@ -214,6 +215,7 @@ object CoreTypeChecker:
     case AST.NaturalLit(_, _)              => false
     case AST.LevelLit(_, _)                => false
     case AST.AnyType(_)                    => false
+    case AST.BoolType(_)                   => false
     case AST.StringType(_)                 => false
     case AST.NaturalType(_)                => false
     case AST.IntegerType(_)                => false
@@ -298,6 +300,7 @@ object CoreTypeChecker:
       case AST.NaturalLit(_, _)  => Some(AST.NaturalType(None))
       case AST.LevelLit(_, span) => Some(AST.LevelType(span))
       case AST.AnyType(span)     => Some(AST.Type(AST.LevelLit(0, None), span))
+      case AST.BoolType(span)    => Some(AST.Type(AST.LevelLit(0, None), span))
       case AST.StringType(span)  => Some(AST.Type(AST.LevelLit(0, None), span))
       case AST.IntegerType(span) => Some(AST.Type(AST.LevelLit(0, None), span))
       case AST.NaturalType(span) => Some(AST.Type(AST.LevelLit(0, None), span))

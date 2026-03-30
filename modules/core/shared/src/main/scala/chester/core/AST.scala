@@ -309,6 +309,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case Type(level: AST, override val span: Option[Span]) extends AST(span)
   case TypeOmega(level: AST, override val span: Option[Span]) extends AST(span)
   case AnyType(override val span: Option[Span]) extends AST(span)
+  case BoolType(override val span: Option[Span]) extends AST(span)
   case StringType(override val span: Option[Span]) extends AST(span)
   case NaturalType(override val span: Option[Span]) extends AST(span)
   case IntegerType(override val span: Option[Span]) extends AST(span)
@@ -354,6 +355,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text("Typeω") <> parens(level.toDoc)
     case AST.AnyType(_) =>
       text("Any")
+    case AST.BoolType(_) =>
+      text("Bool")
     case AST.LevelType(_) =>
       text("Level")
     case AST.StringType(_) =>
@@ -446,6 +449,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       level.collectUniqids(collector)
     case AST.AnyType(_) =>
       ()
+    case AST.BoolType(_) =>
+      ()
     case AST.LevelType(_) =>
       ()
     case AST.StringType(_) =>
@@ -518,6 +523,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.TypeOmega(level.mapUniqids(mapper), span)
     case AST.AnyType(span) =>
       AST.AnyType(span)
+    case AST.BoolType(span) =>
+      AST.BoolType(span)
     case AST.LevelType(span) =>
       AST.LevelType(span)
     case AST.StringType(span) =>
