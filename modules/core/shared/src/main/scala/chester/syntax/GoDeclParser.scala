@@ -139,6 +139,36 @@ class GoDeclParser(source: String, sourceRef: Source):
           advance()
   }
 
+  private def captureBalancedContent(open: Char, close: Char): Option[String] = {
+    skipTrivia()
+    if !peekChar(open) then return None
+
+    advance() // open
+    val startIndex = cursor.utf16Index
+    var depth = 1
+
+    while depth > 0 && !eof do
+      peekCodePoint match
+        case Some(cp) if cp == open.toInt =>
+          depth += 1
+          advance()
+        case Some(cp) if cp == close.toInt =>
+          depth -= 1
+          if depth == 0 then
+            val endIndex = cursor.utf16Index
+            advance() // close
+            return Some(source.substring(startIndex, endIndex))
+          advance()
+        case Some('/') if startsWith("//") =>
+          skipLineComment()
+        case Some('/') if startsWith("/*") =>
+          skipBlockComment()
+        case _ =>
+          advance()
+
+    None
+  }
+
   /** Parse Go source and extract type information in JSON format. Returns a ujson.Value with structure matching go-type-extractor output.
     */
   def parseToJson(): ujson.Value = {
@@ -188,20 +218,19 @@ class GoDeclParser(source: String, sourceRef: Source):
     val name = readIdentifier().getOrElse("unknown")
     if !name.headOption.exists(_.isUpper) then return None // Only exported functions
 
-    skipBalanced('(', ')') // Skip parameters for now
-    val params = ujson.Arr() // TODO: Parse parameters
+    val params = parseParamList(captureBalancedContent('(', ')').getOrElse(""))
 
     // Check for return type
     skipTrivia()
-    val results = if peekChar('(') then
-      // Multiple returns
-      skipBalanced('(', ')')
-      ujson.Arr() // TODO: Parse return types
-    else if peekCodePoint.exists(cp => isIdentStart(cp) || cp == '*' || cp == '[') then
-      // Single return type
-      skipTypeExpression()
-      ujson.Arr() // TODO: Parse return type
-    else ujson.Arr()
+    val results = {
+      if peekChar('(') then
+        // Multiple returns
+        parseResultList(captureBalancedContent('(', ')').getOrElse(""))
+      else if peekCodePoint.exists(cp => isIdentStart(cp) || cp == '*' || cp == '[') then
+        // Single return type
+        parseSingleResultType()
+      else ujson.Arr()
+    }
 
     skipToStatementEnd()
 
@@ -278,15 +307,18 @@ class GoDeclParser(source: String, sourceRef: Source):
     while !peekChar('}') && !eof do
       readIdentifier() match
         case Some(methodName) if methodName.headOption.exists(_.isUpper) =>
-          skipBalanced('(', ')') // params
+          val params = parseParamList(captureBalancedContent('(', ')').getOrElse(""))
           skipTrivia()
-          if peekChar('(') then skipBalanced('(', ')') // results
-          else skipTypeExpression() // single result
+          val results = {
+            if peekChar('(') then parseResultList(captureBalancedContent('(', ')').getOrElse(""))
+            else if peekCodePoint.exists(cp => isIdentStart(cp) || cp == '*' || cp == '[') then parseSingleResultType()
+            else ujson.Arr()
+          }
 
           methods += ujson.Obj(
             "name" -> methodName,
-            "params" -> ujson.Arr(),
-            "results" -> ujson.Arr()
+            "params" -> params,
+            "results" -> results
           )
           skipToNextField()
         case _ =>
@@ -294,6 +326,186 @@ class GoDeclParser(source: String, sourceRef: Source):
 
     maybeConsume('}')
     ujson.Arr(methods.toVector*)
+  }
+
+  private def parseParamList(content: String): ujson.Arr =
+    parseFieldList(content, includeNames = true)
+
+  private def parseResultList(content: String): ujson.Arr =
+    parseFieldList(content, includeNames = true)
+
+  private def parseFieldList(content: String, includeNames: Boolean): ujson.Arr = {
+    val entries = mutable.ArrayBuffer.empty[ujson.Value]
+    val pendingNames = mutable.ArrayBuffer.empty[String]
+
+    val segments = splitTopLevel(content, ',')
+    segments.zipWithIndex.foreach { case (segment, index) =>
+      val trimmed = segment.trim
+      if trimmed.nonEmpty then
+        firstTopLevelWhitespace(trimmed) match
+          case Some(idx) =>
+            val prefix = trimmed.take(idx).trim
+            val suffix = normalizeTypeExpression(trimmed.drop(idx).trim)
+            if includeNames && isNameList(prefix) && suffix.nonEmpty then
+              val names = pendingNames.toVector ++ prefix
+                .split(',')
+                .iterator
+                .map(_.trim)
+                .filter(_.nonEmpty)
+                .toVector
+              entries ++= names.map(name => ujson.Obj("name" -> name, "type" -> suffix))
+              pendingNames.clear()
+            else {
+              entries += ujson.Obj("type" -> normalizeTypeExpression(trimmed))
+              pendingNames.clear()
+            }
+          case None =>
+            if includeNames && isIdentifier(trimmed) && index < segments.length - 1 then pendingNames += trimmed
+            else {
+              entries += ujson.Obj("type" -> normalizeTypeExpression(trimmed))
+              pendingNames.clear()
+            }
+    }
+
+    ujson.Arr(entries.toVector*)
+  }
+
+  private def parseSingleResultType(): ujson.Arr = {
+    val resultType = captureTypeExpression()
+    if resultType.isEmpty then ujson.Arr()
+    else ujson.Arr(ujson.Obj("type" -> resultType))
+  }
+
+  private def captureTypeExpression(): String = {
+    skipTrivia()
+    val startIndex = cursor.utf16Index
+    var parenDepth = 0
+    var bracketDepth = 0
+    var braceDepth = 0
+    var done = false
+
+    while !eof && !done do
+      peekCodePoint match
+        case Some('/') if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && (startsWith("//") || startsWith("/*")) =>
+          done = true
+        case Some(',') | Some(')') if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 =>
+          done = true
+        case Some('{') if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 =>
+          done = true
+        case Some('\n') | Some(';') if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 =>
+          done = true
+        case Some('(') =>
+          parenDepth += 1
+          advance()
+        case Some(')') =>
+          parenDepth -= 1
+          advance()
+        case Some('[') =>
+          bracketDepth += 1
+          advance()
+        case Some(']') =>
+          bracketDepth -= 1
+          advance()
+        case Some('{') =>
+          braceDepth += 1
+          advance()
+        case Some('}') =>
+          braceDepth -= 1
+          advance()
+        case _ =>
+          advance()
+
+    normalizeTypeExpression(source.substring(startIndex, cursor.utf16Index))
+  }
+
+  private def splitTopLevel(input: String, delimiter: Char): Vector[String] = {
+    val parts = mutable.ArrayBuffer.empty[String]
+    val current = new java.lang.StringBuilder
+    var parenDepth = 0
+    var bracketDepth = 0
+    var braceDepth = 0
+
+    input.foreach { ch =>
+      ch match
+        case '(' =>
+          parenDepth += 1
+          current.append(ch)
+        case ')' =>
+          parenDepth -= 1
+          current.append(ch)
+        case '[' =>
+          bracketDepth += 1
+          current.append(ch)
+        case ']' =>
+          bracketDepth -= 1
+          current.append(ch)
+        case '{' =>
+          braceDepth += 1
+          current.append(ch)
+        case '}' =>
+          braceDepth -= 1
+          current.append(ch)
+        case c if c == delimiter && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 =>
+          parts += current.toString
+          current.setLength(0)
+        case _ =>
+          current.append(ch)
+    }
+
+    parts += current.toString
+    parts.toVector
+  }
+
+  private def firstTopLevelWhitespace(input: String): Option[Int] = {
+    var parenDepth = 0
+    var bracketDepth = 0
+    var braceDepth = 0
+    var idx = 0
+
+    while idx < input.length do
+      input.charAt(idx) match
+        case '(' => parenDepth += 1
+        case ')' => parenDepth -= 1
+        case '[' => bracketDepth += 1
+        case ']' => bracketDepth -= 1
+        case '{' => braceDepth += 1
+        case '}' => braceDepth -= 1
+        case ch if ch.isWhitespace && parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 =>
+          return Some(idx)
+        case _ => ()
+      idx += 1
+
+    None
+  }
+
+  private def isNameList(prefix: String): Boolean = {
+    val reservedTypeStarters = Set("chan", "func", "map", "struct", "interface")
+    val names = prefix.split(',').iterator.map(_.trim).filter(_.nonEmpty).toVector
+    names.nonEmpty && !reservedTypeStarters.contains(prefix) && names.forall(_.forall(ch => ch == '_' || ch.isLetterOrDigit))
+  }
+
+  private def isIdentifier(value: String): Boolean =
+    value.nonEmpty && value.forall(ch => ch == '_' || ch.isLetterOrDigit)
+
+  private def normalizeTypeExpression(input: String): String = {
+    val builder = new java.lang.StringBuilder
+    var pendingSpace = false
+
+    def isTightPunctuation(ch: Char): Boolean =
+      "[]{}(),.*".contains(ch)
+
+    input.trim.foreach { ch =>
+      if ch.isWhitespace then pendingSpace = true
+      else {
+        if pendingSpace && builder.length > 0 then
+          val prev = builder.charAt(builder.length - 1)
+          if !isTightPunctuation(prev) && !isTightPunctuation(ch) then builder.append(' ')
+        builder.append(ch)
+        pendingSpace = false
+      }
+    }
+
+    builder.toString
   }
 
   private def readTypeName(): String = {

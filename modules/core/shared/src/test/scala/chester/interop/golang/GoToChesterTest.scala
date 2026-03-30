@@ -140,7 +140,7 @@ func Getwd() (string, error) {
     return "", nil
 }
 
-func Hostname() (name string, err error) {
+func Hostname(name string, retries int) (host string, err error) {
     return "", nil
 }
 """
@@ -149,12 +149,24 @@ func Hostname() (name string, err error) {
 
     assertEquals(sig.packageName, "os")
     assertEquals(sig.fields.length, 2)
-    
+
     val getwd = sig.fields.find(_.name == "Getwd")
     assert(getwd.isDefined, "Should find Getwd function")
-    
+
     val hostname = sig.fields.find(_.name == "Hostname")
     assert(hostname.isDefined, "Should find Hostname function")
+
+    hostname.get.ty match
+      case AST.Pi(Vector(telescope), returnType, _, _) =>
+        assertEquals(telescope.params.map(_.name), Vector("name", "retries"))
+        assert(telescope.params.head.ty.isInstanceOf[AST.StringType])
+        assert(telescope.params(1).ty.isInstanceOf[AST.IntegerType])
+        returnType match
+          case AST.TupleType(types, _) =>
+            assertEquals(types.length, 2)
+            assert(types.head.isInstanceOf[AST.StringType])
+          case other => fail(s"Expected tuple return type for Hostname, got $other")
+      case other => fail(s"Expected Pi type for Hostname, got $other")
   }
 
   test("parse Go struct from source") {
@@ -174,11 +186,11 @@ type Address struct {
     val sig = GoToChester.fromGoSource(goSource, source, "main")
 
     assertEquals(sig.fields.length, 2)
-    
+
     val person = sig.fields.find(_.name == "Person")
     assert(person.isDefined, "Should find Person struct")
     assert(person.get.ty.isInstanceOf[AST.AnyType])
-    
+
     val address = sig.fields.find(_.name == "Address")
     assert(address.isDefined, "Should find Address struct")
   }
@@ -198,10 +210,10 @@ type Writer interface {
     val sig = GoToChester.fromGoSource(goSource, source, "io")
 
     assertEquals(sig.fields.length, 2)
-    
+
     val reader = sig.fields.find(_.name == "Reader")
     assert(reader.isDefined, "Should find Reader interface")
-    
+
     val writer = sig.fields.find(_.name == "Writer")
     assert(writer.isDefined, "Should find Writer interface")
   }
@@ -230,7 +242,7 @@ type privateStruct struct {
 
     // Should only have 2 exports: PublicFunc and PublicStruct
     assertEquals(sig.fields.length, 2)
-    
+
     val names = sig.fields.map(_.name).toSet
     assert(names.contains("PublicFunc"))
     assert(names.contains("PublicStruct"))
@@ -282,12 +294,26 @@ func Process(users []*User) ([]*User, error) {
     val sig = GoToChester.fromGoSource(goSource, source, "main")
 
     assertEquals(sig.fields.length, 2)
-    
+
     val user = sig.fields.find(_.name == "User")
     assert(user.isDefined, "Should find User struct")
-    
+
     val process = sig.fields.find(_.name == "Process")
     assert(process.isDefined, "Should find Process function")
+
+    process.get.ty match
+      case AST.Pi(Vector(telescope), returnType, _, _) =>
+        assertEquals(telescope.params.length, 1)
+        assertEquals(telescope.params.head.name, "users")
+        telescope.params.head.ty match
+          case AST.ListType(AST.AnyType(_), _) => ()
+          case other                           => fail(s"Expected []*User to become a list-like Chester type, got $other")
+        returnType match
+          case AST.TupleType(types, _) =>
+            assertEquals(types.length, 2)
+            assert(types.head.isInstanceOf[AST.ListType])
+          case other => fail(s"Expected tuple return type for Process, got $other")
+      case other => fail(s"Expected Pi type for Process, got $other")
   }
 
   test("extract correct package name") {
