@@ -14,6 +14,9 @@ object GoBackend:
       cpsConfig: EffectCPS.Config = EffectCPS.Config()
   )
 
+  private def anyResultField(span: Option[chester.error.Span]): GoField =
+    GoField(Vector.empty, GoType.Named("any", span), None, isEmbedded = false, isVariadic = false, span = span)
+
   /** Entry point: lower a Chester AST into a Go file. */
   def lowerProgram(ast: AST, config: Config = Config(), packageName: String = "main"): GoAST.File = {
     val (pkg, decls) = lowerAsDeclarations(ast, config, packageName, topLevel = true)
@@ -208,8 +211,8 @@ object GoBackend:
         val valueExpr = lowerExpr(value, config)
         val assign = GoAST.Assign(Vector(GoAST.Identifier(name, span)), Vector(valueExpr), ":=", span)
         val bodyExpr = lowerExpr(body, config)
-        val block = GoAST.Block(Vector(assign, GoAST.ExprStmt(bodyExpr, span)), span)
-        GoAST.Call(GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector.empty, block, span), Vector.empty, span)
+        val block = GoAST.Block(Vector(assign, GoAST.Return(Vector(bodyExpr), span)), span)
+        GoAST.Call(GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector(anyResultField(span)), block, span), Vector.empty, span)
 
       case AST.Ann(expr, _, _) =>
         lowerExpr(expr, config)
@@ -247,8 +250,7 @@ object GoBackend:
           // Has statements, need IIFE to execute them
           val tailExpr = lowerExpr(tail, config)
           val block = GoAST.Block((stmts :+ GoAST.Return(Vector(tailExpr), span)).toVector, span)
-          // Create IIFE without explicit return type (Go will infer it)
-          val iife = GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector.empty, block, span)
+          val iife = GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector(anyResultField(span)), block, span)
           GoAST.Call(iife, Vector.empty, span)
         }
 
