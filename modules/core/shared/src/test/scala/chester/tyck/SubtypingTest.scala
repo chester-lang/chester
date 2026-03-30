@@ -302,6 +302,22 @@ class SubtypingTest extends FunSuite:
     }
   }
 
+  test("block-local type aliases do not leak through inferred block type") {
+    runAsync {
+      val (_, ty, errors) = elaborateExpr("""{
+        let a = Integer;
+        let b: a = 1;
+        b
+      }""", ensureCoreType = true)
+
+      assert(errors.isEmpty, s"Expected no errors, got: $errors")
+      assert(ty.isDefined, "Type should be defined")
+      ty.get match
+        case AST.IntegerType(_) => ()
+        case other              => fail(s"Expected Integer type after leaving block scope, got: $other")
+    }
+  }
+
   test("record constructor and field access typecheck") {
     runAsync {
       val (_, ty, errors) = elaborateExpr("""{

@@ -380,13 +380,13 @@ object CoreTypeChecker:
         val vTy = ty.orElse(infer(value, env, records, enums))
         vTy.flatMap(vt => infer(body, env + (id -> vt), records, enums))
       case AST.Block(elems, tail, _) =>
-        val envRecEnum = elems.foldLeft((env, records, enums)) { case ((e, r, en), stmt) =>
-          (extendEnvWithStmt(e, stmt), extendRecordEnv(r, stmt), extendEnumEnv(en, stmt))
+        val rec1 = elems.foldLeft(records)(extendRecordEnv)
+        val en1 = elems.foldLeft(enums)(extendEnumEnv)
+        var env1 = elems.foldLeft(env)(extendEnvWithStmt)
+        elems.foreach { stmt =>
+          checkStmt(stmt, env1, rec1, en1)
+          env1 = extendSequentialEnvWithStmt(env1, stmt, rec1, en1)
         }
-        val env1 = envRecEnum._1
-        val rec1 = envRecEnum._2
-        val en1 = envRecEnum._3
-        elems.foreach(stmt => checkStmt(stmt, env1, rec1, en1))
         infer(tail, env1, rec1, en1)
       case AST.RecordTypeRef(id, name, span) =>
         records.get(id).map(_ => AST.Type(AST.LevelLit(0, None), span))
@@ -476,6 +476,15 @@ object CoreTypeChecker:
         val pi = AST.Pi(teles, resultTy, Vector.empty, None)
         env + (id -> pi)
       case _ => env
+  }
+
+  private def extendSequentialEnvWithStmt(env: Env, stmt: StmtAST, records: RecordEnv, enums: EnumEnv)(using Reporter[ElabProblem]): Env = {
+    stmt match
+      case StmtAST.ExprStmt(AST.Let(id, _, ty, value, _, _), _) =>
+        val bindingTy = ty.orElse(infer(value, env, records, enums))
+        bindingTy.map(vt => env + (id -> vt)).getOrElse(env)
+      case _ =>
+        env
   }
 
   private def extendRecordEnv(records: RecordEnv, stmt: StmtAST): RecordEnv = {

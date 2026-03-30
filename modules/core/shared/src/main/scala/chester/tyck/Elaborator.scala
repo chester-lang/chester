@@ -1805,7 +1805,7 @@ private def handleLetStatement[M <: SolverModule](
   module.fill(solver, resultCell, letAst)
   module.fill(solver, elemTypeCell, AST.MetaCell(HoldNotReadable(letTypeCell), span))
 
-  ctx.bind(name, letId, letTypeCell)
+  ctx.bind(name, letId, letTypeCell).registerDefBody(letId, valueResult)
 }
 
 /** Parse a telescope from CST parameter list This creates a telescope with types as meta-cells that will be filled by constraints.
@@ -2015,6 +2015,11 @@ private def reduce[M <: SolverModule](
 )(using module: M, solver: module.Solver[ElabConstraint]): AST = {
   import module.given
 
+  def isTypeLevelBinding(ty: AST): Boolean =
+    ty match
+      case AST.Type(_, _) | AST.TypeOmega(_, _) | AST.LevelType(_) => true
+      case _                                                      => false
+
   // Depth limit to prevent infinite recursion
   if depth > 100 then return term
 
@@ -2024,6 +2029,16 @@ private def reduce[M <: SolverModule](
       module.readStable(solver, cell) match
         case Some(solved) if !solved.isInstanceOf[AST.MetaCell] => reduce(solved, ctx, depth + 1)
         case _                                                  => term
+
+    // Unfold local let-bound aliases when they are used as type-level values.
+    case AST.Ref(id, _, _) =>
+      val bodyOpt = ctx.lookupDefBody(id).flatMap(cell => module.readStable(solver, cell))
+      val tyOpt = ctx.lookupType(id).flatMap(cell => module.readStable(solver, cell))
+      (bodyOpt, tyOpt.map(reduce(_, ctx, depth + 1))) match
+        case (Some(body), Some(boundTy)) if isTypeLevelBinding(boundTy) =>
+          reduce(body, ctx, depth + 1)
+        case _ =>
+          term
 
     // Beta-reduction: (λ params. body) args -> body[params := args]
     case AST.App(func, args, implicitArgs, span) =>
