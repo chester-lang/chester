@@ -126,4 +126,20 @@ class ElaboratorTest extends FunSuite {
         fail(s"Expected Block, got $other")
     }
   }
+
+  test("elaborateSafe treats preserved comments as unit") {
+    val reporter = new VectorReporter[ElabProblem]()
+
+    val (astOpt, tyOpt) = Elaborator.elaborateSafe(CST.Comment("ignored", chester.core.CommentKind.Line, None), reporter)(using
+      ProceduralSolverModule
+    )
+
+    assertEquals(reporter.getProblems, Vector.empty)
+    astOpt match
+      case Some(AST.Tuple(elements, _)) => assertEquals(elements, Vector.empty)
+      case other                        => fail(s"Expected preserved comment to elaborate to unit tuple, got: $other")
+    tyOpt match
+      case Some(AST.TupleType(elements, _)) => assertEquals(elements, Vector.empty)
+      case other                            => fail(s"Expected preserved comment to have unit type, got: $other")
+  }
 }

@@ -23,6 +23,7 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
   case NotAUniverse(ty: AST, override val span0: Option[Span]) extends ElabProblem(span0)
   case UnknownEffect(name: String, override val span0: Option[Span]) extends ElabProblem(span0)
   case UnitValueUsedAsType(override val span0: Option[Span]) extends ElabProblem(span0)
+  case InternalElaborationFailure(message: String, override val span0: Option[Span]) extends ElabProblem(span0)
 
   override def stage: Problem.Stage = Problem.Stage.TYCK
   override def severity: Problem.Severity = Problem.Severity.Error
@@ -40,6 +41,8 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
       Doc.text(s"Unknown effect: $name")
     case ElabProblem.UnitValueUsedAsType(_) =>
       Doc.text("Unit is the type; use Unit in type positions and () only as a value")
+    case ElabProblem.InternalElaborationFailure(message, _) =>
+      Doc.text(s"Internal elaboration failure: $message")
 
 /** Elaboration context tracking bindings and types during CST to AST conversion */
 case class ElabContext(
@@ -558,6 +561,12 @@ object ElabHandler extends Handler[ElabConstraint]:
         val ast = AST.StringLit(value, span)
         module.fill(solver, c.result, ast)
         module.fill(solver, c.inferredTy, AST.StringType(None))
+        Result.Done
+
+      // Comments are syntax-only and elaborate to unit when preserved by the parser.
+      case CST.Comment(_, _, span) =>
+        module.fill(solver, c.result, AST.Tuple(Vector.empty, span))
+        module.fill(solver, c.inferredTy, AST.TupleType(Vector.empty, span))
         Result.Done
 
       // Symbol: lookup in context
@@ -3042,11 +3051,11 @@ object Elaborator:
     * @return
     *   The elaborated AST and its inferred type
     */
-  def elaborate[M <: SolverModule](
+  def elaborateSafe[M <: SolverModule](
       cst: CST,
       reporter: Reporter[ElabProblem],
       ctx: Option[ElabContext] = None
-  )(using module: M): (AST, AST) = {
+  )(using module: M): (Option[AST], Option[AST]) = {
 
     val elaborationContext = ctx.getOrElse(
       ElabContext(
@@ -3063,22 +3072,41 @@ object Elaborator:
     val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
     val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
 
-    module.addConstraint(solver, ElabConstraint.Infer(cst, resultCell, typeCell, elaborationContext))
+    try {
+      module.addConstraint(solver, ElabConstraint.Infer(cst, resultCell, typeCell, elaborationContext))
+      module.run(solver)
+    } catch {
+      case ex: MatchError =>
+        reporter.report(ElabProblem.InternalElaborationFailure(ex.getMessage, cst.span))
+        return (None, None)
+      case ex: Throwable =>
+        reporter.report(ElabProblem.InternalElaborationFailure(ex.getMessage.nn, cst.span))
+        return (None, None)
+    }
 
-    module.run(solver)
+    val resultOpt = module.readStable(solver, resultCell)
+    val tyOpt = module.readStable(solver, typeCell)
 
-    val result = module
-      .readStable(solver, resultCell)
-      .getOrElse(throw new Exception(s"Failed to elaborate: $cst"))
-    val ty = module
-      .readStable(solver, typeCell)
-      .getOrElse(throw new Exception(s"Failed to infer type for: $cst"))
+    if resultOpt.isEmpty then
+      reporter.report(ElabProblem.InternalElaborationFailure(s"Failed to elaborate: $cst", cst.span))
+    if tyOpt.isEmpty then
+      reporter.report(ElabProblem.InternalElaborationFailure(s"Failed to infer type for: $cst", cst.span))
 
-    // Substitute all meta-cell solutions after constraint solving
-    val zonkedResult = substituteSolutions(result)(using module, solver)
-    val zonkedTy = substituteSolutions(ty)(using module, solver)
+    val zonkedResult = resultOpt.map(substituteSolutions(_)(using module, solver))
+    val zonkedTy = tyOpt.map(substituteSolutions(_)(using module, solver))
 
     (zonkedResult, zonkedTy)
+  }
+
+  def elaborate[M <: SolverModule](
+      cst: CST,
+      reporter: Reporter[ElabProblem],
+      ctx: Option[ElabContext] = None
+  )(using module: M): (AST, AST) = {
+    val (resultOpt, tyOpt) = elaborateSafe(cst, reporter, ctx)
+    val result = resultOpt.getOrElse(throw new Exception(s"Failed to elaborate: $cst"))
+    val ty = tyOpt.getOrElse(throw new Exception(s"Failed to infer type for: $cst"))
+    (result, ty)
   }
 
   /** Elaborate with default ProceduralSolver and new VectorReporter */
