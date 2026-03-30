@@ -30,7 +30,7 @@ import chester.transform.EffectCPS
   *   - Records become interfaces; enums/coenums become TypeScript enums.
   *   - Expressions map to their closest TypeScript counterpart (calls, literals, arrays, objects, property access).
   *
-  * The transformer is best-effort: if a construct has no obvious TypeScript analogue, it degrades to an identifier or `undefined` rather than failing
+  * The transformer is best-effort: if a construct has no obvious TypeScript analogue, it degrades to `undefined` rather than failing
   * outright.
   */
 object TypeScriptBackend:
@@ -113,9 +113,9 @@ object TypeScriptBackend:
         val loweredElems = elems.flatMap(lowerStmt(_, config, recordEnv))
         val tailExpr = lowerExpr(tail, config, recordEnv)
         val tailIsUnit = tailExpr match
-          case TypeScriptAST.Array(e, _) if e.isEmpty   => true
-          case TypeScriptAST.Identifier("undefined", _) => true
-          case _                                        => false
+          case TypeScriptAST.Array(e, _) if e.isEmpty => true
+          case TypeScriptAST.UndefinedLiteral(_)      => true
+          case _                                      => false
         val tailStmt = {
           if topLevel then
             if tailIsUnit then Vector.empty
@@ -219,7 +219,7 @@ object TypeScriptBackend:
 
       // Fallback
       case _ =>
-        TypeScriptAST.Identifier("undefined", expr.span)
+        TypeScriptAST.UndefinedLiteral(expr.span)
   }
 
   private def collectRecordEnv(ast: AST): RecordEnv = {

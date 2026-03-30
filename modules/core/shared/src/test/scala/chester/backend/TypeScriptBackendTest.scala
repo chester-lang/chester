@@ -149,3 +149,14 @@ class TypeScriptBackendTest extends FunSuite:
           fail(s"Expected function body to be a block, got: $other")
     }
   }
+
+  test("unsupported expressions lower to explicit undefined literal") {
+    runAsync {
+      val ast = AST.Block(Vector(chester.core.StmtAST.ExprStmt(AST.AnyType(None), None)), AST.IntLit(1, None), None)
+      val program = TypeScriptBackend.lowerProgram(ast)
+
+      program.statements.headOption match
+        case Some(TypeScriptAST.ExpressionStatement(TypeScriptAST.UndefinedLiteral(_), _)) => ()
+        case other => fail(s"Expected unsupported expression fallback to be explicit undefined, got: $other")
+    }
+  }
