@@ -33,10 +33,8 @@ type GoImport_go struct {
 }
 
 func greet(name string) struct {} {
-    return func() {
-        go.fmt.Printf(name)
-return nil
-    }()
+    fmt.Printf(name)
+return struct {}{}
 }
 
 func main() {

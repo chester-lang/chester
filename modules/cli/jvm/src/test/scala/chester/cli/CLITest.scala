@@ -54,6 +54,22 @@ class CLITest extends FunSuite:
     assert(content.nonEmpty, clue = "TypeScript output should not be empty")
   }
 
+  test("java command writes output file for single input") {
+    val tmpDir = os.temp.dir()
+    val src = tmpDir / "hello.chester"
+    val code =
+      """def id(x: Integer) = x;
+        |id""".stripMargin
+    os.write.over(src, code)
+
+    CLI.run[Id](Config.CompileJava(src.toString, Some(tmpDir.toString)))
+
+    val outFile = tmpDir / "hello.java"
+    assert(os.exists(outFile), clue = s"Expected $outFile to be created")
+    val content = os.read(outFile)
+    assert(content.nonEmpty, clue = "Java output should not be empty")
+  }
+
   test("help prints usage") {
     val output = capture {
       CLI.run[Id](Config.Help)

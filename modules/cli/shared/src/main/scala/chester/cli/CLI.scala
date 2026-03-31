@@ -7,6 +7,7 @@ import chester.error.*
 import chester.reader.{CharReader, FileNameAndContent, ParseError, Parser, Source, Tokenizer}
 import chester.backend.TypeScriptBackend
 import chester.backend.GoBackend
+import chester.backend.JavaBackend
 import chester.tyck.{CoreTypeChecker, ElabConstraint, ElabContext, ElabHandlerConf, ElabProblem, substituteSolutions}
 import chester.error.VectorReporter
 import chester.interop.typescript.TypeScriptToChester
@@ -321,6 +322,20 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
     io.pathOps.join(outDir, tsName)
   }
 
+  private def targetJavaPath(inputPath: io.Path, outDir: io.Path): io.Path = {
+    val name = io.pathOps.baseName(inputPath)
+    val javaBase = javaClassNameFor(io.pathOps.of(if name.contains(".") then name.replaceAll("\\.[^.]+$", ".java") else s"$name.java"))
+    io.pathOps.join(outDir, s"$javaBase.java")
+  }
+
+  private def javaClassNameFor(path: io.Path): String = {
+    val raw = io.pathOps.baseName(path).replaceAll("\\.java$", "")
+    val cleaned = raw.replaceAll("[^A-Za-z0-9_$]", "_")
+    val withLead =
+      if cleaned.headOption.exists(ch => ch.isLetter || ch == '_' || ch == '$') then cleaned else s"_$cleaned"
+    if withLead.isEmpty then "Main" else withLead
+  }
+
   private def compileToTypeScript(input: String, output: Option[String]): F[Unit] = {
     val inPath = io.pathOps.of(input)
     for {
@@ -361,6 +376,57 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
                             val outPath = targetTsPath(p, outDir)
                             IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
                               .flatMap(_ => IO.println(s"Wrote TypeScript to '${io.pathOps.asString(outPath)}'."))
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+    } yield ()
+  }
+
+  private def compileToJava(input: String, output: Option[String]): F[Unit] = {
+    val inPath = io.pathOps.of(input)
+    for {
+      exists <- IO.exists(inPath)
+      _ <-
+        if !exists then IO.println(s"Input path '$input' does not exist.", toStderr = true)
+        else {
+          IO.isDirectory(inPath).flatMap { isDir =>
+            val defaultOut = {
+              if isDir then io.pathOps.join(inPath, "java-out")
+              else {
+                val inStr = io.pathOps.asString(inPath)
+                val idx = inStr.lastIndexOf('/')
+                val javaName = if inStr.contains(".") then inStr.replaceAll("\\.[^.]+$", ".java") else s"$inStr.java"
+                if idx >= 0 then io.pathOps.of(inStr.take(idx + 1) + javaName.split('/').last) else io.pathOps.of(javaName)
+              }
+            }
+            val outBaseStr = output.getOrElse(io.pathOps.asString(defaultOut))
+            ensureDir(outBaseStr).flatMap { outDir =>
+              val inputsF: F[Seq[io.Path]] = {
+                if isDir then IO.listFiles(inPath).map(_.filter(p => io.pathOps.baseName(p).endsWith(".chester")))
+                else Runner.pure(Seq(inPath))
+              }
+
+              inputsF.flatMap { paths =>
+                paths.foldLeft(Runner.pure[F, Unit](())) { (acc, p) =>
+                  acc.flatMap { _ =>
+                    IO.readString(p).flatMap { content =>
+                      val src = Source(FileNameAndContent(io.pathOps.asString(p), content))
+                      resolveJSImportSignatures(src, content).flatMap { jsImports =>
+                        analyze(src, jsImports = jsImports) match
+                          case Left(errs) =>
+                            printLines(errs, toStderr = true)
+                          case Right((ast, _)) =>
+                            val className = javaClassNameFor(targetJavaPath(p, outDir))
+                            val javaUnit = JavaBackend.lowerProgram(ast, className = className)
+                            val rendered = javaUnit.toDoc.toString
+                            val outPath = targetJavaPath(p, outDir)
+                            IO.writeString(outPath, rendered, writeMode = WriteMode.Overwrite)
+                              .flatMap(_ => IO.println(s"Wrote Java to '${io.pathOps.asString(outPath)}'."))
                       }
                     }
                   }
@@ -739,6 +805,8 @@ class CLI[F[_]](using runner: Runner[F], terminal: Terminal[F], io: IO[F]) {
       compileFile(input, output)
     case Config.CompileTS(input, output) =>
       compileToTypeScript(input, output)
+    case Config.CompileJava(input, output) =>
+      compileToJava(input, output)
     case Config.CompileGo(input, output, goSigs) =>
       compileToGo(input, output, goSigs)
     case Config.ExtractGoTypes(packages, output) =>

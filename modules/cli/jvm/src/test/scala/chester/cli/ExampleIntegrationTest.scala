@@ -27,6 +27,10 @@ class ExampleIntegrationTest extends FunSuite:
   private val goExamples: os.Path = repoRoot / "examples" / "go"
   private val goSigs: os.Path = repoRoot / "go-signatures.json"
   private val pureTsExamples: Vector[String] = Vector("ts-simple", "ts-wordcount")
+  private val pureJavaExamples: Vector[String] = Vector("ts-simple", "ts-wordcount")
+
+  private def javaFileName(base: String): String =
+    s"${base.replaceAll("[^A-Za-z0-9_$]", "_")}.java"
 
   private def commandExists(cmd: String): Boolean =
     os.proc("sh", "-c", s"command -v $cmd").call(check = false).exitCode == 0
@@ -50,6 +54,12 @@ class ExampleIntegrationTest extends FunSuite:
     pureTsExamples.foreach { base =>
       val src = tsExamples / s"$base.chester"
       CLI.run[Id](Config.CompileTS(src.toString, Some(outDir.toString)))
+    }
+
+  private def compilePureJavaExamples(outDir: os.Path): Unit =
+    pureJavaExamples.foreach { base =>
+      val src = tsExamples / s"$base.chester"
+      CLI.run[Id](Config.CompileJava(src.toString, Some(outDir.toString)))
     }
 
   private def compareGeneratedSubset(srcDir: os.Path, outDir: os.Path, ext: String, bases: Vector[String]): Unit =
@@ -79,6 +89,19 @@ class ExampleIntegrationTest extends FunSuite:
     generated.foreach { file =>
       val run = os.proc("node", file.toString).call(cwd = outDir, check = false, mergeErrIntoOut = true)
       assertEquals(run.exitCode, 0, clue = s"node failed for $file:\n${run.out.text()}")
+    }
+  }
+
+  test("Java pure examples: generated files compile with javac") {
+    assume(commandExists("javac"), "Skipping: javac is not available in PATH")
+    val outDir = os.temp.dir(prefix = "chester-java-run-")
+    compilePureJavaExamples(outDir)
+
+    val generated = pureJavaExamples.map(base => outDir / javaFileName(base))
+    assert(generated.nonEmpty, s"No generated .java files in $outDir")
+    generated.foreach { file =>
+      val compile = os.proc("javac", file.toString).call(cwd = outDir, check = false, mergeErrIntoOut = true)
+      assertEquals(compile.exitCode, 0, clue = s"javac failed for $file:\n${compile.out.text()}")
     }
   }
 

@@ -6,13 +6,8 @@ func countWords(text string) int {
 }
 
 func processFile(filename string) int {
-    return func() {
-        func() {
-            text := "sample text content"
-text
-        }()
+    text := "sample text content"
 return countWords(text)
-    }()
 }
 
 func main() {

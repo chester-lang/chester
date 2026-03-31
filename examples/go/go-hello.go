@@ -32,13 +32,6 @@ type GoImport_go struct {
     fmt GoImport_fmt
 }
 
-func main() struct {} {
-    return func() {
-        go.fmt.Printf("Hello from Chester with Go FFI!")
-return nil
-    }()
-}
-
 func main() {
-    fmt.Println(main())
+    fmt.Printf("Hello from Chester with Go FFI!")
 }

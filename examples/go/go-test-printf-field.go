@@ -33,5 +33,5 @@ type GoImport_go struct {
 }
 
 func main() {
-    fmt.Println(go.fmt.Printf)
+    fmt.Println(fmt.Printf)
 }
