@@ -1216,18 +1216,16 @@ object ElabHandler extends Handler[ElabConstraint]:
             fillResultOnce(resultCell, accessAst)
             module.readStable(solver, targetTy) match
               case None =>
-                lhs match
-                  case CST.Symbol(sym, _) =>
-                    (for
-                      id <- ctx.lookup(sym)
-                      tyCell <- ctx.lookupType(id)
-                      ty <- module.readStable(solver, tyCell)
-                    yield (id, ty)) match
-                      case Some((id, AST.RecordTypeRef(recId, _, _))) =>
-                        ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == field)) match
-                          case Some(param) => fillResultOnce(inferredTyCell, param.ty)
-                          case None        => fillResultOnce(inferredTyCell, AST.AnyType(span))
-                      case _ => ()
+                val CST.Symbol(sym, _) = lhs: @unchecked
+                (for
+                  id <- ctx.lookup(sym)
+                  tyCell <- ctx.lookupType(id)
+                  ty <- module.readStable(solver, tyCell)
+                yield (id, ty)) match
+                  case Some((_, AST.RecordTypeRef(recId, _, _))) =>
+                    ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == field)) match
+                      case Some(param) => fillResultOnce(inferredTyCell, param.ty)
+                      case None        => fillResultOnce(inferredTyCell, AST.AnyType(span))
                   case _ => ()
                 if !module.hasSomeValue(solver, inferredTyCell.asInstanceOf[module.CellAny]) then
                   fillResultOnce(inferredTyCell, AST.MetaCell(HoldNotReadable(targetTy), span))
@@ -3039,8 +3037,8 @@ object Elaborator:
     module.run(solver)
 
     val reports = reporter match
-      case vr: VectorReporter[ElabProblem] => vr.getReports
-      case _                               => Vector.empty
+      case vr: VectorReporter[?] => vr.getReports.asInstanceOf[Vector[ElabProblem]]
+      case _                     => Vector.empty
 
     results.map { (resCell, tyCell) =>
       val astOpt = module.readStable(solver, resCell).map(r => substituteSolutions(r)(using module, solver))

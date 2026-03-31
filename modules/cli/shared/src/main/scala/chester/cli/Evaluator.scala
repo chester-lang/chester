@@ -153,14 +153,14 @@ object Evaluator:
         evalWithEnv(body, extended)
       case Builtin(_, arity, run) if args.length == arity =>
         runner.pure(run(args))
-      case b: BuiltinIO[F] if args.length == b.arity =>
-        b.run(args)
+      case b: BuiltinIO[?] if args.length == b.arity =>
+        b.run.asInstanceOf[Vector[Value] => F[Value]](args)
       case _ =>
         runner.pure(UnitV)
   }
 
   private def sequence[F[_], A](fs: Iterable[F[A]])(using runner: Runner[F]): F[List[A]] =
-    fs.foldLeft(runner.pure(List.empty[A]))((accF, f) => accF.flatMap(acc => f.map(v => acc :+ v)))
+    fs.foldLeft(runner.pure(List.empty[A]))((accF, f) => accF.flatMap(acc => f.map(v => v :: acc))).map(_.reverse)
 
   def valueToString(v: Value): String = v match
     case IntV(n)               => n.toString
