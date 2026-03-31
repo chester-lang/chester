@@ -2,9 +2,12 @@ package chester.backend
 
 import munit.FunSuite
 
+import java.nio.file.Files
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.*
 import scala.language.experimental.genericNumberLiterals
+import scala.sys.process.*
 
 import chester.core.AST
 import chester.syntax.{InterfaceMemberType, TypeScriptAST, TypeScriptType}
@@ -20,6 +23,27 @@ class TypeScriptBackendTest extends FunSuite:
 
   private def normalize(output: String): String =
     output.linesIterator.map(_.trim).filter(_.nonEmpty).mkString("\n").trim
+
+  private def compileWithTypeScriptCompiler(rendered: String, fileName: String): Unit = {
+    val tempDir = Files.createTempDirectory("chester-ts-test")
+    val sourcePath = tempDir.resolve(fileName)
+    Files.writeString(sourcePath, rendered)
+
+    val exitCode = Process(
+      Seq(
+        "nix",
+        "shell",
+        "nixpkgs#nodePackages.typescript",
+        "--command",
+        "sh",
+        "-lc",
+        s"tsc --noEmit --pretty false --target es2020 ${sourcePath.getFileName}"
+      ),
+      tempDir.toFile
+    ).!
+
+    assertEquals(exitCode, 0, s"Expected generated TypeScript to compile:\n$rendered")
+  }
 
   test("function def lowers to function declaration and top-level expression statement") {
     runAsync {
@@ -172,5 +196,37 @@ class TypeScriptBackendTest extends FunSuite:
 
       assert(rendered.contains("function negate(flag: boolean): boolean"), s"Expected Bool to lower to boolean, got:\n$rendered")
       assert(rendered.contains("negate(false);"), s"Expected false literal to stay boolean, got:\n$rendered")
+    }
+  }
+
+  test("generated TypeScript for pure program compiles with tsc") {
+    runAsync {
+      val code =
+        """{ record Box(value: String);
+          |  def add1(x: Integer): Integer = x + 1;
+          |  let answer = add1(41);
+          |  answer }""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = render(program.toDoc).toString
+      compileWithTypeScriptCompiler(rendered, "pure.ts")
+    }
+  }
+
+  test("generated TypeScript for Bool program compiles with tsc") {
+    runAsync {
+      val code =
+        """{ def negate(flag: Bool): Bool = flag;
+          |  negate(false) }""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = render(program.toDoc).toString
+      compileWithTypeScriptCompiler(rendered, "bool.ts")
     }
   }
