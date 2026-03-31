@@ -22,7 +22,8 @@ object JavaBackend:
 
   def lowerProgram(ast: AST, className: String = "Main", config: Config = Config()): CompilationUnit =
     val recordEnv = collectRecordEnv(ast)
-    val (nestedClasses, methods, mainStatements) = lowerTopLevel(ast, config, recordEnv)
+    val (nestedClasses, methods) = collectMembers(ast, config, recordEnv)
+    val mainStatements = lowerTopLevelStatements(ast, config, recordEnv)
 
     val imports = Vector("import java.util.function.Supplier;")
     val bodyParts = (nestedClasses ++ methods ++ mainStatements).filter(_.nonEmpty)
@@ -37,24 +38,19 @@ object JavaBackend:
          |""".stripMargin
     CompilationUnit(code)
 
-  private def lowerTopLevel(ast: AST, config: Config, recordEnv: RecordEnv): (Vector[String], Vector[String], Vector[String]) =
+  private def lowerTopLevelStatements(ast: AST, config: Config, recordEnv: RecordEnv): Vector[String] =
     ast match
       case AST.Block(elements, tail, _) =>
-        val (nestedClasses, methods, stmts) = elements.foldLeft((Vector.empty[String], Vector.empty[String], Vector.empty[String])) {
-          case ((classesAcc, methodsAcc, stmtsAcc), stmt) =>
-            val (classes, methods, stmts) = lowerStmt(stmt, config, recordEnv)
-            (classesAcc ++ classes, methodsAcc ++ methods, stmtsAcc ++ stmts)
-        }
+        val stmts = elements.flatMap(lowerStmtStatements(_, config, recordEnv))
         val tailStmts =
           if isUnitExpr(tail) then Vector.empty
           else Vector(s"System.out.println(${lowerExpr(tail, config, recordEnv)});")
-        val mainMethod = renderMainMethod(stmts ++ tailStmts)
-        (nestedClasses, methods, Vector(mainMethod))
+        Vector(renderMainMethod(stmts ++ tailStmts))
       case other =>
         val mainBody =
           if isUnitExpr(other) then Vector.empty
           else Vector(s"System.out.println(${lowerExpr(other, config, recordEnv)});")
-        (Vector.empty, Vector.empty, Vector(renderMainMethod(mainBody)))
+        Vector(renderMainMethod(mainBody))
 
   private def renderMainMethod(statements: Vector[String]): String =
     val body = if statements.isEmpty then "" else statements.mkString("\n")
@@ -62,45 +58,103 @@ object JavaBackend:
        |${indent(body)}
        |}""".stripMargin
 
-  private def lowerStmt(stmt: StmtAST, config: Config, recordEnv: RecordEnv): (Vector[String], Vector[String], Vector[String]) =
+  private def lowerStmtStatements(stmt: StmtAST, config: Config, recordEnv: RecordEnv): Vector[String] =
     stmt match
       case StmtAST.ExprStmt(AST.Let(_, name, _, value, _, _), _) =>
-        (Vector.empty, Vector.empty, Vector(s"final var $name = ${lowerExpr(value, config, recordEnv)};"))
+        Vector(s"final var $name = ${lowerExpr(value, config, recordEnv)};")
       case StmtAST.ExprStmt(expr, _) =>
-        if isUnitExpr(expr) then (Vector.empty, Vector.empty, Vector.empty)
-        else (Vector.empty, Vector.empty, Vector(s"${lowerExpr(expr, config, recordEnv)};"))
-      case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
-        val params = telescopes.flatMap(_.params).map(lowerParam(_, config)).mkString(", ")
-        val returnsVoid = resultTy.exists(isUnitType)
-        val returnType = if returnsVoid then "void" else resultTy.map(lowerType(_, config)).getOrElse("Object")
-        val bodyCode = lowerMethodBody(body, returnsVoid, config, recordEnv)
-        val method =
-          s"""public static $returnType $name($params) {
-             |${indent(bodyCode)}
-             |}""".stripMargin
-        (Vector.empty, Vector(method), Vector.empty)
-      case StmtAST.Record(id, name, fields, _) =>
-        val fieldDecls = fields.map(p => s"public final ${lowerType(p.ty, config)} ${p.name};")
-        val ctorParams = fields.map(lowerParam(_, config)).mkString(", ")
-        val ctorAssignments = fields.map(p => s"this.${p.name} = ${p.name};")
-        val ctor =
-          s"""public $name($ctorParams) {
-             |${indent(ctorAssignments.mkString("\n"))}
-             |}""".stripMargin
-        val cls =
-          s"""public static final class $name {
-             |${indent((fieldDecls :+ ctor).mkString("\n\n"))}
-             |}""".stripMargin
-        (Vector(cls), Vector.empty, Vector.empty)
+        if isUnitExpr(expr) then Vector.empty
+        else Vector(s"${lowerExpr(expr, config, recordEnv)};")
       case StmtAST.Pkg(_, body, _) =>
-        lowerTopLevel(body, config, recordEnv)
+        lowerTopLevelStatements(body, config, recordEnv)
       case _ =>
-        (Vector.empty, Vector.empty, Vector.empty)
+        Vector.empty
+
+  private def collectMembers(ast: AST, config: Config, recordEnv: RecordEnv): (Vector[String], Vector[String]) =
+    def fromStmt(stmt: StmtAST): (Vector[String], Vector[String]) =
+      stmt match
+        case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
+          val params = telescopes.flatMap(_.params).map(lowerParam(_, config)).mkString(", ")
+          val returnsVoid = resultTy.exists(isUnitType)
+          val returnType = if returnsVoid then "void" else resultTy.map(lowerType(_, config)).getOrElse("Object")
+          val bodyCode = lowerMethodBody(body, returnsVoid, config, recordEnv)
+          val method =
+            s"""public static $returnType $name($params) {
+               |${indent(bodyCode)}
+               |}""".stripMargin
+          val (nestedClasses, nestedMethods) = collectMembers(body, config, recordEnv)
+          (nestedClasses, Vector(method) ++ nestedMethods)
+        case StmtAST.Record(_, name, fields, _) =>
+          val fieldDecls = fields.map(p => s"public final ${lowerType(p.ty, config)} ${p.name};")
+          val ctorParams = fields.map(lowerParam(_, config)).mkString(", ")
+          val ctorAssignments = fields.map(p => s"this.${p.name} = ${p.name};")
+          val ctor =
+            s"""public $name($ctorParams) {
+               |${indent(ctorAssignments.mkString("\n"))}
+               |}""".stripMargin
+          val cls =
+            s"""public static final class $name {
+               |${indent((fieldDecls :+ ctor).mkString("\n\n"))}
+               |}""".stripMargin
+          (Vector(cls), Vector.empty)
+        case StmtAST.ExprStmt(expr, _) =>
+          collectMembers(expr, config, recordEnv)
+        case StmtAST.Pkg(_, body, _) =>
+          collectMembers(body, config, recordEnv)
+        case _ =>
+          (Vector.empty, Vector.empty)
+
+    ast match
+      case AST.Block(elements, tail, _) =>
+        val (classes, methods) = elements.foldLeft((Vector.empty[String], Vector.empty[String])) {
+          case ((classAcc, methodAcc), stmt) =>
+            val (classes, methods) = fromStmt(stmt)
+            (classAcc ++ classes, methodAcc ++ methods)
+        }
+        val (tailClasses, tailMethods) = collectMembers(tail, config, recordEnv)
+        (classes ++ tailClasses, methods ++ tailMethods)
+      case AST.Let(_, _, _, value, body, _) =>
+        val (valueClasses, valueMethods) = collectMembers(value, config, recordEnv)
+        val (bodyClasses, bodyMethods) = collectMembers(body, config, recordEnv)
+        (valueClasses ++ bodyClasses, valueMethods ++ bodyMethods)
+      case AST.Lam(_, body, _) =>
+        collectMembers(body, config, recordEnv)
+      case AST.App(func, args, _, _) =>
+        val (funcClasses, funcMethods) = collectMembers(func, config, recordEnv)
+        val (argClasses, argMethods) = args.foldLeft((Vector.empty[String], Vector.empty[String])) {
+          case ((classAcc, methodAcc), arg) =>
+            val (classes, methods) = collectMembers(arg.value, config, recordEnv)
+            (classAcc ++ classes, methodAcc ++ methods)
+        }
+        (funcClasses ++ argClasses, funcMethods ++ argMethods)
+      case AST.Ann(inner, ty, _) =>
+        val (exprClasses, exprMethods) = collectMembers(inner, config, recordEnv)
+        val (tyClasses, tyMethods) = collectMembers(ty, config, recordEnv)
+        (exprClasses ++ tyClasses, exprMethods ++ tyMethods)
+      case AST.Tuple(elements, _) =>
+        elements.foldLeft((Vector.empty[String], Vector.empty[String])) { case ((classAcc, methodAcc), elem) =>
+          val (classes, methods) = collectMembers(elem, config, recordEnv)
+          (classAcc ++ classes, methodAcc ++ methods)
+        }
+      case AST.ListLit(elements, _) =>
+        elements.foldLeft((Vector.empty[String], Vector.empty[String])) { case ((classAcc, methodAcc), elem) =>
+          val (classes, methods) = collectMembers(elem, config, recordEnv)
+          (classAcc ++ classes, methodAcc ++ methods)
+        }
+      case AST.RecordCtor(_, _, args, _) =>
+        args.foldLeft((Vector.empty[String], Vector.empty[String])) { case ((classAcc, methodAcc), arg) =>
+          val (classes, methods) = collectMembers(arg, config, recordEnv)
+          (classAcc ++ classes, methodAcc ++ methods)
+        }
+      case AST.FieldAccess(target, _, _) =>
+        collectMembers(target, config, recordEnv)
+      case _ =>
+        (Vector.empty, Vector.empty)
 
   private def lowerMethodBody(body: AST, returnsVoid: Boolean, config: Config, recordEnv: RecordEnv): String =
     body match
       case AST.Block(elements, tail, _) =>
-        val stmts = elements.flatMap(lowerStmt(_, config, recordEnv)._3)
+        val stmts = elements.flatMap(lowerStmtStatements(_, config, recordEnv))
         val tailStmts =
           if returnsVoid then
             if isUnitExpr(tail) then Vector.empty else Vector(s"${lowerExpr(tail, config, recordEnv)};")
@@ -139,7 +193,7 @@ object JavaBackend:
       case AST.FieldAccess(target, field, _) =>
         s"${lowerExpr(target, config, recordEnv)}.$field"
       case AST.Block(elements, tail, _) =>
-        val stmts = elements.flatMap(lowerStmt(_, config, recordEnv)._3)
+        val stmts = elements.flatMap(lowerStmtStatements(_, config, recordEnv))
         val stmtsCode = if stmts.isEmpty then "" else stmts.mkString(" ", " ", " ")
         s"((Supplier<Object>)(() -> {$stmtsCode return ${lowerExpr(tail, config, recordEnv)}; })).get()"
       case _ =>

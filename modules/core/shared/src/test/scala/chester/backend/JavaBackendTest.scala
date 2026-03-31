@@ -114,3 +114,23 @@ class JavaBackendTest extends FunSuite:
       compileWithJavac(rendered)
     }
   }
+
+  test("handled effect program compiles after elaboration lowers helper defs") {
+    runAsync {
+      val code =
+        """{
+          |  effect magic { def ping(): Integer };
+          |  handle { magic.ping() } with magic { def ping(): Integer = 42 }
+          |}""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val unit = JavaBackend.lowerProgram(astOpt.get)
+      val rendered = normalize(render(unit.toDoc).toString)
+
+      assert(rendered.contains("public static int ping()"), s"Expected handled effect helper to be hoisted as a Java method, got:\n$rendered")
+      assert(rendered.contains("System.out.println"), s"Expected handled program to remain executable, got:\n$rendered")
+      compileWithJavac(render(unit.toDoc).toString)
+    }
+  }
