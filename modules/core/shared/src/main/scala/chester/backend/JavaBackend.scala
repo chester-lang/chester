@@ -73,16 +73,30 @@ object JavaBackend:
   private def collectMembers(ast: AST, config: Config, recordEnv: RecordEnv): (Vector[String], Vector[String]) =
     def fromStmt(stmt: StmtAST): (Vector[String], Vector[String]) =
       stmt match
-        case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
-          val params = telescopes.flatMap(_.params).map(lowerParam(_, config)).mkString(", ")
-          val returnsVoid = resultTy.exists(isUnitType)
-          val returnType = if returnsVoid then "void" else resultTy.map(lowerType(_, config)).getOrElse("Object")
-          val bodyCode = lowerMethodBody(body, returnsVoid, config, recordEnv)
+        case StmtAST.Def(_, name, telescopes, resultTy, body, _, effects) =>
+          val effectiveConfig =
+            if config.applyEffectCPS then config.copy(cpsConfig = config.cpsConfig.copy(answerType = AST.AnyType(None)))
+            else config
+          val (loweredTelescopes, loweredResultTy, loweredBody) =
+            if config.applyEffectCPS && effects.nonEmpty then
+              val baseResultTy = resultTy.getOrElse(AST.AnyType(None))
+              val lam = AST.Lam(telescopes, body, None)
+              val (cpsLam, cpsTy) = EffectCPS.transformExpr(lam, AST.Pi(telescopes, baseResultTy, effects, None), effectiveConfig.cpsConfig)
+              val cpsTeles = cpsLam.asInstanceOf[AST.Lam].telescopes
+              val cpsBody = cpsLam.asInstanceOf[AST.Lam].body
+              val cpsResultTy = cpsTy.asInstanceOf[AST.Pi].resultTy
+              (cpsTeles, Some(cpsResultTy), cpsBody)
+            else (telescopes, resultTy, body)
+
+          val params = loweredTelescopes.flatMap(_.params).map(lowerParam(_, effectiveConfig)).mkString(", ")
+          val returnsVoid = loweredResultTy.exists(isUnitType)
+          val returnType = if returnsVoid then "void" else loweredResultTy.map(lowerType(_, effectiveConfig)).getOrElse("Object")
+          val bodyCode = lowerMethodBody(loweredBody, returnsVoid, effectiveConfig, recordEnv)
           val method =
             s"""public static $returnType $name($params) {
-               |${indent(bodyCode)}
-               |}""".stripMargin
-          val (nestedClasses, nestedMethods) = collectMembers(body, config, recordEnv)
+             |${indent(bodyCode)}
+             |}""".stripMargin
+          val (nestedClasses, nestedMethods) = collectMembers(loweredBody, effectiveConfig, recordEnv)
           (nestedClasses, Vector(method) ++ nestedMethods)
         case StmtAST.Record(_, name, fields, _) =>
           val fieldDecls = fields.map(p => s"public final ${lowerType(p.ty, config)} ${p.name};")
@@ -181,6 +195,8 @@ object JavaBackend:
         s"java.util.List.of(${elements.map(lowerExpr(_, config, recordEnv)).mkString(", ")})"
       case AST.App(AST.Ref(_, "+", _), args, _, _) if args.length == 2 =>
         s"${lowerExpr(args(0).value, config, recordEnv)} + ${lowerExpr(args(1).value, config, recordEnv)}"
+      case AST.App(AST.Ref(_, "k", _), args, _, _) if args.length == 1 =>
+        s"k.apply(${lowerExpr(args.head.value, config, recordEnv)})"
       case AST.App(func, args, _, _) =>
         s"${lowerExpr(func, config, recordEnv)}(${args.map(a => lowerExpr(a.value, config, recordEnv)).mkString(", ")})"
       case AST.Let(_, name, _, value, body, _) =>
@@ -212,6 +228,7 @@ object JavaBackend:
       case AST.AnyType(_)     => "Object"
       case AST.TupleType(elements, _) if elements.isEmpty => "void"
       case AST.ListType(_, _)                             => "java.util.List<Object>"
+      case AST.Pi(_, _, _, _)                             => "java.util.function.Function<Object, Object>"
       case AST.RecordTypeRef(_, name, _)                  => name
       case _                                              => "Object"
 
@@ -219,7 +236,7 @@ object JavaBackend:
     def fromStmt(stmt: StmtAST): RecordEnv =
       stmt match
         case StmtAST.Record(id, name, _, _) => Map(id -> name)
-        case StmtAST.Def(_, _, _, _, body, _) => fromAst(body)
+        case StmtAST.Def(_, _, _, _, body, _, _) => fromAst(body)
         case StmtAST.ExprStmt(expr, _) => fromAst(expr)
         case StmtAST.Pkg(_, body, _) => fromAst(body)
         case _ => Map.empty

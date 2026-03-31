@@ -387,7 +387,7 @@ object ElaboratorBlocks:
           // Construct a Stmt placeholder with MetaCells for body/result type
           val bodyAst = AST.MetaCell(HoldNotReadable(updated.resultCell), elem.span)
           val resTyAst = updated.resultTyCell.map(c => AST.MetaCell(HoldNotReadable(c), elem.span))
-          val stmt = StmtAST.Def(updated.id, updated.name, updated.telescopes, resTyAst, bodyAst, elem.span)
+          val stmt = StmtAST.Def(updated.id, updated.name, updated.telescopes, resTyAst, bodyAst, elem.span, updated.effects)
           elaboratedElemsBuffer += stmt
         case CST.SeqOf(seqElems, span) if seqElems.toVector.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } =>
           val seqVec = seqElems.toVector

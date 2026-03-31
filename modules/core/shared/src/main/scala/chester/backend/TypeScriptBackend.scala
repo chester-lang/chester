@@ -65,7 +65,7 @@ object TypeScriptBackend:
           case chester.core.JSImportKind.Default   => TSImportSpecifier.Default(localName, span)
         Vector(TypeScriptAST.ImportDeclaration(Vector(spec), modulePath, stmt.span))
 
-      case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
+      case StmtAST.Def(_, name, telescopes, resultTy, body, _, _) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
         val retTy = resultTy.map(t => lowerType(t, config))
         val fnBody = TypeScriptAST.Block(
@@ -227,7 +227,7 @@ object TypeScriptBackend:
       stmt match
         case StmtAST.Record(id, _, fields, _) =>
           Map(id -> fields.map(_.name))
-        case StmtAST.Def(_, _, _, _, body, _) =>
+        case StmtAST.Def(_, _, _, _, body, _, _) =>
           fromAst(body)
         case StmtAST.ExprStmt(expr, _) =>
           fromAst(expr)

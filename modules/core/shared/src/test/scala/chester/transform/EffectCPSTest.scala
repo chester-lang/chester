@@ -97,8 +97,8 @@ class EffectCPSTest extends FunSuite {
         tail match
           case AST.App(AST.Ref(id, "ping", _), args, _, _) if args.isEmpty =>
             val bodyOpt = elems.collectFirst {
-              case chester.core.StmtAST.Def(defId, "ping", _, _, body, _) if defId == id => body
-              case chester.core.StmtAST.Def(_, "ping", _, _, body, _)                    => body
+              case chester.core.StmtAST.Def(defId, "ping", _, _, body, _, _) if defId == id => body
+              case chester.core.StmtAST.Def(_, "ping", _, _, body, _, _)                    => body
             }
             bodyOpt.map(simplify).getOrElse(a)
           case b: AST.Block => simplify(b)
@@ -132,7 +132,7 @@ class EffectCPSTest extends FunSuite {
     val block = astOpt.getOrElse(fail("Expected block AST"))
     val lamDef = block match
       case AST.Block(elements, _, _) =>
-        elements.collectFirst { case d @ chester.core.StmtAST.Def(_, name, _, _, _, _) if name == "lam" => d }
+        elements.collectFirst { case d @ chester.core.StmtAST.Def(_, name, _, _, _, _, _) if name == "lam" => d }
           .getOrElse(fail("Expected def lam"))
       case other => fail(s"Expected block AST, got $other")
 

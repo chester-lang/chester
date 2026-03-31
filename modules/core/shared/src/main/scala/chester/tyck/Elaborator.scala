@@ -353,7 +353,7 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
     StmtAST.ExprStmt(substituteInType(expr, substitutions), span)
   case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
     StmtAST.JSImport(id, localName, modulePath, kind, substituteInType(ty, substitutions), span)
-  case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
+  case StmtAST.Def(id, name, telescopes, resultTy, body, span, effects) =>
     val newTelescopes = telescopes.map { tel =>
       Telescope(
         tel.params.map(p =>
@@ -364,7 +364,7 @@ private def substituteStmtInType(stmt: StmtAST, substitutions: Map[UniqidOf[AST]
     }
     val boundIds = telescopes.flatMap(_.params.map(_.id)).toSet + id
     val filteredSubs = substitutions.filterNot { case (i, _) => boundIds.contains(i) }
-    StmtAST.Def(id, name, newTelescopes, resultTy.map(substituteInType(_, filteredSubs)), substituteInType(body, filteredSubs), span)
+    StmtAST.Def(id, name, newTelescopes, resultTy.map(substituteInType(_, filteredSubs)), substituteInType(body, filteredSubs), span, effects)
   case StmtAST.Record(id, name, fields, span) =>
     val newFields =
       fields.map(p => Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions))))
@@ -2352,7 +2352,7 @@ private def occursInStmt[M <: SolverModule](cell: Any, stmt: StmtAST)(using modu
   stmt match
     case StmtAST.ExprStmt(expr, _)           => occursIn(cell, expr)
     case StmtAST.JSImport(_, _, _, _, ty, _) => occursIn(cell, ty)
-    case StmtAST.Def(_, _, teles, resTy, body, _) =>
+    case StmtAST.Def(_, _, teles, resTy, body, _, _) =>
       teles.exists(t => t.params.exists(p => occursIn(cell, p.ty))) || resTy.exists(occursIn(cell, _)) || occursIn(cell, body)
     case StmtAST.Record(_, _, fields, _) =>
       fields.exists(p => occursIn(cell, p.ty))
@@ -2470,7 +2470,7 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
         stmt match
           case StmtAST.ExprStmt(expr, _)           => firstUnresolved(expr)
           case StmtAST.JSImport(_, _, _, _, ty, _) => firstUnresolved(ty)
-          case StmtAST.Def(_, _, teles, resTy, body, _) =>
+          case StmtAST.Def(_, _, teles, resTy, body, _, _) =>
             teles.iterator
               .flatMap(_.params.iterator)
               .flatMap(p => firstUnresolved(p.ty))
@@ -2795,7 +2795,7 @@ private def handleAssembleDef[M <: SolverModule](c: ElabConstraint.AssembleDef)(
   def gatherEffectsStmt(stmt: StmtAST): Set[EffectRef] = stmt match
     case StmtAST.ExprStmt(expr, _)           => gatherEffects(expr)
     case StmtAST.JSImport(_, _, _, _, ty, _) => gatherEffects(ty)
-    case StmtAST.Def(_, _, teles, resTy, body, _) =>
+    case StmtAST.Def(_, _, teles, resTy, body, _, _) =>
       teles.flatMap(t => t.params.map(p => gatherEffects(p.ty))).flatten.toSet ++ resTy.map(gatherEffects).getOrElse(Set.empty) ++ gatherEffects(
         body
       )
@@ -2962,10 +2962,10 @@ private def substituteSolutionsStmt[M <: SolverModule](stmt: StmtAST)(using modu
     case StmtAST.ExprStmt(expr, span) => StmtAST.ExprStmt(substituteSolutions(expr), span)
     case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
       StmtAST.JSImport(id, localName, modulePath, kind, substituteSolutions(ty), span)
-    case StmtAST.Def(id, name, teles, resTy, body, span) =>
+    case StmtAST.Def(id, name, teles, resTy, body, span, effects) =>
       val newTeles =
         teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))))
-      StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span)
+      StmtAST.Def(id, name, newTeles, resTy.map(substituteSolutions), substituteSolutions(body), span, effects)
     case StmtAST.Record(id, name, fields, span) =>
       val newFields = fields.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions)))
       StmtAST.Record(id, name, newFields, span)

@@ -116,7 +116,7 @@ object GoBackend:
         // JSImport is a JS/TS-only construct; ignore when lowering to Go.
         (packageName, Vector.empty)
 
-      case StmtAST.Def(_, name, telescopes, resultTy, body, span) =>
+      case StmtAST.Def(_, name, telescopes, resultTy, body, span, _) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         val isGoMain = name == "main" && packageName == "main"
         val results = if isGoMain then Vector.empty else resultTy.map(t => Vector(lowerResultField(t, config))).getOrElse(Vector.empty)
@@ -327,7 +327,7 @@ object GoBackend:
       stmt match
         case StmtAST.Record(id, name, fields, _) =>
           Map(id -> (name, fields.map(_.name)))
-        case StmtAST.Def(_, _, _, _, body, _) =>
+        case StmtAST.Def(_, _, _, _, body, _, _) =>
           fromAst(body)
         case StmtAST.ExprStmt(expr, _) =>
           fromAst(expr)
@@ -372,7 +372,7 @@ object GoBackend:
       stmt match
         case StmtAST.JSImport(_, localName, modulePath, _, _, _) if localName == "go" =>
           Map(packageFieldFor(modulePath) -> modulePath)
-        case StmtAST.Def(_, _, _, _, body, _) =>
+        case StmtAST.Def(_, _, _, _, body, _, _) =>
           fromAst(body)
         case StmtAST.ExprStmt(expr, _) =>
           fromAst(expr)

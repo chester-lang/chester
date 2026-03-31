@@ -67,11 +67,11 @@ object ElabRunner:
           chester.core.StmtAST.ExprStmt(inlineRefs(expr, subst), span)
         case chester.core.StmtAST.JSImport(id, localName, modulePath, kind, importTy, span) =>
           chester.core.StmtAST.JSImport(id, localName, modulePath, kind, inlineRefs(importTy, subst), span)
-        case chester.core.StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
+        case chester.core.StmtAST.Def(id, name, telescopes, resultTy, body, span, effects) =>
           val newTelescopes = telescopes.map { telescope =>
             telescope.copy(params = telescope.params.map(param => param.copy(ty = inlineRefs(param.ty, subst))))
           }
-          chester.core.StmtAST.Def(id, name, newTelescopes, resultTy.map(inlineRefs(_, subst)), inlineRefs(body, subst), span)
+          chester.core.StmtAST.Def(id, name, newTelescopes, resultTy.map(inlineRefs(_, subst)), inlineRefs(body, subst), span, effects)
         case chester.core.StmtAST.Record(id, name, fields, span) =>
           chester.core.StmtAST.Record(id, name, fields.map(field => field.copy(ty = inlineRefs(field.ty, subst))), span)
         case chester.core.StmtAST.Enum(id, name, typeParams, cases, span) =>

@@ -34,7 +34,7 @@ class HandleEffectTest extends FunSuite {
     def containsDefPing(ast: AST): Boolean = ast match
       case AST.Block(elements, tail, _) =>
         elements.exists {
-          case StmtAST.Def(_, name, _, _, _, _) => name == "ping"
+          case StmtAST.Def(_, name, _, _, _, _, _) => name == "ping"
           case _                                => false
         } || containsDefPing(tail)
       case _ => false
@@ -44,7 +44,7 @@ class HandleEffectTest extends FunSuite {
       case AST.Block(elements, tail, _) =>
         elements.exists {
           case StmtAST.ExprStmt(expr, _) => containsCallPing(expr)
-          case StmtAST.Def(_, _, _, _, body, _) =>
+          case StmtAST.Def(_, _, _, _, body, _, _) =>
             containsCallPing(body)
           case _ => false
         } || containsCallPing(tail)

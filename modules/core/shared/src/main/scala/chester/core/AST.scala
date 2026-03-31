@@ -106,8 +106,15 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       ty: AST,
       override val span: Option[Span]
   ) extends StmtAST(span)
-  case Def(id: UniqidOf[AST], name: String, telescopes: Vector[Telescope], resultTy: Option[AST], body: AST, override val span: Option[Span])
-      extends StmtAST(span)
+  case Def(
+      id: UniqidOf[AST],
+      name: String,
+      telescopes: Vector[Telescope],
+      resultTy: Option[AST],
+      body: AST,
+      override val span: Option[Span],
+      effects: Vector[EffectRef] = Vector.empty
+  ) extends StmtAST(span)
   case Record(id: UniqidOf[AST], name: String, fields: Vector[Param], override val span: Option[Span]) extends StmtAST(span)
   case Enum(id: UniqidOf[AST], name: String, typeParams: Vector[Param], cases: Vector[EnumCase], override val span: Option[Span])
       extends StmtAST(span)
@@ -122,7 +129,7 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
         case JSImportKind.Namespace => text("* as ") <> text(localName)
         case JSImportKind.Default   => text(localName)
       text("import") <+> importDoc <+> text("from") <+> text("\"") <> text(modulePath) <> text("\"")
-    case StmtAST.Def(_, name, telescopes, resultTy, body, _) =>
+    case StmtAST.Def(_, name, telescopes, resultTy, body, _, effects) =>
       val telescopeDocs = telescopes.map { tel =>
         val bracket = if tel.implicitness == Implicitness.Implicit then (brackets, brackets) else (parens, parens)
         val paramsDoc = hsep(
@@ -138,7 +145,10 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
         bracket._1(paramsDoc)
       }
       val tyDoc = resultTy.map(t => text(":") <+> t.toDoc).getOrElse(empty)
-      text("def") <+> text(name) <> hsep(telescopeDocs, empty) <+> tyDoc <+> text("=") <+> body.toDoc
+      val effDoc =
+        if effects.isEmpty then empty
+        else text(" / ") <> brackets(hsep(effects.map(e => text(e.name)), `,` <+> empty))
+      text("def") <+> text(name) <> hsep(telescopeDocs, empty) <+> tyDoc <> effDoc <+> text("=") <+> body.toDoc
     case StmtAST.Record(_, name, fields, _) =>
       val paramsDoc = hsep(
         fields.map { p =>
@@ -234,11 +244,12 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
     case StmtAST.JSImport(id, _, _, _, ty, _) =>
       collector(id)
       ty.collectUniqids(collector)
-    case StmtAST.Def(id, _, telescopes, resultTy, body, _) =>
+    case StmtAST.Def(id, _, telescopes, resultTy, body, _, effects) =>
       collector(id)
       telescopes.foreach(_.collectUniqids(collector))
       resultTy.foreach(_.collectUniqids(collector))
       body.collectUniqids(collector)
+      effects.foreach(_.collectUniqids(collector))
     case StmtAST.Record(id, _, fields, _) =>
       collector(id)
       fields.foreach(_.collectUniqids(collector))
@@ -258,14 +269,15 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       StmtAST.ExprStmt(expr.mapUniqids(mapper), span)
     case StmtAST.JSImport(id, localName, modulePath, kind, ty, span) =>
       StmtAST.JSImport(mapper(id), localName, modulePath, kind, ty.mapUniqids(mapper), span)
-    case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
+    case StmtAST.Def(id, name, telescopes, resultTy, body, span, effects) =>
       StmtAST.Def(
         mapper(id),
         name,
         telescopes.map(_.mapUniqids(mapper)),
         resultTy.map(_.mapUniqids(mapper)),
         body.mapUniqids(mapper),
-        span
+        span,
+        effects.map(_.mapUniqids(mapper))
       )
     case StmtAST.Record(id, name, fields, span) =>
       StmtAST.Record(

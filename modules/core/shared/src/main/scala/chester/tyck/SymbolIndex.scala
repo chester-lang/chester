@@ -78,7 +78,7 @@ object SymbolIndex:
         pickSpan(Seq(span, ty.span)).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Def, localName, s)))
         names.update(id, localName)
         walkAst(ty)
-      case StmtAST.Def(id, name, telescopes, resultTy, body, span) =>
+      case StmtAST.Def(id, name, telescopes, resultTy, body, span, _) =>
         pickSpan(Seq(span, body.span, resultTy.flatMap(_.span))).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Def, name, s)))
         names.update(id, name)
         telescopes.foreach(walkTele)

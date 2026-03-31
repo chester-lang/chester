@@ -117,7 +117,7 @@ object Evaluator:
     val envF = stmts.foldLeft(initial) { (accF, stmt) =>
       accF.flatMap { acc =>
         stmt match
-          case StmtAST.Def(_, name, teles, _, body, _) =>
+          case StmtAST.Def(_, name, teles, _, body, _, _) =>
             val params = flattenTeleNames(teles)
             val closure = Closure(params, body, acc)
             runner.pure(acc.extend(name, closure))

@@ -134,3 +134,25 @@ class JavaBackendTest extends FunSuite:
       compileWithJavac(render(unit.toDoc).toString)
     }
   }
+
+  test("effectful defs lower to CPS-shaped Java methods when enabled") {
+    runAsync {
+      val code =
+        """{
+          |  effect magic {};
+          |  def answer(): Integer = 42;
+          |  def foo(): Integer / [magic] = answer();
+          |  ()
+          |}""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val unit = JavaBackend.lowerProgram(astOpt.get, config = JavaBackend.Config(applyEffectCPS = true))
+      val rendered = normalize(render(unit.toDoc).toString)
+
+      assert(rendered.contains("java.util.function.Function<Object, Object>"), s"Expected CPS continuation parameter type, got:\n$rendered")
+      assert(rendered.contains("return k.apply(answer());"), s"Expected CPS body to call continuation, got:\n$rendered")
+      compileWithJavac(render(unit.toDoc).toString)
+    }
+  }
