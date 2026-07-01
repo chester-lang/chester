@@ -1,12 +1,26 @@
-package chester.reader
+package chester
 
 import scala.language.experimental.genericNumberLiterals
-
 import upickle.default.*
-import chester.error.*
-import chester.utils.{Nat, WithUTF16, codepointToString, given}
 import spire.math.Natural
-import chester.utils.utf16Len
+import fastparse.ParserInput
+
+object Problem {
+  enum Stage derives ReadWriter {
+    case TYCK, PARSE, OTHER
+  }
+
+  enum Severity derives ReadWriter {
+    case Error, Goal, Warning, Info
+  }
+}
+
+trait Problem {
+  def severity: Problem.Severity
+  def stage: Problem.Stage
+  def message: String
+  def span0: Option[Span]
+}
 
 case class ParseError(message: String, span0: Option[Span] = None) extends Problem {
   override def severity: Problem.Severity = Problem.Severity.Error
@@ -15,8 +29,6 @@ case class ParseError(message: String, span0: Option[Span] = None) extends Probl
 
 sealed trait ParserSource extends Product with Serializable derives ReadWriter {
   def fileName: String
-
-  // maybe a LazyList[String]
   def readContent: Either[ParseError, Seq[String]]
 }
 
@@ -26,7 +38,6 @@ case class FileNameAndContent(fileName: String, content: String) extends ParserS
 
 trait FilePathImpl {
   def readContent(fileName: String): Either[ParseError, String]
-
   def absolute(fileName: String): String
 }
 
@@ -47,14 +58,27 @@ case class FilePath private (fileName: String) extends ParserSource {
   }
 }
 
-// TODO: maybe column offset for the first line also
 case class Source(
     source: ParserSource,
     offset: Offset = Offset.Zero
 ) extends ParserSource derives ReadWriter {
   override def fileName: String = source.fileName
-
   override def readContent: Either[ParseError, Seq[String]] = source.readContent
+}
+
+case class FileContent(
+    content: Seq[String],
+    offset: Offset
+) {
+  @deprecated
+  lazy val convertToString: String = content.mkString
+}
+
+object FileContent {
+  def apply(source: Source): FileContent = FileContent(
+    source.readContent.getOrElse(Vector.empty),
+    source.offset
+  )
 }
 
 case class Offset(
@@ -73,16 +97,12 @@ case class Offset(
       copy(
         lineOffset = lineOffset + (1: Natural),
         posOffset = posOffset + newLineSize
-        // firstLineColumnOffset stays the same - it remembers the starting column from first line
-        // posOffset continues to accumulate, keeping the invariant posOffset >= firstLineColumnOffset
       )
     case s =>
       if (lineOffset == 0) {
-        // On first line, both posOffset and firstLineColumnOffset must grow together
         val newOffset = firstLineColumnOffset + WithUTF16(1, s.utf16Len)
         copy(posOffset = newOffset, firstLineColumnOffset = newOffset)
       } else {
-        // On subsequent lines, only posOffset grows, firstLineColumnOffset stays fixed
         copy(posOffset = posOffset + WithUTF16(1, s.utf16Len))
       }
   }

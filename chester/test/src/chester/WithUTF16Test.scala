@@ -2,10 +2,7 @@ package chester
 
 import scala.language.experimental.genericNumberLiterals
 
-import chester.error.*
-import chester.utils.*
-import chester.utils.given
-import chester.reader.*
+import chester.given
 import spire.math.Natural
 import upickle.default.*
 

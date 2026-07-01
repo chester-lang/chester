@@ -1,13 +1,26 @@
-package chester.error
+package chester
 
 import scala.language.experimental.genericNumberLiterals
-
 import spire.math.Natural
-import chester.reader.{Offset, Source}
-import chester.utils.{Nat, WithUTF16, asInt, encodeString, given}
-import fastparse.ParserInput
 import upickle.default.*
 import chester.i18n.*
+
+case class WithUTF16(unicode: spire.math.Natural, utf16: spire.math.Natural) derives ReadWriter {
+  require(unicode <= utf16, "unicode must be less than or equal to utf16")
+  def <(other: WithUTF16): Boolean = unicode < other.unicode && utf16 < other.utf16
+  def >(other: WithUTF16): Boolean = unicode > other.unicode && utf16 > other.utf16
+  def <=(other: WithUTF16): Boolean = unicode <= other.unicode && utf16 <= other.utf16
+  def >=(other: WithUTF16): Boolean = unicode >= other.unicode && utf16 >= other.utf16
+  def +(other: WithUTF16): WithUTF16 =
+    WithUTF16(unicode + other.unicode, utf16 + other.utf16)
+  def isZero: Boolean = unicode == 0 && utf16 == 0
+  def nonZero: Boolean = unicode != 0 && utf16 != 0
+}
+
+object WithUTF16 {
+  val Zero: WithUTF16 = WithUTF16(0, 0)
+  val One: WithUTF16 = WithUTF16(1, 1)
+}
 
 case class Pos(index: WithUTF16, line: spire.math.Natural, column: WithUTF16) derives ReadWriter
 
@@ -15,25 +28,15 @@ object Pos {
   val zero: Pos = Pos(WithUTF16.Zero, 0, WithUTF16.Zero)
 }
 
-/** start <= i < end */
-case class SpanInFile(start: Pos, end: Pos) derives ReadWriter {}
+case class SpanInFile(start: Pos, end: Pos) derives ReadWriter
 
-type AcceptedString = String | LazyList[String] | ParserInput
-
-case class FileContent(
-    // maybe a LazyList[String]
-    content: Seq[String],
-    offset: Offset
-) {
-  @deprecated
-  lazy val convertToString: String = content.mkString
+trait SpanOptional0 extends Any {
+  def span0: Option[Span]
 }
 
-object FileContent {
-  def apply(source: Source): FileContent = FileContent(
-    source.readContent.getOrElse(Vector.empty),
-    source.offset
-  )
+trait SpanOptional extends Any with SpanOptional0 {
+  def span: Option[Span]
+  override def span0: Option[Span] = span
 }
 
 case class Span(source: Source, range: SpanInFile) derives ReadWriter {
@@ -41,32 +44,22 @@ case class Span(source: Source, range: SpanInFile) derives ReadWriter {
     source.readContent.toOption.map(content => FileContent(content, source.offset))
   val fileName: String = source.fileName
 
-  /** Extracts all lines within the range with their line numbers.
-    *
-    * @return
-    *   Option containing a Vector of (lineNumber, lineContent) tuples where:
-    *   - lineNumber: 1-based line numbers for display (e.g., if range spans lines 3-5, returns exactly [(3,"line3"), (4,"line4"), (5,"line5")])
-    *   - lineContent: The actual text content of that line Note: While internal line tracking is 0-based, this API returns 1-based line numbers for
-    *     display
-    */
   def getLinesInRange: Option[Vector[(Int, String)]] = fileContent map { fileContent =>
     val startLine = range.start.line.asInt - fileContent.offset.lineOffset.asInt
     val endLine = range.end.line.asInt - fileContent.offset.lineOffset.asInt
     val contentString = fileContent.convertToString
     val lines = contentString.split('\n').toVector
 
-    // Assert that the start and end lines are within valid bounds
     assert(
       startLine >= 0 && startLine <= endLine && endLine < lines.length,
       t"Invalid line range: startLine=${startLine + fileContent.offset.lineOffset.asInt}, endLine=${endLine + fileContent.offset.lineOffset.asInt}, totalLines=${lines.length}"
     )
 
-    // Slice the lines and keep their line numbers
     lines.zipWithIndex
       .slice(startLine, endLine + 1)
       .map { case (line, index) =>
         (fileContent.offset.lineOffset.asInt + index + 1, line)
-      } // Line numbers are 1-based
+      }
   }
 
   def combine(other: Span): Span = {
