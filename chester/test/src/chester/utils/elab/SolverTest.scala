@@ -103,12 +103,12 @@ class SolverTest extends munit.FunSuite {
 
     // Test that we can use module.CellR, module.OnceCell, etc.
     val cell1: module.OnceCell[Int] = module.newOnceCell[TestSumConstraint, Int](solver)
-    cell1
-    cell1
+    val _ = cell1
+    val _ = cell1
 
     // Test variance: CellR is covariant
     val numCell: module.CellR[Int] = module.newOnceCell[TestSumConstraint, Int](solver)
-    numCell // Should compile due to covariance
+    val _ = numCell // Should compile due to covariance
 
     assert(module.noStableValue(solver, cell1))
   }

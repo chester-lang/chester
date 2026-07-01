@@ -1,4 +1,6 @@
-package chester
+package chester.syntax
+
+import chester.*
 
 import scala.language.experimental.genericNumberLiterals
 import scala.collection.mutable
