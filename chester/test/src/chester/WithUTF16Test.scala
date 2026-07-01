@@ -77,4 +77,12 @@ class WithUTF16Test extends munit.FunSuite {
     assert(lines.isDefined)
     assertEquals(lines.get, Vector((1, "hello")))
   }
+
+  test("Named Tuples (Scala 3.5+)") {
+    type Config = (host: String, port: Int)
+    val config: Config = (host = "localhost", port = 8080)
+    
+    assertEquals(config.host, "localhost")
+    assertEquals(config.port, 8080)
+  }
 }
