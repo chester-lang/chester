@@ -78,7 +78,7 @@ object GoAST {
     case GoAST.CompositeLiteral(tpe, elements, _) =>
       val typeDoc = typeToDoc(tpe)
       if elements.isEmpty then typeDoc <> text("{}")
-      else typeDoc <> text("{") <@@> ssep(elements.map(compositeElemToDoc), hardline).indented() <@@> text("}")
+      else typeDoc <> text("{") <> hsep(elements.map(compositeElemToDoc), text(", ")) <> text("}")
     case GoAST.FuncLiteral(typeParams, params, results, body, _) =>
       text("func") <> typeParamListDoc(typeParams) <> paramListDoc(params) <> resultListDoc(results) <+> toDoc(body)
     case GoAST.Call(func, args, _) =>
