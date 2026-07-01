@@ -1,0 +1,20 @@
+import js "console";
+import jsUtil "util";
+
+def print_str(msg: String): Unit / [io] = {
+  js.log(msg);
+  ()
+};
+
+def print_int(val: Integer): Unit / [io] = {
+  js.log(val);
+  ()
+};
+
+def concat_str(a: String, b: String): String = {
+  jsUtil.format("%s%s", a, b)
+};
+
+def int_to_str(val: Integer): String = {
+  jsUtil.format("%d", val)
+};

@@ -1,0 +1,19 @@
+import go "fmt";
+
+def print_str(msg: String): Unit / [io] = {
+  go.fmt.Println(msg);
+  ()
+};
+
+def print_int(val: Integer): Unit / [io] = {
+  go.fmt.Println(val);
+  ()
+};
+
+def concat_str(a: String, b: String): String = {
+  go.fmt.Sprintf("%s%s", a, b)
+};
+
+def int_to_str(val: Integer): String = {
+  go.fmt.Sprintf("%d", val)
+};

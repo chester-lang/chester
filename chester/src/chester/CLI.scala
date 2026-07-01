@@ -22,6 +22,12 @@ object CLI:
       Vector(EffectRef.Builtin(BuiltinEffect.Io)),
       None
     )
+    val sprintfTy = AST.Pi(
+      Vector(Telescope(Vector(formatParam, argsParam), Implicitness.Explicit)),
+      AST.StringType(None),
+      Vector.empty,
+      None
+    )
     val printlnTy = AST.Pi(
       Vector(Telescope(Vector(argsParam), Implicitness.Explicit)),
       AST.TupleType(Vector.empty, None),
@@ -31,6 +37,7 @@ object CLI:
     GoImportSignature(
       Vector(
         Param(Uniqid.make, "Printf", printfTy, Implicitness.Explicit, None),
+        Param(Uniqid.make, "Sprintf", sprintfTy, Implicitness.Explicit, None),
         Param(Uniqid.make, "Println", printlnTy, Implicitness.Explicit, None)
       ),
       "fmt"
@@ -53,6 +60,58 @@ object CLI:
     )
   }
 
+  private def consoleSignature: JSImportSignature = {
+    val logParam = Param(Uniqid.make, "message", AST.AnyType(None), Implicitness.Explicit, None)
+    val logTy = AST.Pi(
+      Vector(Telescope(Vector(logParam), Implicitness.Explicit)),
+      AST.TupleType(Vector.empty, None),
+      Vector(EffectRef.Builtin(BuiltinEffect.Io)),
+      None
+    )
+    JSImportSignature(
+      Vector(
+        Param(Uniqid.make, "log", logTy, Implicitness.Explicit, None)
+      ),
+      chester.core.JSImportKind.Default
+    )
+  }
+
+  private def utilSignature: JSImportSignature = {
+    val formatParam = Param(Uniqid.make, "format", AST.StringType(None), Implicitness.Explicit, None)
+    val argsParam = Param(Uniqid.make, "args", AST.ListType(AST.AnyType(None), None), Implicitness.Explicit, None)
+    val formatTy = AST.Pi(
+      Vector(Telescope(Vector(formatParam, argsParam), Implicitness.Explicit)),
+      AST.StringType(None),
+      Vector.empty,
+      None
+    )
+    JSImportSignature(
+      Vector(
+        Param(Uniqid.make, "format", formatTy, Implicitness.Explicit, None)
+      ),
+      chester.core.JSImportKind.Default
+    )
+  }
+
+  def loadStdlib(target: String): String = {
+    val resourcePath = s"/stdlib/$target/std.chester"
+    val stream = getClass.getResourceAsStream(resourcePath)
+    if (stream != null) {
+      try {
+        new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      } finally {
+        stream.close()
+      }
+    } else {
+      val localPath = Paths.get(s"stdlib/$target/std.chester")
+      if (Files.exists(localPath)) {
+        Files.readString(localPath)
+      } else {
+        ""
+      }
+    }
+  }
+
   def elaborate(content: String): (Option[AST], Option[AST], Vector[ElabProblem]) = {
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
@@ -70,7 +129,7 @@ object CLI:
       val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
 
       val stdGoImports = Map("fmt" -> fmtSignature)
-      val stdJsImports = Map("path" -> pathSignature)
+      val stdJsImports = Map("path" -> pathSignature, "console" -> consoleSignature, "util" -> utilSignature)
       val allImports = stdGoImports.map { case (k, v) => k -> JSImportSignature(v.fields) } ++ stdJsImports
 
       val ctx = ElabContext(bindings = Map.empty, types = Map.empty, jsImports = allImports, reporter = elabReporter)
@@ -128,10 +187,17 @@ object CLI:
     }
 
     val content = Files.readString(path)
+    val stdlibContent = loadStdlib(target)
+    val fullContent = if (stdlibContent.nonEmpty) {
+      println(s"Loading standard library for target $target...")
+      stdlibContent + "\n" + content
+    } else {
+      content
+    }
     println(s"Reading program from $filePathStr...")
     
     // Elaborate surface CST into typed AST with standard signatures preloaded
-    val (astOpt, _, errors) = elaborate(content)
+    val (astOpt, tyOpt, errors) = elaborate(fullContent)
     
     if (errors.nonEmpty) {
       System.err.println("Elaboration failed with the following errors:")
@@ -145,7 +211,12 @@ object CLI:
       println("Elaboration successful! Compiling to TypeScript...")
       val program = TypeScriptBackend.lowerProgram(ast)
 
-      val updatedStatements = if (program.statements.nonEmpty) {
+      val isUnitType = tyOpt.exists {
+        case AST.TupleType(elems, _) if elems.isEmpty => true
+        case _ => false
+      }
+
+      val updatedStatements = if (program.statements.nonEmpty && !isUnitType) {
         program.statements.last match {
           case TypeScriptAST.ExpressionStatement(expr, span) =>
             val isUnit = expr match {
