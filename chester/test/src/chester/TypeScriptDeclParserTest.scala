@@ -236,4 +236,49 @@ class TypeScriptDeclParserTest extends munit.FunSuite {
         fail(s"Expected Program, got $other")
     }
   }
+
+  test("parse class declaration") {
+    val source = """
+      declare class Animal extends LivingThing implements Runnable, Serializable {
+        public readonly name: string;
+        private age: number;
+        constructor(name: string);
+        static create(name: string): Animal;
+        run(): void;
+      }
+    """
+    val sourceRef = Source(FileNameAndContent("animal.d.ts", source))
+    val ast = TypeScriptDeclParser.parse(source, sourceRef)
+
+    ast match {
+      case TypeScriptAST.Program(Vector(clazz: TypeScriptAST.ClassDeclaration), _) =>
+        assertEquals(clazz.name, "Animal")
+        assert(clazz.modifiers.contains(Modifier.Declare))
+        
+        clazz.superClass match {
+          case Some(TypeScriptAST.Identifier("LivingThing", _)) => ()
+          case other => fail(s"Expected superClass LivingThing, got $other")
+        }
+        
+        assertEquals(clazz.implements.map {
+          case TypeScriptType.TypeReference(name, _, _) => name
+          case other => fail(s"Expected TypeReference, got $other")
+        }, Vector("Runnable", "Serializable"))
+
+        val members = clazz.members
+        assertEquals(members.length, 5)
+
+        val constructor = members.collectFirst { case c: ClassMember.Constructor => c }.getOrElse(fail("Constructor missing"))
+        assertEquals(constructor.params.length, 1)
+
+        val nameProp = members.collectFirst { case p: ClassMember.Property if p.name == "name" => p }.getOrElse(fail("name property missing"))
+        assert(nameProp.modifiers.contains(Modifier.Public))
+        assert(nameProp.modifiers.contains(Modifier.Readonly))
+
+        val runMethod = members.collectFirst { case m: ClassMember.Method if m.name == "run" => m }.getOrElse(fail("run method missing"))
+        assertEquals(runMethod.params.length, 0)
+      case other =>
+        fail(s"Expected single class declaration, got $other")
+    }
+  }
 }

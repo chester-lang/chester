@@ -199,6 +199,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
         .map { case (start, _) => parseImport(start) }
         .orElse(consumeKeyword("interface", skip = true).map { case (start, _) => parseInterface(start) })
         .orElse(consumeKeyword("type", skip = true).map { case (start, _) => parseTypeAlias(start) })
+        .orElse(consumeKeyword("class", skip = true).map { case (start, _) => parseClass(start, modifiers = Vector.empty) })
         .orElse(consumeKeyword("function", skip = true).map { case (start, _) => parseFunction(start, modifiers = Vector.empty) })
         .orElse(parseVariableWithoutDeclare())
         .orElse(consumeKeyword("module", skip = true).map { case (start, _) => parseModule(start) })
@@ -247,6 +248,93 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     val source = readStringLiteral(skip = true).map(_._1).getOrElse("")
     maybeConsume(';')
     TypeScriptAST.ImportDeclaration(specifiers.toVector, source, spanFrom(start, cursor))
+  }
+
+  private def parseClass(start: Cursor, modifiers: Vector[Modifier]): TypeScriptAST = {
+    val name = readIdentifier().map(_._1).getOrElse("Unknown")
+    skipBalanced('<', '>') // type parameters
+    skipTrivia()
+    val superClass = if (consumeKeyword("extends").isDefined) {
+      val (sName, sEnd) = readQualifiedName().getOrElse(("any", cursor))
+      Some(TypeScriptAST.Identifier(sName, spanFrom(cursor, sEnd)))
+    } else None
+
+    val implementsTypes = if (consumeKeyword("implements").isDefined) {
+      val buf = mutable.ArrayBuffer[TypeScriptType]()
+      buf += parseTypeReference()
+      skipTrivia()
+      while (maybeConsume(',')) {
+        buf += parseTypeReference()
+        skipTrivia()
+      }
+      buf.toVector
+    } else Vector.empty
+
+    val members = parseClassMembers()
+    TypeScriptAST.ClassDeclaration(name, Vector.empty, superClass, implementsTypes, members, modifiers, spanFrom(start, cursor))
+  }
+
+  private def parseClassMembers(): Vector[ClassMember] = {
+    val members = mutable.ArrayBuffer[ClassMember]()
+    if (expectChar('{')) {
+      skipTrivia()
+      while (!peekChar('}') && !eof) {
+        val memberStart = cursor
+        val memberMods = parseMemberModifiers()
+        skipTrivia()
+
+        if (consumeKeyword("constructor", skip = false).isDefined) {
+          val params = parseParameterList()
+          if (peekChar('{')) skipBalanced('{', '}')
+          else maybeConsume(';')
+          members += ClassMember.Constructor(params, TypeScriptAST.Block(Vector.empty, spanFrom(memberStart, cursor)), spanFrom(memberStart, cursor))
+        } else {
+          readIdentifier(skip = false) match {
+            case Some((name, mStart, _)) =>
+              skipTrivia()
+              if (peekChar('(')) {
+                val params = parseParameterList()
+                val returnType = if (maybeConsume(':')) Some(parseTypeReference()) else None
+                if (peekChar('{')) skipBalanced('{', '}')
+                else maybeConsume(';')
+                members += ClassMember.Method(name, params, returnType, TypeScriptAST.Block(Vector.empty, spanFrom(memberStart, cursor)), memberMods, spanFrom(memberStart, cursor))
+              } else {
+                val isOptional = maybeConsume('?')
+                val propType = if (maybeConsume(':')) Some(parseTypeReference()) else None
+                if (maybeConsume('=')) {
+                   skipToLineEnd()
+                } else {
+                   maybeConsume(';')
+                }
+                members += ClassMember.Property(name, propType, None, memberMods, spanFrom(memberStart, cursor))
+              }
+            case None =>
+              skipUnknownToken()
+          }
+        }
+        skipTrivia()
+      }
+      expectChar('}')
+    }
+    members.toVector
+  }
+
+  private def parseMemberModifiers(): Vector[Modifier] = {
+    val mods = mutable.ArrayBuffer[Modifier]()
+    var keepGoing = true
+    while (keepGoing) {
+      skipTrivia()
+      if (consumeKeyword("public", skip = false).isDefined) mods += Modifier.Public
+      else if (consumeKeyword("private", skip = false).isDefined) mods += Modifier.Private
+      else if (consumeKeyword("protected", skip = false).isDefined) mods += Modifier.Protected
+      else if (consumeKeyword("static", skip = false).isDefined) mods += Modifier.Static
+      else if (consumeKeyword("readonly", skip = false).isDefined) mods += Modifier.Readonly
+      else if (consumeKeyword("abstract", skip = false).isDefined) mods += Modifier.Abstract
+      else if (consumeKeyword("async", skip = false).isDefined) mods += Modifier.Async
+      else keepGoing = false
+      if (keepGoing) skipTrivia()
+    }
+    mods.toVector
   }
 
   private def parseInterface(start: Cursor): TypeScriptAST = {
@@ -478,8 +566,10 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     if consumeKeyword("module", skip = false).isDefined || consumeKeyword("namespace", skip = false).isDefined then parseModule(start)
     else if consumeKeyword("global", skip = false).isDefined then parseGlobal(start)
     else {
-      consumeKeyword("function", skip = false)
-        .map(_ => parseFunction(start, modifiers = Vector(Modifier.Declare)))
+      consumeKeyword("class", skip = false)
+        .map(_ => parseClass(start, modifiers = Vector(Modifier.Declare)))
+        .orElse(consumeKeyword("function", skip = false)
+          .map(_ => parseFunction(start, modifiers = Vector(Modifier.Declare))))
         .orElse(parseDeclareVariable(start).orElse(Some(TypeScriptAST.Empty(spanFrom(start, cursor)))))
         .get
     }

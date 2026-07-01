@@ -210,7 +210,13 @@ class GoDeclParser(source: String, sourceRef: Source):
   }
 
   private def parseFunctionDecl(): Option[ujson.Value] = {
-    // func Name(params) (results)
+    skipTrivia()
+    val receiverOpt = if (peekChar('(')) {
+      val receiverContent = captureBalancedContent('(', ')').getOrElse("")
+      val receiverFields = parseFieldList(receiverContent, includeNames = true).arr
+      receiverFields.headOption
+    } else None
+
     val name = readIdentifier().getOrElse("unknown")
     if !name.headOption.exists(_.isUpper) then return None // Only exported functions
 
@@ -230,13 +236,13 @@ class GoDeclParser(source: String, sourceRef: Source):
 
     skipToStatementEnd()
 
-    Some(
-      ujson.Obj(
-        "name" -> name,
-        "params" -> params,
-        "results" -> results
-      )
+    val funcObj = ujson.Obj(
+      "name" -> name,
+      "params" -> params,
+      "results" -> results
     )
+    receiverOpt.foreach(r => funcObj("receiver") = r)
+    Some(funcObj)
   }
 
   private def parseTypeDecl(): Option[(String, String, ujson.Value)] = {
@@ -280,20 +286,73 @@ class GoDeclParser(source: String, sourceRef: Source):
     if !maybeConsume('{') then return ujson.Arr()
 
     while !peekChar('}') && !eof do
-      readIdentifier() match
-        case Some(fieldName) if fieldName.headOption.exists(_.isUpper) =>
-          skipTrivia()
-          val typeName = readTypeName()
-          fields += ujson.Obj(
-            "name" -> fieldName,
-            "type" -> typeName
-          )
-          skipToNextField()
-        case _ =>
-          skipToNextField()
+      skipTrivia()
+      if peekChar('}') then ()
+      else {
+        val lineContent = captureStructFieldDeclLine()
+        if (lineContent.trim.nonEmpty) {
+          fields ++= parseStructFieldDecl(lineContent)
+        }
+      }
+      skipTrivia()
 
     maybeConsume('}')
     ujson.Arr(fields.toVector*)
+  }
+
+  private def captureStructFieldDeclLine(): String = {
+    val startIndex = cursor.utf16Index
+    var braceDepth = 0
+    var done = false
+    while !eof && !done do
+      peekCodePoint match
+        case Some('{') =>
+          braceDepth += 1
+          advance()
+        case Some('}') =>
+          if braceDepth > 0 then
+            braceDepth -= 1
+            advance()
+          else
+            done = true
+        case Some(';') | Some('\n') if braceDepth == 0 =>
+          advance()
+          done = true
+        case _ =>
+          advance()
+    source.substring(startIndex, cursor.utf16Index).trim
+  }
+
+  private def parseStructFieldDecl(content: String): Vector[ujson.Value] = {
+    val tagIndex = content.indexOf('`')
+    val decl = if (tagIndex >= 0) content.take(tagIndex).trim else content.trim
+    if (decl.isEmpty) return Vector.empty
+
+    val parts = splitTopLevel(decl, ' ').map(_.trim).filter(_.nonEmpty)
+    if (parts.isEmpty) return Vector.empty
+
+    if (parts.length == 1) {
+      val typeStr = parts(0)
+      val name = getBaseTypeName(typeStr)
+      if (name.headOption.exists(_.isUpper)) {
+        Vector(ujson.Obj("name" -> name, "type" -> typeStr))
+      } else Vector.empty
+    } else {
+      val typeStr = parts.last
+      val namesPart = parts.init.mkString(" ")
+      val names = namesPart.split(',').map(_.trim).filter(_.nonEmpty)
+      names.toVector.filter(_.headOption.exists(_.isUpper)).map { name =>
+        ujson.Obj("name" -> name, "type" -> typeStr)
+      }
+    }
+  }
+
+  private def getBaseTypeName(typeStr: String): String = {
+    var s = typeStr
+    while (s.startsWith("*")) s = s.drop(1)
+    while (s.startsWith("[]")) s = s.drop(2)
+    val dot = s.lastIndexOf('.')
+    if (dot >= 0) s.drop(dot + 1) else s
   }
 
   private def parseInterfaceMethods(): ujson.Arr = {

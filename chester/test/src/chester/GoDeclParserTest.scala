@@ -44,4 +44,41 @@ type Reader interface {
     assertEquals(close("params").arr.length, 0)
     assertEquals(close("results").arr.map(_("type").str).toVector, Vector("error"))
   }
+
+  test("parse method with receiver") {
+    val goSource = """package sample
+    
+func (u *User) GetFullName(prefix string) (fullName string) {
+    return prefix + u.Name, nil
+}
+"""
+    val sourceRef = Source(FileNameAndContent("user.go", goSource))
+    val parsed = GoDeclParser.parse(goSource, sourceRef)
+
+    val func = parsed("functions").arr.head
+    val receiver = func("receiver").obj
+    assertEquals(receiver("name").str, "u")
+    assertEquals(receiver("type").str, "*User")
+    assertEquals(func("name").str, "GetFullName")
+  }
+
+  test("parse struct with embedded and tagged fields") {
+    val goSource = """package sample
+
+type Employee struct {
+    Person
+    *Address
+    Salary int `json:"salary"`
+    Bonus, Tax float64 `json:"fin"`
+}
+"""
+    val sourceRef = Source(FileNameAndContent("employee.go", goSource))
+    val parsed = GoDeclParser.parse(goSource, sourceRef)
+
+    val struct = parsed("structs").arr.head
+    val fields = struct("fields").arr
+
+    assertEquals(fields.map(_("name").str).toVector, Vector("Person", "Address", "Salary", "Bonus", "Tax"))
+    assertEquals(fields.map(_("type").str).toVector, Vector("Person", "*Address", "int", "float64", "float64"))
+  }
 }
