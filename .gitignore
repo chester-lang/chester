@@ -9,3 +9,5 @@ out/
 .bsp/
 .metals/
 .mill-version
+docs/book/
+

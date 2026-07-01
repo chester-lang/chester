@@ -1,0 +1,5 @@
+[book]
+authors = ["Chester Authors"]
+language = "en"
+src = "src"
+title = "Chester Documentation"
