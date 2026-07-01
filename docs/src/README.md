@@ -2,9 +2,6 @@
 
 Welcome to the Chester Programming Language documentation.
 
-Chester is designed with speed, safety, and multi-platform flexibility in mind. 
-
-This documentation covers the core concepts, syntax rules, compiler internals, and architecture of Chester.
-
-## Contents
-- **[Universal Parsed Syntax](universal-syntax.md)**: Learn about the generic concrete syntax tree representation that permits language-agnostic tokenizing and parsing.
+This book is divided into two sections:
+- **[Guide](guide/universal-syntax.md)**: A high-level explanation of the concepts and design decisions.
+- **[Reference](references/syntax-spec.md)**: Technical specifications and grammar details.

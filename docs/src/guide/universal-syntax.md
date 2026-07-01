@@ -1,25 +1,8 @@
-# Universal Parsed Syntax
+# Universal Parsed Syntax Guide
 
 Chester utilizes a **Universal Parsed Syntax** represented by a generic Concrete Syntax Tree (CST). Unlike traditional compilers where the parser must be aware of language-specific constructs (such as variable declarations, class definitions, or control flow), Chester's parsing phase is completely agnostic of these details.
 
 This design enables a flexible, robust, and tooling-friendly front-end that can adapt to changing language features or even serve as a base for completely different programming languages without modifying the tokenizer or parser.
-
----
-
-## The CST Representation
-
-The universal parsed syntax consists of a small number of generic structural elements:
-
-| CST Node | Syntax Pattern | Purpose |
-| :--- | :--- | :--- |
-| **`Symbol(name)`** | `foo`, `+`, `my-var` | Standard names, identifiers, and operators. |
-| **`Tuple(elements)`** | `(a, b, c)`, `()` | Commas-separated values enclosed in parentheses. |
-| **`ListLiteral(elements)`** | `[1, 2, 3]`, `[]` | Commas-separated values enclosed in square brackets. |
-| **`Block(elements, tail)`** | `{ stmt1; stmt2; expr }` | Semicolon-separated statements enclosed in curly braces, with an optional final expression. |
-| **`SeqOf(elements)`** | `f(x)`, `let x = 42` | Sequences of adjacent atoms/nodes without separating commas or semicolons. |
-| **`StringLiteral(value)`** | `"hello world"` | Double-quoted strings. |
-| **`IntegerLiteral(value)`** | `42` | Numeric values. |
-| **`Comment(text, kind)`** | `// comment`, `/* block */` | Line or block comments, preserved for formatting and documentation. |
 
 ---
 

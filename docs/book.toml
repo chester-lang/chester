@@ -3,3 +3,11 @@ authors = ["Chester Authors"]
 language = "en"
 src = "src"
 title = "Chester Documentation"
+
+[preprocessor.gettext]
+after = ["links"]
+
+[build]
+extra-watch-dirs = ["po"]
+
+[output.html]

@@ -1,0 +1,379 @@
+
+msgid ""
+msgstr ""
+"Project-Id-Version: Chester Documentation\n"
+"POT-Creation-Date: 2026-07-01T12:29:54+12:00\n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: src/SUMMARY.md:1
+msgid "Summary"
+msgstr ""
+
+#: src/SUMMARY.md:3
+msgid "Introduction"
+msgstr ""
+
+#: src/SUMMARY.md:5
+msgid "Guide"
+msgstr ""
+
+#: src/SUMMARY.md:6 src/guide/universal-syntax.md:1
+msgid "Universal Parsed Syntax Guide"
+msgstr ""
+
+#: src/SUMMARY.md:8
+msgid "Reference"
+msgstr ""
+
+#: src/SUMMARY.md:9
+msgid "Syntax Specification"
+msgstr ""
+
+#: src/index.md:1
+msgid "Chester Documentation"
+msgstr ""
+
+#: src/index.md:3
+msgid "Welcome to the Chester Programming Language documentation."
+msgstr ""
+
+#: src/index.md:5
+msgid "This book is divided into two sections:"
+msgstr ""
+
+#: src/index.md:6
+msgid ""
+"**[Guide](guide/universal-syntax.md)**: A high-level explanation of the "
+"concepts and design decisions."
+msgstr ""
+
+#: src/index.md:7
+msgid ""
+"**[Reference](references/syntax-spec.md)**: Technical specifications and "
+"grammar details."
+msgstr ""
+
+#: src/guide/universal-syntax.md:3
+msgid ""
+"Chester utilizes a **Universal Parsed Syntax** represented by a generic "
+"Concrete Syntax Tree (CST). Unlike traditional compilers where the parser "
+"must be aware of language-specific constructs (such as variable "
+"declarations, class definitions, or control flow), Chester's parsing phase "
+"is completely agnostic of these details."
+msgstr ""
+
+#: src/guide/universal-syntax.md:5
+msgid ""
+"This design enables a flexible, robust, and tooling-friendly front-end that "
+"can adapt to changing language features or even serve as a base for "
+"completely different programming languages without modifying the tokenizer "
+"or parser."
+msgstr ""
+
+#: src/guide/universal-syntax.md:9
+msgid "Design Benefits"
+msgstr ""
+
+#: src/guide/universal-syntax.md:11
+msgid "1. Zero Language-Specific Keywords"
+msgstr ""
+
+#: src/guide/universal-syntax.md:12
+msgid ""
+"The parser and tokenizer do not have hardcoded keywords like `if`, `while`, "
+"`def`, `class`, or `import`. The parser simply parses these words as generic "
+"`Symbol` nodes. For example, the statement:"
+msgstr ""
+
+#: src/guide/universal-syntax.md:14
+msgid ""
+"```\n"
+"def main(): Unit = { println(\"hello\") }\n"
+"```"
+msgstr ""
+
+#: src/guide/universal-syntax.md:17
+msgid "is parsed into a `SeqOf` containing:"
+msgstr ""
+
+#: src/guide/universal-syntax.md:18
+msgid "`Symbol(\"def\")`"
+msgstr ""
+
+#: src/guide/universal-syntax.md:19
+msgid "`Symbol(\"main\")`"
+msgstr ""
+
+#: src/guide/universal-syntax.md:20
+msgid "`Tuple(...)`"
+msgstr ""
+
+#: src/guide/universal-syntax.md:21
+msgid "`Symbol(\":\")`"
+msgstr ""
+
+#: src/guide/universal-syntax.md:22
+msgid "`Symbol(\"Unit\")`"
+msgstr ""
+
+#: src/guide/universal-syntax.md:23
+msgid "`Symbol(\"=\")`"
+msgstr ""
+
+#: src/guide/universal-syntax.md:24
+msgid "`Block(...)`"
+msgstr ""
+
+#: src/guide/universal-syntax.md:26
+msgid "2. De-coupled Elaboration Phase"
+msgstr ""
+
+#: src/guide/universal-syntax.md:27
+msgid ""
+"Because parsing produces a generic tree of symbols and delimiters, the "
+"language's actual grammar rules and semantics are deferred to the "
+"**Elaboration** phase. During elaboration:"
+msgstr ""
+
+#: src/guide/universal-syntax.md:28
+msgid "The CST is validated and compiled into an **Abstract Syntax Tree (AST)**."
+msgstr ""
+
+#: src/guide/universal-syntax.md:29
+msgid ""
+"If we want to change how functions are defined or add a new control flow "
+"keyword, we only need to update the Elaborator. The core parser remains "
+"untouched."
+msgstr ""
+
+#: src/guide/universal-syntax.md:31
+msgid "3. High Tolerance for Incomplete Code (IDE Friendly)"
+msgstr ""
+
+#: src/guide/universal-syntax.md:32
+msgid ""
+"IDE tools require syntax trees for code that is currently being typed (and "
+"is therefore syntactically invalid). Because the universal parser only "
+"enforces matching delimiters (`()`, `[]`, `{}`), it can recover from errors "
+"extremely gracefully. For example, if a user writes:"
+msgstr ""
+
+#: src/guide/universal-syntax.md:40
+msgid ""
+"The parser easily detects the missing parenthesis, records the error, "
+"recovers immediately at the semicolon/newline, and parses `b` as a "
+"subsequent statement in the block. This makes building language servers "
+"(LSP) and syntax highlighting tools straightforward."
+msgstr ""
+
+#: src/references/syntax-spec.md:1
+msgid "Universal Parsed Syntax Specification"
+msgstr ""
+
+#: src/references/syntax-spec.md:3
+msgid ""
+"This document defines the formal lexical and syntactic grammar of the "
+"Chester universal parsed syntax."
+msgstr ""
+
+#: src/references/syntax-spec.md:7
+msgid "Lexical Grammar"
+msgstr ""
+
+#: src/references/syntax-spec.md:9
+msgid "1. Characters and Code Points"
+msgstr ""
+
+#: src/references/syntax-spec.md:10
+msgid ""
+"All input is treated as a sequence of Unicode code points. Unicode emojis "
+"and private-use characters are fully supported as part of identifier naming "
+"rules."
+msgstr ""
+
+#: src/references/syntax-spec.md:12
+msgid "2. Whitespace and Comments"
+msgstr ""
+
+#: src/references/syntax-spec.md:13
+msgid ""
+"**Whitespace**: Any sequence of characters matching "
+"`java.lang.Character.isWhitespace`. Line breaks (`\\n"
+"`, `\\r`) are recorded inside whitespace tokens."
+msgstr ""
+
+#: src/references/syntax-spec.md:14
+msgid ""
+"**Line Comment**: Starts with `//` and consumes characters until a line "
+"break (`\\n"
+"`, `\\r`) or EOF."
+msgstr ""
+
+#: src/references/syntax-spec.md:15
+msgid ""
+"**Block Comment**: Starts with `/*` and ends with `*/`. Block comments "
+"support arbitrary nesting (e.g., `/* outer /* inner */ outer */`)."
+msgstr ""
+
+#: src/references/syntax-spec.md:17
+msgid "3. Literals"
+msgstr ""
+
+#: src/references/syntax-spec.md:18
+msgid "**StringLiteral**: Double-quoted text. Escape sequences supported:"
+msgstr ""
+
+#: src/references/syntax-spec.md:19
+msgid "`\\n` (newline)"
+msgstr ""
+
+#: src/references/syntax-spec.md:20
+msgid "`\\t` (horizontal tab)"
+msgstr ""
+
+#: src/references/syntax-spec.md:21
+msgid "`\\r` (carriage return)"
+msgstr ""
+
+#: src/references/syntax-spec.md:22
+msgid "`\\\\` (backslash)"
+msgstr ""
+
+#: src/references/syntax-spec.md:23
+msgid "`\\\"` (double quote)"
+msgstr ""
+
+#: src/references/syntax-spec.md:24
+msgid ""
+"Any other escape sequence `\\<char>` triggers a tokenization error but falls "
+"back to the literal character `<char>`."
+msgstr ""
+
+#: src/references/syntax-spec.md:25
+msgid ""
+"**IntegerLiteral**: Consists of digits `[0-9]` optionally separated by "
+"underscores `_` (which are ignored during parsing)."
+msgstr ""
+
+#: src/references/syntax-spec.md:26
+msgid ""
+"**RationalLiteral**: Consists of an integer literal, followed directly by "
+"`/`, followed directly by another integer literal."
+msgstr ""
+
+#: src/references/syntax-spec.md:27
+msgid ""
+"**SymbolLiteral**: Starts with a single quote `'` followed directly by "
+"identifier characters (e.g., `'foo`)."
+msgstr ""
+
+#: src/references/syntax-spec.md:29
+msgid "4. Identifiers and Operators"
+msgstr ""
+
+#: src/references/syntax-spec.md:30
+msgid "**Identifier**:"
+msgstr ""
+
+#: src/references/syntax-spec.md:31
+msgid "Starts with a letter (`isLetter`), emoji (`codePointIsEmoji`), or `_`."
+msgstr ""
+
+#: src/references/syntax-spec.md:32
+msgid "Can contain letters, emojis, digits, `_`, or `-` (middle wording symbol)."
+msgstr ""
+
+#: src/references/syntax-spec.md:33
+msgid "Must end with a letter, emoji, digit, or `_`."
+msgstr ""
+
+#: src/references/syntax-spec.md:34
+msgid "**OperatorIdentifier**:"
+msgstr ""
+
+#: src/references/syntax-spec.md:35
+msgid ""
+"Consists entirely of one or more operator characters from the set: "
+"`.:=-+\\|<>/?`~!@$%^&\\*\\`."
+msgstr ""
+
+#: src/references/syntax-spec.md:39
+msgid "Syntactic Grammar (CST)"
+msgstr ""
+
+#: src/references/syntax-spec.md:41
+msgid "The Concrete Syntax Tree (CST) parses tokens into structural forms:"
+msgstr ""
+
+#: src/references/syntax-spec.md:43
+msgid "EBNF Grammar"
+msgstr ""
+
+#: src/references/syntax-spec.md:45
+msgid ""
+"```ebnf\n"
+"File            ::= BlockBody EOF\n"
+"BlockBody       ::= ( Statement \";\" )* Expression?\n"
+"Statement       ::= SeqOf\n"
+"Expression      ::= SeqOf\n"
+"\n"
+"SeqOf           ::= Atom+\n"
+"Atom            ::= Symbol\n"
+"                  | StringLiteral\n"
+"                  | IntegerLiteral\n"
+"                  | SymbolLiteral\n"
+"                  | Tuple\n"
+"                  | ListLiteral\n"
+"                  | Block\n"
+"                  | Comment\n"
+"\n"
+"Symbol          ::= Identifier | OperatorIdentifier | \".\"\n"
+"\n"
+"Tuple           ::= \"(\" DelimitedBody \")\"\n"
+"ListLiteral     ::= \"[\" DelimitedBody \"]\"\n"
+"DelimitedBody   ::= ( SeqOf \",\" )* SeqOf? \",\"?\n"
+"\n"
+"Block           ::= \"{\" BlockBody \"}\"\n"
+"```"
+msgstr ""
+
+#: src/references/syntax-spec.md:70
+msgid "CST Mappings"
+msgstr ""
+
+#: src/references/syntax-spec.md:71
+msgid "**`Symbol`**: Any identifier, operator, or single dot `.`."
+msgstr ""
+
+#: src/references/syntax-spec.md:72
+msgid ""
+"**`Tuple`**: Parentheses enclosing a comma-separated list of elements. "
+"Trailing commas are permitted."
+msgstr ""
+
+#: src/references/syntax-spec.md:73
+msgid ""
+"**`ListLiteral`**: Square brackets enclosing a comma-separated list of "
+"elements. Trailing commas are permitted."
+msgstr ""
+
+#: src/references/syntax-spec.md:74
+msgid ""
+"**`Block`**: Curly braces enclosing a list of statements separated by "
+"semicolons and ending with an optional tail expression."
+msgstr ""
+
+#: src/references/syntax-spec.md:75
+msgid ""
+"**`SeqOf`**: Syntactic concatenation of multiple elements without separating "
+"punctuation (e.g. `foo bar [1]` compiles to a `SeqOf` containing three "
+"items)."
+msgstr ""
+

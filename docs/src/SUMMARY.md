@@ -1,4 +1,9 @@
 # Summary
 
 - [Introduction](README.md)
-- [Universal Parsed Syntax](universal-syntax.md)
+
+# Guide
+- [Universal Parsed Syntax Guide](guide/universal-syntax.md)
+
+# Reference
+- [Syntax Specification](references/syntax-spec.md)
