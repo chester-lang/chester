@@ -41,6 +41,12 @@ object Doc {
   }
 
   implicit def stringToDoc(s: String): Doc = Text(s)
+
+  def group(doc: Doc): Doc = doc
+  def concat(docs: Doc*): Doc = chester.concat(docs)
+  def line: Doc = chester.hardline
+  def text(s: String): Doc = chester.text(s)
+  def text(s: String, style: chester.utils.doc.Styling): Doc = chester.text(s)
 }
 
 trait ToDoc {

@@ -93,7 +93,15 @@ def codePointIsEmoji(codePoint: Int): Boolean = {
 }
 
 package i18n {
+  import chester.*
   extension (sc: StringContext) {
     def t(args: Any*): String = sc.s(args*)
+    def dt(args: ToDoc*)(using DocConf): Doc = {
+      val parts = sc.parts.map(text)
+      val zipped = parts.zip(args.map(_.toDoc)).flatMap { case (p, a) => List(p, a) }
+      val remaining = parts.drop(args.length)
+      val all = zipped ++ remaining
+      chester.concat(all.toSeq)
+    }
   }
 }
