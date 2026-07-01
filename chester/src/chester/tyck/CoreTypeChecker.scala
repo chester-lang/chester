@@ -235,7 +235,22 @@ object CoreTypeChecker:
 
   private def sameType(a: AST, b: AST): Boolean = {
     if hasMeta(a) || hasMeta(b) then true
-    else eraseSpans(normalizeType(a)) == eraseSpans(normalizeType(b))
+    else {
+      val normA = normalizeType(a)
+      val normB = normalizeType(b)
+      normB match
+        case AST.AnyType(_) =>
+          normA match
+            case _: AST.Type | _: AST.TypeOmega | _: AST.LevelType => false
+            case _                                                 => true
+        case _ =>
+          normA match
+            case AST.AnyType(_) =>
+              normB match
+                case _: AST.Type | _: AST.TypeOmega | _: AST.LevelType => false
+                case _                                                 => true
+            case _ => eraseSpans(normA) == eraseSpans(normB)
+    }
   }
 
   /** Entry point to check whether an AST is well-typed according to a simple dependent type checker. */
@@ -352,11 +367,32 @@ object CoreTypeChecker:
         funcTyOpt match
           case Some(AST.Pi(teles, resTy, _, _)) =>
             val params = teles.flatMap(_.params)
-            if params.length != args.length then None
+            val restParamOpt = params.lastOption.flatMap { param =>
+              normalizeType(param.ty) match
+                case AST.ListType(elem, _) => Some((param, elem))
+                case _                     => None
+            }
+            val fixedParams = restParamOpt.map(_ => params.dropRight(1)).getOrElse(params)
+            val arityOk = restParamOpt match
+              case Some(_) => args.length >= fixedParams.length
+              case None    => args.length == params.length
+
+            if !arityOk then None
             else {
-              val argTysOk = args.zip(params).forall { case (arg, param) => ensureType(arg.value, param.ty, env, records, enums) }
-              if argTysOk then
-                val subst = params.map(_.id).zip(args.map(_.value)).toMap
+              val fixedArgsOk = args.take(fixedParams.length).zip(fixedParams).forall { case (arg, param) => ensureType(arg.value, param.ty, env, records, enums) }
+              val restArgsOk = restParamOpt match
+                case Some((_, elemTy)) =>
+                  args.drop(fixedParams.length).forall { arg => ensureType(arg.value, elemTy, env, records, enums) }
+                case None => true
+
+              if fixedArgsOk && restArgsOk then
+                val restArgForSubst = restParamOpt.map { _ =>
+                  val restArgs = args.drop(fixedParams.length).map(_.value)
+                  AST.ListLit(restArgs, span)
+                }
+                val paramsForSubst = fixedParams ++ restParamOpt.map(_._1).toVector
+                val argsForSubst = args.take(fixedParams.length).map(_.value) ++ restArgForSubst.toVector
+                val subst = paramsForSubst.map(_.id).zip(argsForSubst).toMap
                 Some(normalizeType(substituteInType(resTy, subst)))
               else None
             }
