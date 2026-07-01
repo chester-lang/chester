@@ -122,7 +122,12 @@ object TypeScriptAST {
     // Expressions
     case BinaryOp(left, op, right, _) => toDoc(left) <+> text(op) <+> toDoc(right)
     case UnaryOp(op, operand, _)      => text(op) <> toDoc(operand)
-    case Call(callee, args, _)        => toDoc(callee) <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
+    case Call(callee, args, _)        =>
+      val calleeDoc = callee match {
+        case _: Arrow | _: Function | _: BinaryOp | _: Conditional => text("(") <> toDoc(callee) <> text(")")
+        case _ => toDoc(callee)
+      }
+      calleeDoc <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
     case New(constructor, args, _)    => text("new ") <> toDoc(constructor) <> text("(") <> hsep(args.map(toDoc), text(", ")) <> text(")")
     case Arrow(params, body, _) =>
       val paramsDoc = if (params.length == 1 && params.head.paramType.isEmpty && !params.head.isRest) {

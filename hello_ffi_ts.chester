@@ -1,0 +1,2 @@
+import js "path";
+js.join("foo", "bar")

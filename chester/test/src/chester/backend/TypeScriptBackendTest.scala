@@ -1,0 +1,232 @@
+package chester.backend
+
+import munit.FunSuite
+
+import java.nio.file.Files
+
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.*
+import scala.language.experimental.genericNumberLiterals
+import scala.sys.process.*
+
+import chester.core.AST
+import chester.syntax.{InterfaceMemberType, TypeScriptAST, TypeScriptType}
+import chester.tyck.ElabTestUtils
+import chester.tyck.ElabTestUtils.{defaultTimeout, runAsync, given ExecutionContext}
+import chester.utils.doc.{DocConf, render, *, given}
+
+class TypeScriptBackendTest extends FunSuite:
+
+  private given DocConf = DocConf.Default
+
+  override val munitTimeout: FiniteDuration = defaultTimeout
+
+  private def normalize(output: String): String =
+    output.linesIterator.map(_.trim).filter(_.nonEmpty).mkString("\n").trim
+
+  private def compileWithTypeScriptCompiler(rendered: String, fileName: String): Unit = {
+    val tempDir = Files.createTempDirectory("chester-ts-test")
+    val sourcePath = tempDir.resolve(fileName)
+    Files.writeString(sourcePath, rendered)
+
+    val exitCode = Process(
+      Seq(
+        "nix",
+        "shell",
+        "nixpkgs#typescript",
+        "--command",
+        "sh",
+        "-lc",
+        s"tsc --noEmit --pretty false --target es2020 ${sourcePath.getFileName}"
+      ),
+      tempDir.toFile
+    ).!
+
+    assertEquals(exitCode, 0, s"Expected generated TypeScript to compile:\n$rendered")
+  }
+
+  test("function def lowers to function declaration and top-level expression statement") {
+    runAsync {
+      val code =
+        """{ def id(x: Integer) = x;
+          |  id }""".stripMargin
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+
+      val fnDecl = program.statements.collectFirst { case fn: TypeScriptAST.FunctionDeclaration => fn }
+      assert(fnDecl.isDefined, "Expected a function declaration")
+      assertEquals(fnDecl.get.name, "id")
+
+      program.statements.lastOption match
+        case Some(TypeScriptAST.ExpressionStatement(TypeScriptAST.Identifier("id", _), _)) => ()
+        case other => fail(s"Expected expression statement of id, got $other")
+    }
+  }
+
+  test("backend renders a simple program shape") {
+    runAsync {
+      val code =
+        """{ record Box(value: String);
+          |  def add1(x: Integer) = x + 1;
+          |  add1(41) }""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = normalize(render(program.toDoc).toString)
+
+      val expected = normalize(
+        """interface Box {
+          |value: string;
+          |};
+          |function add1(x: number) {
+          |return x + 1;
+          |};
+          |add1(41);""".stripMargin
+      )
+
+      assertEquals(rendered, expected)
+    }
+  }
+
+  test("record lowers to interface declaration") {
+    runAsync {
+      val code =
+        """{ record Box(value: String);
+          |  () }""".stripMargin
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+
+      program.statements.collectFirst { case iface: TypeScriptAST.InterfaceDeclaration => iface } match
+        case Some(TypeScriptAST.InterfaceDeclaration(name, _, _, members, _)) =>
+          assertEquals(name, "Box")
+          assert(members.exists(_.name == "value"), "Field 'value' should be present")
+          members.head.memberType match
+            case InterfaceMemberType.PropertySignature(tpe, _, _) =>
+              tpe match
+                case TypeScriptType.PrimitiveType("string", _) => ()
+                case other                                    => fail(s"Expected string property, got $other")
+            case other => fail(s"Expected property signature, got $other")
+        case None => fail("Expected interface declaration in lowered program")
+    }
+  }
+
+  test("JSImport lowers to TypeScript import declaration") {
+    runAsync {
+      val code =
+        """{ import * as fs from "node:fs";
+          |  () }""".stripMargin
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+
+      val rendered = normalize(render(program.toDoc).toString)
+      assert(rendered.contains("""import * as fs from "node:fs";"""), s"Expected import declaration, got:\n$rendered")
+    }
+  }
+
+  test("record constructor lowering preserves field names for field access semantics") {
+    runAsync {
+      val code =
+        """{ record Vec2d(x: Integer, y: Integer);
+          |  let v: Vec2d.t = Vec2d(1, 2);
+          |  v.x }""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = normalize(render(program.toDoc).toString)
+
+      assert(rendered.contains("x: 1"), s"Expected record constructor to use declared field name x, got:\n$rendered")
+      assert(rendered.contains("y: 2"), s"Expected record constructor to use declared field name y, got:\n$rendered")
+      assert(rendered.contains(".x"), s"Expected field access to remain named field access, got:\n$rendered")
+      assert(!rendered.contains("_1"), s"Did not expect positional record field names in lowered TS, got:\n$rendered")
+    }
+  }
+
+  test("unit lowers to void return type and undefined value") {
+    runAsync {
+      val code =
+        """{ def noop(x: Integer): Unit = ();
+          |  noop(1) }""".stripMargin
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+
+      val fnDecl = program.statements.collectFirst { case fn: TypeScriptAST.FunctionDeclaration => fn }
+      assert(fnDecl.isDefined, "Expected a function declaration")
+
+      fnDecl.get.returnType match
+        case Some(TypeScriptType.PrimitiveType("void", _)) => ()
+        case other                                        => fail(s"Expected void return type, got: $other")
+
+      fnDecl.get.body match
+        case TypeScriptAST.Block(stmts, _) =>
+          stmts.lastOption match
+            case Some(TypeScriptAST.Return(Some(TypeScriptAST.UndefinedLiteral(_)), _)) => ()
+            case other => fail(s"Expected function body to return undefined for unit, got: $other")
+        case other =>
+          fail(s"Expected function body to be a block, got: $other")
+    }
+  }
+
+  test("unsupported expressions lower to explicit undefined literal") {
+    runAsync {
+      val ast = AST.Block(Vector(chester.core.StmtAST.ExprStmt(AST.AnyType(None), None)), AST.IntLit(1, None), None)
+      val program = TypeScriptBackend.lowerProgram(ast)
+
+      program.statements.headOption match
+        case Some(TypeScriptAST.ExpressionStatement(TypeScriptAST.UndefinedLiteral(_), _)) => ()
+        case other => fail(s"Expected unsupported expression fallback to be explicit undefined, got: $other")
+    }
+  }
+
+  test("Bool lowers to TypeScript boolean") {
+    runAsync {
+      val code = """{ def negate(flag: Bool): Bool = flag; negate(false) }"""
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = normalize(render(program.toDoc).toString)
+
+      assert(rendered.contains("function negate(flag: boolean): boolean"), s"Expected Bool to lower to boolean, got:\n$rendered")
+      assert(rendered.contains("negate(false);"), s"Expected false literal to stay boolean, got:\n$rendered")
+    }
+  }
+
+  test("generated TypeScript for pure program compiles with tsc") {
+    runAsync {
+      val code =
+        """{ record Box(value: String);
+          |  def add1(x: Integer): Integer = x + 1;
+          |  let answer = add1(41);
+          |  answer }""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = render(program.toDoc).toString
+      compileWithTypeScriptCompiler(rendered, "pure.ts")
+    }
+  }
+
+  test("generated TypeScript for Bool program compiles with tsc") {
+    runAsync {
+      val code =
+        """{ def negate(flag: Bool): Bool = flag;
+          |  negate(false) }""".stripMargin
+
+      val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
+      assert(errors.isEmpty, s"Elaboration failed: $errors")
+
+      val program = TypeScriptBackend.lowerProgram(astOpt.get)
+      val rendered = render(program.toDoc).toString
+      compileWithTypeScriptCompiler(rendered, "bool.ts")
+    }
+  }
