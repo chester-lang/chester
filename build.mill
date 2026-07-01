@@ -1,0 +1,23 @@
+import mill._, scalalib._
+
+object chester extends ScalaModule {
+  def scalaVersion = "3.8.1"
+
+  override def scalacOptions = Seq("-experimental")
+
+  def mvnDeps = Seq(
+    mvn"org.typelevel::spire::0.18.0",
+    mvn"com.lihaoyi::upickle::4.4.2",
+    mvn"com.lihaoyi::fastparse::3.1.1",
+    mvn"com.lihaoyi::fansi::0.5.1"
+  )
+
+  object test extends ScalaTests {
+    override def scalacOptions = Seq("-experimental")
+
+    def mvnDeps = Seq(
+      mvn"org.scalameta::munit::1.2.2"
+    )
+    def testFramework = "munit.Framework"
+  }
+}

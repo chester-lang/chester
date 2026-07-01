@@ -5,3 +5,7 @@ compiled/
 *.bak
 \#*
 .\#*
+out/
+.bsp/
+.metals/
+.mill-version
