@@ -328,22 +328,65 @@ class GoDeclParser(source: String, sourceRef: Source):
     val decl = if (tagIndex >= 0) content.take(tagIndex).trim else content.trim
     if (decl.isEmpty) return Vector.empty
 
-    val parts = splitTopLevel(decl, ' ').map(_.trim).filter(_.nonEmpty)
-    if (parts.isEmpty) return Vector.empty
+    splitFieldDecl(decl) match {
+      case Some((namesPart, typePart)) =>
+        val suffix = normalizeTypeExpression(typePart)
+        val names = namesPart.split(',').map(_.trim).filter(_.nonEmpty)
+        names.toVector.filter(_.headOption.exists(_.isUpper)).map { name =>
+          ujson.Obj("name" -> name, "type" -> suffix)
+        }
+      case None =>
+        val name = getBaseTypeName(decl)
+        val suffix = normalizeTypeExpression(decl)
+        if (name.headOption.exists(_.isUpper)) {
+          Vector(ujson.Obj("name" -> name, "type" -> suffix))
+        } else Vector.empty
+    }
+  }
 
-    if (parts.length == 1) {
-      val typeStr = parts(0)
-      val name = getBaseTypeName(typeStr)
-      if (name.headOption.exists(_.isUpper)) {
-        Vector(ujson.Obj("name" -> name, "type" -> typeStr))
-      } else Vector.empty
-    } else {
-      val typeStr = parts.last
-      val namesPart = parts.init.mkString(" ")
-      val names = namesPart.split(',').map(_.trim).filter(_.nonEmpty)
-      names.toVector.filter(_.headOption.exists(_.isUpper)).map { name =>
-        ujson.Obj("name" -> name, "type" -> typeStr)
-      }
+  private def splitFieldDecl(decl: String): Option[(String, String)] = {
+    var i = 0
+    val len = decl.length
+    
+    def skipWhitespace(): Unit = {
+      while (i < len && decl.charAt(i).isWhitespace) i += 1
+    }
+    
+    def readIdent(): Option[String] = {
+      skipWhitespace()
+      if (i < len && (decl.charAt(i).isLetter || decl.charAt(i) == '_')) {
+        val start = i
+        while (i < len && (decl.charAt(i).isLetterOrDigit || decl.charAt(i) == '_')) i += 1
+        Some(decl.substring(start, i))
+      } else None
+    }
+    
+    val names = mutable.ArrayBuffer[String]()
+    
+    readIdent() match {
+      case Some(first) =>
+        names += first
+        var done = false
+        var ok = true
+        while (!done && ok) {
+          skipWhitespace()
+          if (i < len && decl.charAt(i) == ',') {
+            i += 1
+            readIdent() match {
+              case Some(next) => names += next
+              case None => ok = false
+            }
+          } else {
+            done = true
+          }
+        }
+        if (ok && names.nonEmpty && i < len) {
+          val typePart = decl.substring(i).trim
+          if (typePart.nonEmpty) {
+            Some((names.mkString(", "), typePart))
+          } else None
+        } else None
+      case None => None
     }
   }
 
@@ -567,38 +610,85 @@ class GoDeclParser(source: String, sourceRef: Source):
     skipTrivia()
     val builder = new java.lang.StringBuilder
 
-    // Handle pointer
-    while peekChar('*') do
-      builder.append('*')
-      advance()
+    def parseType(): Unit = {
       skipTrivia()
-
-    // Handle slice/array
-    if peekChar('[') then
-      builder.append('[')
-      advance()
-      if peekChar(']') then
-        builder.append(']')
+      if peekChar('*') then
+        builder.append('*')
         advance()
-      else {
-        skipBalanced('[', ']')
-        builder.append(']')
-      }
-      skipTrivia()
+        parseType()
+      else if peekChar('[') then
+        builder.append('[')
+        advance()
+        if peekChar(']') then
+          builder.append(']')
+          advance()
+        else
+          while !eof && !peekChar(']') do
+            peekCodePoint.foreach(builder.appendCodePoint)
+            advance()
+          if peekChar(']') then
+            builder.append(']')
+            advance()
+        parseType()
+      else if startsWith("map[") then
+        builder.append("map[")
+        for _ <- 1 to 4 do advance()
+        parseType()
+        skipTrivia()
+        if peekChar(']') then
+          builder.append(']')
+          advance()
+        parseType()
+      else if startsWith("chan ") || startsWith("chan<-") || startsWith("<-chan") then
+        if startsWith("chan<-") then
+          builder.append("chan<- ")
+          for _ <- 1 to 6 do advance()
+        else if startsWith("<-chan") then
+          builder.append("<-chan ")
+          for _ <- 1 to 6 do advance()
+        else
+          builder.append("chan ")
+          for _ <- 1 to 5 do advance()
+        parseType()
+      else if consumeKeyword("struct") then
+        builder.append("struct")
+        skipTrivia()
+        if peekChar('{') then
+          val content = captureBalancedContent('{', '}').getOrElse("")
+          builder.append(" { ").append(content).append(" }")
+      else if consumeKeyword("interface") then
+        builder.append("interface")
+        skipTrivia()
+        if peekChar('{') then
+          val content = captureBalancedContent('{', '}').getOrElse("")
+          builder.append(" { ").append(content).append(" }")
+      else if consumeKeyword("func") then
+        builder.append("func")
+        skipTrivia()
+        if peekChar('(') then
+          val params = captureBalancedContent('(', ')').getOrElse("")
+          builder.append("(").append(params).append(")")
+          skipTrivia()
+          if peekChar('(') then
+            val results = captureBalancedContent('(', ')').getOrElse("")
+            builder.append(" (").append(results).append(")")
+          else if peekCodePoint.exists(cp => isIdentStart(cp) || cp == '*' || cp == '[') then
+            builder.append(" ")
+            parseType()
+      else
+        readIdentifier() match
+          case Some(name) =>
+            builder.append(name)
+            if maybeConsume('.') then
+              builder.append('.')
+              readIdentifier() match
+                case Some(subName) => builder.append(subName)
+                case None => ()
+          case None => ()
+    }
 
-    // Read the base type name
-    readIdentifier() match
-      case Some(name) =>
-        builder.append(name)
-        // Check for package qualification
-        if maybeConsume('.') then
-          builder.append('.')
-          readIdentifier() match
-            case Some(typeName) => builder.append(typeName)
-            case _              => ()
-      case _ => ()
-
-    val result = builder.toString
+    parseType()
+    val result = builder.toString.trim
     if result.isEmpty then "any" else result
   }
 

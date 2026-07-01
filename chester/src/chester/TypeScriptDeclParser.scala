@@ -252,7 +252,7 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
 
   private def parseClass(start: Cursor, modifiers: Vector[Modifier]): TypeScriptAST = {
     val name = readIdentifier().map(_._1).getOrElse("Unknown")
-    skipBalanced('<', '>') // type parameters
+    val typeParams = parseTypeParameters()
     skipTrivia()
     val superClass = if (consumeKeyword("extends").isDefined) {
       val (sName, sEnd) = readQualifiedName().getOrElse(("any", cursor))
@@ -271,7 +271,39 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
     } else Vector.empty
 
     val members = parseClassMembers()
-    TypeScriptAST.ClassDeclaration(name, Vector.empty, superClass, implementsTypes, members, modifiers, spanFrom(start, cursor))
+    TypeScriptAST.ClassDeclaration(name, typeParams, superClass, implementsTypes, members, modifiers, spanFrom(start, cursor))
+  }
+
+  private def parseTypeParameters(): Vector[TypeParameter] = {
+    skipTrivia()
+    if (!peekChar('<')) return Vector.empty
+    advance()
+    val params = mutable.ArrayBuffer[TypeParameter]()
+    skipTrivia()
+    while (!peekChar('>') && !eof) {
+      val start = cursor
+      readIdentifier(skip = false) match {
+        case Some((name, pStart, _)) =>
+          skipTrivia()
+          val constraint = if (consumeKeyword("extends").isDefined) {
+            Some(parseTypeReference())
+          } else None
+          skipTrivia()
+          val default = if (maybeConsume('=')) {
+            Some(parseTypeReference())
+          } else None
+          params += TypeParameter(name, constraint, default, spanFrom(pStart, cursor))
+        case None =>
+          skipUnknownToken()
+      }
+      skipTrivia()
+      if (peekChar(',')) {
+        advance()
+        skipTrivia()
+      }
+    }
+    if (peekChar('>')) advance()
+    params.toVector
   }
 
   private def parseClassMembers(): Vector[ClassMember] = {
@@ -339,10 +371,8 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
 
   private def parseInterface(start: Cursor): TypeScriptAST = {
     val name = readIdentifier().map(_._1).getOrElse("Unknown")
-    // Skip type parameters like <T, U extends X>
-    skipBalanced('<', '>')
+    val typeParams = parseTypeParameters()
     skipTrivia()
-    val typeParams = Vector.empty[TypeParameter]
 
     val extendsTypes = {
       if consumeKeyword("extends", skip = true).isDefined then
@@ -429,8 +459,18 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
 
   private def parseSimpleType(): TypeScriptType = {
     val startCursor = cursor
-    // Parenthesized type or function type
-    if maybeConsume('(') then
+    skipTrivia()
+    val isReadonly = consumeKeyword("readonly", skip = false).isDefined
+    if (isReadonly) skipTrivia()
+
+    if (consumeKeyword("keyof", skip = false).isDefined) {
+      val inner = parseTypeReference()
+      TypeScriptType.KeyofType(inner, spanFrom(startCursor, cursor))
+    } else if (consumeKeyword("typeof", skip = false).isDefined) {
+      val (exprName, exprEnd) = readQualifiedName().getOrElse(("any", cursor))
+      val expr = qualifiedNameToExpr(exprName, spanFrom(startCursor, exprEnd))
+      TypeScriptType.TypeofType(expr, spanFrom(startCursor, cursor))
+    } else if maybeConsume('(') then
       val afterOpen = cursor
       val typeCandidate = parseTypeReference()
       skipTrivia()
@@ -553,12 +593,11 @@ class TypeScriptDeclParser(source: String, sourceRef: Source):
 
   private def parseTypeAlias(start: Cursor): TypeScriptAST = {
     val name = readIdentifier().getOrElse(("Unknown", cursor, cursor))._1
-    // Skip type parameters like <T>
-    skipBalanced('<', '>')
+    val typeParams = parseTypeParameters()
     expectChar('=')
     val aliasType = parseTypeReference()
     maybeConsume(';')
-    TypeScriptAST.TypeAliasDeclaration(name, Vector.empty, aliasType, spanFrom(start, cursor))
+    TypeScriptAST.TypeAliasDeclaration(name, typeParams, aliasType, spanFrom(start, cursor))
   }
 
   private def parseDeclaration(start: Cursor): TypeScriptAST = {

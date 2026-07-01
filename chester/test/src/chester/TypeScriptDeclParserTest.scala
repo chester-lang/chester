@@ -281,4 +281,77 @@ class TypeScriptDeclParserTest extends munit.FunSuite {
         fail(s"Expected single class declaration, got $other")
     }
   }
+
+  test("parse class and interface with type parameters") {
+    val source = """
+      interface Box<T extends Animal = Cat> {
+        value: T;
+      }
+      class Container<T, U = string> {
+        item: T;
+      }
+    """
+    val sourceRef = Source(FileNameAndContent("generics.d.ts", source))
+    val ast = TypeScriptDeclParser.parse(source, sourceRef)
+
+    ast match {
+      case TypeScriptAST.Program(Vector(iface: TypeScriptAST.InterfaceDeclaration, clazz: TypeScriptAST.ClassDeclaration), _) =>
+        assertEquals(iface.name, "Box")
+        assertEquals(iface.typeParams.length, 1)
+        val tp1 = iface.typeParams.head
+        assertEquals(tp1.name, "T")
+        tp1.constraint match {
+          case Some(TypeScriptType.TypeReference("Animal", _, _)) => ()
+          case other => fail(s"Expected constraint Animal, got $other")
+        }
+        tp1.default match {
+          case Some(TypeScriptType.TypeReference("Cat", _, _)) => ()
+          case other => fail(s"Expected default Cat, got $other")
+        }
+
+        assertEquals(clazz.name, "Container")
+        assertEquals(clazz.typeParams.length, 2)
+        assertEquals(clazz.typeParams(0).name, "T")
+        assertEquals(clazz.typeParams(1).name, "U")
+        clazz.typeParams(1).default match {
+          case Some(TypeScriptType.PrimitiveType("string", _)) => ()
+          case other => fail(s"Expected default string, got $other")
+        }
+      case other =>
+        fail(s"Expected Box and Container, got $other")
+    }
+  }
+
+  test("parse keyof typeof and readonly type expressions") {
+    val source = """
+      type Key = keyof Person;
+      type Type = typeof globalConfig;
+      type Array = readonly string[];
+    """
+    val sourceRef = Source(FileNameAndContent("operators.d.ts", source))
+    val ast = TypeScriptDeclParser.parse(source, sourceRef)
+
+    ast match {
+      case TypeScriptAST.Program(Vector(t1: TypeScriptAST.TypeAliasDeclaration, t2: TypeScriptAST.TypeAliasDeclaration, t3: TypeScriptAST.TypeAliasDeclaration), _) =>
+        assertEquals(t1.name, "Key")
+        t1.aliasType match {
+          case TypeScriptType.KeyofType(TypeScriptType.TypeReference("Person", _, _), _) => ()
+          case other => fail(s"Expected keyof Person, got $other")
+        }
+
+        assertEquals(t2.name, "Type")
+        t2.aliasType match {
+          case TypeScriptType.TypeofType(TypeScriptAST.Identifier("globalConfig", _), _) => ()
+          case other => fail(s"Expected typeof globalConfig, got $other")
+        }
+
+        assertEquals(t3.name, "Array")
+        t3.aliasType match {
+          case TypeScriptType.ArrayType(TypeScriptType.PrimitiveType("string", _), _) => ()
+          case other => fail(s"Expected string[], got $other")
+        }
+      case other =>
+        fail(s"Expected three type aliases, got $other")
+    }
+  }
 }

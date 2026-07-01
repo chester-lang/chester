@@ -81,4 +81,25 @@ type Employee struct {
     assertEquals(fields.map(_("name").str).toVector, Vector("Person", "Address", "Salary", "Bonus", "Tax"))
     assertEquals(fields.map(_("type").str).toVector, Vector("Person", "*Address", "int", "float64", "float64"))
   }
+
+  test("parse complex Go type expressions") {
+    val goSource = """package sample
+
+type Config struct {
+    Metadata map[string]struct{ Name string }
+    Channel  chan<- *Event
+    Callback func(a int, b string) (bool, error)
+}
+"""
+    val sourceRef = Source(FileNameAndContent("config.go", goSource))
+    val parsed = GoDeclParser.parse(goSource, sourceRef)
+
+    val struct = parsed("structs").arr.head
+    val fields = struct("fields").arr
+
+    assertEquals(fields.map(_("name").str).toVector, Vector("Metadata", "Channel", "Callback"))
+    assertEquals(fields(0)("type").str, "map[string]struct{Name string}")
+    assertEquals(fields(1)("type").str, "chan<-*Event")
+    assertEquals(fields(2)("type").str, "func(a int,b string)(bool,error)")
+  }
 }
