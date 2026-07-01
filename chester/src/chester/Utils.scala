@@ -4,8 +4,12 @@ import scala.language.experimental.genericNumberLiterals
 import scala.util.FromDigits
 import scala.util.FromDigits.NumberTooSmall
 import spire.math.Natural
+import cats.data.NonEmptyVector
 import upickle.default.*
 import fastparse.ParserInput
+
+given nonEmptyVectorRW[T](using ReadWriter[T]): ReadWriter[NonEmptyVector[T]] =
+  readwriter[Vector[T]].bimap(_.toVector, NonEmptyVector.fromVectorUnsafe)
 
 object Nat {
   def apply(n: Int): Natural = if (n >= 0) Natural.apply(n) else throw new IllegalArgumentException("Negative number not allowed")
@@ -72,6 +76,20 @@ def parserInputToLazyList(pi: ParserInput): LazyList[String] = {
     .from(0)
     .takeWhile(pi.isReachable)
     .map(index => pi.slice(index, index + 1))
+}
+
+extension (x: String) {
+  def getCodePoints: Seq[Int] = x.codePoints().toArray.toIndexedSeq
+}
+
+def codePointIsEmoji(codePoint: Int): Boolean = {
+  (codePoint >= 0x1f600 && codePoint <= 0x1f64f) || // Emoticons
+  (codePoint >= 0x1f300 && codePoint <= 0x1f5ff) || // Miscellaneous Symbols and Pictographs
+  (codePoint >= 0x1f680 && codePoint <= 0x1f6ff) || // Transport and Map Symbols
+  (codePoint >= 0x1f900 && codePoint <= 0x1f9ff) || // Supplemental Symbols and Pictographs
+  (codePoint >= 0xe000 && codePoint <= 0xf8ff) || // Supplementary Private Use Area A
+  (codePoint >= 0xf0000 && codePoint <= 0xfffff) || // Supplementary Private Use Area B
+  (codePoint >= 0x100000 && codePoint <= 0x10ffff) // Supplementary Private Use Area B continuation
 }
 
 package i18n {

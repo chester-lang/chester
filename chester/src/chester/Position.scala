@@ -39,6 +39,12 @@ trait SpanOptional extends Any with SpanOptional0 {
   override def span0: Option[Span] = span
 }
 
+trait SpanRequired extends Any with SpanOptional0 {
+  def span: Span
+  override def span0: Option[Span] = Some(span)
+}
+
+
 case class Span(source: Source, range: SpanInFile) derives ReadWriter {
   private lazy val fileContent: Option[FileContent] =
     source.readContent.toOption.map(content => FileContent(content, source.offset))

@@ -9,7 +9,8 @@ object chester extends ScalaModule {
     mvn"org.typelevel::spire::0.18.0",
     mvn"com.lihaoyi::upickle::4.4.2",
     mvn"com.lihaoyi::fastparse::3.1.1",
-    mvn"com.lihaoyi::fansi::0.5.1"
+    mvn"com.lihaoyi::fansi::0.5.1",
+    mvn"org.typelevel::cats-core::2.13.0"
   )
 
   object test extends ScalaTests {
