@@ -27,6 +27,24 @@ class WithUTF16Test extends munit.FunSuite {
     assert(two >= two)
   }
 
+  test("genericNumberLiterals support") {
+    import scala.language.experimental.genericNumberLiterals
+
+    // Under genericNumberLiterals and the NatFromDigits given instance,
+    // integer literals automatically convert to spire.math.Natural.
+    val n: Natural = 12345
+    assertEquals(n, Nat(12345))
+
+    // WithUTF16 expects (spire.math.Natural, spire.math.Natural)
+    val w = WithUTF16(10, 20)
+    assertEquals(w.unicode, Nat(10))
+    assertEquals(w.utf16, Nat(20))
+
+    // Pos expects (WithUTF16, spire.math.Natural, WithUTF16)
+    val p = Pos(WithUTF16(0, 0), 100, WithUTF16(5, 5))
+    assertEquals(p.line, Nat(100))
+  }
+
   test("Pos and SpanInFile serialization") {
     val pos1 = Pos(WithUTF16(Nat(0), Nat(0)), Nat(0), WithUTF16(Nat(0), Nat(0)))
     val pos2 = Pos(WithUTF16(Nat(10), Nat(15)), Nat(1), WithUTF16(Nat(5), Nat(7)))
