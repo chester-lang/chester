@@ -96,22 +96,28 @@ object CLI:
   }
 
   def loadStdlib(target: String): String = {
-    val resourcePath = s"/stdlib/$target/std.chester"
-    val stream = getClass.getResourceAsStream(resourcePath)
-    if (stream != null) {
-      try {
-        new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-      } finally {
-        stream.close()
-      }
-    } else {
-      val localPath = Paths.get(s"stdlib/$target/std.chester")
-      if (Files.exists(localPath)) {
-        Files.readString(localPath)
+    def loadFile(path: String, localFallback: String): String = {
+      val stream = getClass.getResourceAsStream(path)
+      if (stream != null) {
+        try {
+          new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+        } finally {
+          stream.close()
+        }
       } else {
-        ""
+        val localPath = Paths.get(localFallback)
+        if (Files.exists(localPath)) {
+          Files.readString(localPath)
+        } else {
+          ""
+        }
       }
     }
+
+    val core = loadFile("/stdlib/std.chester", "stdlib/std.chester")
+    val targetSpecific = loadFile(s"/stdlib/$target/std.chester", s"stdlib/$target/std.chester")
+
+    (core + "\n" + targetSpecific).trim
   }
 
   def elaborate(content: String): (Option[AST], Option[AST], Vector[ElabProblem]) = {
