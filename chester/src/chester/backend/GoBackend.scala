@@ -289,24 +289,24 @@ object GoBackend:
             else
               GoAST.Identifier("-", app.span)
 
-          case AST.Ref(_, "list_length", _) =>
+          case AST.Ref(_, "prim__list_length", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
             val listArg = explicitArgs.head.value
             GoAST.Call(GoAST.Identifier("__chester_list_len", app.span), Vector(lowerExpr(listArg, config, recordEnv, goImportEnv)), app.span)
 
-          case AST.Ref(_, "list_get", _) =>
+          case AST.Ref(_, "prim__list_get", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
             val list = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val index = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
             GoAST.Call(GoAST.Identifier("__chester_list_get", app.span), Vector(list, index), app.span)
 
-          case AST.Ref(_, "list_make", _) =>
+          case AST.Ref(_, "prim__list_make", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
             val size = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val generator = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
             GoAST.Call(GoAST.Identifier("__chester_list_make", app.span), Vector(size, generator), app.span)
 
-          case AST.Ref(_, "if_else", _) =>
+          case AST.Ref(_, "prim__if_else", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
             val rawCond = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             // Wrap condition with __chester_as_bool so both bool and any-typed predicates work
@@ -319,13 +319,13 @@ object GoBackend:
             val funcLit = GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector(anyResultField(app.span)), body, app.span)
             GoAST.Call(funcLit, Vector.empty, app.span)
 
-          case AST.Ref(_, "int_eq", _) =>
+          case AST.Ref(_, "prim__int_eq", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
             GoAST.Call(GoAST.Identifier("__chester_int_eq", app.span), Vector(a, b), app.span)
 
-          case AST.Ref(_, "int_lt", _) =>
+          case AST.Ref(_, "prim__int_lt", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)

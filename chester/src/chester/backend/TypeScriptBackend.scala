@@ -199,37 +199,37 @@ object TypeScriptBackend:
             else
               TypeScriptAST.Identifier("-", app.span)
 
-          case AST.Ref(_, "list_length", _) =>
+          case AST.Ref(_, "prim__list_length", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
             val listArg = explicitArgs.head.value
             TypeScriptAST.PropertyAccess(lowerExpr(listArg, config, recordEnv), "length", app.span)
 
-          case AST.Ref(_, "list_get", _) =>
+          case AST.Ref(_, "prim__list_get", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
             val list = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val index = lowerExpr(explicitArgs(1).value, config, recordEnv)
             TypeScriptAST.ElementAccess(list, index, app.span)
 
-          case AST.Ref(_, "list_make", _) =>
+          case AST.Ref(_, "prim__list_make", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
             val size = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val generator = lowerExpr(explicitArgs(1).value, config, recordEnv)
             TypeScriptAST.Call(TypeScriptAST.Identifier("__chester_list_make", app.span), Vector(size, generator), app.span)
 
-          case AST.Ref(_, "if_else", _) =>
+          case AST.Ref(_, "prim__if_else", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
             val cond = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val thenVal = lowerExpr(explicitArgs(1).value, config, recordEnv)
             val elseVal = lowerExpr(explicitArgs(2).value, config, recordEnv)
             TypeScriptAST.Conditional(cond, thenVal, elseVal, app.span)
 
-          case AST.Ref(_, "int_eq", _) =>
+          case AST.Ref(_, "prim__int_eq", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv)
             TypeScriptAST.BinaryOp(a, "===", b, app.span)
 
-          case AST.Ref(_, "int_lt", _) =>
+          case AST.Ref(_, "prim__int_lt", _) =>
             val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv)

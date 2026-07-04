@@ -238,12 +238,12 @@ object CLI:
       module.fill(solver, cell_lt, intLtTy)
 
       val initialBindings = Map(
-        "list_length" -> id_length,
-        "list_get" -> id_get,
-        "list_make" -> id_make,
-        "if_else" -> id_if,
-        "int_eq" -> id_eq,
-        "int_lt" -> id_lt
+        "prim__list_length" -> id_length,
+        "prim__list_get" -> id_get,
+        "prim__list_make" -> id_make,
+        "prim__if_else" -> id_if,
+        "prim__int_eq" -> id_eq,
+        "prim__int_lt" -> id_lt
       )
       val initialTypes = Map(
         id_length -> cell_length,
