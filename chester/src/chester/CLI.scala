@@ -96,26 +96,32 @@ object CLI:
   }
 
   def loadStdlib(target: String): String = {
-    def loadFile(path: String, localFallback: String): String = {
-      val stream = getClass.getResourceAsStream(path)
-      if (stream != null) {
-        try {
-          new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-        } finally {
-          stream.close()
-        }
+    import java.io.File
+    import scala.io.Source
+
+    def loadDir(path: String, localFallback: String): String = {
+      val url = getClass.getResource(path)
+      if (url != null && url.getProtocol == "file") {
+        val dir = new File(url.toURI)
+        if (dir.exists() && dir.isDirectory) {
+          dir.listFiles()
+            .filter(f => f.isFile && f.getName.endsWith(".chester"))
+            .map(f => Files.readString(f.toPath))
+            .mkString("\n")
+        } else ""
       } else {
-        val localPath = Paths.get(localFallback)
-        if (Files.exists(localPath)) {
-          Files.readString(localPath)
-        } else {
-          ""
-        }
+        val localDir = new File(localFallback)
+        if (localDir.exists() && localDir.isDirectory) {
+          localDir.listFiles()
+            .filter(f => f.isFile && f.getName.endsWith(".chester"))
+            .map(f => Files.readString(f.toPath))
+            .mkString("\n")
+        } else ""
       }
     }
 
-    val core = loadFile("/stdlib/std.chester", "stdlib/std.chester")
-    val targetSpecific = loadFile(s"/stdlib/$target/std.chester", s"stdlib/$target/std.chester")
+    val core = loadDir("/stdlib", "chester/resources/stdlib")
+    val targetSpecific = loadDir(s"/stdlib/$target", s"chester/resources/stdlib/$target")
 
     (core + "\n" + targetSpecific).trim
   }
