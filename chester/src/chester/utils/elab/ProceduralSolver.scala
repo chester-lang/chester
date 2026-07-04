@@ -94,6 +94,10 @@ object ProceduralSolverModule extends SolverModule {
   override def addCell[C, A, B, CC <: CellContent[A, B]](solver: Solver[C], cell: CC): Cell[A, B, CC] =
     ProceduralCell(cell)
 
+  /** Read a stable value from a cell after elaboration completes. */
+  def tryReadStable[T](cell: CellR[T]): Option[T] =
+    peakCell(cell).readStable
+
   override def addConstraint[C](solver: Solver[C], constraint: C): Unit =
     solver.todo.enqueue(constraint)
 

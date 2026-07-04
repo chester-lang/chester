@@ -78,6 +78,24 @@ class GoBackendTest extends FunSuite:
     GoImportSignature(Vector(Param(Uniqid.make, "Printf", printfTy, Implicitness.Explicit, None)), "fmt")
   }
 
+  /** Append Chester runtime helpers so the generated file compiles standalone. */
+  private def addChesterHelpers(code: String): String =
+    if !code.contains("__chester_") then code
+    else code + "\n\n" +
+      "func __chester_as_bool(v any) bool { b, _ := v.(bool); return b }\n" +
+      "func __chester_int_add(a, b any) any { return a.(int) + b.(int) }\n" +
+      "func __chester_int_sub(a, b any) any { return a.(int) - b.(int) }\n" +
+      "func __chester_int_mul(a, b any) any { return a.(int) * b.(int) }\n" +
+      "func __chester_int_eq(a, b any) bool { return a.(int) == b.(int) }\n" +
+      "func __chester_int_lt(a, b any) bool { return a.(int) < b.(int) }\n" +
+      "func __chester_list_len(list any) any { return len(list.([]any)) }\n" +
+      "func __chester_list_get(list any, idx any) any { return list.([]any)[idx.(int)] }\n" +
+      "func __chester_list_make(size any, generator func(any) any) []any {\n" +
+      "\tn := size.(int); res := make([]any, n)\n" +
+      "\tfor i := 0; i < n; i++ { res[i] = generator(i) }\n" +
+      "\treturn res\n" +
+      "}\n"
+
   test("backend renders a simple program shape") {
     val code =
       """{ record Box(value: String);
@@ -90,13 +108,15 @@ class GoBackendTest extends FunSuite:
     val file = GoBackend.lowerProgram(astOpt.get, packageName = "main")
     val rendered = normalize(render(file.toDoc).toString)
 
+    // All scalar types (Integer, String, Bool) lower to `any` in the uniform representation.
+    // Arithmetic is routed through helper functions.
     val expected = normalize(
       """package main
         |type Box struct {
-        |value string
+        |value any
         |}
-        |func add1(x int) {
-        |return x + 1
+        |func add1(x any) any {
+        |return __chester_int_add(x, 1)
         |}""".stripMargin
     )
 
@@ -114,7 +134,8 @@ class GoBackendTest extends FunSuite:
     val file = GoBackend.lowerProgram(astOpt.get, packageName = "main")
     val rendered = normalize(render(file.toDoc).toString)
 
-    assert(rendered.contains("func noop(x int) struct {}"), s"Expected unit type to lower to struct {}, got:\n$rendered")
+    // Integer params lower to `any`; Unit return type stays struct {}
+    assert(rendered.contains("func noop(x any) struct {}"), s"Expected unit type to lower to struct {}, got:\n$rendered")
     assert(rendered.contains("return struct {}{}"), s"Expected unit value to lower to struct {}{}, got:\n$rendered")
   }
 
@@ -167,7 +188,7 @@ class GoBackendTest extends FunSuite:
     assert(!rendered.contains("_1"), s"Did not expect positional record field names in lowered Go, got:\n$rendered")
   }
 
-  test("Bool lowers to Go bool") {
+  test("Bool lowers to Go any in uniform representation") {
     val code = """{ def negate(flag: Bool): Bool = flag; negate(false) }"""
 
     val (astOpt, _, errors) = ElabTestUtils.elaborateExpr(code)
@@ -176,7 +197,8 @@ class GoBackendTest extends FunSuite:
     val file = GoBackend.lowerProgram(astOpt.get, packageName = "main")
     val rendered = normalize(render(file.toDoc).toString)
 
-    assert(rendered.contains("func negate(flag bool) bool"), s"Expected Bool to lower to bool, got:\n$rendered")
+    // Bool lowers to `any` in the uniform representation
+    assert(rendered.contains("func negate(flag any) any"), s"Expected Bool to lower to any, got:\n$rendered")
     assert(rendered.contains("fmt.Println(negate(false))"), s"Expected false literal to stay boolean, got:\n$rendered")
   }
 
@@ -192,7 +214,8 @@ class GoBackendTest extends FunSuite:
 
     val file = GoBackend.lowerProgram(astOpt.get, packageName = "main")
     val rendered = render(file.toDoc).toString
-    compileWithGoCompiler(rendered, "pure.go")
+    // Inject runtime helpers so the standalone file compiles
+    compileWithGoCompiler(addChesterHelpers(rendered), "pure.go")
   }
 
   test("generated Go for fmt FFI program compiles with Go compiler") {

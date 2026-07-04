@@ -5,6 +5,7 @@ import scala.language.experimental.genericNumberLiterals
 import chester.core.{AST, Arg, EnumCase, Implicitness, Param, StmtAST, Telescope}
 import chester.utils.HoldNotReadable
 import chester.tyck.ElabContext
+import chester.uniqid.UniqidOf
 import chester.error.{Reporter, VectorReporter}
 
 /** Lightweight core type checker used to validate elaborated ASTs and normalize types. */
@@ -238,31 +239,113 @@ object CoreTypeChecker:
     else {
       val normA = normalizeType(a)
       val normB = normalizeType(b)
-      normB match
-        case AST.AnyType(_) =>
-          normA match
-            case _: AST.Type | _: AST.TypeOmega | _: AST.LevelType => false
-            case _                                                 => true
+      (normA, normB) match {
+        case (AST.AnyType(_), _) => true
+        case (_, AST.AnyType(_)) => true
         case _ =>
-          normA match
-            case AST.AnyType(_) =>
-              normB match
-                case _: AST.Type | _: AST.TypeOmega | _: AST.LevelType => false
-                case _                                                 => true
-            case _ => eraseSpans(normA) == eraseSpans(normB)
+          alphaEquivalent(normA, normB, Map.empty)
+      }
     }
   }
 
-  /** Entry point to check whether an AST is well-typed according to a simple dependent type checker. */
-  def typeCheck(ast: AST)(using Reporter[ElabProblem]): Unit = {
-    val result = infer(ast, Map.empty, Map.empty, Map.empty)
+  private def alphaEquivalent(a: AST, b: AST, ren: Map[UniqidOf[AST], UniqidOf[AST]]): Boolean = {
+    (a, b) match {
+      case (AST.Ref(idA, nameA, _), AST.Ref(idB, nameB, _)) =>
+        val mappedIdA = ren.getOrElse(idA, idA)
+        mappedIdA == idB || (nameA == nameB && ren.get(idA).isEmpty)
+      case (AST.StringLit(s1, _), AST.StringLit(s2, _)) => s1 == s2
+      case (AST.IntLit(i1, _), AST.IntLit(i2, _)) => i1 == i2
+      case (AST.NaturalLit(n1, _), AST.NaturalLit(n2, _)) => n1 == n2
+      case (AST.LevelLit(l1, _), AST.LevelLit(l2, _)) => l1 == l2
+      case (AST.AnyType(_), AST.AnyType(_)) => true
+      case (AST.BoolType(_), AST.BoolType(_)) => true
+      case (AST.StringType(_), AST.StringType(_)) => true
+      case (AST.IntegerType(_), AST.IntegerType(_)) => true
+      case (AST.NaturalType(_), AST.NaturalType(_)) => true
+      case (AST.LevelType(_), AST.LevelType(_)) => true
+      case (AST.Type(l1, _), AST.Type(l2, _)) => alphaEquivalent(l1, l2, ren)
+      case (AST.TypeOmega(l1, _), AST.TypeOmega(l2, _)) => alphaEquivalent(l1, l2, ren)
+      case (AST.Tuple(e1, _), AST.Tuple(e2, _)) =>
+        e1.length == e2.length && e1.zip(e2).forall { case (x, y) => alphaEquivalent(x, y, ren) }
+      case (AST.TupleType(e1, _), AST.TupleType(e2, _)) =>
+        e1.length == e2.length && e1.zip(e2).forall { case (x, y) => alphaEquivalent(x, y, ren) }
+      case (AST.ListLit(e1, _), AST.ListLit(e2, _)) =>
+        e1.length == e2.length && e1.zip(e2).forall { case (x, y) => alphaEquivalent(x, y, ren) }
+      case (AST.ListType(el1, _), AST.ListType(el2, _)) => alphaEquivalent(el1, el2, ren)
+      case (AST.Ann(ex1, ty1, _), AST.Ann(ex2, ty2, _)) =>
+        alphaEquivalent(ex1, ex2, ren) && alphaEquivalent(ty1, ty2, ren)
+      case (AST.RecordTypeRef(id1, name1, _), AST.RecordTypeRef(id2, name2, _)) =>
+        id1 == id2
+      case (AST.RecordCtor(id1, _, args1, _), AST.RecordCtor(id2, _, args2, _)) =>
+        id1 == id2 && args1.length == args2.length && args1.zip(args2).forall { case (x, y) => alphaEquivalent(x, y, ren) }
+      case (AST.EnumTypeRef(id1, _, _), AST.EnumTypeRef(id2, _, _)) =>
+        id1 == id2
+      case (AST.EnumCaseRef(e1, c1, _, _, _), AST.EnumCaseRef(e2, c2, _, _, _)) =>
+        e1 == e2 && c1 == c2
+      case (AST.EnumCtor(e1, c1, _, _, args1, _), AST.EnumCtor(e2, c2, _, _, args2, _)) =>
+        e1 == e2 && c1 == c2 && args1.length == args2.length && args1.zip(args2).forall { case (x, y) => alphaEquivalent(x, y, ren) }
+      case (AST.FieldAccess(t1, f1, _), AST.FieldAccess(t2, f2, _)) =>
+        f1 == f2 && alphaEquivalent(t1, t2, ren)
+      case (AST.App(f1, args1, _, _), AST.App(f2, args2, _, _)) =>
+        alphaEquivalent(f1, f2, ren) && args1.length == args2.length &&
+          args1.zip(args2).forall { case (a1, a2) => a1.implicitness == a2.implicitness && alphaEquivalent(a1.value, a2.value, ren) }
+      case (AST.Let(id1, _, ty1, v1, b1, _), AST.Let(id2, _, ty2, v2, b2, _)) =>
+        ty1.zip(ty2).forall { case (t1, t2) => alphaEquivalent(t1, t2, ren) } &&
+          alphaEquivalent(v1, v2, ren) &&
+          alphaEquivalent(b1, b2, ren + (id1 -> id2))
+      case (AST.Lam(t1, b1, _), AST.Lam(t2, b2, _)) =>
+        compareTeles(t1, t2, ren) match {
+          case Some(newRen) => alphaEquivalent(b1, b2, newRen)
+          case None => false
+        }
+      case (AST.Pi(t1, res1, effs1, _), AST.Pi(t2, res2, effs2, _)) =>
+        effs1.toSet == effs2.toSet && {
+          compareTeles(t1, t2, ren) match {
+            case Some(newRen) => alphaEquivalent(res1, res2, newRen)
+            case None => false
+          }
+        }
+      case (b1: AST.Block, b2: AST.Block) =>
+        eraseSpans(b1) == eraseSpans(b2)
+      case _ => false
+    }
+  }
+
+  private def compareTeles(t1: Vector[Telescope], t2: Vector[Telescope], ren: Map[UniqidOf[AST], UniqidOf[AST]]): Option[Map[UniqidOf[AST], UniqidOf[AST]]] = {
+    if t1.length != t2.length then None
+    else {
+      var currentRen = ren
+      var ok = true
+      for (i <- t1.indices if ok) {
+        val tel1 = t1(i)
+        val tel2 = t2(i)
+        if tel1.implicitness != tel2.implicitness || tel1.params.length != tel2.params.length then {
+          ok = false
+        } else {
+          for (j <- tel1.params.indices if ok) {
+            val p1 = tel1.params(j)
+            val p2 = tel2.params(j)
+            if p1.coeffect != p2.coeffect || !alphaEquivalent(p1.ty, p2.ty, currentRen) then {
+              ok = false
+            } else {
+              currentRen = currentRen + (p1.id -> p2.id)
+            }
+          }
+        }
+      }
+      if ok then Some(currentRen) else None
+    }
+  }
+
+  def typeCheck(ast: AST, initialEnv: Map[UniqidOf[AST], AST] = Map.empty)(using Reporter[ElabProblem]): Unit = {
+    val result = infer(ast, initialEnv, Map.empty, Map.empty)
     if result.isEmpty then summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable("Core type check failed", ast.span))
   }
 
   /** Boolean wrapper for legacy call sites; collects problems into a VectorReporter. */
-  def typeChecks(ast: AST): Boolean = {
+  def typeChecks(ast: AST, initialEnv: Map[UniqidOf[AST], AST] = Map.empty): Boolean = {
     given vr: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()
-    typeCheck(ast)(using vr)
+    typeCheck(ast, initialEnv)(using vr)
     vr.getReports.isEmpty
   }
 
@@ -281,7 +364,7 @@ object CoreTypeChecker:
           false
         }
       case None =>
-        summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable("Unable to infer type", ast.span))
+        summon[Reporter[ElabProblem]].report(ElabProblem.UnboundVariable(s"Unable to infer type of AST: $ast", ast.span))
         false
   }
 
@@ -365,8 +448,9 @@ object CoreTypeChecker:
       case AST.App(func, args, _, span) =>
         val funcTyOpt = infer(func, env, records, enums)
         funcTyOpt match
-          case Some(AST.Pi(teles, resTy, _, _)) =>
-            val params = teles.flatMap(_.params)
+          case Some(AST.Pi(teles, resTy, effs, piSpan)) if teles.nonEmpty =>
+            val currentTele = teles.head
+            val params = currentTele.params
             val restParamOpt = params.lastOption.flatMap { param =>
               normalizeType(param.ty) match
                 case AST.ListType(elem, _) => Some((param, elem))
@@ -377,13 +461,20 @@ object CoreTypeChecker:
               case Some(_) => args.length >= fixedParams.length
               case None    => args.length == params.length
 
-            if !arityOk then None
+            if !arityOk then
+              println(s"[trace-core-infer-app-fail] arityOk is false for app of $func. Params len: ${params.length}, Args len: ${args.length}")
+              None
             else {
               val fixedArgsOk = args.take(fixedParams.length).zip(fixedParams).forall { case (arg, param) => ensureType(arg.value, param.ty, env, records, enums) }
               val restArgsOk = restParamOpt match
                 case Some((_, elemTy)) =>
                   args.drop(fixedParams.length).forall { arg => ensureType(arg.value, elemTy, env, records, enums) }
                 case None => true
+
+              if !fixedArgsOk then
+                println(s"[trace-core-infer-app-fail] fixedArgsOk is false for app of $func. Expected: ${fixedParams.map(_.ty)}, Actual args: ${args.take(fixedParams.length).map(_.value)}")
+              if !restArgsOk then
+                println(s"[trace-core-infer-app-fail] restArgsOk is false for app of $func")
 
               if fixedArgsOk && restArgsOk then
                 val restArgForSubst = restParamOpt.map { _ =>
@@ -393,10 +484,26 @@ object CoreTypeChecker:
                 val paramsForSubst = fixedParams ++ restParamOpt.map(_._1).toVector
                 val argsForSubst = args.take(fixedParams.length).map(_.value) ++ restArgForSubst.toVector
                 val subst = paramsForSubst.map(_.id).zip(argsForSubst).toMap
-                Some(normalizeType(substituteInType(resTy, subst)))
+                
+                val substitutedTeles = teles.tail.map { tel =>
+                  tel.copy(params = tel.params.map { p =>
+                    p.copy(ty = substituteInType(p.ty, subst), default = p.default.map(substituteInType(_, subst)))
+                  })
+                }
+                val substitutedResTy = substituteInType(resTy, subst)
+                
+                if substitutedTeles.nonEmpty then
+                  Some(normalizeType(AST.Pi(substitutedTeles, substitutedResTy, effs, piSpan)))
+                else
+                  Some(normalizeType(substitutedResTy))
               else None
             }
-          case _ =>
+          case other =>
+            if other.isEmpty then
+              println(s"[trace-core-infer-app-fail] funcTy is None for app of $func")
+              println(s"[trace-core-infer-app-fail] env keys: ${env.keys.toVector}")
+            else
+              println(s"[trace-core-infer-app-fail] funcTy is not Pi for app of $func, got: ${other.get}")
             func match
               case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == args.length =>
                 val params = teles.flatMap(_.params)

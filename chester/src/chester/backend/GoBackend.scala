@@ -2,7 +2,7 @@ package chester.backend
 
 import scala.language.experimental.genericNumberLiterals
 
-import chester.core.{AST, EnumCase, Param, StmtAST, Telescope}
+import chester.core.{AST, Arg, EnumCase, Param, StmtAST, Telescope}
 import chester.syntax.{GoAST, GoCompositeElement, GoField, GoImportSpec, GoType, GoTypeParam, GoTypeSpec, GoValueDeclKind, GoValueSpec}
 import chester.transform.EffectCPS
 import chester.uniqid.UniqidOf
@@ -117,9 +117,16 @@ object GoBackend:
         (packageName, Vector.empty)
 
       case StmtAST.Def(_, name, telescopes, resultTy, body, span, _) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
+        // Only include params from EXPLICIT telescopes — implicit type params (e.g. [T]) are erased to any
+        val params = telescopes
+          .filter(_.implicitness == chester.core.Implicitness.Explicit)
+          .flatMap(t => t.params.map(p => lowerParam(p, config)))
         val isGoMain = name == "main" && packageName == "main"
-        val results = if isGoMain then Vector.empty else resultTy.map(t => Vector(lowerResultField(t, config))).getOrElse(Vector.empty)
+        // When there's no explicit return type annotation, default to `any` so that
+        // the `return expr` in the body is always valid Go (non-void function).
+        val results = if isGoMain then Vector.empty
+                      else resultTy.map(t => Vector(lowerResultField(t, config)))
+                                   .getOrElse(Vector(anyResultField(span)))
         val fnBody = lowerFunctionBody(body, config, recordEnv, goImportEnv, returnsValue = !isGoMain)
         val fn = GoAST.FuncDecl(
           name = name,
@@ -211,6 +218,15 @@ object GoBackend:
         (packageName, stmt)
   }
 
+  private def collectArgs(expr: AST): (AST, Vector[Arg]) = {
+    expr match {
+      case AST.App(func, args, _, _) =>
+        val (base, prevArgs) = collectArgs(func)
+        (base, prevArgs ++ args)
+      case _ => (expr, Vector.empty)
+    }
+  }
+
   /** Lower a Chester expression to a Go expression node. */
   private def lowerExpr(expr: AST, config: Config, recordEnv: RecordEnv, goImportEnv: GoImportEnv): GoAST = {
     expr match
@@ -250,17 +266,78 @@ object GoBackend:
       case AST.Lam(telescopes, body, span) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         val fnBody = GoAST.Block(Vector(GoAST.Return(Vector(lowerExpr(body, config, recordEnv, goImportEnv)), body.span)), body.span)
-        GoAST.FuncLiteral(Vector.empty, params.toVector, Vector.empty, fnBody, span)
+        GoAST.FuncLiteral(Vector.empty, params.toVector, Vector(anyResultField(span)), fnBody, span)
 
-      case AST.App(AST.Ref(_, "+", _), args, _, span) if args.length == 2 =>
-        val left = lowerExpr(args(0).value, config, recordEnv, goImportEnv)
-        val right = lowerExpr(args(1).value, config, recordEnv, goImportEnv)
-        GoAST.Binary(left, "+", right, span)
+      case app: AST.App =>
+        val (base, allArgs) = collectArgs(app)
+        base match {
+          case AST.Ref(_, "+", _) if allArgs.length == 2 =>
+            val left = lowerExpr(allArgs(0).value, config, recordEnv, goImportEnv)
+            val right = lowerExpr(allArgs(1).value, config, recordEnv, goImportEnv)
+            GoAST.Call(GoAST.Identifier("__chester_int_add", app.span), Vector(left, right), app.span)
 
-      case AST.App(func, args, _, span) =>
-        val callee = lowerExpr(func, config, recordEnv, goImportEnv)
-        val loweredArgs = args.map(a => lowerExpr(a.value, config, recordEnv, goImportEnv))
-        GoAST.Call(callee, loweredArgs, span)
+          case AST.Ref(_, "-", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            if explicitArgs.length == 2 then
+              val left = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
+              val right = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
+              GoAST.Call(GoAST.Identifier("__chester_int_sub", app.span), Vector(left, right), app.span)
+            else if explicitArgs.length == 1 then
+              // Unary negation: -(x) = 0 - x
+              val arg = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
+              GoAST.Call(GoAST.Identifier("__chester_int_sub", app.span), Vector(GoAST.IntLiteral("0", app.span), arg), app.span)
+            else
+              GoAST.Identifier("-", app.span)
+
+          case AST.Ref(_, "list_length", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val listArg = explicitArgs.head.value
+            GoAST.Call(GoAST.Identifier("__chester_list_len", app.span), Vector(lowerExpr(listArg, config, recordEnv, goImportEnv)), app.span)
+
+          case AST.Ref(_, "list_get", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val list = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
+            val index = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
+            GoAST.Call(GoAST.Identifier("__chester_list_get", app.span), Vector(list, index), app.span)
+
+          case AST.Ref(_, "list_make", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val size = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
+            val generator = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
+            GoAST.Call(GoAST.Identifier("__chester_list_make", app.span), Vector(size, generator), app.span)
+
+          case AST.Ref(_, "if_else", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val rawCond = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
+            // Wrap condition with __chester_as_bool so both bool and any-typed predicates work
+            val cond = GoAST.Call(GoAST.Identifier("__chester_as_bool", app.span), Vector(rawCond), app.span)
+            val thenVal = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
+            val elseVal = lowerExpr(explicitArgs(2).value, config, recordEnv, goImportEnv)
+            val ifStmt = GoAST.If(None, cond, GoAST.Block(Vector(GoAST.Return(Vector(thenVal), app.span)), app.span), None, app.span)
+            val returnElse = GoAST.Return(Vector(elseVal), app.span)
+            val body = GoAST.Block(Vector(ifStmt, returnElse), app.span)
+            val funcLit = GoAST.FuncLiteral(Vector.empty, Vector.empty, Vector(anyResultField(app.span)), body, app.span)
+            GoAST.Call(funcLit, Vector.empty, app.span)
+
+          case AST.Ref(_, "int_eq", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val a = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
+            val b = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
+            GoAST.Call(GoAST.Identifier("__chester_int_eq", app.span), Vector(a, b), app.span)
+
+          case AST.Ref(_, "int_lt", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val a = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
+            val b = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
+            GoAST.Call(GoAST.Identifier("__chester_int_lt", app.span), Vector(a, b), app.span)
+
+          case _ =>
+            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val callee = lowerExpr(base, config, recordEnv, goImportEnv)
+            val loweredArgs = explicitArgs.map(a => lowerExpr(a.value, config, recordEnv, goImportEnv))
+            // Always generate a Call — even with no explicit args (e.g. main())
+            GoAST.Call(callee, loweredArgs, app.span)
+        }
 
       // Let-binding as an IIFE
       case AST.Let(_, name, _, value, body, span) =>
@@ -427,34 +504,25 @@ object GoBackend:
     )
   }
 
-  /** Lower a Chester type into a Go type. */
+  /** Lower a Chester type into a Go type.
+   *  All scalar types are represented as `any` for uniform runtime representation.
+   *  Only unit (empty tuple/struct) keeps its concrete type.
+   */
   private def lowerType(ty: AST, config: Config): GoType = {
     val rewritten = if config.applyEffectCPS then EffectCPS.transformType(ty, config.cpsConfig) else ty
     rewritten match
-      case AST.StringType(span)  => GoType.Named("string", span)
-      case AST.IntegerType(span) => GoType.Named("int", span)
-      case AST.NaturalType(span) => GoType.Named("uint", span)
-      case AST.AnyType(span)     => GoType.Named("any", span)
-      case AST.BoolType(span)    => GoType.Named("bool", span)
-      case AST.ListType(elem, span) =>
-        GoType.Slice(lowerType(elem, config), span)
-      case AST.TupleType(elems, span) =>
-        if elems.isEmpty then GoType.Struct(Vector.empty, span)
-        else GoType.Slice(GoType.Named("any", span), span)
+      // Unit type stays concrete
+      case AST.TupleType(elems, span) if elems.isEmpty => GoType.Struct(Vector.empty, span)
+      // Function types stay concrete (needed for higher-order functions)
       case AST.Pi(telescopes, resultTy, _, span) =>
         val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
         val results = Vector(lowerResultField(resultTy, config))
         GoType.Func(Vector.empty, params.toVector, results, span)
-      case AST.RecordTypeRef(_, name, span) =>
-        GoType.Named(name, span)
-      case AST.EnumTypeRef(_, name, span) =>
-        GoType.Named(name, span)
-      case AST.Type(_, span) =>
-        GoType.Named("any", span)
-      case AST.TypeOmega(_, span) =>
-        GoType.Named("any", span)
-      case _ =>
-        GoType.Named("any", ty.span)
+      // Named record / enum types stay concrete
+      case AST.RecordTypeRef(_, name, span) => GoType.Named(name, span)
+      case AST.EnumTypeRef(_, name, span) => GoType.Named(name, span)
+      // Everything else — integers, bools, strings, lists, etc. — is `any`
+      case _ => GoType.Named("any", ty.span)
   }
 
   private def lowerResultField(ty: AST, config: Config): GoField =

@@ -66,7 +66,8 @@ object TypeScriptBackend:
         Vector(TypeScriptAST.ImportDeclaration(Vector(spec), modulePath, stmt.span))
 
       case StmtAST.Def(_, name, telescopes, resultTy, body, _, _) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
+        val params = telescopes.filter(_.implicitness == chester.core.Implicitness.Explicit)
+                               .flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
         val retTy = resultTy.map(t => lowerType(t, config))
         val fnBody = TypeScriptAST.Block(
           Vector(TypeScriptAST.Return(Some(lowerExpr(body, config, recordEnv)), body.span)),
@@ -138,7 +139,16 @@ object TypeScriptBackend:
         stmt
   }
 
-  /** Lower a Chester expression to a TypeScript expression. */
+  private def collectArgs(expr: AST): (AST, Vector[Arg]) = {
+    expr match {
+      case AST.App(func, args, _, _) =>
+        val (base, prevArgs) = collectArgs(func)
+        (base, prevArgs ++ args)
+      case _ => (expr, Vector.empty)
+    }
+  }
+
+  /** Lower a Chester expression into a TypeScript expression. */
   private def lowerExpr(expr: AST, config: Config, recordEnv: RecordEnv): TypeScriptAST = {
     expr match
       // Literals
@@ -165,18 +175,72 @@ object TypeScriptBackend:
 
       // Lambdas and application
       case AST.Lam(telescopes, body, span) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
+        val params = telescopes.filter(_.implicitness == chester.core.Implicitness.Explicit)
+                               .flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
         TypeScriptAST.Arrow(params.toVector, lowerExpr(body, config, recordEnv), span)
 
-      case AST.App(AST.Ref(_, "+", _), args, _, span) if args.length == 2 =>
-        val left = lowerExpr(args(0).value, config, recordEnv)
-        val right = lowerExpr(args(1).value, config, recordEnv)
-        TypeScriptAST.BinaryOp(left, "+", right, span)
+      case app: AST.App =>
+        val (base, allArgs) = collectArgs(app)
+        base match {
+          case AST.Ref(_, "+", _) if allArgs.length == 2 =>
+            val left = lowerExpr(allArgs(0).value, config, recordEnv)
+            val right = lowerExpr(allArgs(1).value, config, recordEnv)
+            TypeScriptAST.BinaryOp(left, "+", right, app.span)
 
-      case AST.App(func, args, _, span) =>
-        val callee = lowerExpr(func, config, recordEnv)
-        val loweredArgs = args.map(a => lowerExpr(a.value, config, recordEnv))
-        TypeScriptAST.Call(callee, loweredArgs, span)
+          case AST.Ref(_, "-", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            if explicitArgs.length == 2 then
+              val left = lowerExpr(explicitArgs(0).value, config, recordEnv)
+              val right = lowerExpr(explicitArgs(1).value, config, recordEnv)
+              TypeScriptAST.BinaryOp(left, "-", right, app.span)
+            else if explicitArgs.length == 1 then
+              val arg = lowerExpr(explicitArgs(0).value, config, recordEnv)
+              TypeScriptAST.BinaryOp(TypeScriptAST.NumberLiteral("0", app.span), "-", arg, app.span)
+            else
+              TypeScriptAST.Identifier("-", app.span)
+
+          case AST.Ref(_, "list_length", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val listArg = explicitArgs.head.value
+            TypeScriptAST.PropertyAccess(lowerExpr(listArg, config, recordEnv), "length", app.span)
+
+          case AST.Ref(_, "list_get", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val list = lowerExpr(explicitArgs(0).value, config, recordEnv)
+            val index = lowerExpr(explicitArgs(1).value, config, recordEnv)
+            TypeScriptAST.ElementAccess(list, index, app.span)
+
+          case AST.Ref(_, "list_make", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val size = lowerExpr(explicitArgs(0).value, config, recordEnv)
+            val generator = lowerExpr(explicitArgs(1).value, config, recordEnv)
+            TypeScriptAST.Call(TypeScriptAST.Identifier("__chester_list_make", app.span), Vector(size, generator), app.span)
+
+          case AST.Ref(_, "if_else", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val cond = lowerExpr(explicitArgs(0).value, config, recordEnv)
+            val thenVal = lowerExpr(explicitArgs(1).value, config, recordEnv)
+            val elseVal = lowerExpr(explicitArgs(2).value, config, recordEnv)
+            TypeScriptAST.Conditional(cond, thenVal, elseVal, app.span)
+
+          case AST.Ref(_, "int_eq", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val a = lowerExpr(explicitArgs(0).value, config, recordEnv)
+            val b = lowerExpr(explicitArgs(1).value, config, recordEnv)
+            TypeScriptAST.BinaryOp(a, "===", b, app.span)
+
+          case AST.Ref(_, "int_lt", _) =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val a = lowerExpr(explicitArgs(0).value, config, recordEnv)
+            val b = lowerExpr(explicitArgs(1).value, config, recordEnv)
+            TypeScriptAST.BinaryOp(a, "<", b, app.span)
+
+          case _ =>
+            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val callee = lowerExpr(base, config, recordEnv)
+            val loweredArgs = explicitArgs.map(a => lowerExpr(a.value, config, recordEnv))
+            TypeScriptAST.Call(callee, loweredArgs, app.span)
+        }
 
       // Let-binding as an IIFE
       case AST.Let(_, name, _, value, body, span) =>

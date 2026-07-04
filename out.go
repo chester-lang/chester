@@ -2,35 +2,150 @@ package main
 import "fmt"
 
 type GoImport_fmt struct {
-Printf func(format string, args []any) string
-  Sprintf func(format string, args []any) string
-  Println func(args []any) struct {}
+Printf func(format any, args any) any
+  Sprintf func(format any, args any) any
+  Println func(args any) struct {}
 }
 
 type GoImport_go struct {
 fmt GoImport_fmt
 }
 
-func print_str(msg string) struct {} {
+func print_str(msg any) struct {} {
 fmt.Println(msg)
   return struct {}{}
 }
 
-func print_int(val int) struct {} {
+func print_int(val any) struct {} {
 fmt.Println(val)
   return struct {}{}
 }
 
-func concat_str(a string, b string) string {
+func concat_str(a any, b any) any {
 return fmt.Sprintf("%s%s", a, b)
 }
 
-func int_to_str(val int) string {
+func int_to_str(val any) any {
 return fmt.Sprintf("%d", val)
 }
 
+func list_append(list any, elem any) any {
+len := __chester_list_len(list)
+  return __chester_list_make(__chester_int_add(len, 1), func(i any) any {
+  return func() any {
+    if __chester_as_bool(__chester_int_eq(i, len)) {
+      return elem
+      }
+      return __chester_list_get(list, i)
+    }()
+  })
+}
+
+func list_map(list any, f func(x any) any) any {
+len := __chester_list_len(list)
+  return __chester_list_make(len, func(i any) any {
+  return f(__chester_list_get(list, i))
+  })
+}
+
+func find_matching_index(list any, predicate func(x any) any, target_match any, current_idx any, matches_found any) any {
+return func() any {
+  if __chester_as_bool(__chester_int_eq(current_idx, __chester_list_len(list))) {
+    return __chester_int_sub(0, 1)
+    }
+    return func() any {
+    if __chester_as_bool(predicate(__chester_list_get(list, current_idx))) {
+      return func() any {
+        if __chester_as_bool(__chester_int_eq(matches_found, target_match)) {
+          return current_idx
+          }
+          return find_matching_index(list, predicate, target_match, __chester_int_add(current_idx, 1), __chester_int_add(matches_found, 1))
+        }()
+      }
+      return find_matching_index(list, predicate, target_match, __chester_int_add(current_idx, 1), matches_found)
+    }()
+  }()
+}
+
+func count_matches(list any, predicate func(x any) any, current_idx any, acc any) any {
+return func() any {
+  if __chester_as_bool(__chester_int_eq(current_idx, __chester_list_len(list))) {
+    return acc
+    }
+    return func() any {
+    if __chester_as_bool(predicate(__chester_list_get(list, current_idx))) {
+      return count_matches(list, predicate, __chester_int_add(current_idx, 1), __chester_int_add(acc, 1))
+      }
+      return count_matches(list, predicate, __chester_int_add(current_idx, 1), acc)
+    }()
+  }()
+}
+
+func list_filter(list any, predicate func(x any) any) any {
+cnt := count_matches(list, predicate, 0, 0)
+  return __chester_list_make(cnt, func(j any) any {
+  return func() any {
+    orig_idx := find_matching_index(list, predicate, j, 0, 0)
+      return __chester_list_get(list, orig_idx)
+    }()
+  })
+}
+
+func list_foldl_helper(list any, init any, f func(acc any, elem any) any, idx any) any {
+return func() any {
+  if __chester_as_bool(__chester_int_eq(idx, __chester_list_len(list))) {
+    return init
+    }
+    return list_foldl_helper(list, f(init, __chester_list_get(list, idx)), f, __chester_int_add(idx, 1))
+  }()
+}
+
+func list_foldl(list any, init any, f func(acc any, elem any) any) any {
+return list_foldl_helper(list, init, f, 0)
+}
+
 func main() {
-print_str("Starting target-agnostic standard library test...")
-  s := concat_str("The answer is: ", int_to_str(42))
-  print_str(s)
+l := []any{1, 2, 3}
+  mapped := list_map(l, func(x any) any {
+  return __chester_int_add(x, 10)
+  })
+  appended := list_append(mapped, 14)
+  filtered := list_filter(appended, func(x any) any {
+  return __chester_int_lt(11, x)
+  })
+  sum := list_foldl(filtered, 0, func(acc any, elem any) any {
+  return __chester_int_add(acc, elem)
+  })
+  print_str("Filtered list size:")
+  print_int(__chester_list_len(filtered))
+  print_str("Filtered elements:")
+  print_int(__chester_list_get(filtered, 0))
+  print_int(__chester_list_get(filtered, 1))
+  print_int(__chester_list_get(filtered, 2))
+  print_str("Sum:")
+  print_int(sum)
+}
+
+func __chester_as_bool(v any) bool { b, _ := v.(bool); return b }
+func __chester_int_add(a, b any) any { return a.(int) + b.(int) }
+func __chester_int_sub(a, b any) any { return a.(int) - b.(int) }
+func __chester_int_mul(a, b any) any { return a.(int) * b.(int) }
+func __chester_int_eq(a, b any) bool { return a.(int) == b.(int) }
+func __chester_int_lt(a, b any) bool { return a.(int) < b.(int) }
+
+func __chester_list_len(list any) any {
+	return len(list.([]any))
+}
+
+func __chester_list_get(list any, idx any) any {
+	return list.([]any)[idx.(int)]
+}
+
+func __chester_list_make(size any, generator func(any) any) []any {
+	n := size.(int)
+	res := make([]any, n)
+	for i := 0; i < n; i++ {
+		res[i] = generator(i)
+	}
+	return res
 }

@@ -132,7 +132,129 @@ object CLI:
       val stdJsImports = Map("path" -> pathSignature, "console" -> consoleSignature, "util" -> utilSignature)
       val allImports = stdGoImports.map { case (k, v) => k -> JSImportSignature(v.fields) } ++ stdJsImports
 
-      val ctx = ElabContext(bindings = Map.empty, types = Map.empty, jsImports = allImports, reporter = elabReporter)
+      val tId_length = Uniqid.make[AST]
+      val listLengthTy = AST.Pi(
+        Vector(
+          Telescope(Vector(Param(tId_length, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(Param(Uniqid.make, "list", AST.ListType(AST.Ref(tId_length, "T", None), None), Implicitness.Explicit, None)), Implicitness.Explicit)
+        ),
+        AST.IntegerType(None),
+        Vector.empty,
+        None
+      )
+
+      val tId_get = Uniqid.make[AST]
+      val listGetTy = AST.Pi(
+        Vector(
+          Telescope(Vector(Param(tId_get, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(
+            Param(Uniqid.make, "list", AST.ListType(AST.Ref(tId_get, "T", None), None), Implicitness.Explicit, None),
+            Param(Uniqid.make, "index", AST.IntegerType(None), Implicitness.Explicit, None)
+          ), Implicitness.Explicit)
+        ),
+        AST.Ref(tId_get, "T", None),
+        Vector.empty,
+        None
+      )
+
+      val tId_make = Uniqid.make[AST]
+      val genParam = Param(Uniqid.make, "i", AST.IntegerType(None), Implicitness.Explicit, None)
+      val generatorTy = AST.Pi(
+        Vector(Telescope(Vector(genParam), Implicitness.Explicit)),
+        AST.Ref(tId_make, "T", None),
+        Vector.empty,
+        None
+      )
+      val listMakeTy = AST.Pi(
+        Vector(
+          Telescope(Vector(Param(tId_make, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(
+            Param(Uniqid.make, "size", AST.IntegerType(None), Implicitness.Explicit, None),
+            Param(Uniqid.make, "generator", generatorTy, Implicitness.Explicit, None)
+          ), Implicitness.Explicit)
+        ),
+        AST.ListType(AST.Ref(tId_make, "T", None), None),
+        Vector.empty,
+        None
+      )
+
+      val tId_if = Uniqid.make[AST]
+      val ifElseTy = AST.Pi(
+        Vector(
+          Telescope(Vector(Param(tId_if, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(
+            Param(Uniqid.make, "cond", AST.BoolType(None), Implicitness.Explicit, None),
+            Param(Uniqid.make, "thenVal", AST.Ref(tId_if, "T", None), Implicitness.Explicit, None),
+            Param(Uniqid.make, "elseVal", AST.Ref(tId_if, "T", None), Implicitness.Explicit, None)
+          ), Implicitness.Explicit)
+        ),
+        AST.Ref(tId_if, "T", None),
+        Vector.empty,
+        None
+      )
+
+      val intEqTy = AST.Pi(
+        Vector(Telescope(Vector(
+          Param(Uniqid.make, "a", AST.IntegerType(None), Implicitness.Explicit, None),
+          Param(Uniqid.make, "b", AST.IntegerType(None), Implicitness.Explicit, None)
+        ), Implicitness.Explicit)),
+        AST.BoolType(None),
+        Vector.empty,
+        None
+      )
+
+      val intLtTy = AST.Pi(
+        Vector(Telescope(Vector(
+          Param(Uniqid.make, "a", AST.IntegerType(None), Implicitness.Explicit, None),
+          Param(Uniqid.make, "b", AST.IntegerType(None), Implicitness.Explicit, None)
+        ), Implicitness.Explicit)),
+        AST.BoolType(None),
+        Vector.empty,
+        None
+      )
+
+      val id_length = Uniqid.make[AST]
+      val cell_length = module.newOnceCell[ElabConstraint, AST](solver)
+      module.fill(solver, cell_length, listLengthTy)
+
+      val id_get = Uniqid.make[AST]
+      val cell_get = module.newOnceCell[ElabConstraint, AST](solver)
+      module.fill(solver, cell_get, listGetTy)
+
+      val id_make = Uniqid.make[AST]
+      val cell_make = module.newOnceCell[ElabConstraint, AST](solver)
+      module.fill(solver, cell_make, listMakeTy)
+
+      val id_if = Uniqid.make[AST]
+      val cell_if = module.newOnceCell[ElabConstraint, AST](solver)
+      module.fill(solver, cell_if, ifElseTy)
+
+      val id_eq = Uniqid.make[AST]
+      val cell_eq = module.newOnceCell[ElabConstraint, AST](solver)
+      module.fill(solver, cell_eq, intEqTy)
+
+      val id_lt = Uniqid.make[AST]
+      val cell_lt = module.newOnceCell[ElabConstraint, AST](solver)
+      module.fill(solver, cell_lt, intLtTy)
+
+      val initialBindings = Map(
+        "list_length" -> id_length,
+        "list_get" -> id_get,
+        "list_make" -> id_make,
+        "if_else" -> id_if,
+        "int_eq" -> id_eq,
+        "int_lt" -> id_lt
+      )
+      val initialTypes = Map(
+        id_length -> cell_length,
+        id_get -> cell_get,
+        id_make -> cell_make,
+        id_if -> cell_if,
+        id_eq -> cell_eq,
+        id_lt -> cell_lt
+      )
+
+      val ctx = ElabContext(bindings = initialBindings, types = initialTypes, jsImports = allImports, reporter = elabReporter)
 
       module.addConstraint(solver, ElabConstraint.InferTopLevel(cst, resultCell, typeCell, ctx))
       module.run(solver)
@@ -143,7 +265,10 @@ object CLI:
       val zonkedTy = ty.map(t => substituteSolutions(t)(using module, solver))
 
       if (elabReporter.getReports.isEmpty && zonkedResult.isDefined) {
-        CoreTypeChecker.typeCheck(zonkedResult.get)(using elabReporter)
+        val solvedInitialTypes = initialTypes.flatMap { case (id, cell) =>
+          module.readStable(solver, cell).map(substituteSolutions(_)(using module, solver)).map(id -> _)
+        }
+        CoreTypeChecker.typeCheck(zonkedResult.get, solvedInitialTypes)(using elabReporter)
       }
 
       (zonkedResult, zonkedTy)
@@ -245,7 +370,12 @@ object CLI:
 
       val finalProgram = TypeScriptAST.Program(updatedStatements, program.span)
       given DocConf = DocConf.Default
-      val tsCode = render(finalProgram.toDoc).toString
+      var tsCode = render(finalProgram.toDoc).toString
+      if (tsCode.contains("__chester_list_make")) {
+        tsCode += "\n\nfunction __chester_list_make(size: number, generator: (i: number) => any): any[] {\n" +
+                  "  return Array.from({length: size}, (_, i) => generator(i));\n" +
+                  "}\n"
+      }
 
       val outPath = Paths.get("out.ts")
       Files.writeString(outPath, tsCode)
@@ -277,7 +407,33 @@ object CLI:
     } else {
       println("Elaboration successful! Compiling to Go...")
       val goFile = GoBackend.lowerProgram(ast, packageName = "main")
-      val goCode = goFile.toDoc.layout(0)
+      var goCode = goFile.toDoc.layout(0)
+      if (goCode.contains("__chester_")) {
+        goCode += "\n\n" +
+          "func __chester_as_bool(v any) bool { b, _ := v.(bool); return b }\n" +
+          "func __chester_int_add(a, b any) any { return a.(int) + b.(int) }\n" +
+          "func __chester_int_sub(a, b any) any { return a.(int) - b.(int) }\n" +
+          "func __chester_int_mul(a, b any) any { return a.(int) * b.(int) }\n" +
+          "func __chester_int_eq(a, b any) bool { return a.(int) == b.(int) }\n" +
+          "func __chester_int_lt(a, b any) bool { return a.(int) < b.(int) }\n" +
+          "\n" +
+          "func __chester_list_len(list any) any {\n" +
+          "\treturn len(list.([]any))\n" +
+          "}\n" +
+          "\n" +
+          "func __chester_list_get(list any, idx any) any {\n" +
+          "\treturn list.([]any)[idx.(int)]\n" +
+          "}\n" +
+          "\n" +
+          "func __chester_list_make(size any, generator func(any) any) []any {\n" +
+          "\tn := size.(int)\n" +
+          "\tres := make([]any, n)\n" +
+          "\tfor i := 0; i < n; i++ {\n" +
+          "\t\tres[i] = generator(i)\n" +
+          "\t}\n" +
+          "\treturn res\n" +
+          "}\n"
+      }
 
       val outPath = Paths.get("out.go")
       Files.writeString(outPath, goCode)
