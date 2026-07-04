@@ -66,8 +66,7 @@ object TypeScriptBackend:
         Vector(TypeScriptAST.ImportDeclaration(Vector(spec), modulePath, stmt.span))
 
       case StmtAST.Def(_, name, telescopes, resultTy, body, _, _) =>
-        val params = telescopes.filter(_.implicitness == chester.core.Implicitness.Explicit)
-                               .flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
+        val params = telescopes.flatMap(_.params).filter(_.coeffect != chester.core.Coeffect.Zero).map(p => lowerParam(p, config, recordEnv))
         val retTy = resultTy.map(t => lowerType(t, config))
         val fnBody = TypeScriptAST.Block(
           Vector(TypeScriptAST.Return(Some(lowerExpr(body, config, recordEnv)), body.span)),
@@ -175,8 +174,7 @@ object TypeScriptBackend:
 
       // Lambdas and application
       case AST.Lam(telescopes, body, span) =>
-        val params = telescopes.filter(_.implicitness == chester.core.Implicitness.Explicit)
-                               .flatMap(t => t.params.map(p => lowerParam(p, config, recordEnv)))
+        val params = telescopes.flatMap(_.params).filter(_.coeffect != chester.core.Coeffect.Zero).map(p => lowerParam(p, config, recordEnv))
         TypeScriptAST.Arrow(params.toVector, lowerExpr(body, config, recordEnv), span)
 
       case app: AST.App =>
@@ -188,7 +186,7 @@ object TypeScriptBackend:
             TypeScriptAST.BinaryOp(left, "+", right, app.span)
 
           case AST.Ref(_, "-", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             if explicitArgs.length == 2 then
               val left = lowerExpr(explicitArgs(0).value, config, recordEnv)
               val right = lowerExpr(explicitArgs(1).value, config, recordEnv)
@@ -200,43 +198,43 @@ object TypeScriptBackend:
               TypeScriptAST.Identifier("-", app.span)
 
           case AST.Ref(_, "prim__list_length", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val listArg = explicitArgs.head.value
             TypeScriptAST.PropertyAccess(lowerExpr(listArg, config, recordEnv), "length", app.span)
 
           case AST.Ref(_, "prim__list_get", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val list = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val index = lowerExpr(explicitArgs(1).value, config, recordEnv)
             TypeScriptAST.ElementAccess(list, index, app.span)
 
           case AST.Ref(_, "prim__list_make", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val size = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val generator = lowerExpr(explicitArgs(1).value, config, recordEnv)
             TypeScriptAST.Call(TypeScriptAST.Identifier("__chester_list_make", app.span), Vector(size, generator), app.span)
 
           case AST.Ref(_, "prim__if_else", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val cond = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val thenVal = lowerExpr(explicitArgs(1).value, config, recordEnv)
             val elseVal = lowerExpr(explicitArgs(2).value, config, recordEnv)
             TypeScriptAST.Conditional(cond, thenVal, elseVal, app.span)
 
           case AST.Ref(_, "prim__int_eq", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv)
             TypeScriptAST.BinaryOp(a, "===", b, app.span)
 
           case AST.Ref(_, "prim__int_lt", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv)
             TypeScriptAST.BinaryOp(a, "<", b, app.span)
 
           case _ =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val callee = lowerExpr(base, config, recordEnv)
             val loweredArgs = explicitArgs.map(a => lowerExpr(a.value, config, recordEnv))
             TypeScriptAST.Call(callee, loweredArgs, app.span)
@@ -354,7 +352,7 @@ object TypeScriptBackend:
         if elems.isEmpty then TypeScriptType.PrimitiveType("void", span)
         else TypeScriptType.TupleType(elems.map(e => lowerType(e, config)), span)
       case AST.Pi(telescopes, resultTy, _, span) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config, Map.empty)))
+        val params = telescopes.flatMap(_.params).filter(_.coeffect != chester.core.Coeffect.Zero).map(p => lowerParam(p, config, Map.empty))
         TypeScriptType.FunctionType(params.toVector, lowerType(resultTy, config), span)
       case AST.RecordTypeRef(_, name, span) =>
         TypeScriptType.TypeReference(name, Vector.empty, span)

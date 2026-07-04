@@ -19,7 +19,7 @@ object CoreTypeChecker:
     ast match
       case AST.Ref(id, _, _) => subst.getOrElse(id, ast)
       case AST.App(func, args, imp, span) =>
-        AST.App(substituteInType(func, subst), args.map(a => Arg(substituteInType(a.value, subst), a.implicitness)), imp, span)
+        AST.App(substituteInType(func, subst), args.map(a => Arg(substituteInType(a.value, subst), a.implicitness, a.coeffect)), imp, span)
       case AST.Pi(teles, res, effs, span) =>
         val newTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
         AST.Pi(newTeles, substituteInType(res, subst), effs, span)
@@ -69,7 +69,7 @@ object CoreTypeChecker:
     ast match
       case AST.App(func, args, implicitArgs, span) =>
         val nFunc = normalizeType(func)
-        val nArgs = args.map(a => Arg(normalizeType(a.value), a.implicitness))
+        val nArgs = args.map(a => Arg(normalizeType(a.value), a.implicitness, a.coeffect))
         nFunc match
           case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == nArgs.length =>
             val subst = teles.flatMap(_.params).map(_.id).zip(nArgs.map(_.value)).toMap
@@ -150,7 +150,7 @@ object CoreTypeChecker:
         val nTeles = teles.map(t => t.copy(params = t.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
         AST.Lam(nTeles, eraseSpans(body), None)
       case AST.App(func, args, implicitArgs, _) =>
-        AST.App(eraseSpans(func), args.map(a => Arg(eraseSpans(a.value), a.implicitness)), implicitArgs, None)
+        AST.App(eraseSpans(func), args.map(a => Arg(eraseSpans(a.value), a.implicitness, a.coeffect)), implicitArgs, None)
       case AST.Let(id, name, ty, value, body, _) =>
         AST.Let(id, name, ty.map(eraseSpans), eraseSpans(value), eraseSpans(body), None)
       case AST.Ann(expr, ty, _) => AST.Ann(eraseSpans(expr), eraseSpans(ty), None)

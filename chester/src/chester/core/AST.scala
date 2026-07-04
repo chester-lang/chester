@@ -50,13 +50,14 @@ case class Telescope(
 
 case class Arg(
     value: AST,
-    implicitness: Implicitness = Implicitness.Explicit
+    implicitness: Implicitness = Implicitness.Explicit,
+    coeffect: Coeffect = Coeffect.Unrestricted
 ) derives ReadWriter:
   def collectUniqids(collector: UniqidCollector): Unit =
     value.collectUniqids(collector)
 
   def mapUniqids(mapper: UniqidReplacer): Arg =
-    Arg(value.mapUniqids(mapper), implicitness)
+    Arg(value.mapUniqids(mapper), implicitness, coeffect)
 
 enum BuiltinEffect derives ReadWriter:
   case Io

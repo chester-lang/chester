@@ -137,7 +137,7 @@ object CLI:
       val tId_length = Uniqid.make[AST]
       val listLengthTy = AST.Pi(
         Vector(
-          Telescope(Vector(Param(tId_length, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(Param(tId_length, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None, chester.core.Coeffect.Zero)), Implicitness.Implicit),
           Telescope(Vector(Param(Uniqid.make, "list", AST.ListType(AST.Ref(tId_length, "T", None), None), Implicitness.Explicit, None)), Implicitness.Explicit)
         ),
         AST.IntegerType(None),
@@ -148,7 +148,7 @@ object CLI:
       val tId_get = Uniqid.make[AST]
       val listGetTy = AST.Pi(
         Vector(
-          Telescope(Vector(Param(tId_get, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(Param(tId_get, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None, chester.core.Coeffect.Zero)), Implicitness.Implicit),
           Telescope(Vector(
             Param(Uniqid.make, "list", AST.ListType(AST.Ref(tId_get, "T", None), None), Implicitness.Explicit, None),
             Param(Uniqid.make, "index", AST.IntegerType(None), Implicitness.Explicit, None)
@@ -169,7 +169,7 @@ object CLI:
       )
       val listMakeTy = AST.Pi(
         Vector(
-          Telescope(Vector(Param(tId_make, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(Param(tId_make, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None, chester.core.Coeffect.Zero)), Implicitness.Implicit),
           Telescope(Vector(
             Param(Uniqid.make, "size", AST.IntegerType(None), Implicitness.Explicit, None),
             Param(Uniqid.make, "generator", generatorTy, Implicitness.Explicit, None)
@@ -183,7 +183,7 @@ object CLI:
       val tId_if = Uniqid.make[AST]
       val ifElseTy = AST.Pi(
         Vector(
-          Telescope(Vector(Param(tId_if, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None)), Implicitness.Implicit),
+          Telescope(Vector(Param(tId_if, "T", AST.Type(AST.LevelLit(0, None), None), Implicitness.Implicit, None, chester.core.Coeffect.Zero)), Implicitness.Implicit),
           Telescope(Vector(
             Param(Uniqid.make, "cond", AST.BoolType(None), Implicitness.Explicit, None),
             Param(Uniqid.make, "thenVal", AST.Ref(tId_if, "T", None), Implicitness.Explicit, None),

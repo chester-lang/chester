@@ -84,8 +84,8 @@ object JavaBackend:
 
       case StmtAST.Def(_, name, telescopes, resultTy, body, span, _) =>
         val params = telescopes
-          .filter(_.implicitness == Implicitness.Explicit)
           .flatMap(_.params)
+          .filter(_.coeffect != chester.core.Coeffect.Zero)
           .map(p => ("Object", p.name)) // Universal Object representation
         
         val isMain = name == "main"
@@ -162,7 +162,7 @@ object JavaBackend:
           JavaAST.MethodCall(Some(JavaAST.Identifier("java.util.Arrays", span)), "asList", args, span)
           
       case AST.Lam(telescopes, body, span) =>
-        val params = telescopes.filter(_.implicitness == Implicitness.Explicit).flatMap(_.params).map(_.name)
+        val params = telescopes.flatMap(_.params).filter(_.coeffect != chester.core.Coeffect.Zero).map(_.name)
         val assignArgs = params.zipWithIndex.map { case (p, i) =>
           JavaAST.VariableDecl("var", p, Some(JavaAST.ArrayAccess(JavaAST.Identifier("__args", span), JavaAST.IntLiteral(i.toString, span), span)), span)
         }
@@ -194,7 +194,7 @@ object JavaBackend:
             JavaAST.MethodCall(None, "__chester_int_add", Vector(left, right), app.span)
             
           case AST.Ref(_, "-", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             if explicitArgs.length == 2 then
               val left = lowerExpr(explicitArgs(0).value, config, recordEnv, funcEnv)
               val right = lowerExpr(explicitArgs(1).value, config, recordEnv, funcEnv)
@@ -206,24 +206,24 @@ object JavaBackend:
               JavaAST.Identifier("-", app.span)
               
           case AST.Ref(_, "prim__list_length", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val listArg = explicitArgs.head.value
             JavaAST.MethodCall(None, "__chester_list_length", Vector(lowerExpr(listArg, config, recordEnv, funcEnv)), app.span)
             
           case AST.Ref(_, "prim__list_get", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val list = lowerExpr(explicitArgs(0).value, config, recordEnv, funcEnv)
             val index = lowerExpr(explicitArgs(1).value, config, recordEnv, funcEnv)
             JavaAST.MethodCall(None, "__chester_list_get", Vector(list, index), app.span)
             
           case AST.Ref(_, "prim__list_make", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val size = lowerExpr(explicitArgs(0).value, config, recordEnv, funcEnv)
             val generator = lowerExpr(explicitArgs(1).value, config, recordEnv, funcEnv)
             JavaAST.MethodCall(None, "__chester_list_make", Vector(size, generator), app.span)
             
           case AST.Ref(_, "prim__if_else", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val cond = JavaAST.MethodCall(None, "__chester_as_bool", Vector(lowerExpr(explicitArgs(0).value, config, recordEnv, funcEnv)), app.span)
             val thenVal = lowerExpr(explicitArgs(1).value, config, recordEnv, funcEnv)
             val elseVal = lowerExpr(explicitArgs(2).value, config, recordEnv, funcEnv)
@@ -232,19 +232,19 @@ object JavaBackend:
             JavaAST.MethodCall(None, "__chester_if_else", Vector(cond, thenSupplier, elseSupplier), app.span)
             
           case AST.Ref(_, "prim__int_eq", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv, funcEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv, funcEnv)
             JavaAST.MethodCall(None, "__chester_int_eq", Vector(a, b), app.span)
             
           case AST.Ref(_, "prim__int_lt", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv, funcEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv, funcEnv)
             JavaAST.MethodCall(None, "__chester_int_lt", Vector(a, b), app.span)
             
           case _ =>
-            val explicitArgs = allArgs.filter(_.implicitness == Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val callee = lowerExpr(base, config, recordEnv, funcEnv)
             val loweredArgs = explicitArgs.map(a => lowerExpr(a.value, config, recordEnv, funcEnv))
             base match {

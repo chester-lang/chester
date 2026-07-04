@@ -118,9 +118,7 @@ object GoBackend:
 
       case StmtAST.Def(_, name, telescopes, resultTy, body, span, _) =>
         // Only include params from EXPLICIT telescopes — implicit type params (e.g. [T]) are erased to any
-        val params = telescopes
-          .filter(_.implicitness == chester.core.Implicitness.Explicit)
-          .flatMap(t => t.params.map(p => lowerParam(p, config)))
+        val params = telescopes.flatMap(_.params).filter(_.coeffect != chester.core.Coeffect.Zero).map(p => lowerParam(p, config))
         val isGoMain = name == "main" && packageName == "main"
         // When there's no explicit return type annotation, default to `any` so that
         // the `return expr` in the body is always valid Go (non-void function).
@@ -264,7 +262,7 @@ object GoBackend:
 
       // Lambdas and application
       case AST.Lam(telescopes, body, span) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
+        val params = telescopes.flatMap(_.params).filter(_.coeffect != chester.core.Coeffect.Zero).map(p => lowerParam(p, config))
         val fnBody = GoAST.Block(Vector(GoAST.Return(Vector(lowerExpr(body, config, recordEnv, goImportEnv)), body.span)), body.span)
         GoAST.FuncLiteral(Vector.empty, params.toVector, Vector(anyResultField(span)), fnBody, span)
 
@@ -277,7 +275,7 @@ object GoBackend:
             GoAST.Call(GoAST.Identifier("__chester_int_add", app.span), Vector(left, right), app.span)
 
           case AST.Ref(_, "-", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             if explicitArgs.length == 2 then
               val left = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
               val right = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
@@ -290,24 +288,25 @@ object GoBackend:
               GoAST.Identifier("-", app.span)
 
           case AST.Ref(_, "prim__list_length", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val listArg = explicitArgs.head.value
             GoAST.Call(GoAST.Identifier("__chester_list_len", app.span), Vector(lowerExpr(listArg, config, recordEnv, goImportEnv)), app.span)
 
           case AST.Ref(_, "prim__list_get", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val list = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val index = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
             GoAST.Call(GoAST.Identifier("__chester_list_get", app.span), Vector(list, index), app.span)
 
           case AST.Ref(_, "prim__list_make", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val size = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val generator = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
+
             GoAST.Call(GoAST.Identifier("__chester_list_make", app.span), Vector(size, generator), app.span)
 
           case AST.Ref(_, "prim__if_else", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val rawCond = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             // Wrap condition with __chester_as_bool so both bool and any-typed predicates work
             val cond = GoAST.Call(GoAST.Identifier("__chester_as_bool", app.span), Vector(rawCond), app.span)
@@ -320,19 +319,19 @@ object GoBackend:
             GoAST.Call(funcLit, Vector.empty, app.span)
 
           case AST.Ref(_, "prim__int_eq", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
             GoAST.Call(GoAST.Identifier("__chester_int_eq", app.span), Vector(a, b), app.span)
 
           case AST.Ref(_, "prim__int_lt", _) =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val a = lowerExpr(explicitArgs(0).value, config, recordEnv, goImportEnv)
             val b = lowerExpr(explicitArgs(1).value, config, recordEnv, goImportEnv)
             GoAST.Call(GoAST.Identifier("__chester_int_lt", app.span), Vector(a, b), app.span)
 
           case _ =>
-            val explicitArgs = allArgs.filter(_.implicitness == chester.core.Implicitness.Explicit)
+            val explicitArgs = allArgs.filter(_.coeffect != chester.core.Coeffect.Zero)
             val callee = lowerExpr(base, config, recordEnv, goImportEnv)
             val loweredArgs = explicitArgs.map(a => lowerExpr(a.value, config, recordEnv, goImportEnv))
             // Always generate a Call — even with no explicit args (e.g. main())
@@ -515,7 +514,7 @@ object GoBackend:
       case AST.TupleType(elems, span) if elems.isEmpty => GoType.Struct(Vector.empty, span)
       // Function types stay concrete (needed for higher-order functions)
       case AST.Pi(telescopes, resultTy, _, span) =>
-        val params = telescopes.flatMap(t => t.params.map(p => lowerParam(p, config)))
+        val params = telescopes.flatMap(_.params).filter(_.coeffect != chester.core.Coeffect.Zero).map(p => lowerParam(p, config))
         val results = Vector(lowerResultField(resultTy, config))
         GoType.Func(Vector.empty, params.toVector, results, span)
       // Named record / enum types stay concrete

@@ -311,12 +311,9 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST = {
     case AST.ListType(element, span) =>
       AST.ListType(substituteInType(element, substitutions), span)
     case AST.Pi(telescopes, resultTy, effects, span) =>
-      // Don't substitute bound variables
       val newTelescopes = telescopes.map { tel =>
         Telescope(
-          tel.params.map(p =>
-            Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
-          ),
+          tel.params.map(p => p.copy(ty = substituteInType(p.ty, substitutions), default = p.default.map(substituteInType(_, substitutions)))),
           tel.implicitness
         )
       }
@@ -326,9 +323,7 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST = {
     case AST.Lam(telescopes, body, span) =>
       val newTelescopes = telescopes.map { tel =>
         Telescope(
-          tel.params.map(p =>
-            Param(p.id, p.name, substituteInType(p.ty, substitutions), p.implicitness, p.default.map(substituteInType(_, substitutions)))
-          ),
+          tel.params.map(p => p.copy(ty = substituteInType(p.ty, substitutions), default = p.default.map(substituteInType(_, substitutions)))),
           tel.implicitness
         )
       }
@@ -338,7 +333,7 @@ def substituteInType(ty: AST, substitutions: Map[UniqidOf[AST], AST]): AST = {
     case AST.App(func, args, implicitArgs, span) =>
       AST.App(
         substituteInType(func, substitutions),
-        args.map(a => Arg(substituteInType(a.value, substitutions), a.implicitness)),
+        args.map(a => a.copy(value = substituteInType(a.value, substitutions))),
         implicitArgs,
         span
       )
@@ -2007,7 +2002,8 @@ private def parseTelescopeFromCST[M <: SolverModule](
       if implicitness == Implicitness.Implicit then
         module.fill(solver, tyCell, AST.Type(AST.LevelLit(0, None), None))
       val paramTy = AST.MetaCell(HoldNotReadable(tyCell), None)
-      val param = Param(paramId, name, paramTy, implicitness, None)
+      val defaultCoeffect = if implicitness == Implicitness.Implicit then chester.core.Coeffect.Zero else chester.core.Coeffect.Unrestricted
+      val param = Param(paramId, name, paramTy, implicitness, None, defaultCoeffect)
 
       // Extend context for the next parameter
       currentCtx = currentCtx.bind(name, paramId, tyCell)
@@ -2815,17 +2811,23 @@ private def handleAssembleApp[M <: SolverModule](c: ElabConstraint.AssembleApp)(
         case arg => arg
       }
 
+      val implicitArgsWithCoeffect = implicitParams.zip(resolvedImplicitArgs).map { case (p, a) => Arg(a, Implicitness.Implicit, p.coeffect) }
+      val explicitArgsWithCoeffect = explicitArgs.zipWithIndex.map { case (a, idx) =>
+        val coeffect = if idx < fixedParams.size then fixedParams(idx).coeffect else restParamOpt.map(_._1.coeffect).getOrElse(chester.core.Coeffect.Unrestricted)
+        Arg(a, Implicitness.Explicit, coeffect)
+      }
+
       // Build application - nest two Apps if we have both implicit and explicit args
       val app = if resolvedImplicitArgs.nonEmpty && explicitArgs.nonEmpty then
         // Nested: func[implicitArgs](explicitArgs)
-        val implicitApp = AST.App(func, resolvedImplicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
-        AST.App(implicitApp, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
+        val implicitApp = AST.App(func, implicitArgsWithCoeffect, implicitArgs = true, c.span)
+        AST.App(implicitApp, explicitArgsWithCoeffect, implicitArgs = false, c.span)
       else if resolvedImplicitArgs.nonEmpty then
         // Only implicit: func[implicitArgs]
-        AST.App(func, resolvedImplicitArgs.map(Arg(_, Implicitness.Implicit)), implicitArgs = true, c.span)
+        AST.App(func, implicitArgsWithCoeffect, implicitArgs = true, c.span)
       else {
         // Only explicit: func(explicitArgs)
-        AST.App(func, explicitArgs.map(Arg(_, Implicitness.Explicit)), implicitArgs = false, c.span)
+        AST.App(func, explicitArgsWithCoeffect, implicitArgs = false, c.span)
       }
 
       // Perform substitution: replace parameter references in result type with resolved arguments
@@ -3097,7 +3099,7 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.Pi(telescopes, resultTy, effects, span) =>
       val newTelescopes = telescopes.map { tel =>
         Telescope(
-          tel.params.map(p => Param(p.id, p.name, substituteSolutions(p.ty), p.implicitness, p.default.map(substituteSolutions))),
+          tel.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions))),
           tel.implicitness
         )
       }
@@ -3106,7 +3108,7 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
     case AST.Lam(telescopes, body, span) =>
       val newTelescopes = telescopes.map { tel =>
         Telescope(
-          tel.params.map(p => Param(p.id, p.name, substituteSolutions(p.ty), p.implicitness, p.default.map(substituteSolutions))),
+          tel.params.map(p => p.copy(ty = substituteSolutions(p.ty), default = p.default.map(substituteSolutions))),
           tel.implicitness
         )
       }
@@ -3114,7 +3116,7 @@ def substituteSolutions[M <: SolverModule](ast: AST)(using module: M, solver: mo
 
     case AST.App(func, args, implicitArgs, span) =>
       val normalizedFunc = substituteSolutions(func)
-      val normalizedArgs = args.map(arg => Arg(substituteSolutions(arg.value), arg.implicitness))
+      val normalizedArgs = args.map(arg => arg.copy(value = substituteSolutions(arg.value)))
       AST.App(normalizedFunc, normalizedArgs, implicitArgs, span)
 
     case AST.Let(id, name, ty, value, body, span) =>
