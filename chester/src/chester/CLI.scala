@@ -7,7 +7,9 @@ import chester.utils.elab.ProceduralSolverModule
 import chester.error.VectorReporter
 import chester.backend.GoBackend
 import chester.backend.TypeScriptBackend
+import chester.backend.JavaBackend
 import chester.syntax.TypeScriptAST
+import chester.syntax.JavaAST
 import java.nio.file.{Paths, Files}
 import scala.sys.process.*
 import chester.utils.doc.{DocConf, render}
@@ -301,7 +303,7 @@ object CLI:
     }
 
     if (filePathStr.isEmpty) {
-      println("Usage: mill chester.run [file.chester] [--target go|ts] [--run]")
+      println("Usage: mill chester.run [file.chester] [--target go|ts|java] [--run]")
       return
     }
 
@@ -332,7 +334,78 @@ object CLI:
 
     val ast = astOpt.get
 
-    if (target == "ts") {
+    if (target == "java") {
+      println("Elaboration successful! Compiling to Java...")
+      val program = JavaBackend.lowerProgram(ast)
+      given DocConf = DocConf.Default
+      var javaCode = program.toDoc.layout(0)
+      
+      if (javaCode.contains("__chester_")) {
+        // Simple manual injection of Java helper methods at the end of the Main class
+        // Replace the last closing brace with the helpers + closing brace
+        val helpers = """
+  interface ChesterFunc { Object apply(Object... args); }
+
+  public static boolean __chester_as_bool(Object v) { return (Boolean) v; }
+  public static Object __chester_int_add(Object a, Object b) { return (Integer) a + (Integer) b; }
+  public static Object __chester_int_sub(Object a, Object b) { return (Integer) a - (Integer) b; }
+  public static Object __chester_int_mul(Object a, Object b) { return (Integer) a * (Integer) b; }
+  public static boolean __chester_int_eq(Object a, Object b) { return ((Integer) a).equals((Integer) b); }
+  public static boolean __chester_int_lt(Object a, Object b) { return (Integer) a < (Integer) b; }
+
+  public static Object __chester_list_length(Object list) {
+    if (list instanceof java.util.List) {
+      return ((java.util.List<?>) list).size();
+    } else if (list instanceof Object[]) {
+      return ((Object[]) list).length;
+    }
+    return 0;
+  }
+
+  public static Object __chester_list_get(Object list, Object idx) {
+    int i = (Integer) idx;
+    if (list instanceof java.util.List) {
+      return ((java.util.List<?>) list).get(i);
+    } else if (list instanceof Object[]) {
+      return ((Object[]) list)[i];
+    }
+    return null;
+  }
+
+  public static Object __chester_list_make(Object size, Object generator) {
+    int n = (Integer) size;
+    Object[] arr = new Object[n];
+    if (generator instanceof ChesterFunc) {
+      ChesterFunc gen = (ChesterFunc) generator;
+      for (int i = 0; i < n; i++) arr[i] = gen.apply(i);
+    }
+    return java.util.Arrays.asList(arr);
+  }
+
+  public static Object __chester_if_else(boolean cond, java.util.function.Supplier<Object> thenBranch, java.util.function.Supplier<Object> elseBranch) {
+    return cond ? thenBranch.get() : elseBranch.get();
+  }
+}"""
+        javaCode = javaCode.substring(0, javaCode.lastIndexOf('}')) + helpers
+      }
+
+      val outPath = Paths.get("Main.java")
+      Files.writeString(outPath, javaCode)
+      println(s"Java code generated successfully in ${outPath.toAbsolutePath}")
+
+      if (run) {
+        println("Running the compiled Java program...")
+        val cmd = if (Process(Seq("sh", "-lc", "command -v java >/dev/null 2>&1")).! == 0) {
+          Seq("java", "Main.java")
+        } else {
+          Seq("nix", "shell", "nixpkgs#jdk", "--command", "java", "Main.java")
+        }
+        val exitCode = Process(cmd).!
+        if (exitCode != 0) {
+          System.exit(exitCode)
+        }
+      }
+    } else if (target == "ts") {
       println("Elaboration successful! Compiling to TypeScript...")
       val program = TypeScriptBackend.lowerProgram(ast)
 
