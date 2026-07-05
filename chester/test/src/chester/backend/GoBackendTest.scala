@@ -94,6 +94,21 @@ class GoBackendTest extends FunSuite:
       "\tn := size.(int); res := make([]any, n)\n" +
       "\tfor i := 0; i < n; i++ { res[i] = generator(i) }\n" +
       "\treturn res\n" +
+      "}\n" +
+      "var __chester_effect_handlers = map[string][]func(...any)any{}\n" +
+      "\n" +
+      "func __chester_push_handler(op string, handler func(...any)any) {\n" +
+      "\t__chester_effect_handlers[op] = append(__chester_effect_handlers[op], handler)\n" +
+      "}\n" +
+      "\n" +
+      "func __chester_pop_handler(op string) {\n" +
+      "\thandlers := __chester_effect_handlers[op]\n" +
+      "\t__chester_effect_handlers[op] = handlers[:len(handlers)-1]\n" +
+      "}\n" +
+      "\n" +
+      "func __chester_do(op string, args ...any) any {\n" +
+      "\thandlers := __chester_effect_handlers[op]\n" +
+      "\treturn handlers[len(handlers)-1](args...)\n" +
       "}\n"
 
   test("backend renders a simple program shape") {

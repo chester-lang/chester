@@ -517,6 +517,22 @@ object CLI:
           "\t\tres[i] = generator(i)\n" +
           "\t}\n" +
           "\treturn res\n" +
+          "}\n" +
+          "\n" +
+          "var __chester_effect_handlers = map[string][]func(...any)any{}\n" +
+          "\n" +
+          "func __chester_push_handler(op string, handler func(...any)any) {\n" +
+          "\t__chester_effect_handlers[op] = append(__chester_effect_handlers[op], handler)\n" +
+          "}\n" +
+          "\n" +
+          "func __chester_pop_handler(op string) {\n" +
+          "\thandlers := __chester_effect_handlers[op]\n" +
+          "\t__chester_effect_handlers[op] = handlers[:len(handlers)-1]\n" +
+          "}\n" +
+          "\n" +
+          "func __chester_do(op string, args ...any) any {\n" +
+          "\thandlers := __chester_effect_handlers[op]\n" +
+          "\treturn handlers[len(handlers)-1](args...)\n" +
           "}\n"
       }
 

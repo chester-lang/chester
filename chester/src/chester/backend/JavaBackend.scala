@@ -283,6 +283,12 @@ object JavaBackend:
         val block = JavaAST.Block(stmts :+ ret, span)
         JavaAST.MethodCall(Some(JavaAST.Paren(JavaAST.Cast("java.util.function.Supplier<Object>", JavaAST.Lambda(Vector.empty, block, span), span), span)), "get", Vector.empty, span)
 
+      case AST.Handle(action, _, _, _) =>
+        lowerExpr(action, config, recordEnv, funcEnv)
+
+      case AST.Do(op, args, span) =>
+        JavaAST.MethodCall(Some(lowerExpr(op, config, recordEnv, funcEnv)), "apply", args.map(a => lowerExpr(a, config, recordEnv, funcEnv)), span)
+
       case _ => JavaAST.NullLiteral(expr.span)
   }
 

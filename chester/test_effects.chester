@@ -1,0 +1,17 @@
+effect State {
+  def get(): Integer;
+  def put(x: Integer): Unit
+};
+
+def main(): Unit = {
+  handle {
+    let x = do get();
+    do put(x + 1)
+  } with State {
+    def get() = 42;
+    def put(x) = {
+    }
+  }
+};
+
+main()

@@ -89,6 +89,11 @@ object SymbolIndex:
         pickSpan(Seq(span) ++ fieldSpans.map(Some(_))).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Record, name, s)))
         names.update(id, name)
         fields.foreach(walkParam)
+      case StmtAST.Effect(id, name, ops, span) =>
+        val opSpans = ops.flatMap(_.ty.span)
+        pickSpan(Seq(span) ++ opSpans.map(Some(_))).foreach(s => defs.update(id, DefinitionEntry(DefinitionKind.Def, name, s)))
+        names.update(id, name)
+        ops.foreach(walkParam)
       case StmtAST.Enum(_, _, typeParams, cases, _) =>
         typeParams.foreach(walkParam)
         cases.foreach(c => c.params.foreach(walkParam))
@@ -107,6 +112,8 @@ object SymbolIndex:
       tele.params.foreach(walkParam)
 
     def walkAst(ast: AST): Unit = ast match
+      case AST.ExtensionAccess(target, _, _, _, _) =>
+        walkAst(target)
       case AST.Ref(id, name, span) =>
         recordRef(id, span, Some(name))
       case AST.Tuple(elements, _) =>
@@ -136,6 +143,12 @@ object SymbolIndex:
         ty.foreach(walkAst)
         walkAst(value)
         walkAst(body)
+      case AST.Handle(action, _, handlers, _) =>
+        walkAst(action)
+        handlers.foreach { case (_, lam) => walkAst(lam) }
+      case AST.Do(op, args, _) =>
+        walkAst(op)
+        args.foreach(walkAst)
       case AST.Ann(expr, ty, _) =>
         walkAst(expr)
         walkAst(ty)

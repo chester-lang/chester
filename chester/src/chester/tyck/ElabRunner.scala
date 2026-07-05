@@ -74,6 +74,8 @@ object ElabRunner:
           chester.core.StmtAST.Def(id, name, newTelescopes, resultTy.map(inlineRefs(_, subst)), inlineRefs(body, subst), span, effects)
         case chester.core.StmtAST.Record(id, name, fields, span) =>
           chester.core.StmtAST.Record(id, name, fields.map(field => field.copy(ty = inlineRefs(field.ty, subst))), span)
+        case chester.core.StmtAST.Effect(id, name, ops, span) =>
+          chester.core.StmtAST.Effect(id, name, ops.map(op => op.copy(ty = inlineRefs(op.ty, subst))), span)
         case chester.core.StmtAST.Enum(id, name, typeParams, cases, span) =>
           chester.core.StmtAST.Enum(
             id,

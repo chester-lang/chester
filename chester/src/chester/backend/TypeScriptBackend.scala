@@ -97,6 +97,9 @@ object TypeScriptBackend:
         val members = cases.map(c => TSEnumMember(c.name, None, None))
         Vector(TypeScriptAST.EnumDeclaration(name, members.toVector, isConst = false, stmt.span))
 
+      case StmtAST.Effect(_, _, _, _) =>
+        Vector.empty
+
       case StmtAST.Pkg(name, body, span) =>
         val inner = lowerAsStatements(body, config, recordEnv, topLevel = true)
         val (imports, rest) = inner.partition {
@@ -279,6 +282,12 @@ object TypeScriptBackend:
         val ret = TypeScriptAST.Return(Some(lowerExpr(tail, config, recordEnv)), tail.span)
         TypeScriptAST.Call(TypeScriptAST.Arrow(Vector.empty, TypeScriptAST.Block((blockStmts :+ ret).toVector, span), span), Vector.empty, span)
 
+      case AST.Handle(action, _, _, _) =>
+        lowerExpr(action, config, recordEnv)
+
+      case AST.Do(op, args, span) =>
+        TypeScriptAST.Call(lowerExpr(op, config, recordEnv), args.map(a => lowerExpr(a, config, recordEnv)), span)
+
       // Fallback
       case _ =>
         TypeScriptAST.UndefinedLiteral(expr.span)
@@ -295,6 +304,8 @@ object TypeScriptBackend:
           fromAst(expr)
         case StmtAST.Pkg(_, body, _) =>
           fromAst(body)
+        case StmtAST.Effect(_, _, _, _) =>
+          Map.empty
         case _ =>
           Map.empty
 
@@ -320,6 +331,10 @@ object TypeScriptBackend:
           fromAst(target)
         case AST.EnumCtor(_, _, _, _, args, _) =>
           args.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])(_ ++ fromAst(_))
+        case AST.Handle(action, _, handlers, _) =>
+          fromAst(action) ++ handlers.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])((acc, h) => acc ++ fromAst(h._2))
+        case AST.Do(op, args, _) =>
+          fromAst(op) ++ args.foldLeft(Map.empty[UniqidOf[AST], Vector[String]])((acc, a) => acc ++ fromAst(a))
         case _ =>
           Map.empty
 

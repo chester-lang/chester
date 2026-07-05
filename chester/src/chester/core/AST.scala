@@ -117,6 +117,7 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       effects: Vector[EffectRef] = Vector.empty
   ) extends StmtAST(span)
   case Record(id: UniqidOf[AST], name: String, fields: Vector[Param], override val span: Option[Span]) extends StmtAST(span)
+  case Effect(id: UniqidOf[AST], name: String, operations: Vector[Param], override val span: Option[Span]) extends StmtAST(span)
   case Enum(id: UniqidOf[AST], name: String, typeParams: Vector[Param], cases: Vector[EnumCase], override val span: Option[Span])
       extends StmtAST(span)
   case Coenum(id: UniqidOf[AST], name: String, typeParams: Vector[Param], cases: Vector[EnumCase], override val span: Option[Span])
@@ -162,6 +163,18 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
         `,` <+> empty
       )
       text("record") <+> text(name) <> parens(paramsDoc)
+    case StmtAST.Effect(_, name, operations, _) =>
+      val opsDoc = {
+        if operations.isEmpty then empty
+        else
+          line <> ssep(
+            operations.map { op =>
+              text("def") <+> text(op.name) <> text(":") <+> op.ty.toDoc
+            },
+            `;` <> line
+          ).indented() <> line
+      }
+      text("effect") <+> text(name) <+> braces(opsDoc)
     case StmtAST.Enum(_, name, typeParams, cases, _) =>
       val typeParamsDoc = {
         if typeParams.isEmpty then empty
@@ -253,10 +266,13 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
       effects.foreach(_.collectUniqids(collector))
     case StmtAST.Record(id, _, fields, _) =>
       collector(id)
-      fields.foreach(_.collectUniqids(collector))
-    case StmtAST.Enum(id, _, typeParams, cases, _) =>
+      fields.foreach(f => f.ty.collectUniqids(collector))
+    case StmtAST.Effect(id, _, operations, _) =>
       collector(id)
-      typeParams.foreach(_.collectUniqids(collector))
+      operations.foreach(op => op.ty.collectUniqids(collector))
+    case StmtAST.Enum(id, _, tps, cases, _) =>
+      collector(id)
+      tps.foreach(_.collectUniqids(collector))
       cases.foreach(_.collectUniqids(collector))
     case StmtAST.Coenum(id, _, typeParams, cases, _) =>
       collector(id)
@@ -281,12 +297,9 @@ enum StmtAST(val span: Option[Span]) extends ToDoc with ContainsUniqid with Span
         effects.map(_.mapUniqids(mapper))
       )
     case StmtAST.Record(id, name, fields, span) =>
-      StmtAST.Record(
-        mapper(id),
-        name,
-        fields.map(_.mapUniqids(mapper)),
-        span
-      )
+      StmtAST.Record(mapper(id), name, fields.map(p => p.copy(ty = p.ty.mapUniqids(mapper))), span)
+    case StmtAST.Effect(id, name, operations, span) =>
+      StmtAST.Effect(mapper(id), name, operations.map(p => p.copy(ty = p.ty.mapUniqids(mapper))), span)
     case StmtAST.Enum(id, name, typeParams, cases, span) =>
       StmtAST.Enum(
         mapper(id),
@@ -337,11 +350,26 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
   case RecordTypeRef(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)
   case RecordCtor(id: UniqidOf[AST], name: String, args: Vector[AST], override val span: Option[Span]) extends AST(span)
   case FieldAccess(target: AST, field: String, override val span: Option[Span]) extends AST(span)
+  case ExtensionAccess(target: AST, methodId: chester.uniqid.UniqidOf[AST], methodName: String, targetTy: HoldNotReadable[chester.utils.elab.CellRW[AST]], override val span: Option[Span]) extends AST(span)
   case EnumTypeRef(id: UniqidOf[AST], name: String, override val span: Option[Span]) extends AST(span)
   case EnumCaseRef(enumId: UniqidOf[AST], caseId: UniqidOf[AST], enumName: String, caseName: String, override val span: Option[Span])
       extends AST(span)
   case EnumCtor(enumId: UniqidOf[AST], caseId: UniqidOf[AST], enumName: String, caseName: String, args: Vector[AST], override val span: Option[Span])
       extends AST(span)
+  /** Handle an effectful computation: handle action with EffName { def op1 = ...; def op2 = ... }
+    * - action: the effectful computation body (a thunk/lambda)
+    * - effRef: the effect being handled
+    * - handlers: map from operation name to its handler lambda (including a `resume` param if resumable)
+    */
+  case Handle(
+    action: AST,
+    effRef: EffectRef,
+    handlers: Vector[(String, AST)], // op name -> handler lambda
+    override val span: Option[Span]
+  ) extends AST(span)
+  /** Perform an effect operation. Sugar that makes the effect explicit in the AST.
+    * Elaborates to a regular App but tracks the effect. */
+  case Do(op: AST, args: Vector[AST], override val span: Option[Span]) extends AST(span)
   case MetaCell(cell: HoldNotReadable[chester.utils.elab.CellRW[AST]], override val span: Option[Span]) extends AST(span)
 
   def toDoc(using options: DocConf): Doc = this match
@@ -428,6 +456,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text(name) <> text(".apply") <> parens(hsep(args.map(_.toDoc), `,` <+> empty))
     case AST.FieldAccess(target, field, _) =>
       target.toDoc <> text(".") <> text(field)
+    case AST.ExtensionAccess(target, methodId, methodName, _, _) =>
+      target.toDoc <> text(".") <> text(methodName)
     case AST.EnumTypeRef(_, name, _) =>
       text(name) <> text(".t")
     case AST.EnumCaseRef(_, _, enumName, caseName, _) =>
@@ -437,6 +467,12 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       text(enumName) <> text(".") <> text(caseName) <> argsDoc
     case AST.MetaCell(cell, _) =>
       text("?") <> text(cell.toString)
+    case AST.Handle(action, effRef, handlers, _) =>
+      val handlerDocs = handlers.map { case (name, lam) => text("def") <+> text(name) <+> text("=") <+> lam.toDoc }
+      text("handle") <+> action.toDoc <+> text("with") <+> text(effRef.name) <+>
+        braces(line <> ssep(handlerDocs, text(";") <> line).indented() <> line)
+    case AST.Do(op, args, _) =>
+      text("do") <+> op.toDoc <> parens(hsep(args.map(_.toDoc), text(",") <+> empty))
 
   def collectUniqids(collector: UniqidCollector): Unit = this match
     case AST.Ref(id, _, _) =>
@@ -501,6 +537,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       args.foreach(_.collectUniqids(collector))
     case AST.FieldAccess(target, _, _) =>
       target.collectUniqids(collector)
+    case AST.ExtensionAccess(target, _, _, _, _) =>
+      target.collectUniqids(collector)
     case AST.EnumTypeRef(id, _, _) =>
       collector(id)
     case AST.EnumCaseRef(enumId, caseId, _, _, _) =>
@@ -512,6 +550,12 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       args.foreach(_.collectUniqids(collector))
     case AST.MetaCell(_, _) =>
       ()
+    case AST.Handle(action, _, handlers, _) =>
+      action.collectUniqids(collector)
+      handlers.foreach { case (_, lam) => lam.collectUniqids(collector) }
+    case AST.Do(op, args, _) =>
+      op.collectUniqids(collector)
+      args.foreach(_.collectUniqids(collector))
 
   def mapUniqids(mapper: UniqidReplacer): AST = this match
     case AST.Ref(id, name, span) =>
@@ -580,6 +624,8 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.RecordCtor(mapper(id), name, args.map(_.mapUniqids(mapper)), span)
     case AST.FieldAccess(target, field, span) =>
       AST.FieldAccess(target.mapUniqids(mapper), field, span)
+    case AST.ExtensionAccess(target, methodId, methodName, targetTy, span) =>
+      AST.ExtensionAccess(target.mapUniqids(mapper), methodId, methodName, targetTy, span)
     case AST.EnumTypeRef(id, name, span) =>
       AST.EnumTypeRef(mapper(id), name, span)
     case AST.EnumCaseRef(enumId, caseId, enumName, caseName, span) =>
@@ -588,3 +634,7 @@ enum AST(val span: Option[Span]) extends ToDoc with ContainsUniqid with SpanOpti
       AST.EnumCtor(mapper(enumId), mapper(caseId), enumName, caseName, args.map(_.mapUniqids(mapper)), span)
     case AST.MetaCell(cell, span) =>
       AST.MetaCell(cell, span)
+    case AST.Handle(action, effRef, handlers, span) =>
+      AST.Handle(action.mapUniqids(mapper), effRef.mapUniqids(mapper), handlers.map { case (n, lam) => n -> lam.mapUniqids(mapper) }, span)
+    case AST.Do(op, args, span) =>
+      AST.Do(op.mapUniqids(mapper), args.map(_.mapUniqids(mapper)), span)

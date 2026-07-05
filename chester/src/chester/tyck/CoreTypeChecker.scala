@@ -17,6 +17,7 @@ object CoreTypeChecker:
 
   private def substituteInType(ast: AST, subst: Map[chester.uniqid.UniqidOf[AST], AST]): AST = {
     ast match
+      case AST.ExtensionAccess(target, id, name, targetTy, span) => AST.ExtensionAccess(substituteInType(target, subst), id, name, targetTy, span)
       case AST.Ref(id, _, _) => subst.getOrElse(id, ast)
       case AST.App(func, args, imp, span) =>
         AST.App(substituteInType(func, subst), args.map(a => Arg(substituteInType(a.value, subst), a.implicitness, a.coeffect)), imp, span)
@@ -61,12 +62,16 @@ object CoreTypeChecker:
         val newTps = tps.map(p => p.copy(ty = substituteInType(p.ty, subst)))
         val newCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = substituteInType(p.ty, subst)))))
         StmtAST.Coenum(id, name, newTps, newCases, span)
+      case StmtAST.Effect(id, name, ops, span) =>
+        val newOps = ops.map(p => p.copy(ty = substituteInType(p.ty, subst)))
+        StmtAST.Effect(id, name, newOps, span)
       case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, substituteInType(body, subst), span)
   }
 
   /** Normalize a type AST with shallow beta-reduction of type-level lambdas/applications. */
   def normalizeType(ast: AST): AST = {
     ast match
+      case AST.ExtensionAccess(target, id, name, targetTy, span) => AST.ExtensionAccess(normalizeType(target), id, name, targetTy, span)
       case AST.App(func, args, implicitArgs, span) =>
         val nFunc = normalizeType(func)
         val nArgs = args.map(a => Arg(normalizeType(a.value), a.implicitness, a.coeffect))
@@ -120,11 +125,15 @@ object CoreTypeChecker:
         val normTypeParams = typeParams.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))
         val normCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))))
         StmtAST.Coenum(id, name, normTypeParams, normCases, span)
+      case StmtAST.Effect(id, name, ops, span) =>
+        val normOps = ops.map(p => p.copy(ty = normalizeType(p.ty), default = p.default.map(normalizeType)))
+        StmtAST.Effect(id, name, normOps, span)
       case StmtAST.Pkg(name, body, span) => StmtAST.Pkg(name, normalizeType(body), span)
   }
 
   private def eraseSpans(ast: AST): AST = {
     ast match
+      case AST.ExtensionAccess(target, id, name, targetTy, _) => AST.ExtensionAccess(eraseSpans(target), id, name, targetTy, None)
       case AST.Ref(id, name, _)      => AST.Ref(id, name, None)
       case AST.Tuple(elems, _)       => AST.Tuple(elems.map(eraseSpans), None)
       case AST.ListLit(elems, _)     => AST.ListLit(elems.map(eraseSpans), None)
@@ -135,6 +144,10 @@ object CoreTypeChecker:
       case AST.LevelLit(v, _)        => AST.LevelLit(v, None)
       case AST.Type(level, _)        => AST.Type(eraseSpans(level), None)
       case AST.TypeOmega(level, _)   => AST.TypeOmega(eraseSpans(level), None)
+      case AST.Handle(action, effRef, handlers, _) =>
+        AST.Handle(eraseSpans(action), effRef, handlers.map { case (n, lam) => (n, eraseSpans(lam)) }, None)
+      case AST.Do(op, args, _) =>
+        AST.Do(eraseSpans(op), args.map(eraseSpans), None)
       case AST.AnyType(_)            => AST.AnyType(None)
       case AST.BoolType(_)           => AST.BoolType(None)
       case AST.StringType(_)         => AST.StringType(None)
@@ -187,10 +200,14 @@ object CoreTypeChecker:
       val nTypeParams = typeParams.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))
       val nCases = cases.map(c => c.copy(params = c.params.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))))
       StmtAST.Coenum(id, name, nTypeParams, nCases, None)
+    case StmtAST.Effect(id, name, ops, _) =>
+      val nOps = ops.map(p => p.copy(ty = eraseSpans(p.ty), default = p.default.map(eraseSpans)))
+      StmtAST.Effect(id, name, nOps, None)
     case StmtAST.Pkg(name, body, _) =>
       StmtAST.Pkg(name, eraseSpans(body), None)
 
   private def hasMeta(ast: AST): Boolean = ast match
+    case AST.ExtensionAccess(target, _, _, _, _) => hasMeta(target)
     case AST.MetaCell(_, _)                => true
     case AST.Ref(_, _, _)                  => false
     case AST.Tuple(elems, _)               => elems.exists(hasMeta)
@@ -221,6 +238,8 @@ object CoreTypeChecker:
     case AST.NaturalType(_)                => false
     case AST.IntegerType(_)                => false
     case AST.LevelType(_)                  => false
+    case AST.Handle(action, _, handlers, _) => hasMeta(action) || handlers.exists { case (_, lam) => hasMeta(lam) }
+    case AST.Do(op, args, _)              => hasMeta(op) || args.exists(hasMeta)
 
   private def hasMetaStmt(stmt: StmtAST): Boolean = stmt match
     case StmtAST.ExprStmt(expr, _)           => hasMeta(expr)
@@ -228,6 +247,7 @@ object CoreTypeChecker:
     case StmtAST.Def(_, _, teles, resTy, body, _, _) =>
       teles.exists(t => t.params.exists(p => hasMeta(p.ty))) || resTy.exists(hasMeta) || hasMeta(body)
     case StmtAST.Record(_, _, fields, _) => fields.exists(f => hasMeta(f.ty))
+    case StmtAST.Effect(_, _, ops, _) => ops.exists(o => hasMeta(o.ty))
     case StmtAST.Enum(_, _, tps, cases, _) =>
       tps.exists(tp => hasMeta(tp.ty)) || cases.exists(c => c.params.exists(p => hasMeta(p.ty)))
     case StmtAST.Coenum(_, _, tps, cases, _) =>
@@ -391,6 +411,9 @@ object CoreTypeChecker:
 
   private def infer(ast: AST, env: Env, records: RecordEnv, enums: EnumEnv)(using Reporter[ElabProblem]): Option[AST] = {
     ast match
+      case AST.ExtensionAccess(target, _, _, _, _) => None
+      case AST.Handle(action, _, _, _) => infer(action, env, records, enums) // return type of handled computation
+      case AST.Do(op, _, _) => infer(op, env, records, enums) // type of the op being performed
       case AST.Ref(id, name, _) =>
         env.get(id).orElse(builtinTypes.get(name))
       case AST.StringLit(_, _)   => Some(AST.StringType(None))
@@ -462,7 +485,7 @@ object CoreTypeChecker:
               case None    => args.length == params.length
 
             if !arityOk then
-              println(s"[trace-core-infer-app-fail] arityOk is false for app of $func. Params len: ${params.length}, Args len: ${args.length}")
+
               None
             else {
               val fixedArgsOk = args.take(fixedParams.length).zip(fixedParams).forall { case (arg, param) => ensureType(arg.value, param.ty, env, records, enums) }
@@ -472,9 +495,9 @@ object CoreTypeChecker:
                 case None => true
 
               if !fixedArgsOk then
-                println(s"[trace-core-infer-app-fail] fixedArgsOk is false for app of $func. Expected: ${fixedParams.map(_.ty)}, Actual args: ${args.take(fixedParams.length).map(_.value)}")
+
               if !restArgsOk then
-                println(s"[trace-core-infer-app-fail] restArgsOk is false for app of $func")
+
 
               if fixedArgsOk && restArgsOk then
                 val restArgForSubst = restParamOpt.map { _ =>
@@ -500,10 +523,10 @@ object CoreTypeChecker:
             }
           case other =>
             if other.isEmpty then
-              println(s"[trace-core-infer-app-fail] funcTy is None for app of $func")
-              println(s"[trace-core-infer-app-fail] env keys: ${env.keys.toVector}")
+
+
             else
-              println(s"[trace-core-infer-app-fail] funcTy is not Pi for app of $func, got: ${other.get}")
+
             func match
               case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == args.length =>
                 val params = teles.flatMap(_.params)
@@ -611,18 +634,18 @@ object CoreTypeChecker:
       case StmtAST.Enum(_, _, _, _, _)   => ()
       case StmtAST.Coenum(_, _, _, _, _) => ()
       case StmtAST.Pkg(_, body, _)       => infer(body, env, records, enums)
+      case StmtAST.Effect(_, _, _, _)    => ()
   }
 
-  private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env = {
-    stmt match
-      case StmtAST.JSImport(id, _, _, _, ty, _) =>
-        env + (id -> ty)
-      case StmtAST.Def(id, _, teles, resTy, _, _, effects) =>
-        val resultTy = resTy.getOrElse(AST.Type(AST.LevelLit(0, None), None))
-        val pi = AST.Pi(teles, resultTy, effects, None)
-        env + (id -> pi)
-      case _ => env
-  }
+  private def extendEnvWithStmt(env: Env, stmt: StmtAST): Env = stmt match
+    case StmtAST.Def(id, _, teles, resTy, _, _, effects) =>
+      val resultTy = resTy.getOrElse(AST.Type(AST.LevelLit(0, None), None))
+      val pi = AST.Pi(teles, resultTy, effects, None)
+      env + (id -> pi)
+    case StmtAST.JSImport(id, _, _, _, ty, _) => env + (id -> ty)
+    case StmtAST.Effect(_, _, operations, _) =>
+      operations.foldLeft(env)((acc, op) => acc + (op.id -> op.ty))
+    case _ => env
 
   private def extendSequentialEnvWithStmt(env: Env, stmt: StmtAST, records: RecordEnv, enums: EnumEnv)(using Reporter[ElabProblem]): Env = {
     stmt match

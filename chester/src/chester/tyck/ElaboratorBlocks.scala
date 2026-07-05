@@ -41,7 +41,7 @@ object ElaboratorBlocks:
     def processEffectBody[M <: SolverModule](body: CST.Block, effectRef: EffectRef, ctx: ElabContext)(using
         module: M,
         solver: module.Solver[ElabConstraint]
-    ): ElabContext
+    ): (ElabContext, Vector[Param])
     def handleLetStatement[M <: SolverModule](
         elems: Vector[CST],
         span: Option[Span],
@@ -168,6 +168,7 @@ object ElaboratorBlocks:
         val elemsVec = seqElems.toVector
         elemsVec match
           case _ +: CST.Symbol(name, _) +: _ =>
+
             // Reuse existing binding if present (for cross-file/module pre-pass), otherwise create new
             val (defId, defTypeCell) = enrichedCtx.lookup(name) match
               case Some(existingId) =>
@@ -180,6 +181,33 @@ object ElaboratorBlocks:
             val defResultCell = module.newOnceCell[ElabConstraint, AST](solver)
             // Add to context so it can be referenced (including by other defs)
             enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell).registerDefBody(defId, defResultCell)
+            defInfoMap(elem) = DefInfo(name, defId, defTypeCell, defResultCell, span = elem.span)
+          case _ => ()
+      case elem @ CST.SeqOf(seqElems, _) if seqElems.toVector.headOption.exists { case CST.Symbol("extension", _) => true; case _ => false } =>
+        val elemsVec = seqElems.toVector
+        elemsVec match
+          case _ +: CST.Symbol("def", _) +: CST.Symbol(name, _) +: rest =>
+
+            var methodName = name
+            if rest.length >= 3 && rest(0).isInstanceOf[CST.Symbol] && rest(0).asInstanceOf[CST.Symbol].name == "<" && rest(2).isInstanceOf[CST.Symbol] && rest(2).asInstanceOf[CST.Symbol].name == ">" then
+              methodName = rest(1).asInstanceOf[CST.Symbol].name
+
+            val (defId, defTypeCell) = enrichedCtx.lookup(name) match
+              case Some(existingId) =>
+                val cell = enrichedCtx.lookupType(existingId).getOrElse(module.newOnceCell[ElabConstraint, AST](solver))
+                (existingId, cell)
+              case None =>
+                val newId = Uniqid.make[AST]
+                val cell = module.newOnceCell[ElabConstraint, AST](solver)
+                (newId, cell)
+            val defResultCell = module.newOnceCell[ElabConstraint, AST](solver)
+            
+            val newBindings = enrichedCtx.extensionBindings.updatedWith(methodName) {
+              case Some(s) => Some(s + defId)
+              case None    => Some(Set(defId))
+            }
+            
+            enrichedCtx = enrichedCtx.bind(name, defId, defTypeCell).registerDefBody(defId, defResultCell).copy(extensionBindings = newBindings)
             defInfoMap(elem) = DefInfo(name, defId, defTypeCell, defResultCell, span = elem.span)
           case _ => ()
       case CST.SeqOf(seqElems, _) if seqElems.toVector.headOption.exists { case CST.Symbol("effect", _) => true; case _ => false } =>
@@ -217,7 +245,9 @@ object ElaboratorBlocks:
     val elaboratedElemsBuffer = scala.collection.mutable.ArrayBuffer.empty[StmtAST]
     var currentCtx = enrichedCtx
 
+
     elements.foreach { elem =>
+
       val elemResult = {
         defInfoMap.get(elem) match
           case Some(info) => info.resultCell
@@ -378,10 +408,14 @@ object ElaboratorBlocks:
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
               module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
               elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), span), span)
-        case CST.SeqOf(seqElems, _) if seqElems.toVector.headOption.exists { case CST.Symbol("def", _) => true; case _ => false } =>
+        case CST.SeqOf(seqElems, _) if seqElems.toVector.headOption.exists {
+              case CST.Symbol("def", _) | CST.Symbol("extension", _) => true
+              case _ => false
+            } =>
           val elems = seqElems.toVector
           val defConstraint: ElabConstraint.Infer = ElabConstraint.Infer(elem, elemResult, elemType, currentCtx)
           val defMeta = defInfoMap(elem)
+
           helpers.handleDefStatement(defConstraint, elems, elem.span, defMeta.id, defMeta.tyCell, currentCtx, defInfoMap)
           val updated = defInfoMap(elem)
           // Construct a Stmt placeholder with MetaCells for body/result type
@@ -398,14 +432,19 @@ object ElaboratorBlocks:
               val withEffectCtx = currentCtx.declareEffect(name)
               val effRef = withEffectCtx.lookupEffect(name).get
               val bodyCst: CST.Block = maybeBody.collect { case b: CST.Block => b }.getOrElse(CST.Block(Vector.empty, None, span))
-              currentCtx = helpers.processEffectBody(bodyCst, effRef, withEffectCtx)
+              val (nextCtx, ops) = helpers.processEffectBody(bodyCst, effRef, withEffectCtx)
+              currentCtx = nextCtx
               // The effect declaration itself evaluates to unit
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
               module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
+              effRef match
+                case EffectRef.User(id, _) =>
+                  elaboratedElemsBuffer += StmtAST.Effect(id, name, ops, span)
+                case _ => () // Should not declare builtin effects this way
             case None =>
               module.fill(solver, elemResult, AST.Tuple(Vector.empty, span))
               module.fill(solver, elemType, AST.TupleType(Vector.empty, span))
-          elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), span), span)
+              elaboratedElemsBuffer += StmtAST.ExprStmt(AST.MetaCell(HoldNotReadable(elemResult), span), span)
         case CST.SeqOf(seqElems, span) if seqElems.toVector.headOption.exists { case CST.Symbol("record", _) => true; case _ => false } =>
           val recordMeta = recordInfoMap(elem)
           val fields = helpers.parseRecordFields(seqElems.toVector, currentCtx)
@@ -460,6 +499,7 @@ object ElaboratorBlocks:
     // Elaborate tail (or use empty tuple if None)
     val elaboratedTail = tail match
       case Some(t) =>
+
         val tailResult = module.newOnceCell[ElabConstraint, AST](solver)
         // Type of block is type of tail - use c.inferredTy directly
         module.addConstraint(solver, ElabConstraint.Infer(t, tailResult, inferredTyCell, currentCtx))

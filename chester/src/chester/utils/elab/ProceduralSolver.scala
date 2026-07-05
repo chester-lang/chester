@@ -177,7 +177,8 @@ object ProceduralSolverModule extends SolverModule {
     if (defaults.isEmpty && nothingChanged && solver.todo.isEmpty) {
       if (stable(solver)) return
       val waitingInfo = solver.delayedConstraints.map(wc => s"  - ${wc.constraint} waiting on ${wc.vars.size} cells").mkString("\n")
-      throw new IllegalStateException(s"cannot finish some constraints. ${solver.delayedConstraints.size} waiting:\n$waitingInfo")
+      java.nio.file.Files.writeString(java.nio.file.Paths.get("waiting_info.log"), waitingInfo)
+      throw new IllegalStateException(s"cannot finish some constraints. ${solver.delayedConstraints.size} waiting. See waiting_info.log")
     }
     val _ = solver.delayedConstraints.filterInPlace { c =>
       val call = c.vars.exists(solver.updatedCells.contains)

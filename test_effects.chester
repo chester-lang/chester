@@ -1,0 +1,21 @@
+import go "fmt";
+
+effect State {
+  def get(): Integer;
+  def put(x: Integer): Unit
+};
+
+def main(): Unit = {
+  handle {
+    let x = do get();
+    go.fmt.Println("Action received from get:");
+    go.fmt.Println(x);
+    do put(42)
+  } with State {
+    def get() = 99;
+    def put(x) = { 
+       go.fmt.Println("Put handler invoked!");
+       ()
+    }
+  }
+};

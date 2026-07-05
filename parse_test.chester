@@ -1,0 +1,7 @@
+extension def list_map_ext <map> [A, B](list: List A, f: (a: A) -> B): List B = list_map[A, B](list, f);
+def main(): Unit = {
+  let list = list_append(list_append(prim__list_make(0, \i => 0), 1), 2);
+  let list2 = list.map(\x => x + 10);
+  print_int(prim__list_get(list2, 0));
+  print_int(prim__list_get(list2, 1))
+};

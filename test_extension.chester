@@ -1,0 +1,8 @@
+extension def test_list_map[A, B](list: List A, f: (a: A) -> B): List B = list_map[A, B](list, f);
+
+def main(): Unit / [io] = {
+  let myList = [1, 2, 3];
+  let doubled = myList.test_list_map(\x => x + x);
+  go.fmt.Println(doubled);
+  ()
+};
