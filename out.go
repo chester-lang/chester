@@ -76,16 +76,6 @@ func list_foldl(list any, init any, f func(acc any, elem any) any) any {
 return list_foldl_helper(list, init, f, 0)
 }
 
-type GoImport_fmt struct {
-Printf func(format any, args any) any
-  Sprintf func(format any, args any) any
-  Println func(args any) struct {}
-}
-
-type GoImport_go struct {
-fmt GoImport_fmt
-}
-
 func print_str(msg any) struct {} {
 fmt.Println(msg)
   return struct {}{}
@@ -104,26 +94,14 @@ func int_to_str(val any) any {
 return fmt.Sprintf("%d", val)
 }
 
+func to_upper_str(s any) any {
+return s
+}
+
 func main() {
-func() any {
-  __chester_push_handler("get", func(_args ...any) any {
-    return 99
-    })
-    __chester_push_handler("put", func(_args ...any) any {
-    return func() any {
-      fmt.Println("Put handler invoked!")
-        return struct {}{}
-      }()
-    })
-    defer __chester_pop_handler("get")
-    defer __chester_pop_handler("put")
-    return func() any {
-    x := __chester_do("get")
-      fmt.Println("Action received from get:")
-      fmt.Println(x)
-      return __chester_do("put", 42)
-    }()
-  }()
+s := "hello"
+  fmt.Println(to_upper_str(s))
+  fmt.Println(to_upper_str(s))
 }
 
 func __chester_as_bool(v any) bool { b, _ := v.(bool); return b }

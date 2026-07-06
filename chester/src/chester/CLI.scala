@@ -15,6 +15,22 @@ import scala.sys.process.*
 import chester.utils.doc.{DocConf, render}
 
 object CLI:
+  private def stringsSignature: GoImportSignature = {
+    val sParam = Param(Uniqid.make, "s", AST.StringType(None), Implicitness.Explicit, None)
+    val toUpperTy = AST.Pi(
+      Vector(Telescope(Vector(sParam), Implicitness.Explicit)),
+      AST.StringType(None),
+      Vector.empty,
+      None
+    )
+    GoImportSignature(
+      Vector(
+        Param(Uniqid.make, "ToUpper", toUpperTy, Implicitness.Explicit, None)
+      ),
+      "strings"
+    )
+  }
+
   private def fmtSignature: GoImportSignature = {
     val formatParam = Param(Uniqid.make, "format", AST.StringType(None), Implicitness.Explicit, None)
     val argsParam = Param(Uniqid.make, "args", AST.ListType(AST.AnyType(None), None), Implicitness.Explicit, None)
@@ -142,9 +158,10 @@ object CLI:
       val resultCell = module.newOnceCell[ElabConstraint, AST](solver)
       val typeCell = module.newOnceCell[ElabConstraint, AST](solver)
 
-      val stdGoImports = Map("fmt" -> fmtSignature)
+      val stdGoImports = Map("fmt" -> fmtSignature, "strings" -> stringsSignature)
       val stdJsImports = Map("path" -> pathSignature, "console" -> consoleSignature, "util" -> utilSignature)
-      val allImports = stdGoImports.map { case (k, v) => k -> JSImportSignature(v.fields) } ++ stdJsImports
+      val allImports = (stdGoImports.map { case (k, v) => k -> JSImportSignature(v.fields) } ++ stdJsImports).toMap
+      println(s"allImports keys: ${allImports.keys}")
 
       val tId_length = Uniqid.make[AST]
       val listLengthTy = AST.Pi(
@@ -334,6 +351,7 @@ object CLI:
       content
     }
     println(s"Reading program from $filePathStr...")
+    java.nio.file.Files.writeString(Paths.get("cli_dump.chester"), fullContent)
     
     // Elaborate surface CST into typed AST with standard signatures preloaded
     val (astOpt, tyOpt, errors) = elaborate(fullContent)

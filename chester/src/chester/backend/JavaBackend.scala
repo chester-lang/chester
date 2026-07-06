@@ -105,6 +105,9 @@ object JavaBackend:
         ))
 
       case StmtAST.Record(_, name, fields, span) =>
+        if name.startsWith("JSImport_") || name.startsWith("GoImport_") then
+          return Vector.empty
+          
         val javaFields = fields.map(f => JavaField("Object", f.name, isStatic = false, span = f.ty.span))
         val ctorParams = fields.map(f => ("Object", f.name))
         

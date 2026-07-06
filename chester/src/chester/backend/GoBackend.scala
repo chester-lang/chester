@@ -141,10 +141,14 @@ object GoBackend:
         (packageName, Vector(fn))
 
       case StmtAST.Record(_, name, fields, span) =>
-        val structFields =
-          fields.map(f => GoField(Vector(f.name), lowerType(f.ty, config), None, isEmbedded = false, isVariadic = false, span = f.ty.span))
-        val typeSpec = GoTypeSpec(name, Vector.empty, GoType.Struct(structFields.toVector, span), isAlias = false, span = span)
-        (packageName, Vector(GoAST.TypeDecl(Vector(typeSpec), span)))
+        if name.startsWith("JSImport_") || name.startsWith("GoImport_") then
+          (packageName, Vector.empty)
+        else {
+          val structFields =
+            fields.map(f => GoField(Vector(f.name), lowerType(f.ty, config), None, isEmbedded = false, isVariadic = false, span = f.ty.span))
+          val typeSpec = GoTypeSpec(name, Vector.empty, GoType.Struct(structFields.toVector, span), isAlias = false, span = span)
+          (packageName, Vector(GoAST.TypeDecl(Vector(typeSpec), span)))
+        }
 
       case StmtAST.Enum(_, name, _, cases, span) =>
         (packageName, lowerEnumLike(name, cases, span))

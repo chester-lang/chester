@@ -1,8 +1,15 @@
-extension def test_list_map[A, B](list: List A, f: (a: A) -> B): List B = list_map[A, B](list, f);
+import go "fmt";
 
-def main(): Unit / [io] = {
-  let myList = [1, 2, 3];
-  let doubled = myList.test_list_map(\x => x + x);
-  go.fmt.Println(doubled);
-  ()
+extension def to_upper_str <to_upper> (s: String): String = {
+  s
+};
+
+def main(): Unit = {
+  let s = "hello";
+  
+  // method style application using <method> name
+  go.fmt.Println(s.to_upper());
+  
+  // normal function application using the first name
+  go.fmt.Println(to_upper_str(s))
 };

@@ -494,11 +494,6 @@ object CoreTypeChecker:
                   args.drop(fixedParams.length).forall { arg => ensureType(arg.value, elemTy, env, records, enums) }
                 case None => true
 
-              if !fixedArgsOk then
-
-              if !restArgsOk then
-
-
               if fixedArgsOk && restArgsOk then
                 val restArgForSubst = restParamOpt.map { _ =>
                   val restArgs = args.drop(fixedParams.length).map(_.value)
@@ -522,11 +517,6 @@ object CoreTypeChecker:
               else None
             }
           case other =>
-            if other.isEmpty then
-
-
-            else
-
             func match
               case AST.Lam(teles, body, _) if teles.flatMap(_.params).length == args.length =>
                 val params = teles.flatMap(_.params)
@@ -643,6 +633,8 @@ object CoreTypeChecker:
       val pi = AST.Pi(teles, resultTy, effects, None)
       env + (id -> pi)
     case StmtAST.JSImport(id, _, _, _, ty, _) => env + (id -> ty)
+    case StmtAST.Record(id, name, _, span) =>
+      env + (id -> AST.RecordTypeRef(id, name, span))
     case StmtAST.Effect(_, _, operations, _) =>
       operations.foldLeft(env)((acc, op) => acc + (op.id -> op.ty))
     case _ => env

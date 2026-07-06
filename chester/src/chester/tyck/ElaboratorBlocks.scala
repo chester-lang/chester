@@ -285,12 +285,13 @@ object ElaboratorBlocks:
                 // Handle Go package import with nested structure
                 // For `import go "fmt"`, create: go.fmt.Printf, go.fmt.Println, etc.
                 val normalizedPkg = GoImportSignature.normalizePackagePath(modulePath)
-                val goSig = currentCtx.jsImports // Go imports are merged into jsImports in CLI
-                  .get(normalizedPkg)
-                  .orElse(currentCtx.jsImports.get(modulePath))
+                println(s"IMPORT GO: normalizedPkg='${normalizedPkg}' len=${normalizedPkg.length} chars=${normalizedPkg.map(_.toInt)}")
+                println(s"IMPORT GO: keys=${currentCtx.jsImports.keys.map(k => s"'$k' len=${k.length} chars=${k.map(_.toInt)}").mkString(", ")}")
+                val foundJsSig = currentCtx.jsImports.get(normalizedPkg).orElse(currentCtx.jsImports.get(modulePath))
+                println(s"IMPORT GO foundJsSig: ${foundJsSig}")
+                val goSig = foundJsSig
                   .map(jsSig => GoImportSignature(jsSig.fields, normalizedPkg))
                   .getOrElse {
-                    // Create placeholder with empty fields if package not found
                     GoImportSignature(Vector.empty, normalizedPkg)
                   }
 
@@ -308,6 +309,7 @@ object ElaboratorBlocks:
                       val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)
                       val placeholderCtx =
                         currentCtx.registerRecordPlaceholder(packageRecordName, recId, ctorTyCell).updateRecord(packageRecordName, packageFields)
+                      println(s"IMPORT GO record fields for $packageRecordName: ${placeholderCtx.lookupRecord(packageRecordName).map(_.fields)}")
                       val ctorType = AST.Pi(
                         Vector(Telescope(packageFields, Implicitness.Explicit)),
                         AST.RecordTypeRef(recId, packageRecordName, span),
@@ -333,8 +335,9 @@ object ElaboratorBlocks:
                 val (wrapperRecordId, wrapperRecordStmtOpt, ctxWithWrapperRecord) = {
                   ctxWithPackageRecord.lookupRecord(wrapperRecordName) match
                     case Some(defn) =>
-                      val updated = ctxWithPackageRecord.updateRecord(wrapperRecordName, Vector(wrapperField))
-                      (defn.id, None, updated)
+                      val mergedFields = (defn.fields ++ Vector(wrapperField)).distinctBy(_.name)
+                      val updated = ctxWithPackageRecord.updateRecord(wrapperRecordName, mergedFields)
+                      (defn.id, Some(StmtAST.Record(defn.id, wrapperRecordName, mergedFields, span)), updated)
                     case None =>
                       val recId = Uniqid.make[AST]
                       val ctorTyCell = module.newOnceCell[ElabConstraint, AST](solver)

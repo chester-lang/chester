@@ -648,13 +648,6 @@ object ElabHandler extends Handler[ElabConstraint]:
         else {
           c.ctx.lookup(name) match
             case Some(id) =>
-              if c.ctx.extensionBindings.values.exists(_.contains(id)) then
-                c.ctx.reporter.report(ElabProblem.UnboundVariable(s"Extension method '$name' can only be called using dot method syntax", span))
-                val ast = AST.Ref(id, "<error>", span)
-                module.fill(solver, c.result, ast)
-                module.fill(solver, c.inferredTy, AST.Type(AST.LevelLit(0, None), None))
-                return Result.Done
-
               val ast = AST.Ref(id, name, span)
               module.fill(solver, c.result, ast)
               c.ctx.lookupType(id) match
@@ -664,8 +657,14 @@ object ElabHandler extends Handler[ElabConstraint]:
 
                   module.readStable(solver, tyCell) match
                     case Some(ty) =>
-
-                      module.fill(solver, c.inferredTy, ty)
+                      if !module.hasStableValue(solver, c.inferredTy) then
+                        module.fill(solver, c.inferredTy, ty)
+                      else
+                        val expectedTy = module.readStable(solver, c.inferredTy).get
+                        unify(expectedTy, ty, span, c.ctx) match
+                          case UnifyResult.Success => ()
+                          case UnifyResult.Failure(_) =>
+                            c.ctx.reporter.report(ElabProblem.TypeMismatch(expectedTy, ty, span))
                       Result.Done
                     case None =>
                       Result.Waiting(tyCell)
@@ -1213,11 +1212,21 @@ object ElabHandler extends Handler[ElabConstraint]:
           // Try to use a known binding type (if lhs is a symbol) before deferring
           lhs match
             case CST.Symbol(sym, _) =>
-              (for
+              val knownRecOpt = (for
                 id <- ctx.lookup(sym)
                 tyCell <- ctx.lookupType(id)
                 ty <- module.readStable(solver, tyCell)
-              yield (id, ty)) match
+              yield (id, ty)).orElse {
+                if ctx.jsImports.contains(sym) then
+                  val jsNameStr = JSImportSignature.recordTypeNameFor(sym)
+                  val goNameStr = s"GoImport_${GoImportSignature.normalizePackagePath(sym)}"
+                  ctx.lookupRecord(goNameStr).orElse(ctx.lookupRecord(jsNameStr)) match
+                    case Some(rec) => Some((rec.id, AST.RecordTypeRef(rec.id, rec.name, span)))
+                    case None => None
+                else None
+              }
+
+              knownRecOpt match
                 case Some((_, AST.RecordTypeRef(recId, _, _))) =>
                   ctx.lookupRecordById(recId).flatMap(_.fields.find(_.name == field)) match
                     case Some(param) => fillResultOnce(inferredTyCell, param.ty)
