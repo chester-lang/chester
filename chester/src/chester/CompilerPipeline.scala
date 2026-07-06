@@ -204,6 +204,7 @@ object CompilerPipeline {
           module.readStable(solver, cell).map(substituteSolutions(_)(using module, solver)).map(id -> _)
         }
         CoreTypeChecker.typeCheck(zonkedResult.get, solvedInitialTypes)(using elabReporter)
+        chester.tyck.UsageChecker.checkUsage(zonkedResult.get)(using elabReporter)
       }
 
       (zonkedResult, zonkedTy)

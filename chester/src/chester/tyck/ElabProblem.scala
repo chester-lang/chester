@@ -20,6 +20,7 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
   case UnknownEffect(name: String, override val span0: Option[Span]) extends ElabProblem(span0)
   case UnitValueUsedAsType(override val span0: Option[Span]) extends ElabProblem(span0)
   case InternalElaborationFailure(message: String, override val span0: Option[Span]) extends ElabProblem(span0)
+  case LinearityError(message: String, override val span0: Option[Span]) extends ElabProblem(span0)
 
   override def stage: Problem.Stage = Problem.Stage.TYCK
   override def severity: Problem.Severity = Problem.Severity.Error
@@ -39,4 +40,5 @@ enum ElabProblem(val span0: Option[Span]) extends Problem:
       Doc.text("Unit is the type; use Unit in type positions and () only as a value")
     case ElabProblem.InternalElaborationFailure(message, _) =>
       Doc.text(s"Internal elaboration failure: $message")
-
+    case ElabProblem.LinearityError(message, _) =>
+      Doc.text(s"Linearity/Usage error: $message")
