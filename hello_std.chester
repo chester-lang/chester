@@ -1,8 +1,0 @@
-def main(): Unit / [io] = {
-  print_str("Starting target-agnostic standard library test...");
-  let s = concat_str("The answer is: ", int_to_str(42));
-  print_str(s);
-  ()
-};
-
-main()

@@ -56,7 +56,6 @@ object CLI:
       content
     }
     println(s"Reading program from $filePathStr...")
-    java.nio.file.Files.writeString(Paths.get("cli_dump.chester"), fullContent)
     
     // Elaborate surface CST into typed AST with standard signatures preloaded
     val (astOpt, tyOpt, errors) = CompilerPipeline.elaborate(fullContent)

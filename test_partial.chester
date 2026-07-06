@@ -1,6 +1,0 @@
-def add(a: Integer, b: Integer): Integer = prim__int_add(a, b);
-def main(): Unit / [io] = {
-  let add5 = add(5);
-  go.fmt.Println(add5(10));
-  ()
-};

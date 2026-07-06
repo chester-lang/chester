@@ -1,8 +1,0 @@
-import go "fmt";
-
-def main(): Unit / [io] = {
-  go.fmt.Printf("Hello from Chester via Go FFI! The answer is %d\n", 42);
-  ()
-};
-
-main()

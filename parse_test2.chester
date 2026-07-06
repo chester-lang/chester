@@ -1,1 +1,0 @@
-extension def test_list_map[A, B](list: List A, f: (a: A) -> B): List B = prim__list_map[A, B](list, f);
