@@ -9,7 +9,7 @@ import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
-import chester.tyck.CoreTypeChecker.normalizeType
+import chester.tyck.ASTOps.normalizeType
 import cats.data.NonEmptyVector
 /** Elaboration context tracking bindings and types during CST to AST conversion */
 case class ElabContext(

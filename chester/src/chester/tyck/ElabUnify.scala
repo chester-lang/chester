@@ -9,7 +9,7 @@ import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
-import chester.tyck.CoreTypeChecker.normalizeType
+import chester.tyck.ASTOps.normalizeType
 import cats.data.NonEmptyVector
 /** Unification result following the paper's architecture */
 private enum UnifyResult:

@@ -9,7 +9,7 @@ import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
-import chester.tyck.CoreTypeChecker.normalizeType
+import chester.tyck.ASTOps.normalizeType
 import cats.data.NonEmptyVector
 /** Main elaborator object */
 object Elaborator:
@@ -171,4 +171,4 @@ object Elaborator:
     elaborate(cst, ctx.reporter, Some(ctx))(using ProceduralSolverModule)
 
   /** Expose normalizeType for tests and downstream utilities. */
-  def normalizeType(ast: AST): AST = CoreTypeChecker.normalizeType(ast)
+  def normalizeType(ast: AST): AST = ASTOps.normalizeType(ast)

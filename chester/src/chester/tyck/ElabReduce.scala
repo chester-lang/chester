@@ -9,7 +9,7 @@ import chester.uniqid.{Uniqid, UniqidOf}
 import chester.utils.elab.*
 import chester.utils.{HoldNotReadable, given}
 import chester.utils.doc.{<>, Doc, DocConf, DocOps, StringPrinter, ToDoc, given}
-import chester.tyck.CoreTypeChecker.normalizeType
+import chester.tyck.ASTOps.normalizeType
 import cats.data.NonEmptyVector
 /** Reduce (normalize) a term by performing beta-reduction. Following the paper's recommendation (Section 7.5), we reduce before unification. This
   * handles lambda applications.
