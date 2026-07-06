@@ -2,7 +2,7 @@ package chester
 
 object TestFindDefExtension {
   def main(args: Array[String]): Unit = {
-    val stdlib = CLI.loadStdlib("go")
+    val stdlib = CompilerPipeline.loadStdlib("go")
     val content = java.nio.file.Files.readString(java.nio.file.Paths.get("test_extension.chester"))
     val fullContent = stdlib + "\n" + content
     

@@ -27,14 +27,14 @@ class EndToEndTest extends munit.FunSuite {
       |};
       |""".stripMargin
 
-    val stdlibContent = CLI.loadStdlib(target)
+    val stdlibContent = CompilerPipeline.loadStdlib(target)
     val fullContent = if (stdlibContent.nonEmpty) {
       stdlibContent + "\n" + content
     } else {
       content
     }
 
-    val (astOpt, tyOpt, errors) = CLI.elaborate(fullContent)
+    val (astOpt, tyOpt, errors) = CompilerPipeline.elaborate(fullContent)
     
     if (errors.nonEmpty) {
       fail(s"Elaboration failed with errors:\n${errors.mkString("\n")}")
