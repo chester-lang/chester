@@ -10,7 +10,10 @@ enum CommentKind derives ReadWriter:
   case Line
   case Block
 
-enum CST(val span: Option[Span]) extends SpanOptional derives ReadWriter:
+import chester.utils.doc.{Doc, DocConf, ToDoc}
+
+enum CST(val span: Option[Span]) extends ToDoc with SpanOptional derives ReadWriter:
+  override def toDoc(using conf: DocConf): Doc = Formatter.toDoc(this)
   case Symbol(name: String, override val span: Option[Span]) extends CST(span)
   case Tuple(elements: Vector[CST], override val span: Option[Span]) extends CST(span)
   case ListLiteral(elements: Vector[CST], override val span: Option[Span]) extends CST(span)

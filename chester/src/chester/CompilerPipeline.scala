@@ -46,6 +46,20 @@ object CompilerPipeline {
     (core + "\n" + targetSpecific).trim
   }
 
+  def format(content: String): Option[String] = {
+    given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
+    val source = Source(FileNameAndContent("file.chester", content))
+    val parsed = for
+      chars <- CharReader.read(source)
+      tokens <- Tokenizer.tokenize(chars)
+    yield Parser.parseFile(tokens)
+
+    parsed match {
+      case Right(cst) => Some(Formatter.format(cst))
+      case Left(_) => None
+    }
+  }
+
   def elaborate(content: String): (Option[AST], Option[AST], Vector[ElabProblem]) = {
     given parseReporter: VectorReporter[ParseError] = new VectorReporter[ParseError]()
     given elabReporter: VectorReporter[ElabProblem] = new VectorReporter[ElabProblem]()

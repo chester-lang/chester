@@ -18,11 +18,13 @@ object CLI:
   def main(args: Array[String]): Unit = {
     var filePathStr: String = ""
     var run = false
+    var format = false
     var target = "go"
     var i = 0
     while (i < args.length) {
       args(i) match {
         case "--run" => run = true
+        case "--format" => format = true
         case "--target" if i + 1 < args.length =>
           target = args(i + 1)
           i += 1
@@ -37,7 +39,7 @@ object CLI:
     }
 
     if (filePathStr.isEmpty) {
-      println("Usage: mill chester.run [file.chester] [--target go|ts|java] [--run]")
+      println("Usage: mill chester.run [file.chester] [--target go|ts|java] [--run] [--format]")
       return
     }
 
@@ -48,6 +50,18 @@ object CLI:
     }
 
     val content = Files.readString(path)
+
+    if (format) {
+      CompilerPipeline.format(content) match {
+        case Some(formatted) =>
+          println(formatted)
+        case None =>
+          System.err.println("Formatting failed: parse error.")
+          System.exit(1)
+      }
+      return
+    }
+
     val stdlibContent = CompilerPipeline.loadStdlib(target)
     val fullContent = if (stdlibContent.nonEmpty) {
       println(s"Loading standard library for target $target...")
