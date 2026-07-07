@@ -124,8 +124,6 @@ private def renderToDocWithSource(p: Problem)(using options: DocConf, sourceRead
 
       baseDoc <|> locationHeader <|> codeBlock
 
-      baseDoc
-
     case None =>
       baseDoc
   }

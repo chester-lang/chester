@@ -76,7 +76,14 @@ object CLI:
     
     if (errors.nonEmpty) {
       System.err.println("Elaboration failed with the following errors:")
-      errors.foreach(err => System.err.println(s"  - $err"))
+      import chester.utils.doc.DocConf
+      import chester.error.SourceReader
+      import chester.error.renderDoc
+      given DocConf = DocConf.Default
+      val sr = SourceReader.default
+      errors.foreach { err => 
+        System.err.println(err.renderDoc(using DocConf.Default, sr).layout(0))
+      }
       System.exit(1)
     }
 
