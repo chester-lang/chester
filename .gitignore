@@ -21,3 +21,4 @@ result-*
 extraction/Compiler.ml
 extraction/Compiler.mli
 _build/
+out/
