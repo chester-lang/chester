@@ -35,6 +35,11 @@ Fixpoint eq_ast (t1 t2 : AST) : bool :=
       (* naive string eq for binder, realistically needs De Bruijn or alpha equivalence *)
       String.eqb n1 n2 && eq_ast ty1 ty2 && eq_ast ret1 ret2
   | AstMeta m1, AstMeta m2 => Nat.eqb m1 m2
+  | AstLet _ _ _, AstLet _ _ _ => false
+  | AstIf _ _ _, AstIf _ _ _ => false
+  | AstDef _ _ _ _ _, AstDef _ _ _ _ _ => false
+  | AstEnum _ _ _, AstEnum _ _ _ => false
+  | AstRecord _ _ _, AstRecord _ _ _ => false
   | _, _ => false (* Simplified for demonstration *)
   end.
 
@@ -126,6 +131,11 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       | TyErr e => TyErr e
       end
       
+  | AstLet name value body => TyErr "Let not implemented in checker"
+  | AstIf cond thenB elseB => TyErr "If not implemented in checker"
+  | AstDef _ _ _ _ _ => TyErr "Def not implemented in checker"
+  | AstEnum _ _ _ => TyErr "Enum not implemented in checker"
+  | AstRecord _ _ _ => TyErr "Record not implemented in checker"
   | AstMeta _ => TyErr "Core Checker: Encountered unsolved metavariable"
   | _ => TyErr "Unsupported AST node for checker"
   end.

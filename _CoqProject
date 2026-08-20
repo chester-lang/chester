@@ -3,7 +3,9 @@ CST.v
 AST.v
 TypeScriptAST.v
 GoAST.v
+Tokenizer.v
 Parser.v
 CoreChecker.v
 Elaborator.v
 Backend.v
+Extract.v

@@ -49,6 +49,13 @@ Inductive AST : Type :=
   | AstDo : AST -> list AST -> AST (* perform an effect operation *)
   | AstHandle : AST -> EffectRef -> list (string * AST) -> AST
   
+  (* New nodes for stdlib/bootstrap *)
+  | AstLet : string -> AST -> AST -> AST (* name, value, body *)
+  | AstIf : AST -> AST -> AST -> AST (* cond, then, else *)
+  | AstDef : string -> list string -> list (string * AST) -> AST -> AST -> AST (* name, type_params, params, ret_ty, body *)
+  | AstEnum : string -> list string -> list (string * list AST) -> AST (* name, type_params, variants *)
+  | AstRecord : string -> list string -> list (string * AST) -> AST (* name, type_params, fields *)
+  
   (* A meta variable or hole, indexed by its unique ID *)
   | AstMeta : MetaId -> AST
   

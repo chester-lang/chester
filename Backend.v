@@ -31,6 +31,11 @@ Fixpoint emit_ts (expr : AST) {struct expr} : TypeScriptAST :=
   | AstPi argName argTy retTy effs => TsRaw ("(" ++ argName ++ ": any) => any")
   | AstDo op args => TsAwait (TsCall (emit_ts op) (map_ts args))
   | AstHandle action eff handlers => TsRaw ("/* handle */")
+  | AstLet name value body => TsRaw ("/* let " ++ name ++ " */")
+  | AstIf cond thenB elseB => TsRaw "/* if */"
+  | AstDef name _ _ _ _ => TsRaw ("/* def " ++ name ++ " */")
+  | AstEnum name _ _ => TsRaw ("/* enum " ++ name ++ " */")
+  | AstRecord name _ _ => TsRaw ("/* record " ++ name ++ " */")
   | AstMeta id => TsRaw ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => TsRaw ("/* ERROR: " ++ e ++ " */")
   end.
@@ -56,6 +61,11 @@ Fixpoint emit_go (expr : AST) {struct expr} : GoAST :=
   | AstPi argName argTy retTy effs => GoRaw ("func(" ++ argName ++ " interface{}) interface{}")
   | AstDo op args => GoCall (emit_go op) (map_go args)
   | AstHandle action eff handlers => GoRaw ("/* handle */")
+  | AstLet name value body => GoRaw ("/* let " ++ name ++ " */")
+  | AstIf cond thenB elseB => GoRaw "/* if */"
+  | AstDef name _ _ _ _ => GoRaw ("/* def " ++ name ++ " */")
+  | AstEnum name _ _ => GoRaw ("/* enum " ++ name ++ " */")
+  | AstRecord name _ _ => GoRaw ("/* record " ++ name ++ " */")
   | AstMeta id => GoRaw ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => GoRaw ("/* ERROR: " ++ e ++ " */")
   end.

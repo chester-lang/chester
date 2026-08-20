@@ -1,0 +1,4 @@
+(library
+ (name compiler_lib)
+ (modules Compiler)
+ (flags (:standard -w -8-39)))

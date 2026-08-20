@@ -124,5 +124,10 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       | _ => throw "Internal error"
       end
       
+  | LetCST _ _ _ _ => throw "LetCST not implemented in elaborator"
+  | IfCST _ _ _ _ => throw "IfCST not implemented in elaborator"
+  | DefCST _ _ _ _ _ _ => throw "DefCST not implemented in elaborator"
+  | EnumCST _ _ _ _ => throw "EnumCST not implemented in elaborator"
+  | RecordCST _ _ _ _ => throw "RecordCST not implemented in elaborator"
   | _ => throw "Unsupported CST node for elaboration"
   end.

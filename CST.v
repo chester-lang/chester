@@ -37,6 +37,12 @@ Inductive CST : Type :=
   | StringLiteral : string -> Span -> CST
   | IntegerLiteral : string -> Span -> CST
   | SeqOf : list CST -> Span -> CST
+  (* New nodes for stdlib/bootstrap *)
+  | LetCST : string -> CST -> CST -> Span -> CST (* name, value, body/next_stmt *)
+  | IfCST : CST -> CST -> CST -> Span -> CST (* cond, then_branch, else_branch *)
+  | DefCST : string -> list string -> list CST -> CST -> CST -> Span -> CST (* name, type_params, params, ret_ty, body *)
+  | EnumCST : string -> list string -> list CST -> Span -> CST (* name, type_params, variants *)
+  | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
   | Error : string -> Span -> CST.
 
 Definition zero_utf16 := mkWithUTF16 0 0.
