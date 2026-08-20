@@ -48,16 +48,24 @@ Definition fresh_meta : ElabM AST :=
       ret (AstMeta n)
   end.
 
-Definition TypeEnv := list (string * AST).
-
-Fixpoint zonk (a : AST) : AST :=
-  a.
+Definition TypeEnv := list ((string * list nat) * AST).
+Fixpoint zonk (a : AST) : AST := a.
 Definition init_elab_state := mkElabState 0.
-Fixpoint lookup_type (name : string) (env : TypeEnv) : option AST :=
+
+Fixpoint list_nat_eq (l1 l2 : list nat) : bool :=
+  match l1, l2 with
+  | [], [] => true
+  | x::xs, y::ys => if Nat.eqb x y then list_nat_eq xs ys else false
+  | _, _ => false
+  end.
+
+Fixpoint lookup_type (name : string) (ctx : list nat) (env : TypeEnv) : option AST :=
   match env with
   | [] => None
-  | (n, ty) :: rest =>
-      if string_dec name n then Some ty else lookup_type name rest
+  | ((n, c), ty) :: rest =>
+      if string_dec name n then 
+        if list_nat_eq ctx c then Some ty else lookup_type name ctx rest
+      else lookup_type name ctx rest
   end.
 
 Definition StringType := AstRef "String".
@@ -73,8 +81,8 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) : ElabM unit :=
 
 Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct expr} : ElabM (AST * AST) :=
   match expr with
-  | Symbol name _ =>
-      match lookup_type name env with
+  | Symbol name span =>
+      match lookup_type name (context span) env with
       | Some ty => 
           match expected with
           | Some exp => unify 100 ty exp ;; ret (AstRef name, ty)
@@ -131,19 +139,19 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
           end;; ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
       end
   | Block stmts ret_expr _ => 
-      let fix map_elabs (current_env : list (string * AST)) (ls : list CST) : ElabM (list AST * list (string * AST)) :=
+      let fix map_elabs (current_env : TypeEnv) (ls : list CST) : ElabM (list AST * TypeEnv) :=
         match ls with
         | [] => ret ([], current_env)
         | x :: xs => 
             match x with
-            | LetCST name value _ _ =>
+            | LetCST name value _ span =>
                 valueAst <- elaborate current_env value None ;
-                let new_env := (name, snd valueAst) :: current_env in
+                let new_env := ((name, context span), snd valueAst) :: current_env in
                 rest <- map_elabs new_env xs ;
                 ret (AstLet name (fst valueAst) :: fst rest, snd rest)
-            | DefCST name _ _ ret_ty _ _ =>
+            | DefCST name _ _ ret_ty _ span =>
                 tyAst <- elaborate current_env ret_ty (Some TypeUniverse) ;
-                let new_env := (name, fst tyAst) :: current_env in
+                let new_env := ((name, context span), fst tyAst) :: current_env in
                 res <- elaborate current_env x None ;
                 rest <- map_elabs new_env xs ;
                 ret (fst res :: fst rest, snd rest)
@@ -160,9 +168,9 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       retAst <- elaborate final_env ret_expr None ;
       ret (AstBlock stmtsAst (fst retAst), snd retAst)
   
-  | LetCST name value body _ =>
+  | LetCST name value body span =>
       valueAst <- elaborate env value None ;
-      bodyAst <- elaborate ((name, snd valueAst) :: env) body expected ;
+      bodyAst <- elaborate (((name, context span), snd valueAst) :: env) body expected ;
       ret (AstBlock [AstLet name (fst valueAst)] (fst bodyAst), snd bodyAst)
       
   | IfCST cond thenB elseB _ =>
@@ -171,7 +179,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       elseAst <- elaborate env elseB expected ;
       ret (AstIf (fst condAst) (fst thenAst) (fst elseAst), snd thenAst)
       
-  | DefCST name type_params params ret_ty body _ =>
+  | DefCST name type_params params ret_ty body span =>
       let fix map_params (ps : list (string * CST)) : ElabM (list (string * AST)) :=
         match ps with
         | [] => ret []
@@ -185,7 +193,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       let fix build_env (ps : list (string * AST)) (env0 : TypeEnv) {struct ps} : TypeEnv :=
         match ps with
         | [] => env0
-        | (pname, pty) :: rest => build_env rest ((pname, pty) :: env0)
+        | (pname, pty) :: rest => build_env rest (((pname, context span), pty) :: env0)
         end
       in
       let body_env := build_env paramsAst env in
@@ -193,12 +201,12 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       bodyAst <- elaborate body_env body (Some (fst retAst)) ;
       ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), AstRef "Unit")
 
-  | LamCST arg_name opt_arg_ty body _ =>
+  | LamCST arg_name opt_arg_ty body span =>
       argTyAst <- (match opt_arg_ty with
                    | Some ty => elaborate env ty (Some TypeUniverse)
                    | None => m <- fresh_meta ; ret (m, TypeUniverse)
                    end) ;
-      bodyAst <- elaborate ((arg_name, fst argTyAst) :: env) body None ;
+      bodyAst <- elaborate (((arg_name, context span), fst argTyAst) :: env) body None ;
       let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) [] in
       ret (AstLam arg_name (fst argTyAst) (fst bodyAst), arrTy)
 
@@ -285,17 +293,17 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         | (PatWildcardCST _, body) :: _ =>
             bodyAst <- elaborate env body expected ;
             ret ([(PatWildcard, fst bodyAst)], snd bodyAst)
-        | (PatVarCST v _, body) :: _ =>
+        | (PatVarCST v span, body) :: _ =>
             m <- fresh_meta ;
-            bodyAst <- elaborate ((v, m) :: env) body expected ;
+            bodyAst <- elaborate (((v, context span), m) :: env) body expected ;
             ret ([(PatVar v, fst bodyAst)], snd bodyAst)
-        | (PatConstructorCST name vars _, body) :: _ =>
+        | (PatConstructorCST name vars span, body) :: _ =>
             let fix add_vars (vs : list string) (e : TypeEnv) {struct vs} : ElabM TypeEnv :=
               match vs with
               | [] => ret e
               | v :: rest_vs =>
                   m <- fresh_meta ;
-                  add_vars rest_vs ((v, m) :: e)
+                  add_vars rest_vs (((v, context span), m) :: e)
               end
             in
             case_env <- add_vars vars env ;
@@ -344,6 +352,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       ret (AstTuple (fst elemsRes), snd elemsRes)
 
   | CommentCST msg _ => ret (AstRef "Unit", AstRef "Unit")
+  | MacroDefCST _ _ _ => throw "MacroDefCST reached Elaborator"
   | Error msg _ => throw msg
 
   | RecordCST name type_params fields _ => 

@@ -161,7 +161,7 @@ def expand_cst(c: CST): CST = {
 };
 
 def expander_main(): Any = {
-  let cst = CST.Symbol("test", Span(0,0));
+  let cst = CST.Symbol("test", Span(0, 0, list_empty[Integer]()));
   expand_cst(cst)
 };
 

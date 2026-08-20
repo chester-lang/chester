@@ -19,6 +19,7 @@ let make_span file_name start_idx _end_idx =
   {
     file_name = char_list_of_string file_name;
     range = { start_pos = pos; end_pos = pos };
+    context = [];
   }
 
 let tokenize filename source =

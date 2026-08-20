@@ -10,7 +10,8 @@ enum TokenKind {
 
 record Span(
   start: Integer,
-  end: Integer
+  end: Integer,
+  context: List (Integer)
 );
 
 record Token(
@@ -116,7 +117,7 @@ def check_keyword(text: String): TokenKind = {
 
 def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): List (Token) = {
   if int_eq(idx, len)
-  then list_append(acc, Token(TokenKind.EOF, "", Span(idx, idx)))
+  then list_append(acc, Token(TokenKind.EOF, "", Span(idx, idx, list_empty[Integer]())))
   else {
     let c = string_char_at(source, idx);
     if is_whitespace(c)
@@ -128,14 +129,14 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
     then {
       let end_idx = lex_number(source, idx, len);
       let text    = string_substring(source, idx, end_idx);
-      let tok     = Token(TokenKind.IntegerLit, text, Span(idx, end_idx));
+      let tok     = Token(TokenKind.IntegerLit, text, Span(idx, end_idx, list_empty[Integer]()));
       lex_helper(source, end_idx, len, list_append(acc, tok))
     }
     else if string_eq(c, "\"")
     then {
       let end_idx = lex_string(source, idx + 1, len);
       let text    = string_substring(source, idx + 1, end_idx - 1);
-      let tok     = Token(TokenKind.StringLit, text, Span(idx, end_idx));
+      let tok     = Token(TokenKind.StringLit, text, Span(idx, end_idx, list_empty[Integer]()));
       lex_helper(source, end_idx, len, list_append(acc, tok))
     }
     else if is_symbol(c)
@@ -143,11 +144,11 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
       let next_c = string_char_at(source, idx + 1);
       if bool_and(string_eq(c, "="), string_eq(next_c, "="))
       then {
-        let tok = Token(TokenKind.Symbol("=="), "==", Span(idx, idx + 2));
+        let tok = Token(TokenKind.Symbol("=="), "==", Span(idx, idx + 2, list_empty[Integer]()));
         lex_helper(source, idx + 2, len, list_append(acc, tok))
       }
       else {
-        let tok = Token(TokenKind.Symbol(c), c, Span(idx, idx + 1));
+        let tok = Token(TokenKind.Symbol(c), c, Span(idx, idx + 1, list_empty[Integer]()));
         lex_helper(source, idx + 1, len, list_append(acc, tok))
       }
     }
@@ -155,7 +156,7 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
       let end_idx = lex_identifier(source, idx, len);
       let text    = string_substring(source, idx, end_idx);
       let kind    = check_keyword(text);
-      let tok     = Token(kind, text, Span(idx, end_idx));
+      let tok     = Token(kind, text, Span(idx, end_idx, list_empty[Integer]()));
       lex_helper(source, end_idx, len, list_append(acc, tok))
     }
   }

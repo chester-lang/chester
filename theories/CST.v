@@ -25,7 +25,8 @@ Record SpanInFile : Type := mkSpanInFile {
 (* The final Span keeps track of the file name and the range within it *)
 Record Span : Type := mkSpan {
   file_name : string;
-  range : SpanInFile
+  range : SpanInFile;
+  context : list nat
 }.
 
 Inductive PatternCST : Type :=
@@ -55,15 +56,16 @@ Inductive CST : Type :=
   | MatchCST : CST -> list (PatternCST * CST) -> Span -> CST (* expr, cases *)
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
   | FieldAccessCST : CST -> string -> Span -> CST (* expr, field_name *)
+  | MacroDefCST : string -> list (PatternCST * CST) -> Span -> CST (* name, cases *)
   | Error : string -> Span -> CST.
 
 Definition zero_utf16 := mkWithUTF16 0 0.
-Definition zero_pos := mkPos zero_utf16 0 zero_utf16.
-Definition empty_span := mkSpan "" (mkSpanInFile zero_pos zero_pos).
+Definition zero_pos := mkPos (mkWithUTF16 0 0) 1 (mkWithUTF16 0 0).
+Definition empty_span := mkSpan "" (mkSpanInFile zero_pos zero_pos) [].
 
 (* Combines two spans (assumes they are from the same file) *)
 Definition combine_span (s1 s2 : Span) : Span :=
-  mkSpan (file_name s1) (mkSpanInFile (start_pos (range s1)) (end_pos (range s2))).
+  mkSpan (file_name s1) (mkSpanInFile (start_pos (range s1)) (end_pos (range s2))) (context s1).
 
 (* Example: parsing `def main(): Unit = { println("hello") }` 
    This would be represented as a SeqOf containing the symbols and structures *)

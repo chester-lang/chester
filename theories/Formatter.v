@@ -124,6 +124,8 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
           
       | FieldAccessCST expr field _ =>
           format_cst f indent expr ++ "." ++ field
+      | MacroDefCST name cases _ =>
+          "macro " ++ name ++ " { ... }"
           
       | Error msg _ => "/* ERROR: " ++ msg ++ " */"
       end
