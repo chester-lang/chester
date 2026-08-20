@@ -2,10 +2,30 @@ From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
 Import ListNotations.
 
-(* A basic span to keep track of source positions *)
+(* Keeps track of both Unicode scalar characters and UTF-16 code units.
+   Important for interop with IDEs and environments that use UTF-16 strings (e.g. JS/TS). *)
+Record WithUTF16 : Type := mkWithUTF16 {
+  unicode : nat;
+  utf16 : nat
+}.
+
+(* Represents a position in a source file *)
+Record Pos : Type := mkPos {
+  index : WithUTF16;
+  line : nat;
+  column : WithUTF16
+}.
+
+(* Represents a range within a file *)
+Record SpanInFile : Type := mkSpanInFile {
+  start_pos : Pos;
+  end_pos : Pos
+}.
+
+(* The final Span keeps track of the file name and the range within it *)
 Record Span : Type := mkSpan {
-  start_pos : nat;
-  end_pos : nat
+  file_name : string;
+  range : SpanInFile
 }.
 
 (* The Universal Concrete Syntax Tree (CST) for Chester *)
@@ -19,8 +39,13 @@ Inductive CST : Type :=
   | SeqOf : list CST -> Span -> CST
   | Error : string -> Span -> CST.
 
-(* Example of an empty span *)
-Definition empty_span := mkSpan 0 0.
+Definition zero_utf16 := mkWithUTF16 0 0.
+Definition zero_pos := mkPos zero_utf16 0 zero_utf16.
+Definition empty_span := mkSpan "" (mkSpanInFile zero_pos zero_pos).
+
+(* Combines two spans (assumes they are from the same file) *)
+Definition combine_span (s1 s2 : Span) : Span :=
+  mkSpan (file_name s1) (mkSpanInFile (start_pos (range s1)) (end_pos (range s2))).
 
 (* Example: parsing `def main(): Unit = { println("hello") }` 
    This would be represented as a SeqOf containing the symbols and structures *)
