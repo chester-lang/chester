@@ -74,7 +74,7 @@ let () =
               print_endline (string_of_char_list (stringify_ts (emit_ts record_ast)));
               
   print_endline "\n[Error Recovery Parser Test]";
-  let source = "let x = 5; y; @@; z; 42" in
+  let source = "let x = 5; def foo(a, b) = { a + b }; [1, 2, 3];" in
   let tokens = Lexer.tokenize "test_error.chester" source in
   let cst = parse tokens in
   print_endline (string_of_char_list (format_cst 100 0 cst))

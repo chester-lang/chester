@@ -62,8 +62,7 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
           
       | SeqOf elements _ =>
           let formatted_elems := map (format_cst f indent) elements in
-          let nl_indent := String (ascii_of_nat 10) (gen_spaces indent) in
-          join_strings nl_indent formatted_elems
+          join_strings " " formatted_elems
           
       | LetCST name val body _ =>
           "let " ++ name ++ " = " ++ format_cst f indent val ++ ";" ++ 
