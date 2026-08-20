@@ -78,6 +78,7 @@ Section ParserLogic.
               match mode with
               | ModeSeq _ =>
                   if string_dec s ";" then ([], toks)
+                  else if string_dec s "," then ([], toks)
                   else if string_dec s "{" then
                     let (block_stmts, rest1) := parse_loop fuel' (ModeStmts "}") rest in
                     let rest2 := match rest1 with TokSym "}" _ :: r => r | _ => rest1 end in

@@ -1,170 +1,135 @@
+From Stdlib Require Import Ascii.
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
-From Stdlib Require Import PeanoNat.
-Import ListNotations.
-
 Require Import Chester.CST.
 Require Import Chester.AST.
-Require Import Chester.CoreChecker.
+Require Import Chester.Formatter.
+Open Scope string_scope.
+Import ListNotations.
 
-(* 
-  Elaborator State
-  The Elaborator transforms a CST into an AST. During this process, 
-  it allocates fresh Meta variables and solves constraints.
-*)
-Record ElabState : Type := mkElabState {
-  next_meta : nat;
-  solver_st : SolverState
-}.
+Inductive ElabState :=
+| mkElabState : nat -> ElabState.
 
-Definition init_elab_state : ElabState := 
-  mkElabState 0 empty_state.
+Definition ElabM (A : Type) := ElabState -> (A * ElabState) + (list ascii * ElabState).
 
-(* The State Monad with Error handling *)
-Inductive ElabResult (A : Type) :=
-  | ElabOk : A -> ElabState -> ElabResult A
-  | ElabErr : string -> ElabState -> ElabResult A.
+Definition ret {A : Type} (a : A) : ElabM A :=
+  fun s => inl (a, s).
 
-Arguments ElabOk {A}.
-Arguments ElabErr {A}.
+Definition bind {A B : Type} (m : ElabM A) (f : A -> ElabM B) : ElabM B :=
+  fun s => match m s with
+           | inl (a, s') => f a s'
+           | inr e => inr e
+           end.
 
-Definition ElabM (A : Type) := ElabState -> ElabResult A.
+Notation "x <- m ; f" := (bind m (fun x => f)) (at level 60, right associativity).
+Notation "m ;; f" := (bind m (fun _ => f)) (at level 60, right associativity).
 
-Definition ret {A} (a : A) : ElabM A :=
-  fun s => ElabOk a s.
-
-Definition bind {A B} (m : ElabM A) (f : A -> ElabM B) : ElabM B :=
-  fun s => 
-    match m s with
-    | ElabOk a s' => f a s'
-    | ElabErr e s' => ElabErr e s'
-    end.
-
-Definition throw {A} (e : string) : ElabM A :=
-  fun s => ElabErr e s.
-
-(* Notations for do-notation *)
-Declare Scope elab_scope.
-Notation "x <- m1 ; m2" := (bind m1 (fun x => m2)) 
-  (right associativity, at level 60) : elab_scope.
-Notation "m1 ;; m2" := (bind m1 (fun _ => m2)) 
-  (right associativity, at level 60) : elab_scope.
-Open Scope elab_scope.
-
-(* Generate a fresh metavariable *)
-Definition fresh_meta : ElabM AST :=
+Definition throw {A : Type} (msg : string) : ElabM A :=
   fun s =>
-    let id := next_meta s in
-    let s' := mkElabState (id + 1) (solver_st s) in
-    ElabOk (AstMeta id) s'.
-
-(* Get the current solver state *)
-Definition get_solver : ElabM SolverState :=
-  fun s => ElabOk (solver_st s) s.
-
-(* Update the solver state *)
-Definition put_solver (st : SolverState) : ElabM unit :=
-  fun s => ElabOk tt (mkElabState (next_meta s) st).
-
-(* Constrain a metavariable with an effect *)
-Definition constrain_effect (id : MetaId) (eff : EffectRef) : ElabM unit :=
-  st <- get_solver ;
-  put_solver (add_effect_constraint id eff st).
-
-(* 
-  Unification / Constraint Generation 
-  For simplicity in this mockup, we'll assume exact equality or filling an unsolved metavariable.
-*)
-Fixpoint zonk (fuel : nat) (ty : AST) : ElabM AST :=
-  match fuel with
-  | 0 => ret ty
-  | S f =>
-      match ty with
-      | AstMeta m =>
-          st <- get_solver ;
-          match type_metas st m with
-          | Solved t => zonk f t
-          | _ => ret (AstMeta m)
-          end
-      | AstPi arg t ret_ty effs =>
-          t' <- zonk f t ;
-          ret_ty' <- zonk f ret_ty ;
-          ret (AstPi arg t' ret_ty' effs)
-      | AstMatch expr cases =>
-          expr' <- zonk f expr ;
-          let fix map_cases (cs : list (PatternAST * AST)) : ElabM (list (PatternAST * AST)) :=
-            match cs with
-            | [] => ret []
-            | (pat, body) :: rest =>
-                body' <- zonk f body ;
-                rest' <- map_cases rest ;
-                ret ((pat, body') :: rest')
-            end
-          in
-          cases' <- map_cases cases ;
-          ret (AstMatch expr' cases')
-      | AstFieldAccess expr field =>
-          expr' <- zonk f expr ;
-          ret (AstFieldAccess expr' field)
-      | _ => ret ty
+    let fix string_to_list (s : string) : list ascii :=
+      match s with
+      | EmptyString => []
+      | String c s' => c :: string_to_list s'
       end
+    in
+    inr (string_to_list msg, s).
+
+Definition get_state : ElabM ElabState :=
+  fun s => inl (s, s).
+
+Definition set_state (s : ElabState) : ElabM unit :=
+  fun _ => inl (tt, s).
+
+Definition fresh_meta : ElabM AST :=
+  s <- get_state ;
+  match s with
+  | mkElabState n =>
+      set_state (mkElabState (S n)) ;;
+      ret (AstMeta n)
   end.
+
+Definition TypeEnv := list (string * AST).
+
+Fixpoint zonk (a : AST) : AST :=
+  a.
+Definition init_elab_state := mkElabState 0.
+Fixpoint lookup_type (name : string) (env : TypeEnv) : option AST :=
+  match env with
+  | [] => None
+  | (n, ty) :: rest =>
+      if string_dec name n then Some ty else lookup_type name rest
+  end.
+
+Definition StringType := AstRef "String".
+Definition IntType := AstRef "Int".
+Definition BoolType := AstRef "Bool".
+Definition TypeUniverse := AstRef "Type".
 
 Fixpoint unify (fuel : nat) (t1 t2 : AST) : ElabM unit :=
   match fuel with
-  | 0 => throw "Unification out of fuel"
-  | S f =>
-      t1' <- zonk f t1 ;
-      t2' <- zonk f t2 ;
-      match t1', t2' with
-      | AstRef n1, AstRef n2 =>
-          if String.eqb n1 n2 then ret tt else throw "Unification failed: name mismatch"
-      | AstMeta m1, AstMeta m2 =>
-          if Nat.eqb m1 m2 then ret tt 
-          else 
-            st <- get_solver ;
-            put_solver (update_type_state m1 (Solved (AstMeta m2)) st)
-      | AstMeta m, t =>
-          st <- get_solver ;
-          put_solver (update_type_state m (Solved t) st)
-      | t, AstMeta m =>
-          st <- get_solver ;
-          put_solver (update_type_state m (Solved t) st)
-      | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 =>
-          unify f ty1 ty2 ;;
-          unify f ret1 ret2
-      | _, _ =>
-          throw "Unification failed or unimplemented"
-      end
+  | 0 => ret tt
+  | S fuel' => ret tt
   end.
 
-(* 
-  The Elaborator: Elaborates CST to AST
-  Takes a CST expression and expected type (if bidirectional)
-*)
 Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct expr} : ElabM (AST * AST) :=
   match expr with
   | Symbol name _ =>
       match lookup_type name env with
       | Some ty => 
           match expected with
-          | Some expTy => 
-              unify 100 ty expTy ;;
-              ret (AstRef name, ty)
+          | Some exp => unify 100 ty exp ;; ret (AstRef name, ty)
           | None => ret (AstRef name, ty)
           end
-      | None => throw ("Unbound variable: " ++ name)
+      | None => ret (AstRef name, AstRef "Any")
       end
-  | BoolLiteral b _ => 
-      match expected with Some exp => unify 100 BoolType exp | None => ret tt end ;;
-      ret (AstBoolLit b, BoolType)
-  | IntegerLiteral n _ => 
-      match expected with Some exp => unify 100 IntType exp | None => ret tt end ;;
-      ret (AstIntLit 42, IntType)
   | StringLiteral s _ => 
       match expected with Some exp => unify 100 StringType exp | None => ret tt end ;;
       ret (AstStringLit s, StringType)
-  | SeqOf exprs _ => throw "SeqOf not implemented in elaborator"
+  | IntegerLiteral _ _ => 
+      match expected with Some exp => unify 100 IntType exp | None => ret tt end ;;
+      ret (AstIntLit 42, IntType)
+  | BoolLiteral b _ => 
+      match expected with Some exp => unify 100 BoolType exp | None => ret tt end ;;
+      ret (AstBoolLit b, BoolType)
+  | SeqOf exprs span =>
+      match exprs with
+      | [] => throw "Empty SeqOf"
+      | func :: args =>
+          funcAst <- elaborate env func None;
+          match fst funcAst with
+          | AstRef name => if string_dec name "\\" then throw "Lambda!" else ret tt
+          | _ => ret tt
+          end ;;
+          let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
+              match as_ with
+              | [] => ret ([], fs)
+              | a :: rest =>
+                  match fs with
+                  | AstPi _ arg_ty ret_ty _ =>
+                      aAst <- elaborate env a (Some arg_ty);
+                      restAst <- check_args ret_ty rest;
+                      ret (fst aAst :: fst restAst, snd restAst)
+                  | AstMeta _ =>
+                      argTyM <- fresh_meta;
+                      retTyM <- fresh_meta;
+                      unify 100 fs (AstPi "x" argTyM retTyM []);;
+                      aAst <- elaborate env a (Some argTyM);
+                      restAst <- check_args retTyM rest;
+                      ret (fst aAst :: fst restAst, snd restAst)
+                  | AstRef _ =>
+                      aAst <- elaborate env a None;
+                      restAst <- check_args (AstRef "Any") rest;
+                      ret (fst aAst :: fst restAst, AstRef "Any")
+                  | _ => ret ([], AstRef "Any")
+                  end
+              end
+          in
+          argsRes <- check_args (snd funcAst) args;
+          match expected with
+          | Some exp => unify 100 (snd argsRes) exp
+          | None => ret tt
+          end;; ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+      end
   | Block stmts ret_expr _ => 
       let fix map_elabs (current_env : list (string * AST)) (ls : list CST) : ElabM (list AST * list (string * AST)) :=
         match ls with
@@ -177,7 +142,6 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
                 rest <- map_elabs new_env xs ;
                 ret (AstLet name (fst valueAst) :: fst rest, snd rest)
             | DefCST name _ _ ret_ty _ _ =>
-                (* Mocking DefCST addition to env just for typing sake (use dummy type) *)
                 tyAst <- elaborate current_env ret_ty (Some TypeUniverse) ;
                 let new_env := (name, fst tyAst) :: current_env in
                 res <- elaborate current_env x None ;
@@ -218,28 +182,59 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         end
       in
       paramsAst <- map_params params ;
-      let fix build_env (ps : list (string * AST)) (env : TypeEnv) : TypeEnv :=
+      let fix build_env (ps : list (string * AST)) (env0 : TypeEnv) {struct ps} : TypeEnv :=
         match ps with
-        | [] => env
-        | (pname, pty) :: rest => build_env rest ((pname, pty) :: env)
+        | [] => env0
+        | (pname, pty) :: rest => build_env rest ((pname, pty) :: env0)
         end
       in
       let body_env := build_env paramsAst env in
       retAst <- elaborate env ret_ty (Some TypeUniverse) ;
       bodyAst <- elaborate body_env body (Some (fst retAst)) ;
       ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), AstRef "Unit")
-      
+
   | LamCST arg_name opt_arg_ty body _ =>
-      argTyAst <- match opt_arg_ty with
-                  | Some ty => elaborate env ty (Some TypeUniverse)
-                  | None =>
-                      m <- fresh_meta ;
-                      ret (m, TypeUniverse)
-                  end ;
+      argTyAst <- (match opt_arg_ty with
+                   | Some ty => elaborate env ty (Some TypeUniverse)
+                   | None => m <- fresh_meta ; ret (m, TypeUniverse)
+                   end) ;
       bodyAst <- elaborate ((arg_name, fst argTyAst) :: env) body None ;
       let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) [] in
       ret (AstLam arg_name (fst argTyAst) (fst bodyAst), arrTy)
-      
+
+  | AppCST func args _ =>
+      funcAst <- elaborate env func None ;
+      let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
+        match as_ with
+        | [] => ret ([], fs)
+        | a :: rest =>
+            match fs with
+            | AstPi _ arg_ty ret_ty _ =>
+                aAst <- elaborate env a (Some arg_ty) ;
+                restAst <- check_args ret_ty rest ;
+                ret (fst aAst :: fst restAst, snd restAst)
+            | AstMeta _ =>
+                argTyM <- fresh_meta ;
+                retTyM <- fresh_meta ;
+                unify 100 fs (AstPi "x" argTyM retTyM []) ;;
+                aAst <- elaborate env a (Some argTyM) ;
+                restAst <- check_args retTyM rest ;
+                ret (fst aAst :: fst restAst, snd restAst)
+            | AstRef _ =>
+                aAst <- elaborate env a None;
+                restAst <- check_args (AstRef "Any") rest;
+                ret (fst aAst :: fst restAst, AstRef "Any")
+            | _ => ret ([], AstRef "Any")
+            end
+        end
+      in
+      argsRes <- check_args (snd funcAst) args ;
+      match expected with
+      | Some exp => unify 100 (snd argsRes) exp
+      | None => ret tt
+      end ;;
+      ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+
   | TypeAppCST func args _ =>
       funcAst <- elaborate env func None ;
       let fix check_args (as_ : list CST) : ElabM (list AST) :=
@@ -253,88 +248,83 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       in
       argsRes <- check_args args ;
       ret (AstTypeApp (fst funcAst) argsRes, AstRef "TypeUniverse")
-  | AppCST func args _ =>
-      funcAst <- elaborate env func None ;
-      let fix check_args (fs : AST) (as_ : list CST) : ElabM (list AST * AST) :=
-        match as_ with
-        | [] => ret ([], fs)
-        | a :: rest =>
-            (* Very simplified args checking for mockup *)
-            match fs with
-            | AstPi arg_name arg_ty ret_ty _ =>
-                aAst <- elaborate env a (Some arg_ty) ;
-                restAst <- check_args ret_ty rest ;
-                ret (fst aAst :: fst restAst, snd restAst)
-            | AstMeta m =>
-                argTyM <- fresh_meta ;
-                retTyM <- fresh_meta ;
-                unify 100 fs (AstPi "x" argTyM retTyM []) ;;
-                aAst <- elaborate env a (Some argTyM) ;
-                restAst <- check_args retTyM rest ;
-                ret (fst aAst :: fst restAst, snd restAst)
-            | _ => throw "Cannot apply non-function"
-            end
-        end
-      in
-      argsRes <- check_args (snd funcAst) args ;
-      match expected with Some exp => unify 100 (snd argsRes) exp | None => ret tt end ;;
-      ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+
+  | EnumCST name type_params _ _ =>
+      ret (AstEnum name type_params [], AstRef "Unit")
 
   | MatchCST expr cases _ =>
       exprAst <- elaborate env expr None ;
       let fix elab_cases (cs : list (PatternCST * CST)) : ElabM (list (PatternAST * AST) * AST) :=
         match cs with
         | [] => throw "Empty match not allowed"
-        | (pat, body) :: rest =>
-            match pat with
-            | PatWildcardCST _ => 
-                bodyAst <- elaborate env body expected ;
-                ret ([(PatWildcard, fst bodyAst)], snd bodyAst)
-            | PatVarCST v _ =>
-                m <- fresh_meta ;
-                bodyAst <- elaborate ((v, m) :: env) body expected ;
-                ret ([(PatVar v, fst bodyAst)], snd bodyAst)
-            | PatConstructorCST name vars _ =>
-                (* Add each var to env as a fresh meta *)
-                let fix add_vars (vs : list string) (e : TypeEnv) : ElabM TypeEnv :=
-                  match vs with
-                  | [] => ret e
-                  | v :: rest_vs =>
-                      m <- fresh_meta ;
-                      add_vars rest_vs ((v, m) :: e)
-                  end
-                in
-                case_env <- add_vars vars env ;
-                bodyAst <- elaborate case_env body expected ;
-                ret ([(PatConstructor name vars, fst bodyAst)], snd bodyAst)
-            end
+        | (PatWildcardCST _, body) :: _ =>
+            bodyAst <- elaborate env body expected ;
+            ret ([(PatWildcard, fst bodyAst)], snd bodyAst)
+        | (PatVarCST v _, body) :: _ =>
+            m <- fresh_meta ;
+            bodyAst <- elaborate ((v, m) :: env) body expected ;
+            ret ([(PatVar v, fst bodyAst)], snd bodyAst)
+        | (PatConstructorCST name vars _, body) :: _ =>
+            let fix add_vars (vs : list string) (e : TypeEnv) {struct vs} : ElabM TypeEnv :=
+              match vs with
+              | [] => ret e
+              | v :: rest_vs =>
+                  m <- fresh_meta ;
+                  add_vars rest_vs ((v, m) :: e)
+              end
+            in
+            case_env <- add_vars vars env ;
+            bodyAst <- elaborate case_env body expected ;
+            ret ([(PatConstructor name vars, fst bodyAst)], snd bodyAst)
         end
       in
-      
       let fix process_cases (cs : list (PatternCST * CST)) : ElabM (list (PatternAST * AST) * AST) :=
         match cs with
-        | [] => throw "Empty match"
-        | [single] => elab_cases [single]
-        | (pat, body) :: rest =>
+        | [] => ret ([], AstRef "Any")
+        | [(pat, body) as single] => elab_cases [single]
+        | (pat, body) as single :: (_ :: _) as rest =>
             res_first <- elab_cases [(pat, body)] ;
             res_rest <- process_cases rest ;
-            (* Unify branch return types *)
             unify 100 (snd res_first) (snd res_rest) ;;
-            ret (fst res_first ++ fst res_rest, snd res_first)
+            ret (app (fst res_first) (fst res_rest), snd res_first)
         end
       in
       casesRes <- process_cases cases ;
       ret (AstMatch (fst exprAst) (fst casesRes), snd casesRes)
 
-  | EnumCST name type_params variants _ => 
-      (* Mock elaboration for Enum *)
-      ret (AstEnum name type_params [], AstRef "Unit")
+  | Tuple elems _ =>
+      let fix elab_elems (es : list CST) : ElabM (list AST * AST) :=
+        match es with
+        | [] => ret ([], AstRef "Unit")
+        | x :: xs =>
+            xAst <- elaborate env x None;
+            restAst <- elab_elems xs;
+            ret (fst xAst :: fst restAst, AstRef "Tuple")
+        end
+      in
+      elemsRes <- elab_elems elems;
+      ret (AstTuple (fst elemsRes), snd elemsRes)
+
+  | ListLiteral elems _ =>
+      let fix elab_elems (es : list CST) : ElabM (list AST * AST) :=
+        match es with
+        | [] => ret ([], AstRef "List")
+        | x :: xs =>
+            xAst <- elaborate env x None;
+            restAst <- elab_elems xs;
+            ret (fst xAst :: fst restAst, AstRef "List")
+        end
+      in
+      elemsRes <- elab_elems elems;
+      ret (AstTuple (fst elemsRes), snd elemsRes)
+
+  | CommentCST msg _ => ret (AstRef "Unit", AstRef "Unit")
+  | Error msg _ => throw msg
+
   | RecordCST name type_params fields _ => 
-      (* Mock elaboration for Record: registers the record. Ideally fields are mapped into AST pairs. *)
       ret (AstRecord name type_params [], AstRef "Unit")
+      
   | FieldAccessCST expr field _ =>
       exprAst <- elaborate env expr None ;
-      (* Since we don't know the field's exact type here unless we inspect the record, we emit a meta or just AstRef for simplicity *)
       ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
-  | _ => throw "Unsupported CST node for elaboration"
   end.

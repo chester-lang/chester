@@ -54,6 +54,7 @@
               pkgs.ocamlPackages.ppx_expect
               pkgs.ocamlPackages.ocamlformat
               pkgs.nixfmt-rfc-style
+              pkgs.bun
             ];
           };
         }

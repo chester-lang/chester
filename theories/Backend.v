@@ -9,7 +9,7 @@ Require Import Chester.TypeScriptAST.
 Require Import Chester.GoAST.
 
 (* We mock nat_to_string to keep the example clean *)
-Definition nat_to_string (n : nat) : string := "<nat>".
+Definition nat_to_string (n : nat) : string := "0".
 
 (* 
   TypeScript Backend
@@ -36,7 +36,7 @@ Fixpoint emit_ts (ast : AST) {struct ast} : TypeScriptAST :=
   | AstBoolLit b => TsBooleanLiteral b
   | AstLet name value => TsLet name (emit_ts value)
   | AstIf cond true_br false_br => TsIf (emit_ts cond) (emit_ts true_br) (emit_ts false_br)
-  | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (TsBlock [] (emit_ts body))
+  | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts body)
   | AstEnum _ _ _ => TsEmpty
   | AstMatch expr cases =>
       let fix emit_cases (cs : list (PatternAST * AST)) : TypeScriptAST :=

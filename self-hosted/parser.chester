@@ -12,7 +12,7 @@ def is_symbol_token(tok: Token, sym: String): Bool = {
 def advance(tokens: List (Token)): List (Token) = {
   let len = prim__list_length(tokens);
   if prim__int_eq(len, 0) then tokens
-  else prim__list_make(len - 1, \i => prim__list_get(tokens, i + 1))
+  else prim__list_make(prim__int_sub(len, 1), \i => prim__list_get(tokens, prim__int_add(i, 1)))
 };
 
 // We need to mutually recurse, so we define all functions
@@ -220,7 +220,7 @@ def parse_atom(tokens: List (Token)): ParseResult (CST) = {
 };
 
 def filter_whitespace(tokens: List (Token)): List (Token) = {
-  list_filter(tokens, \tok => match tok.kind { case Whitespace => false; case _ => true })
+  list_filter(tokens, \tok => { match tok.kind { case Whitespace => false; case _ => true } })
 };
 
 def parse(tokens: List (Token)): ParseResult (CST) = {
