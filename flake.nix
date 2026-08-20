@@ -3,15 +3,21 @@
 
   inputs = {
     nixpkgs.url = "https://nixos.org/channels/nixpkgs-unstable/nixexprs.tar.xz";
+    systems.url = "github:nix-systems/default";
   };
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      systems,
+    }:
     let
-      supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+      forAllSystems = nixpkgs.lib.genAttrs (import systems);
     in
     {
-      packages = forAllSystems (system:
+      packages = forAllSystems (
+        system:
         let
           pkgs = import nixpkgs { inherit system; };
         in
@@ -20,7 +26,10 @@
             pname = "chester-cst";
             version = "0.1.0";
             src = ./.;
-            buildInputs = [ pkgs.coq pkgs.rocqPackages.stdlib ];
+            buildInputs = [
+              pkgs.coq
+              pkgs.rocqPackages.stdlib
+            ];
             configurePhase = ''
               coq_makefile -f _CoqProject -o Makefile
             '';
@@ -28,7 +37,8 @@
         }
       );
 
-      devShells = forAllSystems (system:
+      devShells = forAllSystems (
+        system:
         let
           pkgs = import nixpkgs { inherit system; };
         in
