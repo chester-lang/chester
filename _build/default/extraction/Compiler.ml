@@ -1221,12 +1221,19 @@ type typeScriptAST =
 | TsBooleanLiteral of bool
 | TsIdentifier of char list
 | TsPropertyAccess of typeScriptAST * char list
+| TsIndexAccess of typeScriptAST * typeScriptAST
 | TsCall of typeScriptAST * typeScriptAST list
 | TsArrow of char list list * typeScriptAST
 | TsBlock of typeScriptAST list * typeScriptAST
 | TsArray of typeScriptAST list
 | TsAwait of typeScriptAST
-| TsRaw of char list
+| TsLet of char list * typeScriptAST
+| TsIf of typeScriptAST * typeScriptAST * typeScriptAST
+| TsFunctionDecl of char list * char list list * typeScriptAST
+| TsInterface of char list
+| TsIIFE of typeScriptAST
+| TsThrow of char list
+| TsEmpty
 
 (** val concat_strings : char list -> char list list -> char list **)
 
@@ -1256,6 +1263,9 @@ let rec stringify_ts expr =
    | TsIdentifier name -> name
    | TsPropertyAccess (obj, prop) ->
      append (stringify_ts obj) (append ('.'::[]) prop)
+   | TsIndexAccess (obj, idx) ->
+     append (stringify_ts obj)
+       (append ('['::[]) (append (stringify_ts idx) (']'::[])))
    | TsCall (callee, args) ->
      append (stringify_ts callee)
        (append ('('::[])
@@ -1266,16 +1276,46 @@ let rec stringify_ts expr =
          (append (')'::(' '::('='::('>'::(' '::[]))))) (stringify_ts body)))
    | TsBlock (stmts, ret0) ->
      append ('{'::(' '::[]))
-       (append (concat_strings (';'::(' '::[])) (map_ts stmts))
-         (append
-           (';'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))))
+       (append (concat_strings (' '::[]) (map_ts stmts))
+         (append ('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))
            (append (stringify_ts ret0) (';'::(' '::('}'::[]))))))
    | TsArray elements ->
      append ('['::[])
        (append (concat_strings (','::(' '::[])) (map_ts elements)) (']'::[]))
    | TsAwait e ->
      append ('a'::('w'::('a'::('i'::('t'::(' '::[])))))) (stringify_ts e)
-   | TsRaw s -> s)
+   | TsLet (name, val0) ->
+     append ('c'::('o'::('n'::('s'::('t'::(' '::[]))))))
+       (append name
+         (append (' '::('='::(' '::[])))
+           (append (stringify_ts val0) (';'::(' '::[])))))
+   | TsIf (cond, thenB, elseB) ->
+     append ('i'::('f'::(' '::('('::[]))))
+       (append (stringify_ts cond)
+         (append (')'::(' '::('{'::(' '::[]))))
+           (append (stringify_ts thenB)
+             (append
+               (' '::('}'::(' '::('e'::('l'::('s'::('e'::(' '::('{'::(' '::[]))))))))))
+               (append (stringify_ts elseB) (' '::('}'::[])))))))
+   | TsFunctionDecl (name, params, body) ->
+     append ('f'::('u'::('n'::('c'::('t'::('i'::('o'::('n'::(' '::[])))))))))
+       (append name
+         (append ('('::[])
+           (append (concat_strings (','::(' '::[])) params)
+             (append (')'::(' '::[])) (stringify_ts body)))))
+   | TsInterface name ->
+     append
+       ('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::(' '::[]))))))))))
+       (append name
+         (' '::('{'::(' '::('['::('k'::('e'::('y'::(':'::(' '::('s'::('t'::('r'::('i'::('n'::('g'::(']'::(':'::(' '::('a'::('n'::('y'::(' '::('}'::(';'::(' '::[]))))))))))))))))))))))))))
+   | TsIIFE body ->
+     append ('('::('('::(')'::(' '::('='::('>'::(' '::[])))))))
+       (append (stringify_ts body) (')'::('('::(')'::[]))))
+   | TsThrow msg ->
+     append
+       ('t'::('h'::('r'::('o'::('w'::(' '::('n'::('e'::('w'::(' '::('E'::('r'::('r'::('o'::('r'::('('::('\''::[])))))))))))))))))
+       (append msg ('\''::(')'::[])))
+   | TsEmpty -> [])
 
 type goAST =
 | GoIntLiteral of char list
@@ -1283,11 +1323,18 @@ type goAST =
 | GoBoolLiteral of bool
 | GoIdentifier of char list
 | GoSelector of goAST * char list
+| GoIndex of goAST * goAST
 | GoCall of goAST * goAST list
 | GoFuncLiteral of char list list * goAST
 | GoBlock of goAST list * goAST
 | GoArray of goAST list
-| GoRaw of char list
+| GoLet of char list * goAST
+| GoIf of goAST * goAST * goAST
+| GoFuncDecl of char list * char list list * goAST
+| GoStruct of char list
+| GoTypeAssert of goAST * char list
+| GoPanic of char list
+| GoEmpty
 
 (** val concat_strings0 : char list -> char list list -> char list **)
 
@@ -1317,6 +1364,9 @@ let rec stringify_go expr =
    | GoIdentifier name -> name
    | GoSelector (obj, prop) ->
      append (stringify_go obj) (append ('.'::[]) prop)
+   | GoIndex (obj, idx) ->
+     append (stringify_go obj)
+       (append ('['::[]) (append (stringify_go idx) (']'::[])))
    | GoCall (callee, args) ->
      append (stringify_go callee)
        (append ('('::[])
@@ -1333,15 +1383,47 @@ let rec stringify_go expr =
    | GoBlock (stmts, ret0) ->
      append
        ('f'::('u'::('n'::('c'::('('::(')'::(' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(' '::('{'::(' '::[])))))))))))))))))))))
-       (append (concat_strings0 (';'::(' '::[])) (map_go stmts))
-         (append
-           (';'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))))
+       (append (concat_strings0 (' '::[]) (map_go stmts))
+         (append ('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))
            (append (stringify_go ret0) (' '::('}'::('('::(')'::[])))))))
    | GoArray elements ->
      append
        ('['::(']'::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::('{'::[]))))))))))))))
        (append (concat_strings0 (','::(' '::[])) (map_go elements)) ('}'::[]))
-   | GoRaw s -> s)
+   | GoLet (name, val0) ->
+     append name
+       (append (' '::(':'::('='::(' '::[]))))
+         (append (stringify_go val0) (';'::(' '::[]))))
+   | GoIf (cond, thenB, elseB) ->
+     append ('i'::('f'::(' '::[])))
+       (append (stringify_go cond)
+         (append (' '::('{'::(' '::[])))
+           (append (stringify_go thenB)
+             (append
+               (' '::('}'::(' '::('e'::('l'::('s'::('e'::(' '::('{'::(' '::[]))))))))))
+               (append (stringify_go elseB) (' '::('}'::[])))))))
+   | GoFuncDecl (name, params, body) ->
+     append ('f'::('u'::('n'::('c'::(' '::[])))))
+       (append name
+         (append ('('::[])
+           (append
+             (concat_strings0
+               (' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(','::(' '::[]))))))))))))))
+               params)
+             (append
+               (' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(')'::(' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(' '::[]))))))))))))))))))))))))))
+               (stringify_go body)))))
+   | GoStruct name ->
+     append ('t'::('y'::('p'::('e'::(' '::[])))))
+       (append name
+         (' '::('s'::('t'::('r'::('u'::('c'::('t'::('{'::('}'::(';'::(' '::[]))))))))))))
+   | GoTypeAssert (expr0, ty) ->
+     append (stringify_go expr0)
+       (append ('.'::('('::[])) (append ty (')'::[])))
+   | GoPanic msg ->
+     append ('p'::('a'::('n'::('i'::('c'::('('::('"'::[])))))))
+       (append msg ('"'::(')'::[])))
+   | GoEmpty -> [])
 
 (** val nat_to_string : int -> char list **)
 
@@ -1350,14 +1432,14 @@ let nat_to_string _ =
 
 (** val emit_ts : aST -> typeScriptAST **)
 
-let rec emit_ts expr =
+let rec emit_ts ast =
   let map_ts =
     let rec map_ts = function
     | [] -> []
     | x :: xs -> (emit_ts x) :: (map_ts xs)
     in map_ts
   in
-  (match expr with
+  (match ast with
    | AstRef name -> TsIdentifier name
    | AstTuple elems -> TsArray (map_ts elems)
    | AstStringLit s -> TsStringLiteral s
@@ -1366,128 +1448,73 @@ let rec emit_ts expr =
    | AstBlock (stmts, ret0) -> TsBlock ((map_ts stmts), (emit_ts ret0))
    | AstApp (func, args) -> TsCall ((emit_ts func), (map_ts args))
    | AstLam (argName, _, body) -> TsArrow ((argName :: []), (emit_ts body))
-   | AstPi (argName, _, _, _) ->
-     TsRaw
-       (append ('('::[])
-         (append argName
-           (':'::(' '::('a'::('n'::('y'::(')'::(' '::('='::('>'::(' '::('a'::('n'::('y'::[])))))))))))))))
    | AstDo (op, args) -> TsAwait (TsCall ((emit_ts op), (map_ts args)))
-   | AstHandle (_, _, _) ->
-     TsRaw
-       ('/'::('*'::(' '::('h'::('a'::('n'::('d'::('l'::('e'::(' '::('*'::('/'::[]))))))))))))
    | AstLet (name, value, body) ->
-     TsBlock (((TsRaw
-       (append ('c'::('o'::('n'::('s'::('t'::(' '::[]))))))
-         (append name
-           (append (' '::('='::(' '::[]))) (stringify_ts (emit_ts value)))))) :: []),
-       (emit_ts body))
-   | AstIf (cond, thenB, elseB) ->
-     TsRaw
-       (append ('('::[])
-         (append (stringify_ts (emit_ts cond))
-           (append (' '::('?'::(' '::[])))
-             (append (stringify_ts (emit_ts thenB))
-               (append (' '::(':'::(' '::[])))
-                 (append (stringify_ts (emit_ts elseB)) (')'::[])))))))
+     TsBlock (((TsLet (name, (emit_ts value))) :: []), (emit_ts body))
+   | AstIf (cond, true_br, false_br) ->
+     TsIf ((emit_ts cond), (emit_ts true_br), (emit_ts false_br))
    | AstDef (name, _, params, _, body) ->
-     let get_param_names =
-       let rec get_param_names = function
-       | [] -> []
-       | p :: rest -> let (n0, _) = p in n0 :: (get_param_names rest)
-       in get_param_names
-     in
-     TsRaw
-     (append
-       ('f'::('u'::('n'::('c'::('t'::('i'::('o'::('n'::(' '::[])))))))))
-       (append name
-         (append ('('::[])
-           (append
-             (concat_strings0 (','::(' '::[])) (get_param_names params))
-             (append
-               (')'::(' '::('{'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))))))
-               (append (stringify_ts (emit_ts body)) (';'::(' '::('}'::[])))))))))
-   | AstEnum (name, _, _) ->
-     TsRaw
-       (append ('t'::('y'::('p'::('e'::(' '::[])))))
-         (append name
-           (' '::('='::(' '::('a'::('n'::('y'::(';'::(' '::('/'::('*'::(' '::('s'::('i'::('m'::('p'::('l'::('i'::('f'::('i'::('e'::('d'::(' '::('e'::('n'::('u'::('m'::(' '::('*'::('/'::[])))))))))))))))))))))))))))))))
-   | AstMatch (expr0, cases) ->
+     TsFunctionDecl (name, (map fst params), (TsBlock ([], (emit_ts body))))
+   | AstEnum (_, _, _) -> TsEmpty
+   | AstMatch (expr, cases) ->
      let emit_cases =
        let rec emit_cases = function
        | [] ->
-         't'::('h'::('r'::('o'::('w'::(' '::('n'::('e'::('w'::(' '::('E'::('r'::('r'::('o'::('r'::('('::('\''::('N'::('o'::('n'::('-'::('e'::('x'::('h'::('a'::('u'::('s'::('t'::('i'::('v'::('e'::(' '::('m'::('a'::('t'::('c'::('h'::('\''::(')'::(';'::[])))))))))))))))))))))))))))))))))))))))
+         TsThrow
+           ('N'::('o'::('n'::('-'::('e'::('x'::('h'::('a'::('u'::('s'::('t'::('i'::('v'::('e'::(' '::('m'::('a'::('t'::('c'::('h'::[]))))))))))))))))))))
        | p :: rest ->
          let (pat, body) = p in
          (match pat with
           | PatWildcard ->
-            append ('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))
-              (append (stringify_ts (emit_ts body)) (';'::[]))
+            TsIf ((TsBooleanLiteral true), (emit_ts body), (emit_cases rest))
           | PatVar v ->
-            append ('c'::('o'::('n'::('s'::('t'::(' '::[]))))))
-              (append v
-                (append
-                  (' '::('='::(' '::('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::(';'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[]))))))))))))))))))))))
-                  (append (stringify_ts (emit_ts body)) (';'::[]))))
+            TsBlock (((TsLet (v, (TsIdentifier
+              ('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::[]))))))))))))) :: []),
+              (emit_ts body))
           | PatConstructor (cname, vars) ->
-            append
-              ('i'::('f'::(' '::('('::('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::('.'::('_'::('t'::('a'::('g'::(' '::('='::('='::('='::(' '::('\''::[])))))))))))))))))))))))))
-              (append cname
-                (append ('\''::(')'::(' '::('{'::(' '::[])))))
-                  (append
-                    (let rec bind_vars vs idx =
-                       match vs with
-                       | [] -> []
-                       | v :: v_rest ->
-                         append ('c'::('o'::('n'::('s'::('t'::(' '::[]))))))
-                           (append v
-                             (append
-                               (' '::('='::(' '::('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::('.'::('a'::('r'::('g'::('s'::('['::[])))))))))))))))))))
-                               (append (nat_to_string idx)
-                                 (append (']'::(';'::(' '::[])))
-                                   (bind_vars v_rest (Stdlib.Int.succ idx))))))
-                     in bind_vars vars 0)
-                    (append
-                      ('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))
-                      (append (stringify_ts (emit_ts body))
-                        (append (';'::(' '::('}'::(' '::[]))))
-                          (emit_cases rest))))))))
+            let cond = TsCall ((TsPropertyAccess ((TsIdentifier
+              ('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::[]))))))))))),
+              ('='::('='::('='::[]))))), ((TsStringLiteral cname) :: []))
+            in
+            let body_ts = emit_ts body in
+            let bind_vars =
+              let rec bind_vars vs idx acc =
+                match vs with
+                | [] -> acc
+                | v :: vs' ->
+                  bind_vars vs' (Stdlib.Int.succ idx) (TsLet (v,
+                    (TsIndexAccess ((TsPropertyAccess ((TsIdentifier
+                    ('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::[]))))))))))),
+                    ('a'::('r'::('g'::('s'::[])))))), (TsNumberLiteral
+                    (nat_to_string idx))))))
+              in bind_vars
+            in
+            TsIf (cond, (bind_vars vars 0 body_ts), (emit_cases rest)))
        in emit_cases
      in
-     TsRaw
-     (append
-       ('('::('('::(')'::(' '::('='::('>'::(' '::('{'::(' '::('c'::('o'::('n'::('s'::('t'::(' '::('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::(' '::('='::(' '::[]))))))))))))))))))))))))))))
-       (append (stringify_ts (emit_ts expr0))
-         (append (';'::(' '::[]))
-           (append (emit_cases cases) (' '::('}'::(')'::('('::(')'::[])))))))))
-   | AstRecord (name, _, _) ->
-     TsRaw
-       (append
-         ('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::(' '::[]))))))))))
-         (append name
-           (' '::('{'::(' '::('['::('k'::('e'::('y'::(':'::(' '::('s'::('t'::('r'::('i'::('n'::('g'::(']'::(':'::(' '::('a'::('n'::('y'::(' '::('}'::[])))))))))))))))))))))))))
-   | AstFieldAccess (expr0, field) ->
-     TsRaw (append (stringify_ts (emit_ts expr0)) (append ('.'::[]) field))
+     TsIIFE (TsBlock (((TsLet
+     (('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::[])))))))))),
+     (emit_ts expr))) :: []), (emit_cases cases)))
+   | AstRecord (name, _, _) -> TsInterface name
+   | AstFieldAccess (expr, field) -> TsPropertyAccess ((emit_ts expr), field)
    | AstMeta id ->
-     TsRaw
+     TsIdentifier
        (append
          ('/'::('*'::(' '::('?'::('m'::('e'::('t'::('a'::('_'::[])))))))))
          (append (nat_to_string id) (' '::('*'::('/'::[])))))
-   | AstError e ->
-     TsRaw
-       (append
-         ('/'::('*'::(' '::('E'::('R'::('R'::('O'::('R'::(':'::(' '::[]))))))))))
-         (append e (' '::('*'::('/'::[]))))))
+   | AstError e -> TsThrow e
+   | _ -> TsIdentifier ('a'::('n'::('y'::[]))))
 
 (** val emit_go : aST -> goAST **)
 
-let rec emit_go expr =
+let rec emit_go ast =
   let map_go =
     let rec map_go = function
     | [] -> []
     | x :: xs -> (emit_go x) :: (map_go xs)
     in map_go
   in
-  (match expr with
+  (match ast with
    | AstRef name -> GoIdentifier name
    | AstTuple elems -> GoArray (map_go elems)
    | AstStringLit s -> GoStringLiteral s
@@ -1497,119 +1524,65 @@ let rec emit_go expr =
    | AstApp (func, args) -> GoCall ((emit_go func), (map_go args))
    | AstLam (argName, _, body) ->
      GoFuncLiteral ((argName :: []), (emit_go body))
-   | AstPi (argName, _, _, _) ->
-     GoRaw
-       (append ('f'::('u'::('n'::('c'::('('::[])))))
-         (append argName
-           (' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(')'::(' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::[])))))))))))))))))))))))))))
    | AstDo (op, args) -> GoCall ((emit_go op), (map_go args))
-   | AstHandle (_, _, _) ->
-     GoRaw
-       ('/'::('*'::(' '::('h'::('a'::('n'::('d'::('l'::('e'::(' '::('*'::('/'::[]))))))))))))
    | AstLet (name, value, body) ->
-     GoBlock (((GoRaw
-       (append name
-         (append (' '::(':'::('='::(' '::[]))))
-           (stringify_go (emit_go value))))) :: []),
-       (emit_go body))
-   | AstIf (cond, thenB, elseB) ->
-     GoRaw
-       (append
-         ('f'::('u'::('n'::('c'::('('::(')'::(' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(' '::('{'::(' '::('i'::('f'::(' '::[]))))))))))))))))))))))))
-         (append (stringify_go (emit_go cond))
-           (append
-             (' '::('{'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[]))))))))))
-             (append (stringify_go (emit_go thenB))
-               (append
-                 (' '::('}'::(' '::('e'::('l'::('s'::('e'::(' '::('{'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))))))))))))
-                 (append (stringify_go (emit_go elseB))
-                   (' '::('}'::(' '::('}'::('('::(')'::[]))))))))))))
+     GoBlock (((GoLet (name, (emit_go value))) :: []), (emit_go body))
+   | AstIf (cond, true_br, false_br) ->
+     GoIf ((emit_go cond), (emit_go true_br), (emit_go false_br))
    | AstDef (name, _, params, _, body) ->
-     let get_param_names =
-       let rec get_param_names = function
-       | [] -> []
-       | p :: rest -> let (n0, _) = p in n0 :: (get_param_names rest)
-       in get_param_names
-     in
-     GoRaw
-     (append ('f'::('u'::('n'::('c'::(' '::[])))))
-       (append name
-         (append ('('::[])
-           (append
-             (concat_strings0
-               (' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(','::(' '::[]))))))))))))))
-               (get_param_names params))
-             (append
-               (' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(')'::(' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(' '::('{'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))))))))))))))))))))))))))))))
-               (append (stringify_go (emit_go body)) (' '::('}'::[]))))))))
-   | AstEnum (name, _, _) ->
-     GoRaw
-       (append ('t'::('y'::('p'::('e'::(' '::[])))))
-         (append name
-           (' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(' '::('/'::('*'::(' '::('s'::('i'::('m'::('p'::('l'::('i'::('f'::('i'::('e'::('d'::(' '::('e'::('n'::('u'::('m'::(' '::('*'::('/'::[]))))))))))))))))))))))))))))))))))))
-   | AstMatch (expr0, cases) ->
+     GoFuncDecl (name, (map fst params), (GoBlock ([], (emit_go body))))
+   | AstEnum (_, _, _) -> GoEmpty
+   | AstMatch (expr, cases) ->
      let emit_cases =
        let rec emit_cases = function
        | [] ->
-         'p'::('a'::('n'::('i'::('c'::('('::('"'::('N'::('o'::('n'::('-'::('e'::('x'::('h'::('a'::('u'::('s'::('t'::('i'::('v'::('e'::(' '::('m'::('a'::('t'::('c'::('h'::('"'::(')'::[]))))))))))))))))))))))))))))
+         GoPanic
+           ('N'::('o'::('n'::('-'::('e'::('x'::('h'::('a'::('u'::('s'::('t'::('i'::('v'::('e'::(' '::('m'::('a'::('t'::('c'::('h'::[]))))))))))))))))))))
        | p :: rest ->
          let (pat, body) = p in
          (match pat with
           | PatWildcard ->
-            append ('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))
-              (stringify_go (emit_go body))
+            GoIf ((GoBoolLiteral true), (emit_go body), (emit_cases rest))
           | PatVar v ->
-            append v
-              (append
-                (' '::(':'::('='::(' '::('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::(';'::(' '::('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))))))))))))))))))
-                (stringify_go (emit_go body)))
+            GoBlock (((GoLet (v, (GoIdentifier
+              ('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::[]))))))))))))) :: []),
+              (emit_go body))
           | PatConstructor (cname, vars) ->
-            append
-              ('i'::('f'::(' '::('_'::('t'::('a'::('g'::(','::(' '::('_'::('o'::('k'::(' '::(':'::('='::(' '::('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::('.'::('('::('m'::('a'::('p'::('['::('s'::('t'::('r'::('i'::('n'::('g'::(']'::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(')'::(';'::(' '::('_'::('o'::('k'::(' '::('&'::('&'::(' '::('_'::('t'::('a'::('g'::('['::('"'::('_'::('t'::('a'::('g'::('"'::(']'::(' '::('='::('='::(' '::('"'::[])))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-              (append cname
-                (append ('"'::(' '::('{'::(' '::[]))))
-                  (append
-                    (let rec bind_vars vs idx =
-                       match vs with
-                       | [] -> []
-                       | v :: v_rest ->
-                         append v
-                           (append
-                             (' '::(':'::('='::(' '::('_'::('t'::('a'::('g'::('['::('"'::('a'::('r'::('g'::('s'::('"'::(']'::('.'::('('::('['::(']'::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(')'::('['::[])))))))))))))))))))))))))))))))))
-                             (append (nat_to_string idx)
-                               (append (']'::(';'::(' '::[])))
-                                 (bind_vars v_rest (Stdlib.Int.succ idx)))))
-                     in bind_vars vars 0)
-                    (append
-                      ('r'::('e'::('t'::('u'::('r'::('n'::(' '::[])))))))
-                      (append (stringify_go (emit_go body))
-                        (append (' '::('}'::(';'::(' '::[]))))
-                          (emit_cases rest))))))))
+            let cond = GoCall ((GoIdentifier
+              ('_'::('o'::('k'::(' '::('&'::('&'::(' '::('_'::('t'::('a'::('g'::('['::('"'::('_'::('t'::('a'::('g'::('"'::(']'::(' '::('='::('='::[]))))))))))))))))))))))),
+              ((GoStringLiteral cname) :: []))
+            in
+            let body_go = emit_go body in
+            let bind_vars =
+              let rec bind_vars vs idx acc =
+                match vs with
+                | [] -> acc
+                | v :: vs' ->
+                  bind_vars vs' (Stdlib.Int.succ idx) (GoLet (v, (GoIndex
+                    ((GoTypeAssert ((GoSelector ((GoIdentifier
+                    ('_'::('t'::('a'::('g'::[]))))),
+                    ('a'::('r'::('g'::('s'::[])))))),
+                    ('['::(']'::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::[]))))))))))))))),
+                    (GoIntLiteral (nat_to_string idx))))))
+              in bind_vars
+            in
+            GoIf (cond, (bind_vars vars 0 body_go), (emit_cases rest)))
        in emit_cases
      in
-     GoRaw
-     (append
-       ('f'::('u'::('n'::('c'::('('::(')'::(' '::('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::(' '::('{'::(' '::('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::(' '::(':'::('='::(' '::[])))))))))))))))))))))))))))))))))))
-       (append (stringify_go (emit_go expr0))
-         (append (';'::(' '::[]))
-           (append (emit_cases cases) (' '::('}'::('('::(')'::[]))))))))
-   | AstRecord (name, _, _) ->
-     GoRaw
-       (append ('t'::('y'::('p'::('e'::(' '::[])))))
-         (append name
-           (' '::('s'::('t'::('r'::('u'::('c'::('t'::('{'::('}'::[])))))))))))
-   | AstFieldAccess (expr0, field) ->
-     GoRaw (append (stringify_go (emit_go expr0)) (append ('.'::[]) field))
+     GoCall ((GoFuncLiteral ([], (GoBlock (((GoLet
+     (('_'::('m'::('a'::('t'::('c'::('h'::('_'::('v'::('a'::('l'::[])))))))))),
+     (emit_go expr))) :: []), (emit_cases cases))))), [])
+   | AstRecord (name, _, _) -> GoStruct name
+   | AstFieldAccess (expr, field) -> GoSelector ((emit_go expr), field)
    | AstMeta id ->
-     GoRaw
+     GoIdentifier
        (append
          ('/'::('*'::(' '::('?'::('m'::('e'::('t'::('a'::('_'::[])))))))))
          (append (nat_to_string id) (' '::('*'::('/'::[])))))
-   | AstError e ->
-     GoRaw
-       (append
-         ('/'::('*'::(' '::('E'::('R'::('R'::('O'::('R'::(':'::(' '::[]))))))))))
-         (append e (' '::('*'::('/'::[]))))))
+   | AstError e -> GoPanic e
+   | _ ->
+     GoIdentifier
+       ('i'::('n'::('t'::('e'::('r'::('f'::('a'::('c'::('e'::('{'::('}'::[]))))))))))))
 
 (** val gen_spaces : int -> char list **)
 

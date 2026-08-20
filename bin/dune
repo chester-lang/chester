@@ -1,4 +1,4 @@
 (executable
  (name main)
- (modules main)
- (libraries compiler_lib))
+ (libraries compiler_lib)
+ (modules main lexer parser))

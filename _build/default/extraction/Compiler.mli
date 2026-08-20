@@ -231,12 +231,19 @@ type typeScriptAST =
 | TsBooleanLiteral of bool
 | TsIdentifier of char list
 | TsPropertyAccess of typeScriptAST * char list
+| TsIndexAccess of typeScriptAST * typeScriptAST
 | TsCall of typeScriptAST * typeScriptAST list
 | TsArrow of char list list * typeScriptAST
 | TsBlock of typeScriptAST list * typeScriptAST
 | TsArray of typeScriptAST list
 | TsAwait of typeScriptAST
-| TsRaw of char list
+| TsLet of char list * typeScriptAST
+| TsIf of typeScriptAST * typeScriptAST * typeScriptAST
+| TsFunctionDecl of char list * char list list * typeScriptAST
+| TsInterface of char list
+| TsIIFE of typeScriptAST
+| TsThrow of char list
+| TsEmpty
 
 val concat_strings : char list -> char list list -> char list
 
@@ -248,11 +255,18 @@ type goAST =
 | GoBoolLiteral of bool
 | GoIdentifier of char list
 | GoSelector of goAST * char list
+| GoIndex of goAST * goAST
 | GoCall of goAST * goAST list
 | GoFuncLiteral of char list list * goAST
 | GoBlock of goAST list * goAST
 | GoArray of goAST list
-| GoRaw of char list
+| GoLet of char list * goAST
+| GoIf of goAST * goAST * goAST
+| GoFuncDecl of char list * char list list * goAST
+| GoStruct of char list
+| GoTypeAssert of goAST * char list
+| GoPanic of char list
+| GoEmpty
 
 val concat_strings0 : char list -> char list list -> char list
 

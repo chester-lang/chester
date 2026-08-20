@@ -71,4 +71,10 @@ let () =
           | ElabErr (e, _) -> print_endline ("Elab Error (Record): " ^ string_of_char_list e)
           | ElabOk ((record_ast, _), _) ->
               print_endline "\n[TypeScript Backend (Records)]";
-              print_endline (string_of_char_list (stringify_ts (emit_ts record_ast)))
+              print_endline (string_of_char_list (stringify_ts (emit_ts record_ast)));
+              
+  print_endline "\n[Error Recovery Parser Test]";
+  let source = "x; y; @@; z; 42" in
+  let tokens = Lexer.tokenize "test_error.chester" source in
+  let cst = Parser.parse tokens in
+  print_endline (string_of_char_list (format_cst 100 0 cst))

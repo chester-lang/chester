@@ -12,12 +12,19 @@ Inductive TypeScriptAST : Type :=
   | TsBooleanLiteral : bool -> TypeScriptAST
   | TsIdentifier : string -> TypeScriptAST
   | TsPropertyAccess : TypeScriptAST -> string -> TypeScriptAST
+  | TsIndexAccess : TypeScriptAST -> TypeScriptAST -> TypeScriptAST
   | TsCall : TypeScriptAST -> list TypeScriptAST -> TypeScriptAST
   | TsArrow : list string -> TypeScriptAST -> TypeScriptAST
   | TsBlock : list TypeScriptAST -> TypeScriptAST -> TypeScriptAST
   | TsArray : list TypeScriptAST -> TypeScriptAST
   | TsAwait : TypeScriptAST -> TypeScriptAST
-  | TsRaw : string -> TypeScriptAST.
+  | TsLet : string -> TypeScriptAST -> TypeScriptAST
+  | TsIf : TypeScriptAST -> TypeScriptAST -> TypeScriptAST -> TypeScriptAST
+  | TsFunctionDecl : string -> list string -> TypeScriptAST -> TypeScriptAST
+  | TsInterface : string -> TypeScriptAST
+  | TsIIFE : TypeScriptAST -> TypeScriptAST
+  | TsThrow : string -> TypeScriptAST
+  | TsEmpty : TypeScriptAST.
 
 (* Helper function to stringify TS AST (pretty printing) *)
 Fixpoint concat_strings (sep : string) (ls : list string) : string :=
@@ -40,10 +47,17 @@ Fixpoint stringify_ts (expr : TypeScriptAST) {struct expr} : string :=
   | TsBooleanLiteral b => if b then "true" else "false"
   | TsIdentifier name => name
   | TsPropertyAccess obj prop => stringify_ts obj ++ "." ++ prop
+  | TsIndexAccess obj idx => stringify_ts obj ++ "[" ++ stringify_ts idx ++ "]"
   | TsCall callee args => stringify_ts callee ++ "(" ++ concat_strings ", " (map_ts args) ++ ")"
   | TsArrow params body => "(" ++ concat_strings ", " params ++ ") => " ++ stringify_ts body
-  | TsBlock stmts ret => "{ " ++ concat_strings "; " (map_ts stmts) ++ "; return " ++ stringify_ts ret ++ "; }"
+  | TsBlock stmts ret => "{ " ++ concat_strings " " (map_ts stmts) ++ "return " ++ stringify_ts ret ++ "; }"
   | TsArray elements => "[" ++ concat_strings ", " (map_ts elements) ++ "]"
   | TsAwait e => "await " ++ stringify_ts e
-  | TsRaw s => s
+  | TsLet name val => "const " ++ name ++ " = " ++ stringify_ts val ++ "; "
+  | TsIf cond thenB elseB => "if (" ++ stringify_ts cond ++ ") { " ++ stringify_ts thenB ++ " } else { " ++ stringify_ts elseB ++ " }"
+  | TsFunctionDecl name params body => "function " ++ name ++ "(" ++ concat_strings ", " params ++ ") " ++ stringify_ts body
+  | TsInterface name => "interface " ++ name ++ " { [key: string]: any }; "
+  | TsIIFE body => "(() => " ++ stringify_ts body ++ ")()"
+  | TsThrow msg => "throw new Error('" ++ msg ++ "')"
+  | TsEmpty => ""
   end.
