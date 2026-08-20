@@ -1,0 +1,168 @@
+// The Self-Hosted Macro Expander
+
+def split_at_eq(acc: List (CST), ls: List (CST)): List (List (CST)) = {
+  if prim__int_eq(prim__list_length(ls), 0) then list_empty[List (CST)]()
+  else {
+    let x = prim__list_get(ls, 0);
+    let rest = advance(ls); // assuming advance is provided in TS mock
+    match x {
+      case Symbol(s, sp) => {
+        if string_eq(s, "=") then {
+          let res = list_empty[List (CST)]();
+          list_append(list_append(res, acc), rest)
+        }
+        else split_at_eq(list_append(acc, x), rest)
+      };
+      case _ => split_at_eq(list_append(acc, x), rest)
+    }
+  }
+};
+
+def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
+  if prim__int_eq(prim__list_length(elems), 0) then acc
+  else {
+    let x = prim__list_get(elems, 0);
+    let rest = advance(elems);
+    match x {
+      case Symbol(s, sp) => {
+        if string_eq(s, ".") then {
+          if prim__int_eq(prim__list_length(rest), 0) then collapse_apps(rest, list_append(acc, x))
+          else {
+            let next_x = prim__list_get(rest, 0);
+            match next_x {
+              case Symbol(field, sp2) => {
+                let acc_len = prim__list_length(acc);
+                if prim__int_eq(acc_len, 0) then {
+                  collapse_apps(advance(rest), list_append(list_append(acc, x), next_x))
+                } else {
+                  let expr = prim__list_get(acc, prim__int_sub(acc_len, 1));
+                  let new_acc = list_drop_last(acc);
+                  let node = CST.FieldAccess(expr, field, sp);
+                  collapse_apps(advance(rest), list_append(new_acc, node))
+                }
+              };
+              case _ => collapse_apps(rest, list_append(acc, x))
+            }
+          }
+        } else {
+          collapse_apps(rest, list_append(acc, x))
+        }
+      };
+      case Tuple(args, sp) => {
+        let acc_len = prim__list_length(acc);
+        if prim__int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x))
+        else {
+          let func = prim__list_get(acc, prim__int_sub(acc_len, 1));
+          let new_acc = list_drop_last(acc);
+          let node = CST.AppCST(func, args, sp);
+          collapse_apps(rest, list_append(new_acc, node))
+        }
+      };
+      case ListLiteral(targs, sp) => {
+        let acc_len = prim__list_length(acc);
+        if prim__int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x))
+        else {
+          let func = prim__list_get(acc, prim__int_sub(acc_len, 1));
+          let new_acc = list_drop_last(acc);
+          let node = CST.TypeAppCST(func, targs, sp);
+          collapse_apps(rest, list_append(new_acc, node))
+        }
+      };
+      case _ => collapse_apps(rest, list_append(acc, x))
+    }
+  }
+};
+
+def expand_if(elems: List (CST), span: Span): CST = {
+  CST.Error("Not implemented expand_if", span)
+};
+
+def expand_seq_expr(elems: List (CST), span: Span): CST = {
+  let collapsed = collapse_apps(elems, list_empty[CST]());
+  let len = prim__list_length(collapsed);
+  if prim__int_eq(len, 0) then CST.Tuple(list_empty[CST](), span)
+  else if prim__int_eq(len, 1) then prim__list_get(collapsed, 0)
+  else {
+    let first = prim__list_get(collapsed, 0);
+    match first {
+      case Symbol(s, sp) => {
+        if string_eq(s, "\\") then {
+          if prim__int_eq(len, 4) then {
+            let arg_tok = prim__list_get(collapsed, 1);
+            let arrow_tok = prim__list_get(collapsed, 2);
+            let body = prim__list_get(collapsed, 3);
+            match arg_tok {
+              case Symbol(arg_name, sp2) => CST.LamCST(arg_name, CST.Error("None", sp), body, span);
+              case _ => CST.SeqOf(collapsed, span)
+            }
+          } else CST.SeqOf(collapsed, span)
+        } else if string_eq(s, "match") then {
+          CST.Error("Not implemented match", span)
+        } else CST.SeqOf(collapsed, span)
+      };
+      case _ => CST.SeqOf(collapsed, span)
+    }
+  }
+};
+
+def process_stmts(ss: List (CST)): List (CST) = {
+  if prim__int_eq(prim__list_length(ss), 0) then ss
+  else {
+    let s = prim__list_get(ss, 0);
+    let rest = process_stmts(advance(ss));
+    match s {
+      case SeqOf(elems, sp) => {
+        if prim__int_eq(prim__list_length(elems), 0) then list_insert_first(rest, s)
+        else {
+          let first = prim__list_get(elems, 0);
+          match first {
+            case Symbol(sym, sp2) => {
+              if string_eq(sym, "let") then {
+                let name_node = prim__list_get(elems, 1);
+                let eq_node = prim__list_get(elems, 2);
+                let val_exprs = advance(advance(advance(elems)));
+                match name_node {
+                  case Symbol(name, sp3) => {
+                    let val_cst = expand_seq_expr(val_exprs, sp);
+                    let node = CST.LetCST(name, val_cst, CST.Symbol("Unit", sp), sp);
+                    list_insert_first(rest, node)
+                  };
+                  case _ => list_insert_first(rest, s)
+                }
+              } else if string_eq(sym, "def") then {
+                CST.Error("Not implemented def expand", sp);
+                list_insert_first(rest, s)
+              } else {
+                list_insert_first(rest, s)
+              }
+            };
+            case _ => list_insert_first(rest, s)
+          }
+        }
+      };
+      case _ => list_insert_first(rest, s)
+    }
+  }
+};
+
+def expand_cst(c: CST): CST = {
+  match c {
+    case Block(stmts, tail, sp) => {
+      CST.Block(process_stmts(stmts), tail, sp)
+    };
+    case Tuple(elems, sp) => {
+      CST.Error("Tuple map not implemented", sp)
+    };
+    case SeqOf(elems, sp) => {
+      CST.Error("SeqOf map not implemented", sp)
+    };
+    case _ => c
+  }
+};
+
+def expander_main(): Any = {
+  let cst = CST.Symbol("test", Span(0,0));
+  expand_cst(cst)
+};
+
+expander_main()

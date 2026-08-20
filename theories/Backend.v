@@ -8,8 +8,18 @@ Require Import Chester.AST.
 Require Import Chester.TypeScriptAST.
 Require Import Chester.GoAST.
 
-(* We mock nat_to_string to keep the example clean *)
-Definition nat_to_string (n : nat) : string := "0".
+Definition digit_char (d : nat) : string :=
+  match d with
+  | 0 => "0" | 1 => "1" | 2 => "2" | 3 => "3" | 4 => "4"
+  | 5 => "5" | 6 => "6" | 7 => "7" | 8 => "8" | _ => "9"
+  end.
+
+(* nat_to_string for small field indices (up to 99 is plenty for enum variants) *)
+Definition nat_to_string (n : nat) : string :=
+  let tens := Nat.div n 10 in
+  let ones := Nat.modulo n 10 in
+  if Nat.eqb tens 0 then digit_char ones
+  else digit_char tens ++ digit_char ones.
 
 (* 
   TypeScript Backend
@@ -50,12 +60,12 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
         | (pat, body) :: rest =>
             match pat with
             | PatConstructor cname vars =>
-                let cond := TsCall (TsPropertyAccess (TsIdentifier "_match_val") "===") [TsStringLiteral cname] in
+                let cond := TsCall (TsPropertyAccess (TsPropertyAccess (TsIdentifier "_match_val") "_tag") "===") [TsStringLiteral cname] in
                 let body_ts := emit_ts_block body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list TypeScriptStmt) : list TypeScriptStmt :=
                   match vs with
                   | [] => acc
-                  | v :: vs' => bind_vars vs' (S idx) (TsLet v (TsIndexAccess (TsPropertyAccess (TsIdentifier "_match_val") "args") (TsNumberLiteral (nat_to_string idx))) :: acc)
+                  | v :: vs' => bind_vars vs' (S idx) (TsLet v (TsPropertyAccess (TsIdentifier "_match_val") ("_f" ++ nat_to_string idx)) :: acc)
                   end
                 in
                 [TsIfStmt cond (bind_vars vars 0 [] ++ body_ts) (emit_cases rest)]
@@ -76,7 +86,36 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstLet name value => TsLet name (emit_ts_expr value)
   | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
-  | AstEnum _ _ _ => TsEmpty
+  | AstEnum name _ variants =>
+      let fix emit_variant (v : string * list AST) : string * TypeScriptExpr :=
+        let vname := fst v in
+        let fields := snd v in
+        let fix field_names (n : nat) (fs : list AST) : list string :=
+          match fs with
+          | [] => []
+          | _ :: rest => ("_f" ++ nat_to_string n) :: field_names (S n) rest
+          end
+        in
+        let params := field_names 0 fields in
+        let fix field_pairs (ps : list string) : list (string * TypeScriptExpr) :=
+          match ps with
+          | [] => []
+          | p :: rest => (p, TsIdentifier p) :: field_pairs rest
+          end
+        in
+        let body := TsObjectLiteral (("_tag", TsStringLiteral vname) :: field_pairs params) in
+        match params with
+        | [] => (vname, body)
+        | _ => (vname, TsArrow params [TsReturn body])
+        end
+      in
+      let fix emit_variants (vs : list (string * list AST)) : list (string * TypeScriptExpr) :=
+        match vs with
+        | [] => []
+        | v :: rest => emit_variant v :: emit_variants rest
+        end
+      in
+      TsConst name (TsObjectLiteral (emit_variants variants))
   | AstRef name => TsExprStmt (TsIdentifier name)
   | AstTuple elems => 
       let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
@@ -229,7 +268,9 @@ Definition emit_ts (ast : AST) : TypeScriptStmt :=
         | [] => []
         | x :: xs => emit_ts_stmt x :: map_ts_stmt xs
         end
-      in TsExprStmt (TsIIFE (map_ts_stmt stmts ++ [TsReturn (emit_ts_expr ret)]))
+      in
+      (* Emit as flat top-level sequence so declarations are globally scoped *)
+      TsBlock (map_ts_stmt stmts ++ [TsExprStmt (emit_ts_expr ret)])
   | _ => emit_ts_stmt ast
   end.
 

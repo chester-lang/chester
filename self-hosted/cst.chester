@@ -1,5 +1,3 @@
-
-
 // Chester Concrete Syntax Tree (CST)
 enum CST {
   case Symbol(name: String, span: Span);
@@ -22,7 +20,4 @@ enum CST {
   case EnumCST(name: String, type_params: List (String), variants: List (CST), span: Span);
   case MatchCST(expr: CST, cases: List (CST), span: Span);
   case RecordCST(name: String, type_params: List (String), fields: List (CST), span: Span);
-
 };
-
-()

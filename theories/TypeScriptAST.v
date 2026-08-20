@@ -10,12 +10,14 @@ Import ListNotations.
 Inductive TypeScriptStmt : Type :=
   | TsExprStmt : TypeScriptExpr -> TypeScriptStmt
   | TsLet : string -> TypeScriptExpr -> TypeScriptStmt
+  | TsConst : string -> TypeScriptExpr -> TypeScriptStmt
   | TsIfStmt : TypeScriptExpr -> list TypeScriptStmt -> list TypeScriptStmt -> TypeScriptStmt
   | TsReturn : TypeScriptExpr -> TypeScriptStmt
   | TsThrow : string -> TypeScriptStmt
   | TsFunctionDecl : string -> list string -> list TypeScriptStmt -> TypeScriptStmt
   | TsInterface : string -> TypeScriptStmt
   | TsEmpty : TypeScriptStmt
+  | TsBlock : list TypeScriptStmt -> TypeScriptStmt (* flat concatenation, no IIFE *)
 
 with TypeScriptExpr : Type :=
   | TsNumberLiteral : string -> TypeScriptExpr
@@ -28,7 +30,8 @@ with TypeScriptExpr : Type :=
   | TsArrow : list string -> list TypeScriptStmt -> TypeScriptExpr
   | TsArray : list TypeScriptExpr -> TypeScriptExpr
   | TsAwait : TypeScriptExpr -> TypeScriptExpr
-  | TsIIFE : list TypeScriptStmt -> TypeScriptExpr.
+  | TsIIFE : list TypeScriptStmt -> TypeScriptExpr
+  | TsObjectLiteral : list (string * TypeScriptExpr) -> TypeScriptExpr.
 
 (* Helper function to stringify TS AST (pretty printing) *)
 Fixpoint concat_strings (sep : string) (ls : list string) : string :=
@@ -48,6 +51,7 @@ Fixpoint stringify_ts_stmt (stmt : TypeScriptStmt) {struct stmt} : string :=
   match stmt with
   | TsExprStmt expr => stringify_ts_expr expr ++ "; "
   | TsLet name val => "const " ++ name ++ " = " ++ stringify_ts_expr val ++ "; "
+  | TsConst name val => "const " ++ name ++ " = " ++ stringify_ts_expr val ++ "; "
   | TsIfStmt cond thenB elseB => 
       let thenStr := concat_strings "" (map_ts_stmt thenB) in
       let elseStr := concat_strings "" (map_ts_stmt elseB) in
@@ -58,6 +62,7 @@ Fixpoint stringify_ts_stmt (stmt : TypeScriptStmt) {struct stmt} : string :=
       "function " ++ name ++ "(" ++ concat_strings ", " params ++ ") { " ++ concat_strings "" (map_ts_stmt body) ++ "}"
   | TsInterface name => "interface " ++ name ++ " { [key: string]: any }; "
   | TsEmpty => ""
+  | TsBlock stmts => concat_strings "" (map_ts_stmt stmts)
   end
 
 with stringify_ts_expr (expr : TypeScriptExpr) {struct expr} : string :=
@@ -116,4 +121,12 @@ with stringify_ts_expr (expr : TypeScriptExpr) {struct expr} : string :=
         end
       in
       "(() => { " ++ concat_strings "" (map_ts_stmt body) ++ "})()"
+  | TsObjectLiteral fields =>
+      let fix map_fields (fs : list (string * TypeScriptExpr)) : list string :=
+        match fs with
+        | [] => []
+        | (k, v) :: rest => (k ++ ": " ++ stringify_ts_expr v) :: map_fields rest
+        end
+      in
+      "{" ++ concat_strings ", " (map_fields fields) ++ "}"
   end.

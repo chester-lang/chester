@@ -249,8 +249,33 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       argsRes <- check_args args ;
       ret (AstTypeApp (fst funcAst) argsRes, AstRef "TypeUniverse")
 
-  | EnumCST name type_params _ _ =>
-      ret (AstEnum name type_params [], AstRef "Unit")
+  | EnumCST name type_params variants _ =>
+      let fix elab_variant (v : CST) : string * list AST :=
+        match v with
+        | AppCST (Symbol vname _) args _ =>
+            let fix elab_fields (fs : list CST) : list AST :=
+              match fs with
+              | [] => []
+              | f :: rest =>
+                  let fld := match f with
+                    | SeqOf (_ :: Symbol ":" _ :: ty :: _) _ => AstRef "Any"
+                    | _ => AstRef "Any"
+                    end in
+                  fld :: elab_fields rest
+              end
+            in
+            (vname, elab_fields args)
+        | Symbol vname _ => (vname, [])
+        | _ => ("unknown", [])
+        end
+      in
+      let fix elab_variants (vs : list CST) : list (string * list AST) :=
+        match vs with
+        | [] => []
+        | v :: rest => elab_variant v :: elab_variants rest
+        end
+      in
+      ret (AstEnum name type_params (elab_variants variants), AstRef "Unit")
 
   | MatchCST expr cases _ =>
       exprAst <- elaborate env expr None ;

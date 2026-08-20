@@ -6,7 +6,28 @@ let string_of_char_list chars =
   List.iter (Buffer.add_char buf) chars;
   Buffer.contents buf
 
-let process_file filename =
+let preamble =
+  "const Unit = {};\n\
+   const string_eq = (a, b) => a === b;\n\
+   const prim__list_length = (l) => l.length;\n\
+   const prim__int_eq = (a, b) => a === b;\n\
+   const prim__list_make = (len, f) => Array.from({length: len}, (_, i) => \
+   f(i));\n\
+   const prim__int_sub = (a, b) => a - b;\n\
+   const prim__list_get = (l, i) => l[i];\n\
+   const prim__int_add = (a, b) => a + b;\n\
+   const list_empty = () => [];\n\
+   const list_append = (l, x) => [...l, x];\n\
+   const list_drop_last = (l) => l.slice(0, -1);\n\
+   const list_insert_first = (l, x) => [x, ...l];\n\
+   const list_reverse = (l) => [...l].reverse();\n\
+   const ParseResult = (result, rest) => ({result, rest});\n\
+   const Span = (start, end) => ({start, end});\n\
+   const list_filter = (l, f) => l.filter(f);\n\
+   const advance = (l) => l.slice(1);\n\
+   const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \"let\"}];\n"
+
+let process_file filename oc =
   let ch = open_in filename in
   let len = in_channel_length ch in
   let buf = Bytes.create len in
@@ -30,46 +51,21 @@ let process_file filename =
   | Inl ((ast, _), _) ->
       print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
       let ts_ast = emit_ts ast in
-      let ts_code_str = string_of_char_list (stringify_ts_stmt ts_ast) in
-      let len = String.length ts_code_str in
-      let ts_code =
-        if
-          len > 16
-          && String.sub ts_code_str 0 2 = "{ "
-          && String.sub ts_code_str (len - 14) 14 = "return Unit; }"
-        then String.sub ts_code_str 2 (len - 16)
-        else ts_code_str
-      in
-
-      let out_dir = "out" in
-      if not (Sys.file_exists out_dir) then Sys.mkdir out_dir 0o755;
-      let out_file = Filename.concat out_dir "compiler.ts" in
-      let oc = open_out out_file in
-      output_string oc
-        "const Unit = {};\n\
-         const string_eq = (a, b) => a === b;\n\
-         const prim__list_length = (l) => l.length;\n\
-         const prim__int_eq = (a, b) => a === b;\n\
-         const prim__list_make = (len, f) => Array.from({length: len}, (_, i) \
-         => f(i));\n\
-         const prim__int_sub = (a, b) => a - b;\n\
-         const prim__list_get = (l, i) => l[i];\n\
-         const prim__int_add = (a, b) => a + b;\n\
-         const ParseResult = (result, rest) => ({result, rest});\n\
-         const CST = {Error: (msg, span) => ({type: \"Error\", msg, span}), \
-         SeqOf: (acc, span) => ({type: \"SeqOf\", acc, span})};\n\
-         const Span = (start, end) => ({start, end});\n\
-         const list_filter = (l, f) => l.filter(f);\n\
-         const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \
-         \"let\"}];\n";
-      output_string oc ts_code;
-      close_out oc;
-      print_endline ("Successfully emitted to " ^ out_file)
+      let ts_code = string_of_char_list (stringify_ts_stmt ts_ast) in
+      output_string oc ts_code
 
 let () =
   print_endline "Chester Bootstrapper";
-  if Array.length Sys.argv > 1 then
+  if Array.length Sys.argv > 1 then begin
+    let out_dir = "out" in
+    if not (Sys.file_exists out_dir) then Sys.mkdir out_dir 0o755;
+    let out_file = Filename.concat out_dir "compiler.ts" in
+    let oc = open_out out_file in
+    output_string oc preamble;
     for i = 1 to Array.length Sys.argv - 1 do
-      process_file Sys.argv.(i)
-    done
-  else print_endline "Usage: main.exe <file.chester>"
+      process_file Sys.argv.(i) oc
+    done;
+    close_out oc;
+    print_endline ("\nSuccessfully emitted to " ^ out_file)
+  end
+  else print_endline "Usage: main.exe <file.chester> [file2.chester ...]"

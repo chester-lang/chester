@@ -123,6 +123,36 @@ Fixpoint expand_cst (c : CST) : CST :=
             | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: ListLiteral targs empty_span :: Tuple args empty_span :: rest_def) s :: process_stmts rest
             end
 
+        | SeqOf (Symbol "enum" _ :: Symbol name _ :: Block variants _ _ :: []) s :: rest =>
+            let fix extract_variants (vs : list CST) : list CST :=
+              match vs with
+              | [] => []
+              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: []) _ :: vrest =>
+                  AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
+              | SeqOf (Symbol "case" _ :: Symbol vname _ :: []) _ :: vrest =>
+                  Symbol vname empty_span :: extract_variants vrest
+              | _ :: vrest => extract_variants vrest
+              end
+            in
+            EnumCST name [] (extract_variants variants) s :: process_stmts rest
+            
+        | SeqOf (Symbol "enum" _ :: TypeAppCST (Symbol name _) targs _ :: Block variants _ _ :: []) s :: rest =>
+            let fix extract_variants (vs : list CST) : list CST :=
+              match vs with
+              | [] => []
+              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: []) _ :: vrest =>
+                  AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
+              | SeqOf (Symbol "case" _ :: Symbol vname _ :: []) _ :: vrest =>
+                  Symbol vname empty_span :: extract_variants vrest
+              | _ :: vrest => extract_variants vrest
+              end
+            in
+            let extract_targ (a: CST) : string := 
+               match a with Symbol n _ => n | _ => "T" end 
+            in
+            let type_params := map extract_targ targs in
+            EnumCST name type_params (extract_variants variants) s :: process_stmts rest
+
         | SeqOf (Symbol "record" _ :: AppCST (Symbol name _) fields _ :: []) s :: rest =>
             RecordCST name [] fields s :: process_stmts rest
             
