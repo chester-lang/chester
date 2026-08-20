@@ -4,6 +4,7 @@ enum TokenKind {
   case StringLit;
   case Symbol(value: String);
   case Whitespace;
+  case Comment(text: String);
   case EOF;
 };
 

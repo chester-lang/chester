@@ -43,6 +43,7 @@ Inductive CST : Type :=
   | IntegerLiteral : string -> Span -> CST
   | BoolLiteral : bool -> Span -> CST
   | SeqOf : list CST -> Span -> CST
+  | CommentCST : string -> Span -> CST
   (* New nodes for stdlib/bootstrap *)
   | LetCST : string -> CST -> CST -> Span -> CST (* name, value, body/next_stmt *)
   | IfCST : CST -> CST -> CST -> Span -> CST (* cond, then_branch, else_branch *)

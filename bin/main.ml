@@ -49,4 +49,11 @@ let () =
           let go_ast = emit_go zonked_ast in
           let go_code = stringify_go go_ast in
           print_endline ("\n[Golang Backend]");
-          print_endline (string_of_char_list go_code)
+          print_endline (string_of_char_list go_code);
+          
+          let cmt = CommentCST (char_list_of_string "Formatter preserves this comment!", span) in
+          let blk = Block ([cmt; def_expr], Symbol (char_list_of_string "Unit", span), span) in
+          let def_blk = DefCST (char_list_of_string "main", [], [], Symbol (char_list_of_string "Unit", span), blk, span) in
+          
+          print_endline "\n[Code Formatter / Pretty Printer]";
+          print_endline (string_of_char_list (format_cst 100 0 def_blk))

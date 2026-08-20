@@ -7,6 +7,7 @@ Require Import Chester.Elaborator.
 Require Import Chester.Backend.
 Require Import Chester.TypeScriptAST.
 Require Import Chester.GoAST.
+Require Import Chester.Formatter.
 Require Import Chester.TypeScriptInterop.
 Require Import Chester.GoInterop.
 
@@ -29,6 +30,7 @@ Extraction "Compiler.ml"
   Chester.Elaborator.zonk
   Chester.Elaborator.unify
   Chester.Elaborator.init_elab_state
+  Chester.Formatter.format_cst
   Chester.Backend.emit_ts 
   Chester.Backend.emit_go
   Chester.TypeScriptInterop.ts_to_chester

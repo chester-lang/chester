@@ -9,6 +9,7 @@ enum CST {
   case StringLiteral(value: String, span: Span);
   case IntegerLiteral(value: String, span: Span);
   case SeqOf(elements: List (CST), span: Span);
+  case Comment(text: String, span: Span);
   case Error(msg: String, span: Span);
 };
 

@@ -8,6 +8,7 @@ Inductive Token : Type :=
   | TokSymbol : string -> Span -> Token
   | TokString : string -> Span -> Token
   | TokInt : string -> Span -> Token
+  | TokComment : string -> Span -> Token
   | TokLParen : Span -> Token
   | TokRParen : Span -> Token
   | TokLBrace : Span -> Token
@@ -21,6 +22,7 @@ Definition token_span (t : Token) : Span :=
   | TokSymbol _ s => s
   | TokString _ s => s
   | TokInt _ s => s
+  | TokComment _ s => s
   | TokLParen s => s
   | TokRParen s => s
   | TokLBrace s => s
@@ -62,6 +64,7 @@ Section ParserLogic.
             | TokSymbol name s => ParseOk (Symbol name s) rest
             | TokString val s => ParseOk (StringLiteral val s) rest
             | TokInt val s => ParseOk (IntegerLiteral val s) rest
+            | TokComment text s => ParseOk (CommentCST text s) rest
             
             | TokLParen s_start =>
                 (* Parse a Tuple *)
