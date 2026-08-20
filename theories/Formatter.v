@@ -90,6 +90,8 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
                          end in
           "\" ++ arg_str ++ " => " ++ format_cst f indent body
           
+      | TypeAppCST func args _ =>
+          format_cst f indent func ++ "[" ++ join_strings ", " (map (format_cst f indent) args) ++ "]"
       | AppCST func args _ =>
           format_cst f indent func ++ "(" ++ join_strings ", " (map (format_cst f indent) args) ++ ")"
           

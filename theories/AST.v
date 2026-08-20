@@ -50,6 +50,7 @@ Inductive AST : Type :=
   | AstBoolLit : bool -> AST
   | AstBlock : list AST -> AST -> AST
   | AstApp : AST -> list AST -> AST
+  | AstTypeApp : AST -> list AST -> AST
   | AstLam : string -> AST -> AST -> AST (* argName, argTy, body *)
   | AstPi : string -> AST -> AST -> EffectSet -> AST (* argName, argTy, retTy, effects *)
   | AstDo : AST -> list AST -> AST (* perform an effect operation *)

@@ -1,3 +1,4 @@
+cat << 'INNER' > theories/Expander.v
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
 Import ListNotations.
@@ -55,16 +56,8 @@ Fixpoint expand_cst (c : CST) : CST :=
 
   | Tuple elems span => Tuple (map expand_cst elems) span
   | ListLiteral elems span => ListLiteral (map expand_cst elems) span
-  
-  | SeqOf (expr :: ListLiteral targs tspan :: args) span =>
-      (* e.g. list_empty [CST] () *)
-      let type_app := TypeAppCST (expand_cst expr) (map expand_cst targs) tspan in
-      match args with
-      | [] => type_app
-      | _ => AppCST type_app (map expand_cst args) span
-      end
-      
   | SeqOf elems span => SeqOf (map expand_cst elems) span
   | FieldAccessCST expr field span => FieldAccessCST (expand_cst expr) field span
   | _ => c
   end.
+INNER

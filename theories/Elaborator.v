@@ -240,6 +240,19 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) [] in
       ret (AstLam arg_name (fst argTyAst) (fst bodyAst), arrTy)
       
+  | TypeAppCST func args _ =>
+      funcAst <- elaborate env func None ;
+      let fix check_args (as_ : list CST) : ElabM (list AST) :=
+        match as_ with
+        | [] => ret []
+        | a :: rest =>
+            aAst <- elaborate env a (Some (AstRef "TypeUniverse")) ;
+            restAst <- check_args rest ;
+            ret (fst aAst :: restAst)
+        end
+      in
+      argsRes <- check_args args ;
+      ret (AstTypeApp (fst funcAst) argsRes, AstRef "TypeUniverse")
   | AppCST func args _ =>
       funcAst <- elaborate env func None ;
       let fix check_args (fs : AST) (as_ : list CST) : ElabM (list AST * AST) :=

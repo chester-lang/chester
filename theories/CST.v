@@ -50,6 +50,7 @@ Inductive CST : Type :=
   | DefCST : string -> list string -> list (string * CST) -> CST -> CST -> Span -> CST (* name, type_params, params, ret_ty, body *)
   | LamCST : string -> option CST -> CST -> Span -> CST (* arg_name, opt_arg_ty, body *)
   | AppCST : CST -> list CST -> Span -> CST (* func, args *)
+  | TypeAppCST : CST -> list CST -> Span -> CST
   | EnumCST : string -> list string -> list CST -> Span -> CST (* name, type_params, variants *)
   | MatchCST : CST -> list (PatternCST * CST) -> Span -> CST (* expr, cases *)
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
@@ -97,6 +98,7 @@ Definition get_span (c : CST) : Span :=
   | DefCST _ _ _ _ _ span => span
   | EnumCST _ _ _ span => span
   | MatchCST _ _ span => span
+  | TypeAppCST _ _ span => span
   | RecordCST _ _ _ span => span
   | FieldAccessCST _ _ span => span
   | CommentCST _ span => span

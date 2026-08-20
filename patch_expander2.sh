@@ -1,3 +1,4 @@
+cat << 'INNER' > theories/Expander.v
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
 Import ListNotations.
@@ -68,3 +69,4 @@ Fixpoint expand_cst (c : CST) : CST :=
   | FieldAccessCST expr field span => FieldAccessCST (expand_cst expr) field span
   | _ => c
   end.
+INNER
