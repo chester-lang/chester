@@ -1,0 +1,33 @@
+// Represents Source Spans for error reporting
+record Span {
+  start: Integer;
+  end: Integer;
+}
+
+// Chester Core Types
+enum Type {
+  case IntegerType;
+  case StringType;
+  case BoolType;
+  case FunctionType(paramTypes: List Type, returnType: Type); // Simplified
+  case NamedType(name: String);
+}
+
+// Chester Core Expressions
+enum Expr {
+  case IntLiteral(value: Integer, span: Option Span);
+  case StringLiteral(value: String, span: Option Span);
+  case BoolLiteral(value: Bool, span: Option Span);
+  case VarRef(name: String, span: Option Span);
+  case App(func: Expr, args: List Expr, span: Option Span);
+  case Lam(paramName: String, paramType: Type, body: Expr, span: Option Span);
+  case Let(name: String, value: Expr, body: Expr, span: Option Span);
+}
+
+// Chester Core Statements
+enum Stmt {
+  case Def(name: String, returnType: Type, body: Expr, span: Option Span);
+  case EnumDef(name: String, span: Option Span); // Simplified
+};
+
+()

@@ -1,0 +1,15 @@
+
+
+// Chester Concrete Syntax Tree (CST)
+enum CST {
+  case Symbol(name: String, span: Span);
+  case Tuple(elements: List (CST), span: Span);
+  case ListLiteral(elements: List (CST), span: Span);
+  case Block(elements: List (CST), tail: List (CST), span: Span);
+  case StringLiteral(value: String, span: Span);
+  case IntegerLiteral(value: String, span: Span);
+  case SeqOf(elements: List (CST), span: Span);
+  case Error(msg: String, span: Span);
+};
+
+()
