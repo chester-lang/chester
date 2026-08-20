@@ -86,6 +86,75 @@ def parse_tuple(tokens: List (Token)): ParseResult (CST) = {
   parse_tuple_helper(tokens, list_empty[CST]())
 };
 
+
+def parse_list_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) = {
+  if prim__int_eq(prim__list_length(tokens), 0) then {
+    ParseResult(CST.Error("Unexpected EOF", Span(0,0)), tokens)
+  } else {
+    let tok = prim__list_get(tokens, 0);
+    match tok.kind {
+      case Symbol(s) => {
+        if string_eq(s, "]") then {
+          ParseResult(CST.ListLiteral(acc, Span(0,0)), advance(tokens))
+        } else {
+          let p = parse_atom_sequence(tokens);
+          match p.result {
+            case Error(m, sp) => p;
+            case _ => {
+              if prim__int_eq(prim__list_length(p.remaining), 0) then {
+                ParseResult(CST.Error("Unexpected EOF in list", Span(0,0)), p.remaining)
+              } else {
+                let next_tok = prim__list_get(p.remaining, 0);
+                match next_tok.kind {
+                  case Symbol(s2) => {
+                    if string_eq(s2, ",") then {
+                      parse_list_helper(advance(p.remaining), list_append(acc, p.result))
+                    } else if string_eq(s2, "]") then {
+                      ParseResult(CST.ListLiteral(list_append(acc, p.result), Span(0,0)), advance(p.remaining))
+                    } else {
+                      ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
+                    }
+                  };
+                  case _ => ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
+                }
+              }
+            }
+          }
+        }
+      };
+      case _ => {
+        let p = parse_atom_sequence(tokens);
+        match p.result {
+          case Error(m, sp) => p;
+          case _ => {
+            if prim__int_eq(prim__list_length(p.remaining), 0) then {
+              ParseResult(CST.Error("Unexpected EOF in list", Span(0,0)), p.remaining)
+            } else {
+              let next_tok = prim__list_get(p.remaining, 0);
+              match next_tok.kind {
+                case Symbol(s2) => {
+                  if string_eq(s2, ",") then {
+                    parse_list_helper(advance(p.remaining), list_append(acc, p.result))
+                  } else if string_eq(s2, "]") then {
+                    ParseResult(CST.ListLiteral(list_append(acc, p.result), Span(0,0)), advance(p.remaining))
+                  } else {
+                    ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
+                  }
+                };
+                case _ => ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+def parse_list(tokens: List (Token)): ParseResult (CST) = {
+  parse_list_helper(tokens, list_empty[CST]())
+};
+
 def parse_block_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) = {
   if prim__int_eq(prim__list_length(tokens), 0) then {
     ParseResult(CST.Error("Unexpected EOF", Span(0,0)), tokens)
@@ -212,6 +281,7 @@ def parse_atom(tokens: List (Token)): ParseResult (CST) = {
       case Symbol(s) => {
         if string_eq(s, "(") then parse_tuple(rest)
         else if string_eq(s, "{") then parse_block(rest)
+        else if string_eq(s, "[") then parse_list(rest)
         else ParseResult(CST.Symbol(tok.text, tok.span), rest)
       };
       case Whitespace => ParseResult(CST.Error("Unexpected whitespace", tok.span), rest) // Whitespace should be filtered
