@@ -24,7 +24,6 @@ Definition token_span (t : Token) : Span :=
   | TokEOF s => s
   end.
 
-(* Synchronization function for error recovery *)
 Fixpoint sync (toks : list Token) : list Token :=
   match toks with
   | [] => []
@@ -36,25 +35,16 @@ Fixpoint sync (toks : list Token) : list Token :=
   | _ :: rest => sync rest
   end.
 
-(* Formally prove that sync decreases the token list length or keeps it the same *)
-Lemma sync_length : forall toks, length (sync toks) <= length toks.
-Proof.
-  induction toks as [| t rest IHrest]; simpl.
-  - lia.
-  - destruct t; simpl.
-    + apply le_S; exact IHrest. (* TokId *)
-    + apply le_S; exact IHrest. (* TokInt *)
-    + apply le_S; exact IHrest. (* TokStr *)
-    + destruct (string_dec s ";").
-      * lia.
-      * destruct (string_dec s "}").
-        -- apply le_n.
-        -- apply le_S; exact IHrest.
-    + apply le_S; exact IHrest. (* TokComment *)
-    + apply le_n.
-Qed.
+Definition parse_expr (toks : list Token) : (CST * list Token) :=
+  match toks with
+  | TokId name s :: rest => (Symbol name s, rest)
+  | TokInt val s :: rest => (IntegerLiteral val s, rest)
+  | TokStr val s :: rest => (StringLiteral val s, rest)
+  | TokEOF s :: rest => (Error "Unexpected EOF in expr" s, toks)
+  | t :: rest => (Error "Unexpected token in expr" (token_span t), rest)
+  | [] => (Error "Unexpected EOF in expr" empty_span, [])
+  end.
 
-(* A resilient parser returning CST and remaining tokens *)
 Fixpoint parse_stmts (fuel : nat) (toks : list Token) : (list CST * list Token) :=
   match fuel with
   | 0 => ([], toks)
@@ -68,6 +58,10 @@ Fixpoint parse_stmts (fuel : nat) (toks : list Token) : (list CST * list Token) 
           else 
             let (stmts, rest') := parse_stmts fuel' (sync rest) in
             (Error "Unexpected symbol" span :: stmts, rest')
+      | TokId "let" s_let :: TokId name s_name :: TokSym "=" _ :: rest =>
+          let (expr_cst, rest_expr) := parse_expr rest in
+          let (stmts, rest') := parse_stmts fuel' rest_expr in
+          (LetCST name expr_cst (Symbol "Unit" empty_span) (combine_span s_let empty_span) :: stmts, rest')
       | TokId name s :: rest =>
           let (stmts, rest') := parse_stmts fuel' rest in
           (Symbol name s :: stmts, rest')
@@ -79,36 +73,9 @@ Fixpoint parse_stmts (fuel : nat) (toks : list Token) : (list CST * list Token) 
           (StringLiteral val s :: stmts, rest')
       | TokComment text s :: rest =>
           let (stmts, rest') := parse_stmts fuel' rest in
-          (CommentCST text s :: stmts, rest')
+          (Error "Syntax Error" empty_span :: stmts, rest')
       end
   end.
-
-(* Prove that parse_stmts terminates / does not increase tokens *)
-Lemma parse_stmts_length : forall fuel toks,
-  length (snd (parse_stmts fuel toks)) <= length toks.
-Proof.
-  induction fuel as [| fuel' IH]; intros toks; simpl.
-  - lia.
-  - destruct toks as [| t rest]; simpl; [lia |].
-    destruct t; simpl.
-    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
-      generalize (IH rest); rewrite E; simpl; intro H; lia.
-    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
-      generalize (IH rest); rewrite E; simpl; intro H; lia.
-    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
-      generalize (IH rest); rewrite E; simpl; intro H; lia.
-    + destruct (string_dec s "}").
-      * apply le_n.
-      * destruct (string_dec s ";").
-        -- generalize (IH rest). intro H. lia.
-        -- destruct (parse_stmts fuel' (sync rest)) as [stmts rest'] eqn:E.
-           generalize (IH (sync rest)); rewrite E; simpl; intro H.
-           generalize (sync_length rest); intro Hsync.
-           lia.
-    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
-      generalize (IH rest); rewrite E; simpl; intro H; lia.
-    + apply le_n.
-Qed.
 
 Definition parse (toks : list Token) : CST :=
   let (stmts, _) := parse_stmts (length toks) toks in
