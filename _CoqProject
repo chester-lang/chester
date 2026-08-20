@@ -1,6 +1,8 @@
 -Q . Chester
 CST.v
 AST.v
+TypeScriptAST.v
+GoAST.v
 Parser.v
 CoreChecker.v
 Elaborator.v
