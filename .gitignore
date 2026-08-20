@@ -20,3 +20,4 @@ result-*
 .direnv/
 extraction/Compiler.ml
 extraction/Compiler.mli
+_build/
