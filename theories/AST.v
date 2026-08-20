@@ -33,6 +33,11 @@ Inductive EffectRef :=
 (* A set/list of effects *)
 Definition EffectSet := list EffectRef.
 
+Inductive PatternAST : Type :=
+  | PatWildcard : PatternAST
+  | PatVar : string -> PatternAST
+  | PatConstructor : string -> list string -> PatternAST.
+
 (* 
   The Abstract Syntax Tree (AST). 
   Notice how it includes Meta variables that point to the solver's state. 
@@ -55,6 +60,7 @@ Inductive AST : Type :=
   | AstIf : AST -> AST -> AST -> AST (* cond, then, else *)
   | AstDef : string -> list string -> list (string * AST) -> AST -> AST -> AST (* name, type_params, params, ret_ty, body *)
   | AstEnum : string -> list string -> list (string * list AST) -> AST (* name, type_params, variants *)
+  | AstMatch : AST -> list (PatternAST * AST) -> AST (* expr, cases *)
   | AstRecord : string -> list string -> list (string * AST) -> AST (* name, type_params, fields *)
   
   (* A meta variable or hole, indexed by its unique ID *)

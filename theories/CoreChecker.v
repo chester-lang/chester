@@ -42,6 +42,7 @@ Fixpoint eq_ast (t1 t2 : AST) : bool :=
   | AstIf c1 t1 e1, AstIf c2 t2 e2 => false
   | AstDef n1 tp1 p1 r1 b1, AstDef n2 tp2 p2 r2 b2 => false
   | AstEnum _ _ _, AstEnum _ _ _ => false
+  | AstMatch _ _, AstMatch _ _ => false
   | AstRecord _ _ _, AstRecord _ _ _ => false
   | _, _ => false (* Simplified for demonstration *)
   end.
@@ -181,7 +182,30 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       | TyErr e => TyErr e
       end
       
-  | AstEnum _ _ _ => TyErr "Enum not implemented in checker"
+  | AstMatch expr cases =>
+      match infer_check env expr None with
+      | TyOk expr_ty =>
+          let fix check_cases (cs : list (PatternAST * AST)) : TyResult AST :=
+            match cs with
+            | [] => TyErr "Empty match"
+            | [(pat, body)] => infer_check env body expected
+            | (pat, body) :: rest =>
+                match infer_check env body expected with
+                | TyOk ty_body =>
+                    match check_cases rest with
+                    | TyOk ty_rest =>
+                        if eq_ast ty_body ty_rest then TyOk ty_body else TyErr "Match branches have mismatching types"
+                    | err => err
+                    end
+                | err => err
+                end
+            end
+          in
+          check_cases cases
+      | err => err
+      end
+      
+  | AstEnum _ _ _ => TyOk (AstRef "Unit")
   | AstRecord _ _ _ => TyErr "Record not implemented in checker"
   | AstMeta _ => TyErr "Core Checker: Encountered unsolved metavariable"
   | _ => TyErr "Unsupported AST node for checker"

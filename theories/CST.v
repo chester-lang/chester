@@ -28,6 +28,11 @@ Record Span : Type := mkSpan {
   range : SpanInFile
 }.
 
+Inductive PatternCST : Type :=
+  | PatWildcardCST : Span -> PatternCST
+  | PatVarCST : string -> Span -> PatternCST
+  | PatConstructorCST : string -> list string -> Span -> PatternCST. (* Constructor name and variable bindings *)
+
 (* The Universal Concrete Syntax Tree (CST) for Chester *)
 Inductive CST : Type :=
   | Symbol : string -> Span -> CST
@@ -45,6 +50,7 @@ Inductive CST : Type :=
   | LamCST : string -> option CST -> CST -> Span -> CST (* arg_name, opt_arg_ty, body *)
   | AppCST : CST -> list CST -> Span -> CST (* func, args *)
   | EnumCST : string -> list string -> list CST -> Span -> CST (* name, type_params, variants *)
+  | MatchCST : CST -> list (PatternCST * CST) -> Span -> CST (* expr, cases *)
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
   | Error : string -> Span -> CST.
 

@@ -90,6 +90,19 @@ Fixpoint zonk (fuel : nat) (ty : AST) : ElabM AST :=
           t' <- zonk f t ;
           ret_ty' <- zonk f ret_ty ;
           ret (AstPi arg t' ret_ty' effs)
+      | AstMatch expr cases =>
+          expr' <- zonk f expr ;
+          let fix map_cases (cs : list (PatternAST * AST)) : ElabM (list (PatternAST * AST)) :=
+            match cs with
+            | [] => ret []
+            | (pat, body) :: rest =>
+                body' <- zonk f body ;
+                rest' <- map_cases rest ;
+                ret ((pat, body') :: rest')
+            end
+          in
+          cases' <- map_cases cases ;
+          ret (AstMatch expr' cases')
       | _ => ret ty
       end
   end.
@@ -235,7 +248,55 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       match expected with Some exp => unify 100 (snd argsRes) exp | None => ret tt end ;;
       ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
 
-  | EnumCST _ _ _ _ => throw "EnumCST not implemented in elaborator"
+  | MatchCST expr cases _ =>
+      exprAst <- elaborate env expr None ;
+      let fix elab_cases (cs : list (PatternCST * CST)) : ElabM (list (PatternAST * AST) * AST) :=
+        match cs with
+        | [] => throw "Empty match not allowed"
+        | (pat, body) :: rest =>
+            match pat with
+            | PatWildcardCST _ => 
+                bodyAst <- elaborate env body expected ;
+                ret ([(PatWildcard, fst bodyAst)], snd bodyAst)
+            | PatVarCST v _ =>
+                m <- fresh_meta ;
+                bodyAst <- elaborate ((v, m) :: env) body expected ;
+                ret ([(PatVar v, fst bodyAst)], snd bodyAst)
+            | PatConstructorCST name vars _ =>
+                (* Add each var to env as a fresh meta *)
+                let fix add_vars (vs : list string) (e : TypeEnv) : ElabM TypeEnv :=
+                  match vs with
+                  | [] => ret e
+                  | v :: rest_vs =>
+                      m <- fresh_meta ;
+                      add_vars rest_vs ((v, m) :: e)
+                  end
+                in
+                case_env <- add_vars vars env ;
+                bodyAst <- elaborate case_env body expected ;
+                ret ([(PatConstructor name vars, fst bodyAst)], snd bodyAst)
+            end
+        end
+      in
+      
+      let fix process_cases (cs : list (PatternCST * CST)) : ElabM (list (PatternAST * AST) * AST) :=
+        match cs with
+        | [] => throw "Empty match"
+        | [single] => elab_cases [single]
+        | (pat, body) :: rest =>
+            res_first <- elab_cases [(pat, body)] ;
+            res_rest <- process_cases rest ;
+            (* Unify branch return types *)
+            unify 100 (snd res_first) (snd res_rest) ;;
+            ret (fst res_first ++ fst res_rest, snd res_first)
+        end
+      in
+      casesRes <- process_cases cases ;
+      ret (AstMatch (fst exprAst) (fst casesRes), snd casesRes)
+
+  | EnumCST name type_params variants _ => 
+      (* Mock elaboration for Enum *)
+      ret (AstEnum name type_params [], AstRef "Unit")
   | RecordCST _ _ _ _ => throw "RecordCST not implemented in elaborator"
   | _ => throw "Unsupported CST node for elaboration"
   end.

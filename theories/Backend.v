@@ -2,6 +2,7 @@ From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
 From Stdlib Require Import Ascii.
 Import ListNotations.
+Open Scope string_scope.
 
 Require Import Chester.AST.
 Require Import Chester.TypeScriptAST.
@@ -44,7 +45,28 @@ Fixpoint emit_ts (expr : AST) {struct expr} : TypeScriptAST :=
         end
       in
       TsRaw ("function " ++ name ++ "(" ++ concat_strings ", " (get_param_names params) ++ ") { return " ++ stringify_ts (emit_ts body) ++ "; }")
-  | AstEnum name _ _ => TsRaw ("/* enum " ++ name ++ " */")
+  | AstEnum name _ _ => TsRaw ("type " ++ name ++ " = any; /* simplified enum */")
+  | AstMatch expr cases =>
+      let fix emit_cases (cs : list (PatternAST * AST)) : string :=
+        match cs with
+        | [] => "throw new Error('Non-exhaustive match');"%string
+        | (pat, body) :: rest =>
+            match pat with
+            | PatWildcard => "return " ++ stringify_ts (emit_ts body) ++ ";"
+            | PatVar v => "const " ++ v ++ " = _match_val; return " ++ stringify_ts (emit_ts body) ++ ";"
+            | PatConstructor cname vars =>
+                "if (_match_val._tag === '" ++ cname ++ "') { " ++
+                (let fix bind_vars (vs : list string) (idx : nat) : string :=
+                   match vs with
+                   | [] => ""%string
+                   | v :: v_rest => "const " ++ v ++ " = _match_val.args[" ++ nat_to_string idx ++ "]; " ++ bind_vars v_rest (S idx)
+                   end
+                 in bind_vars vars 0) ++
+                "return " ++ stringify_ts (emit_ts body) ++ "; } " ++ emit_cases rest
+            end
+        end
+      in
+      TsRaw ("(() => { const _match_val = " ++ stringify_ts (emit_ts expr) ++ "; " ++ emit_cases cases ++ " })()")
   | AstRecord name _ _ => TsRaw ("/* record " ++ name ++ " */")
   | AstMeta id => TsRaw ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => TsRaw ("/* ERROR: " ++ e ++ " */")
@@ -84,7 +106,28 @@ Fixpoint emit_go (expr : AST) {struct expr} : GoAST :=
         end
       in
       GoRaw ("func " ++ name ++ "(" ++ concat_strings " interface{}, " (get_param_names params) ++ " interface{}) interface{} { return " ++ stringify_go (emit_go body) ++ " }")
-  | AstEnum name _ _ => GoRaw ("/* enum " ++ name ++ " */")
+  | AstEnum name _ _ => GoRaw ("type " ++ name ++ " interface{} /* simplified enum */")
+  | AstMatch expr cases =>
+      let fix emit_cases (cs : list (PatternAST * AST)) : string :=
+        match cs with
+        | [] => "panic(""Non-exhaustive match"")"
+        | (pat, body) :: rest =>
+            match pat with
+            | PatWildcard => "return " ++ stringify_go (emit_go body)
+            | PatVar v => v ++ " := _match_val; return " ++ stringify_go (emit_go body)
+            | PatConstructor cname vars =>
+                "if _tag, _ok := _match_val.(map[string]interface{}); _ok && _tag[""_tag""] == """ ++ cname ++ """ { " ++
+                (let fix bind_vars (vs : list string) (idx : nat) : string :=
+                   match vs with
+                   | [] => ""
+                   | v :: v_rest => v ++ " := _tag[""args""].([]interface{})[" ++ nat_to_string idx ++ "]; " ++ bind_vars v_rest (S idx)
+                   end
+                 in bind_vars vars 0) ++
+                "return " ++ stringify_go (emit_go body) ++ " }; " ++ emit_cases rest
+            end
+        end
+      in
+      GoRaw ("func() interface{} { _match_val := " ++ stringify_go (emit_go expr) ++ "; " ++ emit_cases cases ++ " }()")
   | AstRecord name _ _ => GoRaw ("/* record " ++ name ++ " */")
   | AstMeta id => GoRaw ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => GoRaw ("/* ERROR: " ++ e ++ " */")
