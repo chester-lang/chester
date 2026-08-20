@@ -392,6 +392,23 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
   | MacroDefCST _ _ _ => throw "MacroDefCST reached Elaborator"
   | Error msg _ => throw msg
 
+  | EffectCST name type_params decls _ => ret (AstRef "Unit", AstRef "Unit")
+  | DoCST op args _ => 
+      opAst <- elaborate env op None ;
+      let fix check_args (as_ : list CST) : ElabM (list AST) :=
+        match as_ with
+        | [] => ret []
+        | a :: rest =>
+            aAst <- elaborate env a None ;
+            restAst <- check_args rest ;
+            ret (fst aAst :: restAst)
+        end
+      in
+      argsRes <- check_args args ;
+      ret (AstDo (fst opAst) argsRes, AstRef "Unknown")
+  | HandleCST body eff handlers _ =>
+      bodyAst <- elaborate env body None ;
+      ret (AstHandle (fst bodyAst) (UserEffect eff) [], fst bodyAst)
   | RecordCST name type_params fields _ => 
       ret (AstRecord name type_params [], AstRef "Unit")
       

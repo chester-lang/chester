@@ -210,6 +210,12 @@ Fixpoint expand_cst (c : CST) : CST :=
             let type_params := map extract_targ targs in
             EnumCST name type_params (extract_variants variants) s :: process_stmts rest
 
+        | SeqOf (Symbol "effect" _ :: Symbol name _ :: ListLiteral targs _ :: Block decls _ _ :: []) s :: rest =>
+            EffectCST name [] [] s :: process_stmts rest
+        | SeqOf (Symbol "perform" _ :: AppCST op args _ :: []) s :: rest =>
+            DoCST op args s :: process_stmts rest
+        | SeqOf (Symbol "handle" _ :: Block body _ _ :: Symbol "with" _ :: Symbol eff _ :: Block handlers _ _ :: []) s :: rest =>
+            HandleCST (Block body (Symbol "Unit" empty_span) empty_span) eff [] s :: process_stmts rest
         | SeqOf (Symbol "record" _ :: AppCST (Symbol name _) fields _ :: []) s :: rest =>
             RecordCST name [] fields s :: process_stmts rest
             

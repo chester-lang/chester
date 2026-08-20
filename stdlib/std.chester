@@ -1,3 +1,12 @@
+
+effect State {
+  def get(): Integer;
+  def put(s: Integer): Unit;
+};
+
+enum Pair[A, B] {
+  case MkPair(fst: A, snd: B);
+};
 enum Option[T] {
   case None;
   case Some(value: T);

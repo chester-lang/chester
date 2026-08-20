@@ -1,0 +1,582 @@
+enum ElabState {
+  case MkElabState(env: List Pair, next_var: Integer, subst: List Pair);
+};
+
+def get_elab_state(): ElabState = prim__get_elab_state();
+def put_elab_state(s: ElabState): Unit = prim__put_elab_state(s);
+
+enum OptionAST {
+  case SomeAST(ast: AST);
+  case NoneAST;
+};
+
+def fresh_meta(): AST = {
+  let s = get_elab_state();
+  match s {
+    case MkElabState(env, next_var, subst) => {
+      let m = AST.AstRef(string_append("?", int_to_string(next_var)));
+      put_elab_state(ElabState.MkElabState(env, int_add(next_var, 1), subst));
+      m
+    }
+  }
+};
+
+def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
+  ()
+};
+
+def list_nat_eq(l1: List Integer, l2: List Integer): Bool = {
+  if int_eq(list_length(l1), 0) then {
+    if int_eq(list_length(l2), 0) then true else false
+  } else {
+    if int_eq(list_length(l2), 0) then false else {
+      let x = list_get(l1, 0);
+      let y = list_get(l2, 0);
+      if int_eq(x, y) then list_nat_eq(advance(l1), advance(l2))
+      else false
+    }
+  }
+};
+
+def lookup_type(name: String, ctx: List Integer, env: List Pair): OptionAST = {
+  if int_eq(list_length(env), 0) then OptionAST.NoneAST()
+  else {
+    let entry = list_get(env, 0);
+    match entry {
+      case MkPair(k, v) => {
+        match k {
+          case MkPair(k_name, k_ctx) => {
+            if string_eq(name, k_name) then {
+              if list_nat_eq(ctx, k_ctx) then OptionAST.SomeAST(v)
+              else lookup_type(name, ctx, advance(env))
+            } else {
+              lookup_type(name, ctx, advance(env))
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+def resolve_hygiene(env: List Pair, name: String, ctx: List Integer): Pair = {
+  let res = lookup_type(name, ctx, env);
+  match res {
+    case SomeAST(ty) => Pair.MkPair(ty, ctx);
+    case NoneAST => {
+      if int_eq(list_length(ctx), 0) then Pair.MkPair(AST.AstError("Not found"), ctx)
+      else resolve_hygiene(env, name, advance(ctx))
+    }
+  }
+};
+
+def join_ctx(ls: List Integer): String = {
+  if int_eq(list_length(ls), 0) then ""
+  else string_append(string_append("_", int_to_string(list_get(ls, 0))), join_ctx(advance(ls)))
+};
+
+def mangle_name(n: String, ctx: List Integer): String = {
+  if int_eq(list_length(ctx), 0) then n
+  else string_append(n, join_ctx(ctx))
+};
+
+def append_env(e1: List Pair, e2: List Pair): List Pair = {
+  if int_eq(list_length(e1), 0) then e2
+  else list_insert_first(append_env(advance(e1), e2), list_get(e1, 0))
+};
+
+def extract_vars(args: List CST): List String = {
+  if int_eq(list_length(args), 0) then list_empty[String]()
+  else {
+    let a = list_get(args, 0);
+    let rest = extract_vars(advance(args));
+    match a {
+      case Symbol(s, sp) => list_insert_first(rest, s);
+      case _ => rest
+    }
+  }
+};
+
+def add_vars_to_env(env: List Pair, vars: List String, ctx: List Integer): List Pair = {
+  if int_eq(list_length(vars), 0) then env
+  else {
+    let v = list_get(vars, 0);
+    let rest = add_vars_to_env(env, advance(vars), ctx);
+    list_insert_first(rest, Pair.MkPair(Pair.MkPair(v, ctx), fresh_meta()))
+  }
+};
+
+def elab_check_args(env: List Pair, fs: AST, as_: List CST): Pair = {
+  if int_eq(list_length(as_), 0) then Pair.MkPair(list_empty[AST](), fs)
+  else {
+    let a = list_get(as_, 0);
+    let rest = advance(as_);
+    match fs {
+      case AstPi(pname, arg_ty, ret_ty, effs) => {
+        let aAst_res = elaborate(env, a, OptionAST.SomeAST(arg_ty));
+        match aAst_res {
+          case MkPair(aAst_expr, aAst_ty) => {
+            let restAst_res = elab_check_args(env, ret_ty, rest);
+            match restAst_res {
+              case MkPair(restAst_exprs, restAst_ty) => {
+                Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
+              }
+            }
+          }
+        }
+      };
+      case AstRef(name) => {
+        if string_eq(name, "Any") then {
+          let aAst_res = elaborate(env, a, OptionAST.NoneAST());
+          match aAst_res {
+            case MkPair(aAst_expr, aAst_ty) => {
+              let restAst_res = elab_check_args(env, AST.AstRef("Any"), rest);
+              match restAst_res {
+                case MkPair(restAst_exprs, restAst_ty) => {
+                  Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), AST.AstRef("Any"))
+                }
+              }
+            }
+          }
+        } else {
+          let argTyM = fresh_meta();
+          let retTyM = fresh_meta();
+          unify(100, fs, AST.AstPi("x", argTyM, retTyM, list_empty[String]()));
+          let aAst_res = elaborate(env, a, OptionAST.SomeAST(argTyM));
+          match aAst_res {
+            case MkPair(aAst_expr, aAst_ty) => {
+              let restAst_res = elab_check_args(env, retTyM, rest);
+              match restAst_res {
+                case MkPair(restAst_exprs, restAst_ty) => {
+                  Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
+                }
+              }
+            }
+          }
+        }
+      };
+      case _ => {
+        let argTyM = fresh_meta();
+        let retTyM = fresh_meta();
+        unify(100, fs, AST.AstPi("x", argTyM, retTyM, list_empty[String]()));
+        let aAst_res = elaborate(env, a, OptionAST.SomeAST(argTyM));
+        match aAst_res {
+          case MkPair(aAst_expr, aAst_ty) => {
+            let restAst_res = elab_check_args(env, retTyM, rest);
+            match restAst_res {
+              case MkPair(restAst_exprs, restAst_ty) => {
+                Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+def map_elabs(env: List Pair, ls: List CST): Pair = {
+  if int_eq(list_length(ls), 0) then Pair.MkPair(list_empty[AST](), env)
+  else {
+    let x = list_get(ls, 0);
+    let xs = advance(ls);
+    match x {
+      case LetCST(name, value, next, span) => {
+        let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
+        match valueAst_res {
+          case MkPair(vAst, vTy) => {
+            let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(name, span.context), vTy));
+            let rest_res = map_elabs(new_env, xs);
+            match rest_res {
+              case MkPair(restAst, final_env) => {
+                let let_node = AST.AstLet(mangle_name(name, span.context), vAst);
+                Pair.MkPair(list_insert_first(restAst, let_node), final_env)
+              }
+            }
+          }
+        }
+      };
+      case DefCST(name, tps, params, ret_ty, body, span) => {
+        let tyAst_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+        match tyAst_res {
+          case MkPair(tAst, tTy) => {
+            let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(name, span.context), tAst));
+            let res = elaborate(env, x, OptionAST.NoneAST());
+            match res {
+              case MkPair(rAst, rTy) => {
+                let rest_res = map_elabs(new_env, xs);
+                match rest_res {
+                  case MkPair(restAst, final_env) => {
+                    Pair.MkPair(list_insert_first(restAst, rAst), final_env)
+                  }
+                }
+              }
+            }
+          }
+        }
+      };
+      case _ => {
+        let res = elaborate(env, x, OptionAST.NoneAST());
+        match res {
+          case MkPair(rAst, rTy) => {
+            let rest_res = map_elabs(env, xs);
+            match rest_res {
+              case MkPair(restAst, final_env) => {
+                Pair.MkPair(list_insert_first(restAst, rAst), final_env)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+def elab_map_params(env: List Pair, ps: List CST): Pair = {
+  if int_eq(list_length(ps), 0) then Pair.MkPair(list_empty[Pair](), list_empty[Pair]())
+  else {
+    let p = list_get(ps, 0);
+    let rest_res = elab_map_params(env, advance(ps));
+    match rest_res {
+      case MkPair(restAst, restEnvItems) => {
+        match p {
+          case Tuple(elems, sp) => {
+            if int_eq(list_length(elems), 2) then {
+              let pname_cst = list_get(elems, 0);
+              let pty_cst = list_get(elems, 1);
+              match pname_cst {
+                case Symbol(pname, sp2) => {
+                  let tyAst_res = elaborate(env, pty_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+                  match tyAst_res {
+                    case MkPair(tAst, tTy) => {
+                      Pair.MkPair(
+                        list_insert_first(restAst, Pair.MkPair(pname, tAst)),
+                        list_insert_first(restEnvItems, Pair.MkPair(Pair.MkPair(pname, sp.context), tAst))
+                      )
+                    }
+                  }
+                };
+                case _ => rest_res
+              }
+            } else rest_res
+          };
+          case _ => rest_res
+        }
+      }
+    }
+  }
+};
+
+def elab_check_targs(env: List Pair, as_: List CST): List AST = {
+  if int_eq(list_length(as_), 0) then list_empty[AST]()
+  else {
+    let a = list_get(as_, 0);
+    let rest = elab_check_targs(env, advance(as_));
+    let aAst_res = elaborate(env, a, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+    match aAst_res {
+      case MkPair(aAst_expr, aTy) => list_insert_first(rest, aAst_expr)
+    }
+  }
+};
+
+def elab_variant(v: CST): Pair = {
+  match v {
+    case AppCST(f, args, sp) => {
+      match f {
+        case Symbol(vname, sp2) => Pair.MkPair(vname, list_empty[AST]());
+        case _ => Pair.MkPair("unknown", list_empty[AST]())
+      }
+    };
+    case Symbol(vname, sp) => Pair.MkPair(vname, list_empty[AST]());
+    case _ => Pair.MkPair("unknown", list_empty[AST]())
+  }
+};
+
+def elab_variants(vs: List CST): List Pair = {
+  if int_eq(list_length(vs), 0) then list_empty[Pair]()
+  else {
+    let v = list_get(vs, 0);
+    list_insert_first(elab_variants(advance(vs)), elab_variant(v))
+  }
+};
+
+def elab_cases(env: List Pair, expected: OptionAST, cs: List CST): Pair = {
+  if int_eq(list_length(cs), 0) then Pair.MkPair(list_empty[Pair](), AST.AstRef("Any"))
+  else {
+    let c = list_get(cs, 0);
+    let rest_res = elab_cases(env, expected, advance(cs));
+    match c {
+      case SeqOf(elems, sp) => {
+        if int_eq(list_length(elems), 2) then {
+          let pat_cst = list_get(elems, 0);
+          let body_cst = list_get(elems, 1);
+          let pat_ast_res = match pat_cst {
+             case Symbol(pname, sp2) => {
+               if string_eq(pname, "_") then PatternAST.PatWildcard()
+               else PatternAST.PatVar(pname)
+             };
+             case AppCST(f, args, sp3) => {
+                match f {
+                  case Symbol(cname, sp4) => PatternAST.PatConstructor(cname, extract_vars(args));
+                  case _ => PatternAST.PatWildcard()
+                }
+             };
+             case _ => PatternAST.PatWildcard()
+          };
+          
+          let case_env = match pat_ast_res {
+            case PatVar(v) => list_insert_first(env, Pair.MkPair(Pair.MkPair(v, sp.context), fresh_meta()));
+            case PatConstructor(cname, vars) => add_vars_to_env(env, vars, sp.context);
+            case _ => env
+          };
+          
+          let body_ast_res = elaborate(case_env, body_cst, expected);
+          match body_ast_res {
+            case MkPair(bAst, bTy) => {
+              match rest_res {
+                case MkPair(restAst, rTy) => {
+                   Pair.MkPair(list_insert_first(restAst, Pair.MkPair(pat_ast_res, bAst)), bTy)
+                }
+              }
+            }
+          }
+        } else rest_res
+      };
+      case _ => rest_res
+    }
+  }
+};
+
+def elab_tuple_elems(env: List Pair, es: List CST): Pair = {
+  if int_eq(list_length(es), 0) then Pair.MkPair(list_empty[AST](), AST.AstRef("Unit"))
+  else {
+    let e = list_get(es, 0);
+    let eAst_res = elaborate(env, e, OptionAST.NoneAST());
+    match eAst_res {
+      case MkPair(eAst, eTy) => {
+        let rest_res = elab_tuple_elems(env, advance(es));
+        match rest_res {
+          case MkPair(restAst, restTy) => {
+            Pair.MkPair(list_insert_first(restAst, eAst), AST.AstRef("Tuple"))
+          }
+        }
+      }
+    }
+  }
+};
+
+def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
+  match expr {
+    case Symbol(name, span) => {
+      let res = resolve_hygiene(env, name, span.context);
+      match res {
+        case MkPair(ty, resolved_ctx) => {
+          match ty {
+            case AstError(msg) => Pair.MkPair(AST.AstRef(name), AST.AstRef("Any"));
+            case _ => {
+              match expected {
+                case SomeAST(exp) => {
+                  unify(100, ty, exp);
+                  Pair.MkPair(AST.AstRef(mangle_name(name, resolved_ctx)), ty)
+                };
+                case NoneAST => Pair.MkPair(AST.AstRef(mangle_name(name, resolved_ctx)), ty)
+              }
+            }
+          }
+        }
+      }
+    };
+    case StringLiteral(s, span) => {
+      let str_ty = AST.AstRef("String");
+      match expected {
+        case SomeAST(exp) => unify(100, str_ty, exp);
+        case NoneAST => ()
+      };
+      Pair.MkPair(AST.AstStringLit(s), str_ty)
+    };
+    case IntegerLiteral(v, span) => {
+      let int_ty = AST.AstRef("Int");
+      match expected {
+        case SomeAST(exp) => unify(100, int_ty, exp);
+        case NoneAST => ()
+      };
+      Pair.MkPair(AST.AstIntLit(42), int_ty)
+    };
+    case SeqOf(elems, span) => {
+      if int_eq(list_length(elems), 0) then Pair.MkPair(AST.AstError("Empty SeqOf"), AST.AstRef("Any"))
+      else {
+        let func = list_get(elems, 0);
+        let args = advance(elems);
+        let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
+        match funcAst_res {
+          case MkPair(fAst, fTy) => {
+            let args_res = elab_check_args(env, fTy, args);
+            match args_res {
+              case MkPair(argsAst, argsTy) => {
+                match expected {
+                  case SomeAST(exp) => unify(100, argsTy, exp);
+                  case NoneAST => ()
+                };
+                Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
+              }
+            }
+          }
+        }
+      }
+    };
+    case Block(stmts, tail, span) => {
+      let stmtsRes = map_elabs(env, stmts);
+      match stmtsRes {
+        case MkPair(stmtsAst, final_env) => {
+          let retAst_res = elaborate(final_env, tail, OptionAST.NoneAST());
+          match retAst_res {
+            case MkPair(rAst, rTy) => {
+              Pair.MkPair(AST.AstBlock(stmtsAst, rAst), rTy)
+            }
+          }
+        }
+      }
+    };
+    case LetCST(name, value, next, span) => {
+      let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
+      match valueAst_res {
+        case MkPair(vAst, vTy) => {
+          let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(name, span.context), vTy));
+          let bodyAst_res = elaborate(new_env, next, expected);
+          match bodyAst_res {
+            case MkPair(bAst, bTy) => {
+              let stmts = list_insert_first(list_empty[AST](), AST.AstLet(mangle_name(name, span.context), vAst));
+              Pair.MkPair(AST.AstBlock(stmts, bAst), bTy)
+            }
+          }
+        }
+      }
+    };
+    case IfCST(cond, thenB, elseB, span) => {
+      let condAst_res = elaborate(env, cond, OptionAST.NoneAST());
+      match condAst_res {
+        case MkPair(cAst, cTy) => {
+          let thenAst_res = elaborate(env, thenB, expected);
+          match thenAst_res {
+            case MkPair(tAst, tTy) => {
+              let elseAst_res = elaborate(env, elseB, expected);
+              match elseAst_res {
+                case MkPair(eAst, eTy) => {
+                  Pair.MkPair(AST.AstIf(cAst, tAst, eAst), tTy)
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    case DefCST(name, type_params, params, ret_ty, body, span) => {
+      let params_res = elab_map_params(env, params);
+      match params_res {
+        case MkPair(paramsAst, envItems) => {
+          let body_env = append_env(envItems, env);
+          let retAst_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+          match retAst_res {
+            case MkPair(rAst, rTy) => {
+              let bodyAst_res = elaborate(body_env, body, OptionAST.SomeAST(rAst));
+              match bodyAst_res {
+                case MkPair(bAst, bTy) => {
+                  Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst), AST.AstRef("Unit"))
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    case LamCST(arg_name, opt_arg_ty, body, span) => {
+      let argTyAst_res = match opt_arg_ty {
+        case Error(msg, sp) => {
+          let m = fresh_meta();
+          Pair.MkPair(m, AST.AstRef("TypeUniverse"))
+        };
+        case _ => elaborate(env, opt_arg_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")))
+      };
+      match argTyAst_res {
+        case MkPair(argTyAst, tyTy) => {
+          let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(arg_name, span.context), argTyAst));
+          let bodyAst_res = elaborate(new_env, body, OptionAST.NoneAST());
+          match bodyAst_res {
+            case MkPair(bAst, bTy) => {
+              let arrTy = AST.AstPi(arg_name, argTyAst, bTy, list_empty[String]());
+              Pair.MkPair(AST.AstLam(mangle_name(arg_name, span.context), argTyAst, bAst), arrTy)
+            }
+          }
+        }
+      }
+    };
+    case AppCST(func, args, span) => {
+      let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
+      match funcAst_res {
+        case MkPair(fAst, fTy) => {
+          let args_res = elab_check_args(env, fTy, args);
+          match args_res {
+            case MkPair(argsAst, argsTy) => {
+              match expected {
+                case SomeAST(exp) => unify(100, argsTy, exp);
+                case NoneAST => ()
+              };
+              Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
+            }
+          }
+        }
+      }
+    };
+    case TypeAppCST(func, targs, span) => {
+      let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
+      match funcAst_res {
+        case MkPair(fAst, fTy) => {
+          let targsAst_res = elab_check_targs(env, targs);
+          Pair.MkPair(AST.AstTypeApp(fAst, targsAst_res), AST.AstRef("TypeUniverse"))
+        }
+      }
+    };
+    case EnumCST(name, type_params, variants, span) => {
+      let vs = elab_variants(variants);
+      Pair.MkPair(AST.AstEnum(name, type_params, vs), AST.AstRef("Unit"))
+    };
+    case MatchCST(expr, cases, span) => {
+      let exprAst_res = elaborate(env, expr, OptionAST.NoneAST());
+      match exprAst_res {
+        case MkPair(eAst, eTy) => {
+           let cases_res = elab_cases(env, expected, cases);
+           match cases_res {
+             case MkPair(cAsts, cTy) => {
+               Pair.MkPair(AST.AstMatch(eAst, cAsts), cTy)
+             }
+           }
+        }
+      }
+    };
+    case Tuple(elems, span) => {
+      let res = elab_tuple_elems(env, elems);
+      match res {
+        case MkPair(asts, ty) => Pair.MkPair(AST.AstTuple(asts), ty)
+      }
+    };
+    case ListLiteral(elems, span) => {
+      let res = elab_tuple_elems(env, elems);
+      match res {
+        case MkPair(asts, ty) => Pair.MkPair(AST.AstTuple(asts), AST.AstRef("List"))
+      }
+    };
+    case RecordCST(name, type_params, fields, span) => {
+      Pair.MkPair(AST.AstRecord(name, type_params, list_empty[Pair]()), AST.AstRef("Unit"))
+    };
+    case FieldAccess(expr, field, span) => {
+      let eAst_res = elaborate(env, expr, OptionAST.NoneAST());
+      match eAst_res {
+        case MkPair(eAst, eTy) => Pair.MkPair(AST.AstFieldAccess(eAst, field), AST.AstRef("TypeUniverse"))
+      }
+    };
+    case Error(msg, span) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
+    case Comment(msg, span) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
+    case MacroDefCST(name, cases, span) => Pair.MkPair(AST.AstError("Macro in elab"), AST.AstRef("Any"));
+    case _ => Pair.MkPair(AST.AstError("Unknown CST"), AST.AstRef("Any"))
+  }
+};

@@ -47,8 +47,8 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   | AstTypeApp func args => TsCall (emit_ts_expr func) (map_ts_expr args)
   | AstLam argName argTy body => TsArrow [argName] (emit_ts_block body)
   | AstPi argName argTy retTy effs => TsIdentifier "any"
-  | AstDo op args => TsAwait (TsCall (emit_ts_expr op) (map_ts_expr args))
-  | AstHandle action eff handlers => TsIdentifier "any"
+  | AstDo op args => TsCall (emit_ts_expr op) (map_ts_expr args)
+  | AstHandle action eff handlers => emit_ts_expr action
   | AstBoolLit b => TsBooleanLiteral b
   | AstLet name value => TsIIFE [TsLet name (emit_ts_expr value)]
   | AstIf cond true_br false_br => TsIIFE [TsIfStmt (emit_ts_expr cond) (emit_ts_block true_br) (emit_ts_block false_br)]
@@ -155,7 +155,7 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
         | [] => []
         | x :: xs => emit_ts_expr x :: map_ts_expr xs
         end
-      in TsExprStmt (TsAwait (TsCall (emit_ts_expr op) (map_ts_expr args)))
+      in TsExprStmt (TsCall (emit_ts_expr op) (map_ts_expr args))
   | AstHandle action eff handlers => TsExprStmt (TsIdentifier "any")
   | AstBoolLit b => TsExprStmt (TsBooleanLiteral b)
   | AstIf cond true_br false_br => TsExprStmt (TsIIFE [TsIfStmt (emit_ts_expr cond) (emit_ts_block true_br) (emit_ts_block false_br)])
@@ -249,7 +249,7 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
         | [] => []
         | x :: xs => emit_ts_expr x :: map_ts_expr xs
         end
-      in [TsReturn (TsAwait (TsCall (emit_ts_expr op) (map_ts_expr args)))]
+      in [TsReturn (TsCall (emit_ts_expr op) (map_ts_expr args))]
   | AstHandle action eff handlers => [TsReturn (TsIdentifier "any")]
   | AstBoolLit b => [TsReturn (TsBooleanLiteral b)]
   | AstLet name value => [TsReturn (TsIIFE [TsLet name (emit_ts_expr value)])]
@@ -303,7 +303,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
   | AstLam argName argTy body => GoFuncLiteral [argName] (emit_go_block body)
   | AstPi argName argTy retTy effs => GoIdentifier "interface{}"
   | AstDo op args => GoCall (emit_go_expr op) (map_go_expr args)
-  | AstHandle action eff handlers => GoIdentifier "interface{}"
+  | AstHandle action eff handlers => emit_go_expr action
   | AstBoolLit b => GoBoolLiteral b
   | AstLet name value => GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) []
   | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) []

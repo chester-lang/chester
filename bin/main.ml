@@ -21,6 +21,9 @@ let preamble =
    const prim__string_substring = (s, start, end) => s.substring(start, end);\n\
    const prim__string_concat = (s1, s2) => s1 + s2;\n\
    const prim__list_empty = () => [];\n\
+   let _elab_state = null;\n\
+   const prim__get_elab_state = () => _elab_state;\n\
+   const prim__put_elab_state = (s) => { _elab_state = s; return Unit; };\n\
    const ParseResult = (result, rest) => ({result, rest});\n\
    const Span = (start, end) => ({start, end});\n\
    const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \"let\"}];\n"

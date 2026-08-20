@@ -127,6 +127,9 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | MacroDefCST name cases _ =>
           "macro " ++ name ++ " { ... }"
           
-      | Error msg _ => "/* ERROR: " ++ msg ++ " */"
+            | EffectCST name params decls _ => "effect " ++ name ++ " { ... }"
+      | DoCST op args _ => "perform " ++ format_cst f indent op ++ "(" ++ join_strings ", " (map (format_cst f indent) args) ++ ")"
+      | HandleCST body eff handlers _ => "handle { " ++ format_cst f indent body ++ " } with " ++ eff ++ " { ... }"
+      | Error msg _ => "/* ERROR: " ++ msg ++ " */" 
       end
   end.

@@ -55,6 +55,9 @@ Inductive CST : Type :=
   | EnumCST : string -> list string -> list CST -> Span -> CST (* name, type_params, variants *)
   | MatchCST : CST -> list (PatternCST * CST) -> Span -> CST (* expr, cases *)
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
+  | EffectCST : string -> list string -> list CST -> Span -> CST
+  | DoCST : CST -> list CST -> Span -> CST
+  | HandleCST : CST -> string -> list CST -> Span -> CST
   | FieldAccessCST : CST -> string -> Span -> CST (* expr, field_name *)
   | MacroDefCST : string -> list (PatternCST * CST) -> Span -> CST (* name, cases *)
   | Error : string -> Span -> CST.
@@ -102,6 +105,9 @@ Definition get_span (c : CST) : Span :=
   | MatchCST _ _ span => span
   | TypeAppCST _ _ span => span
   | RecordCST _ _ _ span => span
+  | EffectCST _ _ _ span => span
+  | DoCST _ _ span => span
+  | HandleCST _ _ _ span => span
   | FieldAccessCST _ _ span => span
   | CommentCST _ span => span
   | Error _ span => span
