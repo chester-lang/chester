@@ -1,7 +1,20 @@
+# Compiled Coq files
 *.vo
-*.vok
 *.vos
+*.vok
 *.glob
+
+# Coq auto-generated files
 .*.aux
-result
+.lia.cache
+.nia.cache
+
+# Coq project generated makefile (since we use coq_makefile)
 Makefile
+Makefile.conf
+.Makefile.d
+
+# Nix artifacts
+result
+result-*
+.direnv/
