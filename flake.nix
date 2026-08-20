@@ -47,6 +47,8 @@
             packages = [
               pkgs.coq
               pkgs.rocqPackages.stdlib
+              pkgs.ocamlPackages.ocaml
+              pkgs.ocamlPackages.dune_3
             ];
           };
         }

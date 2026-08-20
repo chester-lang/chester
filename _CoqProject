@@ -1,13 +1,13 @@
--Q . Chester
-CST.v
-AST.v
-TypeScriptAST.v
-GoAST.v
-TypeScriptInterop.v
-GoInterop.v
-Tokenizer.v
-Parser.v
-CoreChecker.v
-Elaborator.v
-Backend.v
-Extract.v
+-Q theories Chester
+theories/CST.v
+theories/AST.v
+theories/TypeScriptAST.v
+theories/GoAST.v
+theories/TypeScriptInterop.v
+theories/GoInterop.v
+theories/Tokenizer.v
+theories/Parser.v
+theories/CoreChecker.v
+theories/Elaborator.v
+theories/Backend.v
+theories/Extract.v

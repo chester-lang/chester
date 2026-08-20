@@ -15,6 +15,7 @@ From Stdlib Require ExtrOcamlString.
 From Stdlib Require ExtrOcamlNatInt.
 
 Extraction Language OCaml.
+Set Extraction Output Directory "extraction".
 
 (* Extract all the relevant functions to a file called 'Compiler.ml' *)
 Extraction "Compiler.ml" 
