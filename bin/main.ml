@@ -18,7 +18,12 @@ let () =
   match parsed with
   | ParseErr e -> print_endline ("Parse Error: " ^ string_of_char_list e)
   | ParseOk (cst, _) ->
-      let env = [] in
+      (* Mock FFI parsing *)
+      let ts_ffi = TsArrow ([char_list_of_string "x"], TsIdentifier (char_list_of_string "number")) in
+      let chester_ffi_type = ts_to_chester ts_ffi in
+      
+      (* Insert FFI type into type environment for the checker/elaborator *)
+      let env = [(char_list_of_string "ffi_function", chester_ffi_type)] in
       let expected = None in
       let elab_res = elaborate env cst expected init_elab_state in
       match elab_res with

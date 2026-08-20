@@ -7,6 +7,8 @@ Require Import Chester.Elaborator.
 Require Import Chester.Backend.
 Require Import Chester.TypeScriptAST.
 Require Import Chester.GoAST.
+Require Import Chester.TypeScriptInterop.
+Require Import Chester.GoInterop.
 
 From Stdlib Require ExtrOcamlBasic.
 From Stdlib Require ExtrOcamlString.
@@ -26,5 +28,7 @@ Extraction "Compiler.ml"
   Chester.Elaborator.init_elab_state
   Chester.Backend.emit_ts 
   Chester.Backend.emit_go
+  Chester.TypeScriptInterop.ts_to_chester
+  Chester.GoInterop.go_to_chester
   Chester.TypeScriptAST.stringify_ts
   Chester.GoAST.stringify_go.

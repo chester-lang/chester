@@ -3,6 +3,8 @@ CST.v
 AST.v
 TypeScriptAST.v
 GoAST.v
+TypeScriptInterop.v
+GoInterop.v
 Tokenizer.v
 Parser.v
 CoreChecker.v
