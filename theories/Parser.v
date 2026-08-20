@@ -1,125 +1,115 @@
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
+From Stdlib Require Import Arith.
+From Stdlib Require Import Lia.
 Import ListNotations.
+Open Scope string_scope.
 Require Import Chester.CST.
 
-(* We define a simple Token type for our universal syntax *)
 Inductive Token : Type :=
-  | TokSymbol : string -> Span -> Token
-  | TokString : string -> Span -> Token
+  | TokId : string -> Span -> Token
   | TokInt : string -> Span -> Token
+  | TokStr : string -> Span -> Token
+  | TokSym : string -> Span -> Token
   | TokComment : string -> Span -> Token
-  | TokLParen : Span -> Token
-  | TokRParen : Span -> Token
-  | TokLBrace : Span -> Token
-  | TokRBrace : Span -> Token
-  | TokLBracket : Span -> Token
-  | TokRBracket : Span -> Token.
+  | TokEOF : Span -> Token.
 
-(* Extract span from a token *)
 Definition token_span (t : Token) : Span :=
   match t with
-  | TokSymbol _ s => s
-  | TokString _ s => s
+  | TokId _ s => s
   | TokInt _ s => s
+  | TokStr _ s => s
+  | TokSym _ s => s
   | TokComment _ s => s
-  | TokLParen s => s
-  | TokRParen s => s
-  | TokLBrace s => s
-  | TokRBrace s => s
-  | TokLBracket s => s
-  | TokRBracket s => s
+  | TokEOF s => s
   end.
 
-(* Boolean checks for closing tokens *)
-Definition is_rparen (t : Token) : bool :=
-  match t with TokRParen _ => true | _ => false end.
+(* Synchronization function for error recovery *)
+Fixpoint sync (toks : list Token) : list Token :=
+  match toks with
+  | [] => []
+  | TokEOF _ :: _ => toks
+  | TokSym s _ :: rest =>
+      if string_dec s ";" then rest
+      else if string_dec s "}" then toks
+      else sync rest
+  | _ :: rest => sync rest
+  end.
 
-Definition is_rbracket (t : Token) : bool :=
-  match t with TokRBracket _ => true | _ => false end.
+(* Formally prove that sync decreases the token list length or keeps it the same *)
+Lemma sync_length : forall toks, length (sync toks) <= length toks.
+Proof.
+  induction toks as [| t rest IHrest]; simpl.
+  - lia.
+  - destruct t; simpl.
+    + apply le_S; exact IHrest. (* TokId *)
+    + apply le_S; exact IHrest. (* TokInt *)
+    + apply le_S; exact IHrest. (* TokStr *)
+    + destruct (string_dec s ";").
+      * lia.
+      * destruct (string_dec s "}").
+        -- apply le_n.
+        -- apply le_S; exact IHrest.
+    + apply le_S; exact IHrest. (* TokComment *)
+    + apply le_n.
+Qed.
 
-Definition is_rbrace (t : Token) : bool :=
-  match t with TokRBrace _ => true | _ => false end.
+(* A resilient parser returning CST and remaining tokens *)
+Fixpoint parse_stmts (fuel : nat) (toks : list Token) : (list CST * list Token) :=
+  match fuel with
+  | 0 => ([], toks)
+  | S fuel' =>
+      match toks with
+      | [] => ([], toks)
+      | TokEOF _ :: _ => ([], toks)
+      | TokSym s span :: rest =>
+          if string_dec s "}" then ([], toks)
+          else if string_dec s ";" then parse_stmts fuel' rest
+          else 
+            let (stmts, rest') := parse_stmts fuel' (sync rest) in
+            (Error "Unexpected symbol" span :: stmts, rest')
+      | TokId name s :: rest =>
+          let (stmts, rest') := parse_stmts fuel' rest in
+          (Symbol name s :: stmts, rest')
+      | TokInt val s :: rest =>
+          let (stmts, rest') := parse_stmts fuel' rest in
+          (IntegerLiteral val s :: stmts, rest')
+      | TokStr val s :: rest =>
+          let (stmts, rest') := parse_stmts fuel' rest in
+          (StringLiteral val s :: stmts, rest')
+      | TokComment text s :: rest =>
+          let (stmts, rest') := parse_stmts fuel' rest in
+          (CommentCST text s :: stmts, rest')
+      end
+  end.
 
-(* Result of a parsing step: either an error or a parsed value plus remaining tokens *)
-Inductive ParseResult (A : Type) : Type :=
-  | ParseOk : A -> list Token -> ParseResult A
-  | ParseErr : string -> ParseResult A.
+(* Prove that parse_stmts terminates / does not increase tokens *)
+Lemma parse_stmts_length : forall fuel toks,
+  length (snd (parse_stmts fuel toks)) <= length toks.
+Proof.
+  induction fuel as [| fuel' IH]; intros toks; simpl.
+  - lia.
+  - destruct toks as [| t rest]; simpl; [lia |].
+    destruct t; simpl.
+    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
+      generalize (IH rest); rewrite E; simpl; intro H; lia.
+    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
+      generalize (IH rest); rewrite E; simpl; intro H; lia.
+    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
+      generalize (IH rest); rewrite E; simpl; intro H; lia.
+    + destruct (string_dec s "}").
+      * apply le_n.
+      * destruct (string_dec s ";").
+        -- generalize (IH rest). intro H. lia.
+        -- destruct (parse_stmts fuel' (sync rest)) as [stmts rest'] eqn:E.
+           generalize (IH (sync rest)); rewrite E; simpl; intro H.
+           generalize (sync_length rest); intro Hsync.
+           lia.
+    + destruct (parse_stmts fuel' rest) as [stmts rest'] eqn:E.
+      generalize (IH rest); rewrite E; simpl; intro H; lia.
+    + apply le_n.
+Qed.
 
-Arguments ParseOk {A}.
-Arguments ParseErr {A}.
-
-(* A simplified recursive-descent parser using fuel for termination. *)
-Section ParserLogic.
-  
-  (* We use fuel to convince Coq of termination since parsing consumes tokens but proving structural decrease mutually can be tedious. *)
-  Fixpoint parse_cst (fuel : nat) (tokens : list Token) : ParseResult CST :=
-    match fuel with
-    | 0 => ParseErr "Out of fuel"
-    | S fuel' =>
-        match tokens with
-        | [] => ParseErr "Unexpected end of input"
-        | t :: rest =>
-            match t with
-            | TokSymbol name s => ParseOk (Symbol name s) rest
-            | TokString val s => ParseOk (StringLiteral val s) rest
-            | TokInt val s => ParseOk (IntegerLiteral val s) rest
-            | TokComment text s => ParseOk (CommentCST text s) rest
-            
-            | TokLParen s_start =>
-                (* Parse a Tuple *)
-                match parse_sequence fuel' rest is_rparen with
-                | ParseOk (elements, s_end) rest' =>
-                    ParseOk (Tuple elements (combine_span s_start s_end)) rest'
-                | ParseErr e => ParseErr e
-                end
-                
-            | TokLBracket s_start =>
-                (* Parse a ListLiteral *)
-                match parse_sequence fuel' rest is_rbracket with
-                | ParseOk (elements, s_end) rest' =>
-                    ParseOk (ListLiteral elements (combine_span s_start s_end)) rest'
-                | ParseErr e => ParseErr e
-                end
-                
-            | TokLBrace s_start =>
-                (* Parse a Block (simplified without tail separation for this example) *)
-                match parse_sequence fuel' rest is_rbrace with
-                | ParseOk (elements, s_end) rest' =>
-                    ParseOk (Block elements (Tuple [] (combine_span s_start s_end)) (combine_span s_start s_end)) rest'
-                | ParseErr e => ParseErr e
-                end
-                
-            | _ => ParseErr "Unexpected token"
-            end
-        end
-    end
-    
-  (* Parses a sequence of CSTs until it hits the end_token *)
-  with parse_sequence (fuel : nat) (tokens : list Token) (end_token_type : Token -> bool) : ParseResult (list CST * Span) :=
-    match fuel with
-    | 0 => ParseErr "Out of fuel"
-    | S fuel' =>
-        match tokens with
-        | [] => ParseErr "Unexpected end of input, missing closing token"
-        | t :: rest =>
-            if end_token_type t then
-              ParseOk ([], token_span t) rest
-            else
-              match parse_cst fuel' tokens with
-              | ParseOk first_cst rest' =>
-                  match parse_sequence fuel' rest' end_token_type with
-                  | ParseOk (rest_csts, end_s) rest'' =>
-                      ParseOk (first_cst :: rest_csts, end_s) rest''
-                  | ParseErr e => ParseErr e
-                  end
-              | ParseErr e => ParseErr e
-              end
-        end
-    end.
-    
-End ParserLogic.
-
-(* Wrapper that supplies some maximum fuel based on token list length *)
-Definition parse (tokens : list Token) : ParseResult CST :=
-  parse_cst (length tokens * 2 + 10) tokens.
+Definition parse (toks : list Token) : CST :=
+  let (stmts, _) := parse_stmts (length toks) toks in
+  Block stmts (Symbol "Unit" empty_span) empty_span.

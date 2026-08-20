@@ -24,7 +24,7 @@ Extraction "Compiler.ml"
   Chester.AST.AST 
   Chester.Parser.Token
   Chester.Tokenizer.tokenize 
-  Chester.Parser.parse_cst 
+  Chester.Parser.parse 
   Chester.CoreChecker.infer_check 
   Chester.Elaborator.elaborate 
   Chester.Elaborator.zonk
