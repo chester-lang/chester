@@ -2,3 +2,4 @@
 CST.v
 AST.v
 Parser.v
+CoreChecker.v
