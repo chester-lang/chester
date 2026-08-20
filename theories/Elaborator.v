@@ -166,24 +166,40 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       ret (AstStringLit s, StringType)
   | SeqOf exprs _ => throw "SeqOf not implemented in elaborator"
   | Block stmts ret_expr _ => 
-      let fix map_elabs (ls : list CST) : ElabM (list AST) :=
+      let fix map_elabs (current_env : list (string * AST)) (ls : list CST) : ElabM (list AST * list (string * AST)) :=
         match ls with
-        | [] => ret []
+        | [] => ret ([], current_env)
         | x :: xs => 
-            res <- elaborate env x None ;
-            let (a, _) := res in
-            rest <- map_elabs xs ;
-            ret (a :: rest)
+            match x with
+            | LetCST name value _ _ =>
+                valueAst <- elaborate current_env value None ;
+                let new_env := (name, snd valueAst) :: current_env in
+                rest <- map_elabs new_env xs ;
+                ret (AstLet name (fst valueAst) :: fst rest, snd rest)
+            | DefCST name _ _ ret_ty _ _ =>
+                (* Mocking DefCST addition to env just for typing sake (use dummy type) *)
+                tyAst <- elaborate current_env ret_ty (Some TypeUniverse) ;
+                let new_env := (name, fst tyAst) :: current_env in
+                res <- elaborate current_env x None ;
+                rest <- map_elabs new_env xs ;
+                ret (fst res :: fst rest, snd rest)
+            | _ =>
+                res <- elaborate current_env x None ;
+                rest <- map_elabs current_env xs ;
+                ret (fst res :: fst rest, snd rest)
+            end
         end
       in
-      stmtsAst <- map_elabs stmts ;
-      retAst <- elaborate env ret_expr None ;
+      stmtsRes <- map_elabs env stmts ;
+      let stmtsAst := fst stmtsRes in
+      let final_env := snd stmtsRes in
+      retAst <- elaborate final_env ret_expr None ;
       ret (AstBlock stmtsAst (fst retAst), snd retAst)
   
   | LetCST name value body _ =>
       valueAst <- elaborate env value None ;
       bodyAst <- elaborate ((name, snd valueAst) :: env) body expected ;
-      ret (AstLet name (fst valueAst) (fst bodyAst), snd bodyAst)
+      ret (AstBlock [AstLet name (fst valueAst)] (fst bodyAst), snd bodyAst)
       
   | IfCST cond thenB elseB _ =>
       condAst <- elaborate env cond None ;

@@ -52,9 +52,22 @@
               pkgs.ocamlPackages.findlib
               pkgs.ocamlPackages.alcotest
               pkgs.ocamlPackages.ppx_expect
+              pkgs.ocamlPackages.ocamlformat
+              pkgs.nixfmt-rfc-style
             ];
           };
         }
+      );
+
+      formatter = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        pkgs.writeShellScriptBin "formatter" ''
+          ${pkgs.nixfmt-rfc-style}/bin/nixfmt flake.nix
+          ${pkgs.ocamlformat}/bin/ocamlformat -i $(find bin test -name "*.ml" -o -name "*.mli")
+        ''
       );
     };
 }

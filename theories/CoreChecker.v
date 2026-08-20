@@ -38,14 +38,18 @@ Fixpoint eq_ast (t1 t2 : AST) : bool :=
       (* naive string eq for binder, realistically needs De Bruijn or alpha equivalence *)
       String.eqb n1 n2 && eq_ast ty1 ty2 && eq_ast ret1 ret2
   | AstMeta m1, AstMeta m2 => Nat.eqb m1 m2
-  | AstLet n1 v1 b1, AstLet n2 v2 b2 => false
+  | AstLet n1 v1, AstLet n2 v2 => false
+  | AstBlock _ _, AstBlock _ _ => false
   | AstIf c1 t1 e1, AstIf c2 t2 e2 => false
   | AstDef n1 tp1 p1 r1 b1, AstDef n2 tp2 p2 r2 b2 => false
   | AstEnum _ _ _, AstEnum _ _ _ => false
   | AstMatch _ _, AstMatch _ _ => false
   | AstRecord _ _ _, AstRecord _ _ _ => false
   | AstFieldAccess _ _, AstFieldAccess _ _ => false
-  | _, _ => false (* Simplified for demonstration *)
+  | AstSpan _ a1, AstSpan _ a2 => eq_ast a1 a2
+  | AstSpan _ a1, _ => false
+  | _, AstSpan _ a2 => false
+  | _, _ => false
   end.
 
 (* Since AST types are types themselves (e.g. Type, Int, String), we might want some built-ins. *)
@@ -143,11 +147,31 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       | TyErr e => TyErr e
       end
       
-  | AstLet name value body =>
-      match infer_check env value None with
-      | TyOk valTy => infer_check ((name, valTy) :: env) body expected
+  | AstBlock stmts ret_expr =>
+      let fix check_stmts (current_env : list (string * AST)) (ls : list AST) : TyResult (list (string * AST)) :=
+        match ls with
+        | [] => TyOk current_env
+        | x :: xs =>
+            match x with
+            | AstLet name value =>
+                match infer_check current_env value None with
+                | TyOk valTy => check_stmts ((name, valTy) :: current_env) xs
+                | TyErr e => TyErr e
+                end
+            | _ =>
+                match infer_check current_env x None with
+                | TyOk _ => check_stmts current_env xs
+                | TyErr e => TyErr e
+                end
+            end
+        end
+      in
+      match check_stmts env stmts with
+      | TyOk final_env => infer_check final_env ret_expr expected
       | TyErr e => TyErr e
       end
+      
+  | AstLet name value => TyOk (AstTuple [])
       
   | AstIf cond thenB elseB =>
       match infer_check env cond (Some BoolType) with

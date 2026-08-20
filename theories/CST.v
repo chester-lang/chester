@@ -81,3 +81,25 @@ Definition example_cst : CST :=
       ] empty_span
     ] (Tuple [] empty_span) empty_span
   ] empty_span.
+
+Definition get_span (c : CST) : Span :=
+  match c with
+  | Symbol _ span => span
+  | Tuple _ span => span
+  | ListLiteral _ span => span
+  | Block _ _ span => span
+  | StringLiteral _ span => span
+  | IntegerLiteral _ span => span
+  | BoolLiteral _ span => span
+  | SeqOf _ span => span
+  | LetCST _ _ _ span => span
+  | IfCST _ _ _ span => span
+  | DefCST _ _ _ _ _ span => span
+  | EnumCST _ _ _ span => span
+  | MatchCST _ _ span => span
+  | RecordCST _ _ _ span => span
+  | FieldAccessCST _ _ span => span
+  | CommentCST _ span => span
+  | Error _ span => span
+  | _ => empty_span
+  end.

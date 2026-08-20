@@ -10,6 +10,7 @@ Require Import Chester.GoAST.
 Require Import Chester.Formatter.
 Require Import Chester.TypeScriptInterop.
 Require Import Chester.GoInterop.
+Require Import Chester.Expander.
 
 From Stdlib Require ExtrOcamlBasic.
 From Stdlib Require ExtrOcamlString.
@@ -24,7 +25,8 @@ Extraction "Compiler.ml"
   Chester.AST.AST 
   Chester.Parser.Token
   Chester.Tokenizer.tokenize 
-  Chester.Parser.parse 
+  Chester.Parser.parse
+  Chester.Expander.expand_cst 
   Chester.CoreChecker.infer_check 
   Chester.Elaborator.elaborate 
   Chester.Elaborator.zonk

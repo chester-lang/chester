@@ -23,7 +23,8 @@ let%expect_test "parse shape recovery" =
   let tokens = Lexer.tokenize "test.chester" source in
   let cst = parse tokens in
   print_endline (string_of_char_list (format_cst 100 0 cst));
-  [%expect {|
+  [%expect
+    {|
     {
       def foo (a , b) = {
         a + b;

@@ -33,7 +33,7 @@ Fixpoint emit_ts (ast : AST) {struct ast} : TypeScriptAST :=
   | AstDo op args => TsAwait (TsCall (emit_ts op) (map_ts args))
   | AstHandle action eff handlers => TsIdentifier "any"
   | AstBoolLit b => TsBooleanLiteral b
-  | AstLet name value body => TsBlock [TsLet name (emit_ts value)] (emit_ts body)
+  | AstLet name value => TsLet name (emit_ts value)
   | AstIf cond true_br false_br => TsIf (emit_ts cond) (emit_ts true_br) (emit_ts false_br)
   | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (TsBlock [] (emit_ts body))
   | AstEnum _ _ _ => TsEmpty
@@ -63,6 +63,7 @@ Fixpoint emit_ts (ast : AST) {struct ast} : TypeScriptAST :=
   | AstFieldAccess expr field => TsPropertyAccess (emit_ts expr) field
   | AstMeta id => TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => TsThrow e
+  | AstSpan _ inner => emit_ts inner
   end.
 
 (* 
@@ -87,7 +88,7 @@ Fixpoint emit_go (ast : AST) {struct ast} : GoAST :=
   | AstDo op args => GoCall (emit_go op) (map_go args)
   | AstHandle action eff handlers => GoIdentifier "interface{}"
   | AstBoolLit b => GoBoolLiteral b
-  | AstLet name value body => GoBlock [GoLet name (emit_go value)] (emit_go body)
+  | AstLet name value => GoLet name (emit_go value)
   | AstIf cond true_br false_br => GoIf (emit_go cond) (emit_go true_br) (emit_go false_br)
   | AstDef name _ params _ body => GoFuncDecl name (map fst params) (GoBlock [] (emit_go body))
   | AstEnum _ _ _ => GoEmpty
@@ -117,4 +118,5 @@ Fixpoint emit_go (ast : AST) {struct ast} : GoAST :=
   | AstFieldAccess expr field => GoSelector (emit_go expr) field
   | AstMeta id => GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => GoPanic e
+  | AstSpan _ inner => emit_go inner
   end.

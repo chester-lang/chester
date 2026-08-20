@@ -56,7 +56,7 @@ Inductive AST : Type :=
   | AstHandle : AST -> EffectRef -> list (string * AST) -> AST
   
   (* New nodes for stdlib/bootstrap *)
-  | AstLet : string -> AST -> AST -> AST (* name, value, body *)
+  | AstLet : string -> AST -> AST (* name, value *)
   | AstIf : AST -> AST -> AST -> AST (* cond, then, else *)
   | AstDef : string -> list string -> list (string * AST) -> AST -> AST -> AST (* name, type_params, params, ret_ty, body *)
   | AstEnum : string -> list string -> list (string * list AST) -> AST (* name, type_params, variants *)
@@ -66,6 +66,9 @@ Inductive AST : Type :=
   
   (* A meta variable or hole, indexed by its unique ID *)
   | AstMeta : MetaId -> AST
+  
+  (* Wrapper to preserve source code locations *)
+  | AstSpan : Span -> AST -> AST
   
   | AstError : string -> AST.
 
