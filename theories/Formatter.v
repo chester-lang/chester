@@ -121,6 +121,9 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | RecordCST name type_params fields _ =>
           "record " ++ name ++ " { ... }"
           
+      | FieldAccessCST expr field _ =>
+          format_cst f indent expr ++ "." ++ field
+          
       | Error msg _ => "/* ERROR: " ++ msg ++ " */"
       end
   end.

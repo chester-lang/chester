@@ -62,6 +62,7 @@ Inductive AST : Type :=
   | AstEnum : string -> list string -> list (string * list AST) -> AST (* name, type_params, variants *)
   | AstMatch : AST -> list (PatternAST * AST) -> AST (* expr, cases *)
   | AstRecord : string -> list string -> list (string * AST) -> AST (* name, type_params, fields *)
+  | AstFieldAccess : AST -> string -> AST (* expr, field_name *)
   
   (* A meta variable or hole, indexed by its unique ID *)
   | AstMeta : MetaId -> AST

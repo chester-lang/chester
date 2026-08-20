@@ -11,3 +11,4 @@ theories/CoreChecker.v
 theories/Elaborator.v
 theories/Backend.v
 theories/Extract.v
+theories/Formatter.v

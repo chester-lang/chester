@@ -67,7 +67,8 @@ Fixpoint emit_ts (expr : AST) {struct expr} : TypeScriptAST :=
         end
       in
       TsRaw ("(() => { const _match_val = " ++ stringify_ts (emit_ts expr) ++ "; " ++ emit_cases cases ++ " })()")
-  | AstRecord name _ _ => TsRaw ("/* record " ++ name ++ " */")
+  | AstRecord name _ _ => TsRaw ("interface " ++ name ++ " { [key: string]: any }")
+  | AstFieldAccess expr field => TsRaw (stringify_ts (emit_ts expr) ++ "." ++ field)
   | AstMeta id => TsRaw ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => TsRaw ("/* ERROR: " ++ e ++ " */")
   end.
@@ -128,7 +129,8 @@ Fixpoint emit_go (expr : AST) {struct expr} : GoAST :=
         end
       in
       GoRaw ("func() interface{} { _match_val := " ++ stringify_go (emit_go expr) ++ "; " ++ emit_cases cases ++ " }()")
-  | AstRecord name _ _ => GoRaw ("/* record " ++ name ++ " */")
+  | AstRecord name _ _ => GoRaw ("type " ++ name ++ " struct{}")
+  | AstFieldAccess expr field => GoRaw (stringify_go (emit_go expr) ++ "." ++ field)
   | AstMeta id => GoRaw ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstError e => GoRaw ("/* ERROR: " ++ e ++ " */")
   end.

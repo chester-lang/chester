@@ -103,6 +103,9 @@ Fixpoint zonk (fuel : nat) (ty : AST) : ElabM AST :=
           in
           cases' <- map_cases cases ;
           ret (AstMatch expr' cases')
+      | AstFieldAccess expr field =>
+          expr' <- zonk f expr ;
+          ret (AstFieldAccess expr' field)
       | _ => ret ty
       end
   end.
@@ -297,6 +300,12 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
   | EnumCST name type_params variants _ => 
       (* Mock elaboration for Enum *)
       ret (AstEnum name type_params [], AstRef "Unit")
-  | RecordCST _ _ _ _ => throw "RecordCST not implemented in elaborator"
+  | RecordCST name type_params fields _ => 
+      (* Mock elaboration for Record: registers the record. Ideally fields are mapped into AST pairs. *)
+      ret (AstRecord name type_params [], AstRef "Unit")
+  | FieldAccessCST expr field _ =>
+      exprAst <- elaborate env expr None ;
+      (* Since we don't know the field's exact type here unless we inspect the record, we emit a meta or just AstRef for simplicity *)
+      ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
   | _ => throw "Unsupported CST node for elaboration"
   end.

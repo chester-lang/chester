@@ -53,6 +53,7 @@ Inductive CST : Type :=
   | EnumCST : string -> list string -> list CST -> Span -> CST (* name, type_params, variants *)
   | MatchCST : CST -> list (PatternCST * CST) -> Span -> CST (* expr, cases *)
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
+  | FieldAccessCST : CST -> string -> Span -> CST (* expr, field_name *)
   | Error : string -> Span -> CST.
 
 Definition zero_utf16 := mkWithUTF16 0 0.
