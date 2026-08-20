@@ -1,3 +1,4 @@
 -Q . Chester
 CST.v
+AST.v
 Parser.v
