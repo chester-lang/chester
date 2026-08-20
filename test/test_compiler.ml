@@ -26,13 +26,13 @@ let%expect_test "parse shape recovery" =
   [%expect
     {|
     {
-      def foo (a , b) = {
+      def foo (a, b) = {
         a + b;
         @ @;
         Unit;
         Unit
       };
-      [1 , 2 , 3];
+      [1, 2, 3];
       Unit
     }
     |}]
