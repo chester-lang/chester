@@ -31,13 +31,16 @@ Fixpoint eq_ast (t1 t2 : AST) : bool :=
   | AstRef n1, AstRef n2 => String.eqb n1 n2
   | AstStringLit s1, AstStringLit s2 => String.eqb s1 s2
   | AstIntLit n1, AstIntLit n2 => Nat.eqb n1 n2
-  | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 =>
+  | AstBoolLit b1, AstBoolLit b2 => Bool.eqb b1 b2
+  | AstApp f1 a1, AstApp f2 a2 => false (* simplistic *)
+  | AstLam n1 t1 b1, AstLam n2 t2 b2 => false
+  | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 => 
       (* naive string eq for binder, realistically needs De Bruijn or alpha equivalence *)
       String.eqb n1 n2 && eq_ast ty1 ty2 && eq_ast ret1 ret2
   | AstMeta m1, AstMeta m2 => Nat.eqb m1 m2
-  | AstLet _ _ _, AstLet _ _ _ => false
-  | AstIf _ _ _, AstIf _ _ _ => false
-  | AstDef _ _ _ _ _, AstDef _ _ _ _ _ => false
+  | AstLet n1 v1 b1, AstLet n2 v2 b2 => false
+  | AstIf c1 t1 e1, AstIf c2 t2 e2 => false
+  | AstDef n1 tp1 p1 r1 b1, AstDef n2 tp2 p2 r2 b2 => false
   | AstEnum _ _ _, AstEnum _ _ _ => false
   | AstRecord _ _ _, AstRecord _ _ _ => false
   | _, _ => false (* Simplified for demonstration *)
@@ -47,6 +50,7 @@ Fixpoint eq_ast (t1 t2 : AST) : bool :=
 Definition TypeUniverse := AstRef "Type".
 Definition IntType := AstRef "Int".
 Definition StringType := AstRef "String".
+Definition BoolType := AstRef "Bool".
 
 (* 
   Core Bidirectional Type Checker
@@ -78,6 +82,12 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       match expected with
       | Some expTy => if eq_ast StringType expTy then TyOk StringType else TyErr "Type mismatch"
       | None => TyOk StringType
+      end
+      
+  | AstBoolLit _ =>
+      match expected with
+      | Some expTy => if eq_ast BoolType expTy then TyOk BoolType else TyErr "Type mismatch"
+      | None => TyOk BoolType
       end
   
   | AstLam argName argTy body =>
@@ -131,9 +141,46 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       | TyErr e => TyErr e
       end
       
-  | AstLet name value body => TyErr "Let not implemented in checker"
-  | AstIf cond thenB elseB => TyErr "If not implemented in checker"
-  | AstDef _ _ _ _ _ => TyErr "Def not implemented in checker"
+  | AstLet name value body =>
+      match infer_check env value None with
+      | TyOk valTy => infer_check ((name, valTy) :: env) body expected
+      | TyErr e => TyErr e
+      end
+      
+  | AstIf cond thenB elseB =>
+      match infer_check env cond (Some BoolType) with
+      | TyOk _ =>
+          match infer_check env thenB expected with
+          | TyOk thenTy =>
+              match infer_check env elseB (Some thenTy) with
+              | TyOk _ => TyOk thenTy
+              | TyErr e => TyErr e
+              end
+          | TyErr e => TyErr e
+          end
+      | TyErr e => TyErr e
+      end
+      
+  | AstDef name type_params params ret_ty body =>
+      let fix build_env (ps : list (string * AST)) (e : TypeEnv) : TypeEnv :=
+        match ps with
+        | [] => e
+        | (pname, pty) :: rest => build_env rest ((pname, pty) :: e)
+        end
+      in
+      let body_env := build_env params env in
+      match infer_check body_env body (Some ret_ty) with
+      | TyOk _ => 
+          let fix build_pi (ps : list (string * AST)) : AST :=
+            match ps with
+            | [] => ret_ty
+            | (pname, pty) :: rest => AstPi pname pty (build_pi rest) []
+            end
+          in
+          TyOk (build_pi params)
+      | TyErr e => TyErr e
+      end
+      
   | AstEnum _ _ _ => TyErr "Enum not implemented in checker"
   | AstRecord _ _ _ => TyErr "Record not implemented in checker"
   | AstMeta _ => TyErr "Core Checker: Encountered unsolved metavariable"

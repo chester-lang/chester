@@ -31,9 +31,19 @@ Fixpoint emit_ts (expr : AST) {struct expr} : TypeScriptAST :=
   | AstPi argName argTy retTy effs => TsRaw ("(" ++ argName ++ ": any) => any")
   | AstDo op args => TsAwait (TsCall (emit_ts op) (map_ts args))
   | AstHandle action eff handlers => TsRaw ("/* handle */")
-  | AstLet name value body => TsRaw ("/* let " ++ name ++ " */")
-  | AstIf cond thenB elseB => TsRaw "/* if */"
-  | AstDef name _ _ _ _ => TsRaw ("/* def " ++ name ++ " */")
+  | AstBoolLit b => TsBooleanLiteral b
+  | AstLet name value body => 
+      TsBlock [TsRaw ("const " ++ name ++ " = " ++ stringify_ts (emit_ts value))] (emit_ts body)
+  | AstIf cond thenB elseB => 
+      TsRaw ("(" ++ stringify_ts (emit_ts cond) ++ " ? " ++ stringify_ts (emit_ts thenB) ++ " : " ++ stringify_ts (emit_ts elseB) ++ ")")
+  | AstDef name type_params params ret_ty body => 
+      let fix get_param_names (ps : list (string * AST)) : list string :=
+        match ps with
+        | [] => []
+        | (n, _) :: rest => n :: get_param_names rest
+        end
+      in
+      TsRaw ("function " ++ name ++ "(" ++ concat_strings ", " (get_param_names params) ++ ") { return " ++ stringify_ts (emit_ts body) ++ "; }")
   | AstEnum name _ _ => TsRaw ("/* enum " ++ name ++ " */")
   | AstRecord name _ _ => TsRaw ("/* record " ++ name ++ " */")
   | AstMeta id => TsRaw ("/* ?meta_" ++ nat_to_string id ++ " */")
@@ -61,9 +71,19 @@ Fixpoint emit_go (expr : AST) {struct expr} : GoAST :=
   | AstPi argName argTy retTy effs => GoRaw ("func(" ++ argName ++ " interface{}) interface{}")
   | AstDo op args => GoCall (emit_go op) (map_go args)
   | AstHandle action eff handlers => GoRaw ("/* handle */")
-  | AstLet name value body => GoRaw ("/* let " ++ name ++ " */")
-  | AstIf cond thenB elseB => GoRaw "/* if */"
-  | AstDef name _ _ _ _ => GoRaw ("/* def " ++ name ++ " */")
+  | AstBoolLit b => GoBoolLiteral b
+  | AstLet name value body => 
+      GoBlock [GoRaw (name ++ " := " ++ stringify_go (emit_go value))] (emit_go body)
+  | AstIf cond thenB elseB => 
+      GoRaw ("func() interface{} { if " ++ stringify_go (emit_go cond) ++ " { return " ++ stringify_go (emit_go thenB) ++ " } else { return " ++ stringify_go (emit_go elseB) ++ " } }()")
+  | AstDef name type_params params ret_ty body => 
+      let fix get_param_names (ps : list (string * AST)) : list string :=
+        match ps with
+        | [] => []
+        | (n, _) :: rest => n :: get_param_names rest
+        end
+      in
+      GoRaw ("func " ++ name ++ "(" ++ concat_strings " interface{}, " (get_param_names params) ++ " interface{}) interface{} { return " ++ stringify_go (emit_go body) ++ " }")
   | AstEnum name _ _ => GoRaw ("/* enum " ++ name ++ " */")
   | AstRecord name _ _ => GoRaw ("/* record " ++ name ++ " */")
   | AstMeta id => GoRaw ("/* ?meta_" ++ nat_to_string id ++ " */")

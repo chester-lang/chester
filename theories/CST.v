@@ -33,14 +33,15 @@ Inductive CST : Type :=
   | Symbol : string -> Span -> CST
   | Tuple : list CST -> Span -> CST
   | ListLiteral : list CST -> Span -> CST
-  | Block : list CST -> list CST -> Span -> CST
+  | Block : list CST -> CST -> Span -> CST
   | StringLiteral : string -> Span -> CST
   | IntegerLiteral : string -> Span -> CST
+  | BoolLiteral : bool -> Span -> CST
   | SeqOf : list CST -> Span -> CST
   (* New nodes for stdlib/bootstrap *)
   | LetCST : string -> CST -> CST -> Span -> CST (* name, value, body/next_stmt *)
   | IfCST : CST -> CST -> CST -> Span -> CST (* cond, then_branch, else_branch *)
-  | DefCST : string -> list string -> list CST -> CST -> CST -> Span -> CST (* name, type_params, params, ret_ty, body *)
+  | DefCST : string -> list string -> list (string * CST) -> CST -> CST -> Span -> CST (* name, type_params, params, ret_ty, body *)
   | EnumCST : string -> list string -> list CST -> Span -> CST (* name, type_params, variants *)
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
   | Error : string -> Span -> CST.
@@ -68,5 +69,5 @@ Definition example_cst : CST :=
         Symbol "println"%string empty_span;
         Tuple [StringLiteral "hello"%string empty_span] empty_span
       ] empty_span
-    ] [] empty_span
+    ] (Tuple [] empty_span) empty_span
   ] empty_span.

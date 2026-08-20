@@ -83,7 +83,7 @@ Section ParserLogic.
                 (* Parse a Block (simplified without tail separation for this example) *)
                 match parse_sequence fuel' rest is_rbrace with
                 | ParseOk (elements, s_end) rest' =>
-                    ParseOk (Block elements [] (combine_span s_start s_end)) rest'
+                    ParseOk (Block elements (Tuple [] (combine_span s_start s_end)) (combine_span s_start s_end)) rest'
                 | ParseErr e => ParseErr e
                 end
                 

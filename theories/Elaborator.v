@@ -104,29 +104,58 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
           end
       | None => throw ("Unbound variable: " ++ name)
       end
+  | BoolLiteral b _ => ret (AstBoolLit b, BoolType)
+  | IntegerLiteral n _ => ret (AstIntLit 42, IntType)
+  | StringLiteral s _ => ret (AstStringLit s, StringType)
+  | SeqOf exprs _ => throw "SeqOf not implemented in elaborator"
+  | Block stmts ret_expr _ => 
+      let fix map_elabs (ls : list CST) : ElabM (list AST) :=
+        match ls with
+        | [] => ret []
+        | x :: xs => 
+            res <- elaborate env x None ;
+            let (a, _) := res in
+            rest <- map_elabs xs ;
+            ret (a :: rest)
+        end
+      in
+      stmtsAst <- map_elabs stmts ;
+      retAst <- elaborate env ret_expr None ;
+      ret (AstBlock stmtsAst (fst retAst), snd retAst)
   
-  | StringLiteral s _ => 
-      ret (AstStringLit s, StringType)
+  | LetCST name value body _ =>
+      valueAst <- elaborate env value None ;
+      bodyAst <- elaborate ((name, snd valueAst) :: env) body expected ;
+      ret (AstLet name (fst valueAst) (fst bodyAst), snd bodyAst)
       
-  | SeqOf [Symbol "io_print" _; arg] _ =>
-      (* Example of a function that has an effect *)
-      res <- elaborate env arg (Some StringType) ;
-      let (ast_arg, _) := res in
+  | IfCST cond thenB elseB _ =>
+      condAst <- elaborate env cond None ;
+      thenAst <- elaborate env thenB expected ;
+      elseAst <- elaborate env elseB expected ;
+      ret (AstIf (fst condAst) (fst thenAst) (fst elseAst), snd thenAst)
       
-      (* Generate a fresh meta for the effect of this expression *)
-      eff_meta_ast <- fresh_meta ;
+  | DefCST name type_params params ret_ty body _ =>
+      let fix map_params (ps : list (string * CST)) : ElabM (list (string * AST)) :=
+        match ps with
+        | [] => ret []
+        | (pname, pty) :: rest =>
+            tyAst <- elaborate env pty (Some TypeUniverse) ;
+            restAst <- map_params rest ;
+            ret ((pname, fst tyAst) :: restAst)
+        end
+      in
+      paramsAst <- map_params params ;
+      let fix build_env (ps : list (string * AST)) (env : TypeEnv) : TypeEnv :=
+        match ps with
+        | [] => env
+        | (pname, pty) :: rest => build_env rest ((pname, pty) :: env)
+        end
+      in
+      let body_env := build_env paramsAst env in
+      retAst <- elaborate env ret_ty (Some TypeUniverse) ;
+      bodyAst <- elaborate body_env body (Some (fst retAst)) ;
+      ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), AstRef "Unit")
       
-      match eff_meta_ast with
-      | AstMeta m =>
-          (* We constrain this metavariable to include the IoEffect *)
-          constrain_effect m (BuiltinEffect "io") ;;
-          ret (AstApp (AstRef "io_print") [ast_arg], IntType)
-      | _ => throw "Internal error"
-      end
-      
-  | LetCST _ _ _ _ => throw "LetCST not implemented in elaborator"
-  | IfCST _ _ _ _ => throw "IfCST not implemented in elaborator"
-  | DefCST _ _ _ _ _ _ => throw "DefCST not implemented in elaborator"
   | EnumCST _ _ _ _ => throw "EnumCST not implemented in elaborator"
   | RecordCST _ _ _ _ => throw "RecordCST not implemented in elaborator"
   | _ => throw "Unsupported CST node for elaboration"

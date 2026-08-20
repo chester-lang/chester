@@ -42,6 +42,7 @@ Inductive AST : Type :=
   | AstTuple : list AST -> AST
   | AstStringLit : string -> AST
   | AstIntLit : nat -> AST
+  | AstBoolLit : bool -> AST
   | AstBlock : list AST -> AST -> AST
   | AstApp : AST -> list AST -> AST
   | AstLam : string -> AST -> AST -> AST (* argName, argTy, body *)

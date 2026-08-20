@@ -11,24 +11,31 @@ let char_list_of_string s =
 
 let () =
   print_endline "Chester Compiler CLI";
-  let mock_input = char_list_of_string "{}" in
+  
+  (* Construct CST for: def bool_or(a: Bool, b: Bool): Bool = if a then true else b; *)
   let pos = { index = { unicode = 0; utf16 = 0 }; line = 0; column = { unicode = 0; utf16 = 0 } } in
-  let tokens = tokenize 100 mock_input pos in
-  let parsed = parse_cst 100 tokens in
-  match parsed with
-  | ParseErr e -> print_endline ("Parse Error: " ^ string_of_char_list e)
-  | ParseOk (cst, _) ->
-      (* Mock FFI parsing *)
-      let ts_ffi = TsArrow ([char_list_of_string "x"], TsIdentifier (char_list_of_string "number")) in
-      let chester_ffi_type = ts_to_chester ts_ffi in
+  let span_range = { start_pos = pos; end_pos = pos } in
+  let span = { file_name = char_list_of_string "mock.chester"; range = span_range } in
+  let bool_type = Symbol (char_list_of_string "Bool", span) in
+  let a_var = Symbol (char_list_of_string "a", span) in
+  let b_var = Symbol (char_list_of_string "b", span) in
+  let true_lit = BoolLiteral (true, span) in
+  let if_expr = IfCST (a_var, true_lit, b_var, span) in
+  let params = [ (char_list_of_string "a", bool_type); (char_list_of_string "b", bool_type) ] in
+  let def_expr = DefCST (char_list_of_string "bool_or", [], params, bool_type, if_expr, span) in
+  
+  let env = [ (char_list_of_string "Bool", AstRef (char_list_of_string "Type")) ] in
+  let expected = None in
+  let elab_res = elaborate env def_expr expected init_elab_state in
+  match elab_res with
+  | ElabErr (e, _) -> print_endline ("Elab Error: " ^ string_of_char_list e)
+  | ElabOk ((ast, _ty), _) ->
+      let ts_ast = emit_ts ast in
+      let ts_code = stringify_ts ts_ast in
+      print_endline ("\n[TypeScript Backend]");
+      print_endline (string_of_char_list ts_code);
       
-      (* Insert FFI type into type environment for the checker/elaborator *)
-      let env = [(char_list_of_string "ffi_function", chester_ffi_type)] in
-      let expected = None in
-      let elab_res = elaborate env cst expected init_elab_state in
-      match elab_res with
-      | ElabErr (e, _) -> print_endline ("Elab Error: " ^ string_of_char_list e)
-      | ElabOk ((ast, _ty), _) ->
-          let ts_ast = emit_ts ast in
-          let ts_code = stringify_ts ts_ast in
-          print_endline ("Compiled TypeScript:\n" ^ string_of_char_list ts_code)
+      let go_ast = emit_go ast in
+      let go_code = stringify_go go_ast in
+      print_endline ("\n[Golang Backend]");
+      print_endline (string_of_char_list go_code)
