@@ -37,5 +37,5 @@ Extraction "Compiler.ml"
   Chester.Backend.emit_go
   Chester.TypeScriptInterop.ts_to_chester
   Chester.GoInterop.go_to_chester
-  Chester.TypeScriptAST.stringify_ts
-  Chester.GoAST.stringify_go.
+  Chester.TypeScriptAST.stringify_ts_stmt
+  Chester.GoAST.stringify_go_stmt.

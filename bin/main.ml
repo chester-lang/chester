@@ -30,7 +30,7 @@ let process_file filename =
   | Inl ((ast, _), _) ->
       print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
       let ts_ast = emit_ts ast in
-      let ts_code_str = string_of_char_list (stringify_ts ts_ast) in
+      let ts_code_str = string_of_char_list (stringify_ts_stmt ts_ast) in
       let len = String.length ts_code_str in
       let ts_code = if len > 16 && String.sub ts_code_str 0 2 = "{ " && String.sub ts_code_str (len - 14) 14 = "return Unit; }" then String.sub ts_code_str 2 (len - 16) else ts_code_str in
       
