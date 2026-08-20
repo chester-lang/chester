@@ -10,19 +10,19 @@ def is_symbol_token(tok: Token, sym: String): Bool = {
 
 // advance removes the first token
 def advance(tokens: List (Token)): List (Token) = {
-  let len = prim__list_length(tokens);
-  if prim__int_eq(len, 0) then tokens
-  else prim__list_make(prim__int_sub(len, 1), \i => prim__list_get(tokens, prim__int_add(i, 1)))
+  let len = list_length(tokens);
+  if int_eq(len, 0) then tokens
+  else list_make(int_sub(len, 1), \i => list_get(tokens, int_add(i, 1)))
 };
 
 // We need to mutually recurse, so we define all functions
 // Actually, Chester supports top-level mutual recursion
 
 def parse_tuple_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) = {
-  if prim__int_eq(prim__list_length(tokens), 0) then {
+  if int_eq(list_length(tokens), 0) then {
     ParseResult(CST.Error("Unexpected EOF", Span(0,0)), tokens)
   } else {
-    let tok = prim__list_get(tokens, 0);
+    let tok = list_get(tokens, 0);
     match tok.kind {
       case Symbol(s) => {
         if string_eq(s, ")") then {
@@ -32,10 +32,10 @@ def parse_tuple_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST)
           match p.result {
             case Error(m, sp) => p;
             case _ => {
-              if prim__int_eq(prim__list_length(p.remaining), 0) then {
+              if int_eq(list_length(p.remaining), 0) then {
                 ParseResult(CST.Error("Unexpected EOF in tuple", Span(0,0)), p.remaining)
               } else {
-                let next_tok = prim__list_get(p.remaining, 0);
+                let next_tok = list_get(p.remaining, 0);
                 match next_tok.kind {
                   case Symbol(s2) => {
                     if string_eq(s2, ",") then {
@@ -58,10 +58,10 @@ def parse_tuple_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST)
         match p.result {
           case Error(m, sp) => p;
           case _ => {
-            if prim__int_eq(prim__list_length(p.remaining), 0) then {
+            if int_eq(list_length(p.remaining), 0) then {
               ParseResult(CST.Error("Unexpected EOF in tuple", Span(0,0)), p.remaining)
             } else {
-              let next_tok = prim__list_get(p.remaining, 0);
+              let next_tok = list_get(p.remaining, 0);
               match next_tok.kind {
                 case Symbol(s2) => {
                   if string_eq(s2, ",") then {
@@ -88,10 +88,10 @@ def parse_tuple(tokens: List (Token)): ParseResult (CST) = {
 
 
 def parse_list_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) = {
-  if prim__int_eq(prim__list_length(tokens), 0) then {
+  if int_eq(list_length(tokens), 0) then {
     ParseResult(CST.Error("Unexpected EOF", Span(0,0)), tokens)
   } else {
-    let tok = prim__list_get(tokens, 0);
+    let tok = list_get(tokens, 0);
     match tok.kind {
       case Symbol(s) => {
         if string_eq(s, "]") then {
@@ -101,10 +101,10 @@ def parse_list_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) 
           match p.result {
             case Error(m, sp) => p;
             case _ => {
-              if prim__int_eq(prim__list_length(p.remaining), 0) then {
+              if int_eq(list_length(p.remaining), 0) then {
                 ParseResult(CST.Error("Unexpected EOF in list", Span(0,0)), p.remaining)
               } else {
-                let next_tok = prim__list_get(p.remaining, 0);
+                let next_tok = list_get(p.remaining, 0);
                 match next_tok.kind {
                   case Symbol(s2) => {
                     if string_eq(s2, ",") then {
@@ -127,10 +127,10 @@ def parse_list_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) 
         match p.result {
           case Error(m, sp) => p;
           case _ => {
-            if prim__int_eq(prim__list_length(p.remaining), 0) then {
+            if int_eq(list_length(p.remaining), 0) then {
               ParseResult(CST.Error("Unexpected EOF in list", Span(0,0)), p.remaining)
             } else {
-              let next_tok = prim__list_get(p.remaining, 0);
+              let next_tok = list_get(p.remaining, 0);
               match next_tok.kind {
                 case Symbol(s2) => {
                   if string_eq(s2, ",") then {
@@ -156,10 +156,10 @@ def parse_list(tokens: List (Token)): ParseResult (CST) = {
 };
 
 def parse_block_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) = {
-  if prim__int_eq(prim__list_length(tokens), 0) then {
+  if int_eq(list_length(tokens), 0) then {
     ParseResult(CST.Error("Unexpected EOF", Span(0,0)), tokens)
   } else {
-    let tok = prim__list_get(tokens, 0);
+    let tok = list_get(tokens, 0);
     match tok.kind {
       case Symbol(s) => {
         if string_eq(s, "}") then {
@@ -169,10 +169,10 @@ def parse_block_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST)
           match p.result {
             case Error(m, sp) => p;
             case _ => {
-              if prim__int_eq(prim__list_length(p.remaining), 0) then {
+              if int_eq(list_length(p.remaining), 0) then {
                 ParseResult(CST.Error("Unexpected EOF in block", Span(0,0)), p.remaining)
               } else {
-                let next_tok = prim__list_get(p.remaining, 0);
+                let next_tok = list_get(p.remaining, 0);
                 match next_tok.kind {
                   case Symbol(s2) => {
                     if string_eq(s2, ";") then {
@@ -197,10 +197,10 @@ def parse_block_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST)
         match p.result {
           case Error(m, sp) => p;
           case _ => {
-            if prim__int_eq(prim__list_length(p.remaining), 0) then {
+            if int_eq(list_length(p.remaining), 0) then {
               ParseResult(CST.Error("Unexpected EOF in block", Span(0,0)), p.remaining)
             } else {
-              let next_tok = prim__list_get(p.remaining, 0);
+              let next_tok = list_get(p.remaining, 0);
               match next_tok.kind {
                 case Symbol(s2) => {
                   if string_eq(s2, ";") then {
@@ -243,13 +243,13 @@ def is_terminator(tok: Token): Bool = {
 };
 
 def parse_atom_sequence_helper(tokens: List (Token), acc: List (CST)): ParseResult (CST) = {
-  if prim__int_eq(prim__list_length(tokens), 0) then {
+  if int_eq(list_length(tokens), 0) then {
     ParseResult(CST.Error("Unexpected EOF", Span(0,0)), tokens)
   } else {
-    let tok = prim__list_get(tokens, 0);
+    let tok = list_get(tokens, 0);
     if is_terminator(tok) then {
-      let len = prim__list_length(acc);
-      if prim__int_eq(len, 1) then ParseResult(prim__list_get(acc, 0), tokens)
+      let len = list_length(acc);
+      if int_eq(len, 1) then ParseResult(list_get(acc, 0), tokens)
       else ParseResult(CST.SeqOf(acc, Span(0,0)), tokens)
     } else {
       let p = parse_atom(tokens);
@@ -266,11 +266,11 @@ def parse_atom_sequence(tokens: List (Token)): ParseResult (CST) = {
 };
 
 def parse_atom(tokens: List (Token)): ParseResult (CST) = {
-  let len = prim__list_length(tokens);
-  if prim__int_eq(len, 0) then {
+  let len = list_length(tokens);
+  if int_eq(len, 0) then {
     ParseResult(CST.Error("Unexpected EOF", Span(0, 0)), tokens)
   } else {
-    let tok = prim__list_get(tokens, 0);
+    let tok = list_get(tokens, 0);
     let rest = advance(tokens);
     
     match tok.kind {

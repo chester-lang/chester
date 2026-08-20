@@ -60,7 +60,7 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
         | (pat, body) :: rest =>
             match pat with
             | PatConstructor cname vars =>
-                let cond := TsCall (TsPropertyAccess (TsPropertyAccess (TsIdentifier "_match_val") "_tag") "===") [TsStringLiteral cname] in
+                let cond := TsCall (TsIdentifier "prim__string_eq") [TsPropertyAccess (TsIdentifier "_match_val") "_tag"; TsStringLiteral cname] in
                 let body_ts := emit_ts_block body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list TypeScriptStmt) : list TypeScriptStmt :=
                   match vs with
@@ -165,7 +165,7 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
         | (pat, body) :: rest =>
             match pat with
             | PatConstructor cname vars =>
-                let cond := TsCall (TsPropertyAccess (TsIdentifier "_match_val") "===") [TsStringLiteral cname] in
+                let cond := TsCall (TsIdentifier "prim__string_eq") [TsPropertyAccess (TsIdentifier "_match_val") "_tag"; TsStringLiteral cname] in
                 let body_ts := emit_ts_block body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list TypeScriptStmt) : list TypeScriptStmt :=
                   match vs with
@@ -201,7 +201,7 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
         | (pat, body) :: rest =>
             match pat with
             | PatConstructor cname vars =>
-                let cond := TsCall (TsPropertyAccess (TsIdentifier "_match_val") "===") [TsStringLiteral cname] in
+                let cond := TsCall (TsIdentifier "prim__string_eq") [TsPropertyAccess (TsIdentifier "_match_val") "_tag"; TsStringLiteral cname] in
                 let body_ts := emit_ts_block body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list TypeScriptStmt) : list TypeScriptStmt :=
                   match vs with

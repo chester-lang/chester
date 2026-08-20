@@ -61,7 +61,64 @@ Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
           let body_cst := match body with | [] => Tuple [] span | [x] => x | _ => SeqOf body span end in
           LamCST arg None body_cst span
       | Symbol "match" _ :: expr :: Block cases _ _ :: [] =>
-          MatchCST expr [] span
+          (* Extract case branches into PatternCST * CST pairs.
+             Bodies are left as SeqOf so expand_cst can recurse into them later.
+             We CANNOT call expand_seq_expr here (same fixpoint) — Coq forbids it. *)
+          let fix extract_vars (args : list CST) : list string :=
+            match args with
+            | [] => []
+            | Symbol vname _ :: rest => vname :: extract_vars rest
+            | _ :: rest => extract_vars rest
+            end
+          in
+          let fix extract_cases (cs : list CST) : list (PatternCST * CST) :=
+            match cs with
+            | [] => []
+            (* case _ => body *)
+            | SeqOf (Symbol "case" _ :: Symbol "_" _ :: Symbol "=>" _ :: body) sp :: rest =>
+                let body_cst := match body with
+                  | [] => Tuple [] sp
+                  | [b] => b
+                  | _ => SeqOf body sp
+                  end in
+                (PatWildcardCST sp, body_cst) :: extract_cases rest
+            (* case Constructor(vars...) => body  -- field-access form: Ctor.Variant(vars) *)
+            | SeqOf (Symbol "case" _ ::
+                     FieldAccessCST (Symbol _ _) vname _ ::
+                     Tuple args _ ::
+                     Symbol "=>" _ :: body) sp :: rest =>
+                let body_cst := match body with
+                  | [] => Tuple [] sp
+                  | [b] => b
+                  | _ => SeqOf body sp
+                  end in
+                (PatConstructorCST vname (extract_vars args) sp, body_cst) :: extract_cases rest
+            (* case Constructor(vars...) => body *)
+            | SeqOf (Symbol "case" _ ::
+                     AppCST (Symbol vname _) args _ ::
+                     Symbol "=>" _ :: body) sp :: rest =>
+                let body_cst := match body with
+                  | [] => Tuple [] sp
+                  | [b] => b
+                  | _ => SeqOf body sp
+                  end in
+                (PatConstructorCST vname (extract_vars args) sp, body_cst) :: extract_cases rest
+            (* case VarName => body  (bare name: could be wildcard-like binding) *)
+            | SeqOf (Symbol "case" _ :: Symbol vname _ :: Symbol "=>" _ :: body) sp :: rest =>
+                let body_cst := match body with
+                  | [] => Tuple [] sp
+                  | [b] => b
+                  | _ => SeqOf body sp
+                  end in
+                (* "_" is wildcard; anything else is a variable binding *)
+                let pat := if string_dec vname "_"
+                           then PatWildcardCST sp
+                           else PatVarCST vname sp in
+                (pat, body_cst) :: extract_cases rest
+            | _ :: rest => extract_cases rest
+            end
+          in
+          MatchCST expr (extract_cases cases) span
       | _ => SeqOf collapsed span
       end
   end.

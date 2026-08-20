@@ -8,7 +8,7 @@ let string_of_char_list chars =
 
 let preamble =
   "const Unit = {};\n\
-   const string_eq = (a, b) => a === b;\n\
+   const prim__string_eq = (a, b) => a === b;\n\
    const prim__list_length = (l) => l.length;\n\
    const prim__int_eq = (a, b) => a === b;\n\
    const prim__list_make = (len, f) => Array.from({length: len}, (_, i) => \
@@ -16,15 +16,13 @@ let preamble =
    const prim__int_sub = (a, b) => a - b;\n\
    const prim__list_get = (l, i) => l[i];\n\
    const prim__int_add = (a, b) => a + b;\n\
-   const list_empty = () => [];\n\
-   const list_append = (l, x) => [...l, x];\n\
-   const list_drop_last = (l) => l.slice(0, -1);\n\
-   const list_insert_first = (l, x) => [x, ...l];\n\
-   const list_reverse = (l) => [...l].reverse();\n\
+   const prim__int_lt = (a, b) => a < b;\n\
+   const prim__string_length = (s) => s.length;\n\
+   const prim__string_substring = (s, start, end) => s.substring(start, end);\n\
+   const prim__string_concat = (s1, s2) => s1 + s2;\n\
+   const prim__list_empty = () => [];\n\
    const ParseResult = (result, rest) => ({result, rest});\n\
    const Span = (start, end) => ({start, end});\n\
-   const list_filter = (l, f) => l.filter(f);\n\
-   const advance = (l) => l.slice(1);\n\
    const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \"let\"}];\n"
 
 let process_file filename oc =

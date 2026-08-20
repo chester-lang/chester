@@ -75,7 +75,7 @@ def is_alpha(c: String): Bool = {
 };
 
 def lex_whitespace(source: String, idx: Integer, len: Integer): Integer = {
-  if prim__int_eq(idx, len) then idx
+  if int_eq(idx, len) then idx
   else {
     let c = string_char_at(source, idx);
     if is_whitespace(c) then lex_whitespace(source, idx + 1, len) else idx
@@ -83,7 +83,7 @@ def lex_whitespace(source: String, idx: Integer, len: Integer): Integer = {
 };
 
 def lex_number(source: String, idx: Integer, len: Integer): Integer = {
-  if prim__int_eq(idx, len) then idx
+  if int_eq(idx, len) then idx
   else {
     let c = string_char_at(source, idx);
     if is_digit(c) then lex_number(source, idx + 1, len) else idx
@@ -91,7 +91,7 @@ def lex_number(source: String, idx: Integer, len: Integer): Integer = {
 };
 
 def lex_identifier(source: String, idx: Integer, len: Integer): Integer = {
-  if prim__int_eq(idx, len) then idx
+  if int_eq(idx, len) then idx
   else {
     let c = string_char_at(source, idx);
     if is_alpha(c) then lex_identifier(source, idx + 1, len) else idx
@@ -99,7 +99,7 @@ def lex_identifier(source: String, idx: Integer, len: Integer): Integer = {
 };
 
 def lex_string(source: String, idx: Integer, len: Integer): Integer = {
-  if prim__int_eq(idx, len) then idx
+  if int_eq(idx, len) then idx
   else {
     let c = string_char_at(source, idx);
     if string_eq(c, "\"") then idx + 1  // End of string
@@ -115,7 +115,7 @@ def check_keyword(text: String): TokenKind = {
 };
 
 def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): List (Token) = {
-  if prim__int_eq(idx, len)
+  if int_eq(idx, len)
   then list_append(acc, Token(TokenKind.EOF, "", Span(idx, idx)))
   else {
     let c = string_char_at(source, idx);
@@ -167,5 +167,5 @@ def lex(source: String): List (Token) = {
 
 def lexer_main(): Integer = {
   let tokens = lex("def foo(x: Integer): String = {\n  let y = \"hello \\\"world\\\"\";\n  if (x == 5) { y } else { \"no\" }\n}");
-  prim__list_length(tokens)
+  list_length(tokens)
 };

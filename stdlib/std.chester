@@ -8,65 +8,108 @@ enum Result[T, E] {
   case Err(err: E);
 };
 
+// Integer primitives
+def int_eq(a: Integer, b: Integer): Bool = prim__int_eq(a, b);
+def int_lt(a: Integer, b: Integer): Bool = prim__int_lt(a, b);
+def int_add(a: Integer, b: Integer): Integer = prim__int_add(a, b);
+def int_sub(a: Integer, b: Integer): Integer = prim__int_sub(a, b);
+
+// List primitives
+def list_length[T](list: List T): Integer = prim__list_length(list);
+def list_get[T](list: List T, index: Integer): T = prim__list_get(list, index);
+def list_make[T](len: Integer, f: (i: Integer) -> T): List T = prim__list_make(len, f);
+
 // String primitives
 def string_length(s: String): Integer = prim__string_length(s);
 def string_substring(s: String, start: Integer, end: Integer): String = prim__string_substring(s, start, end);
 def string_concat(s1: String, s2: String): String = prim__string_concat(s1, s2);
 def string_eq(s1: String, s2: String): Bool = prim__string_eq(s1, s2);
 def string_char_at(s: String, index: Integer): String = {
-  if prim__int_lt(index, prim__string_length(s))
-  then prim__string_substring(s, index, index + 1)
-  else ""
+  if int_lt(index, string_length(s))
+  then { string_substring(s, index, int_add(index, 1)) }
+  else { "" }
 };
 
-def bool_or(a: Bool, b: Bool): Bool = if a then true else b;
-def bool_and(a: Bool, b: Bool): Bool = if a then b else false;
-def bool_not(a: Bool): Bool = if a then false else true;
+def bool_or(a: Bool, b: Bool): Bool = if a then { true } else { b };
+def bool_and(a: Bool, b: Bool): Bool = if a then { b } else { false };
+def bool_not(a: Bool): Bool = if a then { false } else { true };
 
 def list_empty[T](): List T = prim__list_empty();
 
+def advance[T](list: List T): List T = {
+  let len = list_length(list);
+  if int_eq(len, 0) then { list }
+  else { list_make(int_sub(len, 1), \i => list_get(list, int_add(i, 1))) }
+};
+
+def list_drop_last[T](list: List T): List T = {
+  let len = list_length(list);
+  if int_eq(len, 0) then { list }
+  else { list_make(int_sub(len, 1), \i => list_get(list, i)) }
+};
+
+def list_insert_first[T](list: List T, elem: T): List T = {
+  let len = list_length(list);
+  list_make(int_add(len, 1), \i => {
+    if int_eq(i, 0) then { elem } else { list_get(list, int_sub(i, 1)) }
+  })
+};
+
+def list_reverse[T](list: List T): List T = {
+  let len = list_length(list);
+  list_make(len, \i => list_get(list, int_sub(int_sub(len, 1), i)))
+};
+
 def list_append[T](list: List T, elem: T): List T = {
-  let len = prim__list_length(list);
-  prim__list_make(len + 1, \i => {
-    if prim__int_eq(i, len) then elem else prim__list_get(list, i)
+  let len = list_length(list);
+  list_make(int_add(len, 1), \i => {
+    if int_eq(i, len) then { elem } else { list_get(list, i) }
   })
 };
 
 def list_map[A, B](list: List A, f: (x: A) -> B): List B = {
-  let len = prim__list_length(list);
-  prim__list_make(len, \i => f(prim__list_get(list, i)))
+  let len = list_length(list);
+  list_make(len, \i => f(list_get(list, i)))
 };
 
 def find_matching_index[T](list: List T, predicate: (x: T) -> Bool, target_match: Integer, current_idx: Integer, matches_found: Integer): Integer = {
-  if prim__int_eq(current_idx, prim__list_length(list))
-  then 0 - 1
-  else if predicate(prim__list_get(list, current_idx))
-       then if prim__int_eq(matches_found, target_match)
-            then current_idx
-            else find_matching_index(list, predicate, target_match, current_idx + 1, matches_found + 1)
-       else find_matching_index(list, predicate, target_match, current_idx + 1, matches_found)
+  if int_eq(current_idx, list_length(list))
+  then { int_sub(0, 1) }
+  else {
+    if predicate(list_get(list, current_idx))
+    then {
+      if int_eq(matches_found, target_match)
+      then { current_idx }
+      else { find_matching_index(list, predicate, target_match, int_add(current_idx, 1), int_add(matches_found, 1)) }
+    }
+    else {
+      find_matching_index(list, predicate, target_match, int_add(current_idx, 1), matches_found)
+    }
+  }
 };
 
 def count_matches[T](list: List T, predicate: (x: T) -> Bool, current_idx: Integer, acc: Integer): Integer = {
-  if prim__int_eq(current_idx, prim__list_length(list))
-  then acc
-  else if predicate(prim__list_get(list, current_idx))
-       then count_matches(list, predicate, current_idx + 1, acc + 1)
-       else count_matches(list, predicate, current_idx + 1, acc)
+  if int_eq(current_idx, list_length(list))
+  then { acc }
+  else {
+    if predicate(list_get(list, current_idx))
+    then { count_matches(list, predicate, int_add(current_idx, 1), int_add(acc, 1)) }
+    else { count_matches(list, predicate, int_add(current_idx, 1), acc) }
+  }
 };
 
 def list_filter[T](list: List T, predicate: (x: T) -> Bool): List T = {
   let cnt = count_matches(list, predicate, 0, 0);
-  prim__list_make(cnt, \j => {
+  list_make(cnt, \j => {
     let orig_idx = find_matching_index(list, predicate, j, 0, 0);
-    prim__list_get(list, orig_idx)
+    list_get(list, orig_idx)
   })
 };
 
 def list_foldl_helper[A, B](list: List A, init: B, f: (acc: B, elem: A) -> B, idx: Integer): B = {
-  if prim__int_eq(idx, prim__list_length(list))
-  then init
-  else list_foldl_helper(list, f(init, prim__list_get(list, idx)), f, idx + 1)
+  if int_eq(idx, list_length(list))
+  then { init }
+  else { list_foldl_helper(list, f(init, list_get(list, idx)), f, int_add(idx, 1)) }
 };
 
 def list_foldl[A, B](list: List A, init: B, f: (acc: B, elem: A) -> B): B = {
