@@ -42,6 +42,8 @@ Inductive CST : Type :=
   | LetCST : string -> CST -> CST -> Span -> CST (* name, value, body/next_stmt *)
   | IfCST : CST -> CST -> CST -> Span -> CST (* cond, then_branch, else_branch *)
   | DefCST : string -> list string -> list (string * CST) -> CST -> CST -> Span -> CST (* name, type_params, params, ret_ty, body *)
+  | LamCST : string -> option CST -> CST -> Span -> CST (* arg_name, opt_arg_ty, body *)
+  | AppCST : CST -> list CST -> Span -> CST (* func, args *)
   | EnumCST : string -> list string -> list CST -> Span -> CST (* name, type_params, variants *)
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
   | Error : string -> Span -> CST.

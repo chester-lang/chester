@@ -67,31 +67,38 @@ Inductive AST : Type :=
   Maps a MetaId to its current state. For this example, we specialize it 
   to inferring effect sets, where both Partial and Final information are EffectSets.
 *)
-Definition SolverState := MetaId -> MetaState EffectSet EffectSet.
+Record SolverState : Type := mkSolverState {
+  type_metas : MetaId -> MetaState AST AST;
+  effect_metas : MetaId -> MetaState EffectSet EffectSet
+}.
 
 Definition empty_state : SolverState :=
-  fun _ => Unsolved.
+  mkSolverState (fun _ => Unsolved) (fun _ => Unsolved).
 
 (* 
   Constraint Solving Operations 
 *)
 
-(* Update the state of a specific MetaId in the solver environment *)
-Definition update_state (id : MetaId) (new_state : MetaState EffectSet EffectSet) (st : SolverState) : SolverState :=
-  fun x => if Nat.eqb x id then new_state else st x.
+(* Update the effect state of a specific MetaId in the solver environment *)
+Definition update_effect_state (id : MetaId) (new_state : MetaState EffectSet EffectSet) (st : SolverState) : SolverState :=
+  mkSolverState (type_metas st) (fun x => if Nat.eqb x id then new_state else effect_metas st x).
+
+(* Update the type state of a specific MetaId in the solver environment *)
+Definition update_type_state (id : MetaId) (new_state : MetaState AST AST) (st : SolverState) : SolverState :=
+  mkSolverState (fun x => if Nat.eqb x id then new_state else type_metas st x) (effect_metas st).
 
 (* 
   Add an effect to a meta variable.
   This models the transition: Unsolved -> Constrained -> Solved 
 *)
 Definition add_effect_constraint (id : MetaId) (eff : EffectRef) (st : SolverState) : SolverState :=
-  match st id with
+  match effect_metas st id with
   | Unsolved => 
       (* Transition from Unsolved to Constrained with a single effect *)
-      update_state id (Constrained [eff]) st
+      update_effect_state id (Constrained [eff]) st
   | Constrained effs =>
       (* Add the new effect to the partial knowledge *)
-      update_state id (Constrained (eff :: effs)) st
+      update_effect_state id (Constrained (eff :: effs)) st
   | Solved effs =>
       (* If it's already fully solved, we might just verify or ignore. 
          For simplicity, we leave it as is, or we could return an error state. *)
@@ -100,8 +107,8 @@ Definition add_effect_constraint (id : MetaId) (eff : EffectRef) (st : SolverSta
 
 (* Finalize a constrained meta variable, cementing its partial knowledge as the final solved state *)
 Definition finalize_meta (id : MetaId) (st : SolverState) : SolverState :=
-  match st id with
-  | Unsolved => update_state id (Solved []) st
-  | Constrained effs => update_state id (Solved effs) st
+  match effect_metas st id with
+  | Unsolved => update_effect_state id (Solved []) st
+  | Constrained effs => update_effect_state id (Solved effs) st
   | Solved effs => st
   end.

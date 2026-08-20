@@ -75,16 +75,51 @@ Definition constrain_effect (id : MetaId) (eff : EffectRef) : ElabM unit :=
   Unification / Constraint Generation 
   For simplicity in this mockup, we'll assume exact equality or filling an unsolved metavariable.
 *)
-Fixpoint unify (t1 t2 : AST) : ElabM unit :=
-  match t1, t2 with
-  | AstRef n1, AstRef n2 =>
-      if String.eqb n1 n2 then ret tt else throw "Unification failed: name mismatch"
-  | AstMeta m1, AstMeta m2 =>
-      if Nat.eqb m1 m2 then ret tt else throw "Unification of two different metas not fully implemented"
-  | _, _ =>
-      (* In a real elaborator, if one is a Meta, we'd solve it.
-         For this mockup, we just do a simple fallback. *)
-      throw "Unification failed or unimplemented"
+Fixpoint zonk (fuel : nat) (ty : AST) : ElabM AST :=
+  match fuel with
+  | 0 => ret ty
+  | S f =>
+      match ty with
+      | AstMeta m =>
+          st <- get_solver ;
+          match type_metas st m with
+          | Solved t => zonk f t
+          | _ => ret (AstMeta m)
+          end
+      | AstPi arg t ret_ty effs =>
+          t' <- zonk f t ;
+          ret_ty' <- zonk f ret_ty ;
+          ret (AstPi arg t' ret_ty' effs)
+      | _ => ret ty
+      end
+  end.
+
+Fixpoint unify (fuel : nat) (t1 t2 : AST) : ElabM unit :=
+  match fuel with
+  | 0 => throw "Unification out of fuel"
+  | S f =>
+      t1' <- zonk f t1 ;
+      t2' <- zonk f t2 ;
+      match t1', t2' with
+      | AstRef n1, AstRef n2 =>
+          if String.eqb n1 n2 then ret tt else throw "Unification failed: name mismatch"
+      | AstMeta m1, AstMeta m2 =>
+          if Nat.eqb m1 m2 then ret tt 
+          else 
+            st <- get_solver ;
+            put_solver (update_type_state m1 (Solved (AstMeta m2)) st)
+      | AstMeta m, t =>
+          st <- get_solver ;
+          put_solver (update_type_state m (Solved t) st)
+      | t, AstMeta m =>
+          st <- get_solver ;
+          put_solver (update_type_state m (Solved t) st)
+      | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 =>
+          unify f ty1 ty2 ;;
+          unify f ret1 ret2
+      | _, _ =>
+          throw "Unification failed or unimplemented"
+      end
   end.
 
 (* 
@@ -98,15 +133,21 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       | Some ty => 
           match expected with
           | Some expTy => 
-              unify ty expTy ;;
+              unify 100 ty expTy ;;
               ret (AstRef name, ty)
           | None => ret (AstRef name, ty)
           end
       | None => throw ("Unbound variable: " ++ name)
       end
-  | BoolLiteral b _ => ret (AstBoolLit b, BoolType)
-  | IntegerLiteral n _ => ret (AstIntLit 42, IntType)
-  | StringLiteral s _ => ret (AstStringLit s, StringType)
+  | BoolLiteral b _ => 
+      match expected with Some exp => unify 100 BoolType exp | None => ret tt end ;;
+      ret (AstBoolLit b, BoolType)
+  | IntegerLiteral n _ => 
+      match expected with Some exp => unify 100 IntType exp | None => ret tt end ;;
+      ret (AstIntLit 42, IntType)
+  | StringLiteral s _ => 
+      match expected with Some exp => unify 100 StringType exp | None => ret tt end ;;
+      ret (AstStringLit s, StringType)
   | SeqOf exprs _ => throw "SeqOf not implemented in elaborator"
   | Block stmts ret_expr _ => 
       let fix map_elabs (ls : list CST) : ElabM (list AST) :=
@@ -156,6 +197,44 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       bodyAst <- elaborate body_env body (Some (fst retAst)) ;
       ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), AstRef "Unit")
       
+  | LamCST arg_name opt_arg_ty body _ =>
+      argTyAst <- match opt_arg_ty with
+                  | Some ty => elaborate env ty (Some TypeUniverse)
+                  | None =>
+                      m <- fresh_meta ;
+                      ret (m, TypeUniverse)
+                  end ;
+      bodyAst <- elaborate ((arg_name, fst argTyAst) :: env) body None ;
+      let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) [] in
+      ret (AstLam arg_name (fst argTyAst) (fst bodyAst), arrTy)
+      
+  | AppCST func args _ =>
+      funcAst <- elaborate env func None ;
+      let fix check_args (fs : AST) (as_ : list CST) : ElabM (list AST * AST) :=
+        match as_ with
+        | [] => ret ([], fs)
+        | a :: rest =>
+            (* Very simplified args checking for mockup *)
+            match fs with
+            | AstPi arg_name arg_ty ret_ty _ =>
+                aAst <- elaborate env a (Some arg_ty) ;
+                restAst <- check_args ret_ty rest ;
+                ret (fst aAst :: fst restAst, snd restAst)
+            | AstMeta m =>
+                argTyM <- fresh_meta ;
+                retTyM <- fresh_meta ;
+                unify 100 fs (AstPi "x" argTyM retTyM []) ;;
+                aAst <- elaborate env a (Some argTyM) ;
+                restAst <- check_args retTyM rest ;
+                ret (fst aAst :: fst restAst, snd restAst)
+            | _ => throw "Cannot apply non-function"
+            end
+        end
+      in
+      argsRes <- check_args (snd funcAst) args ;
+      match expected with Some exp => unify 100 (snd argsRes) exp | None => ret tt end ;;
+      ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+
   | EnumCST _ _ _ _ => throw "EnumCST not implemented in elaborator"
   | RecordCST _ _ _ _ => throw "RecordCST not implemented in elaborator"
   | _ => throw "Unsupported CST node for elaboration"
