@@ -481,7 +481,8 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
               let bodyAst_res = elaborate(body_env, body, OptionAST.SomeAST(rAst));
               match bodyAst_res {
                 case MkPair(bAst, bTy) => {
-                  Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst), AST.AstRef("Unit"))
+                  let fun_ty = AST.AstFunTy(type_params, paramsAst, rAst, list_empty[String]());
+                  Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst), fun_ty)
                 }
               }
             }
@@ -511,23 +512,46 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
       }
     };
     case AppCST(func, args, span) => {
-      let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
-      match funcAst_res {
-        case MkPair(fAst, fTy) => {
-          let args_res = elab_check_args(env, fTy, args);
-          match args_res {
-            case MkPair(argsAst, argsTy) => {
-              match expected {
-                case SomeAST(exp) => unify(100, argsTy, exp);
-                case NoneAST => ()
-              };
-              Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
+      // Detect combined two-telescope call: f[A,B](x,y) — erase type args, apply value args
+      match func {
+        case TypeAppCST(inner_func, targs, tspan) => {
+          let funcAst_res = elaborate(env, inner_func, OptionAST.NoneAST());
+          match funcAst_res {
+            case MkPair(fAst, fTy) => {
+              let args_res = elab_check_args(env, fTy, args);
+              match args_res {
+                case MkPair(argsAst, argsTy) => {
+                  match expected {
+                    case SomeAST(exp) => unify(100, argsTy, exp);
+                    case NoneAST => ()
+                  };
+                  Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
+                }
+              }
+            }
+          }
+        };
+        case _ => {
+          let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
+          match funcAst_res {
+            case MkPair(fAst, fTy) => {
+              let args_res = elab_check_args(env, fTy, args);
+              match args_res {
+                case MkPair(argsAst, argsTy) => {
+                  match expected {
+                    case SomeAST(exp) => unify(100, argsTy, exp);
+                    case NoneAST => ()
+                  };
+                  Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
+                }
+              }
             }
           }
         }
       }
     };
     case TypeAppCST(func, targs, span) => {
+      // Standalone implicit application f[A,B] — used in type position only
       let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
       match funcAst_res {
         case MkPair(fAst, fTy) => {

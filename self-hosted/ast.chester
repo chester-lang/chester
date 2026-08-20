@@ -19,6 +19,7 @@ enum AST {
   case AstLet(name: String, value: AST);
   case AstIf(cond: AST, then_branch: AST, else_branch: AST);
   case AstDef(name: String, type_params: List String, params: List Pair, ret_ty: AST, body: AST);
+  case AstFunTy(type_params: List String, params: List Pair, ret_ty: AST, effs: List String);
   case AstEnum(name: String, type_params: List String, variants: List Pair);
   case AstMatch(expr: AST, cases: List Pair);
   case AstRecord(name: String, type_params: List String, fields: List Pair);

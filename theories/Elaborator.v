@@ -236,7 +236,8 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       let body_env := build_env paramsAst env in
       retAst <- elaborate env ret_ty (Some TypeUniverse) ;
       bodyAst <- elaborate body_env body (Some (fst retAst)) ;
-      ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), AstRef "Unit")
+      let fun_ty := AstFunTy type_params paramsAst (fst retAst) [] in
+      ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
 
   | LamCST arg_name opt_arg_ty body span =>
       argTyAst <- (match opt_arg_ty with
@@ -248,50 +249,107 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       ret (AstLam (mangle_name arg_name (context span)) (fst argTyAst) (fst bodyAst), arrTy)
 
   | AppCST func args _ =>
-      funcAst <- elaborate env func None ;
-      let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
-        match as_ with
-        | [] => ret ([], fs)
-        | a :: rest =>
-            match fs with
-            | AstPi _ arg_ty ret_ty _ =>
-                aAst <- elaborate env a (Some arg_ty) ;
-                restAst <- check_args ret_ty rest ;
-                ret (fst aAst :: fst restAst, snd restAst)
-            | AstMeta _ =>
-                argTyM <- fresh_meta ;
-                retTyM <- fresh_meta ;
-                unify 100 fs (AstPi "x" argTyM retTyM []) ;;
-                aAst <- elaborate env a (Some argTyM) ;
-                restAst <- check_args retTyM rest ;
-                ret (fst aAst :: fst restAst, snd restAst)
-            | AstRef _ =>
-                aAst <- elaborate env a None;
-                restAst <- check_args (AstRef "Any") rest;
-                ret (fst aAst :: fst restAst, AstRef "Any")
-            | _ => ret ([], AstRef "Any")
+      (* Check if func is a TypeAppCST — combined two-telescope call f[A,B](x,y) *)
+      match func with
+      | TypeAppCST inner_func _targs _tspan =>
+          (* Erase the implicit [A,B] telescope; elaborate only the inner function and explicit args *)
+          funcAst <- elaborate env inner_func None ;
+          let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
+            match as_ with
+            | [] => ret ([], fs)
+            | a :: rest =>
+                match fs with
+                | AstFunTy _tparams params ret_ty _ =>
+                    (* Non-curried: elaborate all explicit args against the param list *)
+                    match params with
+                    | (_, arg_ty) :: _rest_params =>
+                        aAst <- elaborate env a (Some arg_ty) ;
+                        restAst <- check_args (AstFunTy _tparams _rest_params ret_ty []) rest ;
+                        ret (fst aAst :: fst restAst, snd restAst)
+                    | [] =>
+                        aAst <- elaborate env a None ;
+                        restAst <- check_args (AstRef "Any") rest ;
+                        ret (fst aAst :: fst restAst, AstRef "Any")
+                    end
+                | AstPi _ arg_ty ret_ty _ =>
+                    aAst <- elaborate env a (Some arg_ty) ;
+                    restAst <- check_args ret_ty rest ;
+                    ret (fst aAst :: fst restAst, snd restAst)
+                | AstRef _ =>
+                    aAst <- elaborate env a None ;
+                    restAst <- check_args (AstRef "Any") rest ;
+                    ret (fst aAst :: fst restAst, AstRef "Any")
+                | _ =>
+                    aAst <- elaborate env a None ;
+                    restAst <- check_args (AstRef "Any") rest ;
+                    ret (fst aAst :: fst restAst, AstRef "Any")
+                end
             end
-        end
-      in
-      argsRes <- check_args (snd funcAst) args ;
-      match expected with
-      | Some exp => unify 100 (snd argsRes) exp
-      | None => ret tt
-      end ;;
-      ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+          in
+          argsRes <- check_args (snd funcAst) args ;
+          match expected with
+          | Some exp => unify 100 (snd argsRes) exp
+          | None => ret tt
+          end ;;
+          ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+      | _ =>
+          funcAst <- elaborate env func None ;
+          let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
+            match as_ with
+            | [] => ret ([], fs)
+            | a :: rest =>
+                match fs with
+                | AstFunTy _tparams params ret_ty _ =>
+                    match params with
+                    | (_, arg_ty) :: _rest_params =>
+                        aAst <- elaborate env a (Some arg_ty) ;
+                        restAst <- check_args (AstFunTy _tparams _rest_params ret_ty []) rest ;
+                        ret (fst aAst :: fst restAst, snd restAst)
+                    | [] =>
+                        aAst <- elaborate env a None ;
+                        restAst <- check_args (AstRef "Any") rest ;
+                        ret (fst aAst :: fst restAst, AstRef "Any")
+                    end
+                | AstPi _ arg_ty ret_ty _ =>
+                    aAst <- elaborate env a (Some arg_ty) ;
+                    restAst <- check_args ret_ty rest ;
+                    ret (fst aAst :: fst restAst, snd restAst)
+                | AstMeta _ =>
+                    argTyM <- fresh_meta ;
+                    retTyM <- fresh_meta ;
+                    unify 100 fs (AstPi "x" argTyM retTyM []) ;;
+                    aAst <- elaborate env a (Some argTyM) ;
+                    restAst <- check_args retTyM rest ;
+                    ret (fst aAst :: fst restAst, snd restAst)
+                | AstRef _ =>
+                    aAst <- elaborate env a None ;
+                    restAst <- check_args (AstRef "Any") rest ;
+                    ret (fst aAst :: fst restAst, AstRef "Any")
+                | _ => ret ([], AstRef "Any")
+                end
+            end
+          in
+          argsRes <- check_args (snd funcAst) args ;
+          match expected with
+          | Some exp => unify 100 (snd argsRes) exp
+          | None => ret tt
+          end ;;
+          ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+      end
 
   | TypeAppCST func args _ =>
+      (* Standalone implicit application f[A,B] without explicit args — used in type position *)
       funcAst <- elaborate env func None ;
-      let fix check_args (as_ : list CST) : ElabM (list AST) :=
+      let fix check_targs (as_ : list CST) : ElabM (list AST) :=
         match as_ with
         | [] => ret []
         | a :: rest =>
             aAst <- elaborate env a (Some (AstRef "TypeUniverse")) ;
-            restAst <- check_args rest ;
+            restAst <- check_targs rest ;
             ret (fst aAst :: restAst)
         end
       in
-      argsRes <- check_args args ;
+      argsRes <- check_targs args ;
       ret (AstTypeApp (fst funcAst) argsRes, AstRef "TypeUniverse")
 
   | EnumCST name type_params variants _ =>

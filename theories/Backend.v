@@ -44,9 +44,10 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
         end
       in TsIIFE (map_ts_stmt stmts ++ [TsReturn (emit_ts_expr ret)])
   | AstApp func args => TsCall (emit_ts_expr func) (map_ts_expr args)
-  | AstTypeApp func args => TsCall (emit_ts_expr func) (map_ts_expr args)
+  | AstTypeApp func _args => emit_ts_expr func  (* type args erased — no runtime representation *)
   | AstLam argName argTy body => TsArrow [argName] (emit_ts_block body)
   | AstPi argName argTy retTy effs => TsIdentifier "any"
+  | AstFunTy _tparams _params _ret_ty _effs => TsIdentifier "any"  (* non-curried fun type — erased *)
   | AstDo op args => TsCall (emit_ts_expr op) (map_ts_expr args)
   | AstHandle action eff handlers => emit_ts_expr action
   | AstBoolLit b => TsBooleanLiteral b
@@ -140,15 +141,10 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
         | x :: xs => emit_ts_expr x :: map_ts_expr xs
         end
       in TsExprStmt (TsCall (emit_ts_expr func) (map_ts_expr args))
-  | AstTypeApp func args => 
-      let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
-        match ls with
-        | [] => []
-        | x :: xs => emit_ts_expr x :: map_ts_expr xs
-        end
-      in TsExprStmt (TsCall (emit_ts_expr func) (map_ts_expr args))
+  | AstTypeApp func _args => TsExprStmt (emit_ts_expr func)  (* type args erased *)
   | AstLam argName argTy body => TsExprStmt (TsArrow [argName] (emit_ts_block body))
   | AstPi argName argTy retTy effs => TsExprStmt (TsIdentifier "any")
+  | AstFunTy _tparams _params _ret_ty _effs => TsExprStmt (TsIdentifier "any")
   | AstDo op args => 
       let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
         match ls with
@@ -234,15 +230,10 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
         | x :: xs => emit_ts_expr x :: map_ts_expr xs
         end
       in [TsReturn (TsCall (emit_ts_expr func) (map_ts_expr args))]
-  | AstTypeApp func args => 
-      let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
-        match ls with
-        | [] => []
-        | x :: xs => emit_ts_expr x :: map_ts_expr xs
-        end
-      in [TsReturn (TsCall (emit_ts_expr func) (map_ts_expr args))]
+  | AstTypeApp func _args => [TsReturn (emit_ts_expr func)]  (* type args erased *)
   | AstLam argName argTy body => [TsReturn (TsArrow [argName] (emit_ts_block body))]
   | AstPi argName argTy retTy effs => [TsReturn (TsIdentifier "any")]
+  | AstFunTy _tparams _params _ret_ty _effs => [TsReturn (TsIdentifier "any")]
   | AstDo op args => 
       let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
         match ls with
@@ -299,7 +290,8 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
         end
       in GoCall (GoFuncLiteral [] (map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)])) []
   | AstApp func args => GoCall (emit_go_expr func) (map_go_expr args)
-  | AstTypeApp func args => GoCall (emit_go_expr func) (map_go_expr args)
+  | AstTypeApp func _args => emit_go_expr func  (* type args erased *)
+  | AstFunTy _tparams _params _ret_ty _effs => GoIdentifier "interface{}"
   | AstLam argName argTy body => GoFuncLiteral [argName] (emit_go_block body)
   | AstPi argName argTy retTy effs => GoIdentifier "interface{}"
   | AstDo op args => GoCall (emit_go_expr op) (map_go_expr args)
@@ -367,13 +359,8 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
         | x :: xs => emit_go_expr x :: map_go_expr xs
         end
       in GoExprStmt (GoCall (emit_go_expr func) (map_go_expr args))
-  | AstTypeApp func args => 
-      let fix map_go_expr (ls : list AST) : list GoExpr :=
-        match ls with
-        | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
-        end
-      in GoExprStmt (GoCall (emit_go_expr func) (map_go_expr args))
+  | AstTypeApp func _args => GoExprStmt (emit_go_expr func)  (* type args erased *)
+  | AstFunTy _tparams _params _ret_ty _effs => GoExprStmt (GoIdentifier "interface{}")
   | AstLam argName argTy body => GoExprStmt (GoFuncLiteral [argName] (emit_go_block body))
   | AstPi argName argTy retTy effs => GoExprStmt (GoIdentifier "interface{}")
   | AstDo op args => 
@@ -463,13 +450,8 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
         | x :: xs => emit_go_expr x :: map_go_expr xs
         end
       in [GoReturn (GoCall (emit_go_expr func) (map_go_expr args))]
-  | AstTypeApp func args => 
-      let fix map_go_expr (ls : list AST) : list GoExpr :=
-        match ls with
-        | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
-        end
-      in [GoReturn (GoCall (emit_go_expr func) (map_go_expr args))]
+  | AstTypeApp func _args => [GoReturn (emit_go_expr func)]  (* type args erased *)
+  | AstFunTy _tparams _params _ret_ty _effs => [GoReturn (GoIdentifier "interface{}")]
   | AstLam argName argTy body => [GoReturn (GoFuncLiteral [argName] (emit_go_block body))]
   | AstPi argName argTy retTy effs => [GoReturn (GoIdentifier "interface{}")]
   | AstDo op args => 
