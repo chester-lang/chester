@@ -49,6 +49,9 @@
               pkgs.rocqPackages.stdlib
               pkgs.ocamlPackages.ocaml
               pkgs.ocamlPackages.dune_3
+              pkgs.ocamlPackages.findlib
+              pkgs.ocamlPackages.alcotest
+              pkgs.ocamlPackages.ppx_expect
             ];
           };
         }
