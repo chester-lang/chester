@@ -1,4 +1,186 @@
+
 // The Self-Hosted Macro Expander
+
+enum PatternCST {
+  case PatWildcardCST(span: Span);
+  case PatConstructorCST(vname: String, vars: List (String), span: Span);
+  case PatVarCST(vname: String, span: Span);
+};
+
+enum MacroCase {
+  case CasePair(pat: PatternCST, body: CST);
+};
+
+enum MacroEnvEntry {
+  case Entry(name: String, cases: List (MacroCase));
+};
+
+enum SubstEntry {
+  case Sub(name: String, value: CST);
+};
+
+def add_mark_span(mark: Integer, s: Span): Span = {
+  Span(s.start, s.end, list_insert_first(s.context, mark))
+};
+
+def add_mark_cst(mark: Integer, c: CST): CST = {
+  match c {
+    case Symbol(n, s) => Symbol(n, add_mark_span(mark, s));
+    case Tuple(elems, s) => Tuple(add_mark_cst_list(mark, elems), add_mark_span(mark, s));
+    case ListLiteral(elems, s) => ListLiteral(add_mark_cst_list(mark, elems), add_mark_span(mark, s));
+    case Block(stmts, tail, s) => Block(add_mark_cst_list(mark, stmts), add_mark_cst(mark, tail), add_mark_span(mark, s));
+    case StringLiteral(v, s) => StringLiteral(v, add_mark_span(mark, s));
+    case IntegerLiteral(v, s) => IntegerLiteral(v, add_mark_span(mark, s));
+    case SeqOf(elems, s) => SeqOf(add_mark_cst_list(mark, elems), add_mark_span(mark, s));
+    case FieldAccess(expr, f, s) => FieldAccess(add_mark_cst(mark, expr), f, add_mark_span(mark, s));
+    case LetCST(n, v, next, s) => LetCST(n, add_mark_cst(mark, v), add_mark_cst(mark, next), add_mark_span(mark, s));
+    case IfCST(cond, tb, eb, s) => IfCST(add_mark_cst(mark, cond), add_mark_cst(mark, tb), add_mark_cst(mark, eb), add_mark_span(mark, s));
+    case DefCST(n, tps, params, rt, body, s) => DefCST(n, tps, add_mark_cst_list(mark, params), add_mark_cst(mark, rt), add_mark_cst(mark, body), add_mark_span(mark, s));
+    case LamCST(n, argty, body, s) => LamCST(n, add_mark_cst(mark, argty), add_mark_cst(mark, body), add_mark_span(mark, s));
+    case AppCST(f, args, s) => AppCST(add_mark_cst(mark, f), add_mark_cst_list(mark, args), add_mark_span(mark, s));
+    case TypeAppCST(f, targs, s) => TypeAppCST(add_mark_cst(mark, f), add_mark_cst_list(mark, targs), add_mark_span(mark, s));
+    case EnumCST(n, tps, vars, s) => EnumCST(n, tps, add_mark_cst_list(mark, vars), add_mark_span(mark, s));
+    case MatchCST(expr, cases, s) => MatchCST(add_mark_cst(mark, expr), add_mark_cst_list(mark, cases), add_mark_span(mark, s));
+    case RecordCST(n, tps, fields, s) => RecordCST(n, tps, add_mark_cst_list(mark, fields), add_mark_span(mark, s));
+    case Comment(t, s) => Comment(t, add_mark_span(mark, s));
+    case MacroDefCST(n, cases, s) => MacroDefCST(n, add_mark_cst_list(mark, cases), add_mark_span(mark, s));
+    case Error(m, s) => Error(m, add_mark_span(mark, s));
+    case _ => c
+  }
+};
+
+def add_mark_cst_list(mark: Integer, ls: List (CST)): List (CST) = {
+  if int_eq(list_length(ls), 0) then list_empty[CST]()
+  else list_insert_first(add_mark_cst_list(mark, advance(ls)), add_mark_cst(mark, list_get(ls, 0)))
+};
+
+enum MacroLookupResult {
+  case Found(cases: List (MacroCase));
+  case NotFound;
+};
+
+def lookup_macro(name: String, env: List (MacroEnvEntry)): MacroLookupResult = {
+  if int_eq(list_length(env), 0) then MacroLookupResult.NotFound()
+  else {
+    let entry = list_get(env, 0);
+    match entry {
+      case Entry(n, cases) => {
+        if string_eq(name, n) then MacroLookupResult.Found(cases)
+        else lookup_macro(name, advance(env))
+      };
+      case _ => lookup_macro(name, advance(env))
+    }
+  }
+};
+
+def lookup_subst(n: String, subst: List (SubstEntry)): CST = {
+  if int_eq(list_length(subst), 0) then Error("Not found", Span(0,0,list_empty[Integer]()))
+  else {
+    let entry = list_get(subst, 0);
+    match entry {
+      case Sub(k, v) => {
+        if string_eq(n, k) then v
+        else lookup_subst(n, advance(subst))
+      };
+      case _ => lookup_subst(n, advance(subst))
+    }
+  }
+};
+
+def has_subst(n: String, subst: List (SubstEntry)): Bool = {
+  if int_eq(list_length(subst), 0) then false
+  else {
+    let entry = list_get(subst, 0);
+    match entry {
+      case Sub(k, v) => {
+        if string_eq(n, k) then true
+        else has_subst(n, advance(subst))
+      };
+      case _ => has_subst(n, advance(subst))
+    }
+  }
+};
+
+def subst_cst(subst: List (SubstEntry), c: CST): CST = {
+  match c {
+    case Symbol(n, s) => {
+      if has_subst(n, subst) then lookup_subst(n, subst)
+      else c
+    };
+    case Tuple(elems, s) => Tuple(subst_cst_list(subst, elems), s);
+    case ListLiteral(elems, s) => ListLiteral(subst_cst_list(subst, elems), s);
+    case Block(stmts, tail, s) => Block(subst_cst_list(subst, stmts), subst_cst(subst, tail), s);
+    case SeqOf(elems, s) => SeqOf(subst_cst_list(subst, elems), s);
+    case FieldAccess(expr, f, s) => FieldAccess(subst_cst(subst, expr), f, s);
+    case LetCST(n, v, next, s) => LetCST(n, subst_cst(subst, v), subst_cst(subst, next), s);
+    case IfCST(cond, tb, eb, s) => IfCST(subst_cst(subst, cond), subst_cst(subst, tb), subst_cst(subst, eb), s);
+    case DefCST(n, tps, params, rt, body, s) => DefCST(n, tps, subst_cst_list(subst, params), subst_cst(subst, rt), subst_cst(subst, body), s);
+    case LamCST(n, argty, body, s) => LamCST(n, subst_cst(subst, argty), subst_cst(subst, body), s);
+    case AppCST(f, args, s) => AppCST(subst_cst(subst, f), subst_cst_list(subst, args), s);
+    case TypeAppCST(f, targs, s) => TypeAppCST(subst_cst(subst, f), subst_cst_list(subst, targs), s);
+    case EnumCST(n, tps, vars, s) => EnumCST(n, tps, subst_cst_list(subst, vars), s);
+    case MatchCST(expr, cases, s) => MatchCST(subst_cst(subst, expr), subst_cst_list(subst, cases), s);
+    case RecordCST(n, tps, fields, s) => RecordCST(n, tps, subst_cst_list(subst, fields), s);
+    case MacroDefCST(n, cases, s) => MacroDefCST(n, subst_cst_list(subst, cases), s);
+    case _ => c
+  }
+};
+
+def subst_cst_list(subst: List (SubstEntry), ls: List (CST)): List (CST) = {
+  if int_eq(list_length(ls), 0) then list_empty[CST]()
+  else list_insert_first(subst_cst_list(subst, advance(ls)), subst_cst(subst, list_get(ls, 0)))
+};
+
+enum ZipResult {
+  case Zipped(subst: List (SubstEntry));
+  case ZipFailed;
+};
+
+def zip_args(vs: List (String), as_: List (CST)): ZipResult = {
+  if int_eq(list_length(vs), 0) then {
+    if int_eq(list_length(as_), 0) then ZipResult.Zipped(list_empty[SubstEntry]())
+    else ZipResult.ZipFailed()
+  } else {
+    if int_eq(list_length(as_), 0) then ZipResult.ZipFailed()
+    else {
+      let v = list_get(vs, 0);
+      let a = list_get(as_, 0);
+      let tail_res = zip_args(advance(vs), advance(as_));
+      match tail_res {
+        case Zipped(tail_subst) => ZipResult.Zipped(list_insert_first(tail_subst, SubstEntry.Sub(v, a)));
+        case ZipFailed => ZipResult.ZipFailed()
+      }
+    }
+  }
+};
+
+enum MacroMatchResult {
+  case Matched(cst: CST);
+  case NoMatch;
+};
+
+def apply_macro(cases: List (MacroCase), args: List (CST), mark: Integer): MacroMatchResult = {
+  if int_eq(list_length(cases), 0) then MacroMatchResult.NoMatch()
+  else {
+    let c = list_get(cases, 0);
+    match c {
+      case CasePair(pat, template) => {
+        match pat {
+          case PatWildcardCST(sp) => MacroMatchResult.Matched(template);
+          case PatConstructorCST(vname, vars, sp) => {
+            let zip_res = zip_args(vars, args);
+            match zip_res {
+              case Zipped(subst) => MacroMatchResult.Matched(add_mark_cst(mark, subst_cst(subst, template)));
+              case ZipFailed => apply_macro(advance(cases), args, mark)
+            }
+          };
+          case _ => apply_macro(advance(cases), args, mark)
+        }
+      };
+      case _ => apply_macro(advance(cases), args, mark)
+    }
+  }
+};
 
 def split_at_eq(acc: List (CST), ls: List (CST)): List (List (CST)) = {
   if int_eq(list_length(ls), 0) then list_empty[List (CST)]()
@@ -37,7 +219,7 @@ def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
                 } else {
                   let expr = list_get(acc, int_sub(acc_len, 1));
                   let new_acc = list_drop_last(acc);
-                  let node = CST.FieldAccess(expr, field, sp);
+                  let node = FieldAccess(expr, field, sp);
                   collapse_apps(advance(rest), list_append(new_acc, node))
                 }
               };
@@ -54,7 +236,7 @@ def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
         else {
           let func = list_get(acc, int_sub(acc_len, 1));
           let new_acc = list_drop_last(acc);
-          let node = CST.AppCST(func, args, sp);
+          let node = AppCST(func, args, sp);
           collapse_apps(rest, list_append(new_acc, node))
         }
       };
@@ -64,7 +246,7 @@ def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
         else {
           let func = list_get(acc, int_sub(acc_len, 1));
           let new_acc = list_drop_last(acc);
-          let node = CST.TypeAppCST(func, targs, sp);
+          let node = TypeAppCST(func, targs, sp);
           collapse_apps(rest, list_append(new_acc, node))
         }
       };
@@ -74,13 +256,13 @@ def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
 };
 
 def expand_if(elems: List (CST), span: Span): CST = {
-  CST.Error("Not implemented expand_if", span)
+  Error("Not implemented expand_if", span)
 };
 
 def expand_seq_expr(elems: List (CST), span: Span): CST = {
   let collapsed = collapse_apps(elems, list_empty[CST]());
   let len = list_length(collapsed);
-  if int_eq(len, 0) then CST.Tuple(list_empty[CST](), span)
+  if int_eq(len, 0) then Tuple(list_empty[CST](), span)
   else if int_eq(len, 1) then list_get(collapsed, 0)
   else {
     let first = list_get(collapsed, 0);
@@ -92,77 +274,329 @@ def expand_seq_expr(elems: List (CST), span: Span): CST = {
             let arrow_tok = list_get(collapsed, 2);
             let body = list_get(collapsed, 3);
             match arg_tok {
-              case Symbol(arg_name, sp2) => CST.LamCST(arg_name, CST.Error("None", sp), body, span);
-              case _ => CST.SeqOf(collapsed, span)
+              case Symbol(arg_name, sp2) => LamCST(arg_name, Error("None", sp), body, span);
+              case _ => SeqOf(collapsed, span)
             }
-          } else CST.SeqOf(collapsed, span)
+          } else SeqOf(collapsed, span)
         } else if string_eq(s, "match") then {
-          CST.Error("Not implemented match", span)
-        } else CST.SeqOf(collapsed, span)
+          Error("Not implemented match", span)
+        } else SeqOf(collapsed, span)
       };
-      case _ => CST.SeqOf(collapsed, span)
+      case _ => SeqOf(collapsed, span)
     }
   }
 };
 
-def process_stmts(ss: List (CST)): List (CST) = {
-  if int_eq(list_length(ss), 0) then ss
+
+enum ExpandResult {
+  case Res(cst: CST, mark: Integer);
+};
+enum ExpandResultList {
+  case ResList(csts: List (CST), mark: Integer);
+};
+
+def extract_vars(args: List (CST)): List (String) = {
+  if int_eq(list_length(args), 0) then list_empty[String]()
   else {
-    let s = list_get(ss, 0);
-    let rest = process_stmts(advance(ss));
-    match s {
+    let first = list_get(args, 0);
+    let rest = extract_vars(advance(args));
+    match first {
+      case Symbol(vname, sp) => list_insert_first(rest, vname);
+      case _ => rest
+    }
+  }
+};
+
+def extract_macro_cases(cs: List (CST)): List (MacroCase) = {
+  if int_eq(list_length(cs), 0) then list_empty[MacroCase]()
+  else {
+    let x = list_get(cs, 0);
+    let r = extract_macro_cases(advance(cs));
+    match x {
       case SeqOf(elems, sp) => {
-        if int_eq(list_length(elems), 0) then list_insert_first(rest, s)
+        if int_eq(list_length(elems), 0) then list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
         else {
           let first = list_get(elems, 0);
           match first {
+            case Symbol(sym_case, sp1) => {
+              if string_eq(sym_case, "case") then {
+                let vname_node = list_get(elems, 1);
+                let args_node = list_get(elems, 2);
+                match vname_node {
+                  case Symbol(vname, sp2) => {
+                    match args_node {
+                      case Tuple(args_cst, sp3) => {
+                         let body_cst = list_get(elems, 4); 
+                         list_insert_first(r, MacroCase.CasePair(PatternPatConstructorCST(vname, extract_vars(args_cst), sp), body_cst))
+                      };
+                      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
+                    }
+                  };
+                  case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
+                }
+              } else {
+                list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
+              }
+            };
+            case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
+          }
+        }
+      };
+      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(Span(0,0,list_empty[Integer]())), x))
+    }
+  }
+};
+
+def map_expand(ls: List (CST), fuel: Integer, env: List (MacroEnvEntry), m: Integer): ExpandResultList = {
+  if int_eq(list_length(ls), 0) then ExpandResultList.ResList(list_empty[CST](), m)
+  else {
+    let x = list_get(ls, 0);
+    let res_x = expand_cst(fuel, env, m, x);
+    match res_x {
+      case Res(fst_cst, next_m) => {
+        let res_rest = map_expand(advance(ls), fuel, env, next_m);
+        match res_rest {
+          case ResList(rest_csts, final_m) => {
+            ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+          }
+        }
+      }
+    }
+  }
+};
+
+def process_stmts(fuel: Integer, env: List (MacroEnvEntry), m: Integer, ss: List (CST)): ExpandResultList = {
+  if int_eq(list_length(ss), 0) then ExpandResultList.ResList(list_empty[CST](), m)
+  else {
+    let s = list_get(ss, 0);
+    let rest_ss = advance(ss);
+    match s {
+      case SeqOf(elems, sp) => {
+        if int_eq(list_length(elems), 0) then {
+           let res_s = expand_cst(fuel, env, m, s);
+           match res_s {
+             case Res(fst_cst, next_m) => {
+               let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+               match res_rest {
+                 case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+               }
+             }
+           }
+        } else {
+          let first = list_get(elems, 0);
+          match first {
             case Symbol(sym, sp2) => {
-              if string_eq(sym, "let") then {
+              if string_eq(sym, "macro") then {
                 let name_node = list_get(elems, 1);
-                let eq_node = list_get(elems, 2);
+                let block_node = list_get(elems, 2);
+                match name_node {
+                  case Symbol(mac_name, sp3) => {
+                    match block_node {
+                      case Block(cases, tail, sp4) => {
+                        let extracted = extract_macro_cases(cases);
+                        let new_env_entry = MacroEnvEntry.Entry(mac_name, extracted);
+                        let new_env = list_insert_first(env, new_env_entry);
+                        process_stmts(fuel, new_env, m, rest_ss)
+                      };
+                      case _ => {
+                        let res_s = expand_cst(fuel, env, m, s);
+                        match res_s {
+                          case Res(fst_cst, next_m) => {
+                            let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+                            match res_rest {
+                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                            }
+                          }
+                        }
+                      }
+                    }
+                  };
+                  case _ => {
+                    let res_s = expand_cst(fuel, env, m, s);
+                    match res_s {
+                      case Res(fst_cst, next_m) => {
+                        let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                        }
+                      }
+                    }
+                  }
+                }
+              } else if string_eq(sym, "let") then {
+                let name_node = list_get(elems, 1);
                 let val_exprs = advance(advance(advance(elems)));
                 match name_node {
                   case Symbol(name, sp3) => {
                     let val_cst = expand_seq_expr(val_exprs, sp);
-                    let node = CST.LetCST(name, val_cst, CST.Symbol("Unit", sp), sp);
-                    list_insert_first(rest, node)
+                    let res_val = expand_cst(fuel, env, m, val_cst);
+                    match res_val {
+                      case Res(fst_val, next_m) => {
+                        let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => {
+                            let node = LetCST(name, fst_val, Symbol("Unit", sp), sp);
+                            ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
+                          }
+                        }
+                      }
+                    }
                   };
-                  case _ => list_insert_first(rest, s)
+                  case _ => {
+                    let res_s = expand_cst(fuel, env, m, s);
+                    match res_s {
+                      case Res(fst_cst, next_m) => {
+                        let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                        }
+                      }
+                    }
+                  }
                 }
-              } else if string_eq(sym, "def") then {
-                CST.Error("Not implemented def expand", sp);
-                list_insert_first(rest, s)
               } else {
-                list_insert_first(rest, s)
+                let res_s = expand_cst(fuel, env, m, s);
+                match res_s {
+                  case Res(fst_cst, next_m) => {
+                    let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+                    match res_rest {
+                      case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                    }
+                  }
+                }
               }
             };
-            case _ => list_insert_first(rest, s)
+            case _ => {
+              let res_s = expand_cst(fuel, env, m, s);
+              match res_s {
+                case Res(fst_cst, next_m) => {
+                  let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+                  match res_rest {
+                    case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                  }
+                }
+              }
+            }
           }
         }
       };
-      case _ => list_insert_first(rest, s)
+      case _ => {
+        let res_s = expand_cst(fuel, env, m, s);
+        match res_s {
+          case Res(fst_cst, next_m) => {
+            let res_rest = process_stmts(fuel, env, next_m, rest_ss);
+            match res_rest {
+              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+            }
+          }
+        }
+      }
     }
   }
 };
 
-def expand_cst(c: CST): CST = {
-  match c {
-    case Block(stmts, tail, sp) => {
-      CST.Block(process_stmts(stmts), tail, sp)
-    };
-    case Tuple(elems, sp) => {
-      CST.Error("Tuple map not implemented", sp)
-    };
-    case SeqOf(elems, sp) => {
-      CST.Error("SeqOf map not implemented", sp)
-    };
-    case _ => c
+def expand_cst(fuel: Integer, env: List (MacroEnvEntry), mark: Integer, c: CST): ExpandResult = {
+  if int_eq(fuel, 0) then ExpandResult.Res(c, mark)
+  else {
+    let next_fuel = int_sub(fuel, 1);
+    match c {
+      case Block(stmts, tail, sp) => {
+        let res_stmts = process_stmts(next_fuel, env, mark, stmts);
+        match res_stmts {
+          case ResList(new_stmts, next_m) => {
+            let res_tail = expand_cst(next_fuel, env, next_m, tail);
+            match res_tail {
+              case Res(new_tail, final_m) => ExpandResult.Res(Block(new_stmts, new_tail, sp), final_m)
+            }
+          }
+        }
+      };
+      case Tuple(elems, sp) => {
+        let res_elems = map_expand(elems, next_fuel, env, mark);
+        match res_elems {
+          case ResList(new_elems, next_m) => ExpandResult.Res(Tuple(new_elems, sp), next_m)
+        }
+      };
+      case ListLiteral(elems, sp) => {
+        let res_elems = map_expand(elems, next_fuel, env, mark);
+        match res_elems {
+          case ResList(new_elems, next_m) => ExpandResult.Res(ListLiteral(new_elems, sp), next_m)
+        }
+      };
+      case SeqOf(elems, sp) => {
+        let res_elems = map_expand(elems, next_fuel, env, mark);
+        match res_elems {
+          case ResList(new_elems, next_m) => {
+            let expanded = expand_seq_expr(new_elems, sp);
+            expand_cst(next_fuel, env, next_m, expanded)
+          }
+        }
+      };
+      case FieldAccess(expr, f, sp) => {
+        let res_expr = expand_cst(next_fuel, env, mark, expr);
+        match res_expr {
+          case Res(new_expr, next_m) => ExpandResult.Res(FieldAccess(new_expr, f, sp), next_m)
+        }
+      };
+      case MatchCST(expr, cases, sp) => {
+        let res_expr = expand_cst(next_fuel, env, mark, expr);
+        match res_expr {
+          case Res(new_expr, next_m) => ExpandResult.Res(MatchCST(new_expr, cases, sp), next_m)
+        }
+      };
+      case AppCST(f, args, sp) => {
+        match f {
+          case Symbol(fname, fspan) => {
+            let lookup_res = lookup_macro(fname, env);
+            match lookup_res {
+              case Found(cases) => {
+                let next_mark = int_add(mark, 1);
+                let apply_res = apply_macro(cases, args, next_mark);
+                match apply_res {
+                  case Matched(expanded) => expand_cst(next_fuel, env, next_mark, expanded);
+                  case NoMatch => {
+                    let res_args = map_expand(args, next_fuel, env, mark);
+                    match res_args {
+                      case ResList(new_args, final_m) => ExpandResult.Res(AppCST(f, new_args, sp), final_m)
+                    }
+                  }
+                }
+              };
+              case NotFound => {
+                let res_args = map_expand(args, next_fuel, env, mark);
+                match res_args {
+                  case ResList(new_args, final_m) => ExpandResult.Res(AppCST(f, new_args, sp), final_m)
+                }
+              }
+            }
+          };
+          case _ => {
+            let res_expr = expand_cst(next_fuel, env, mark, f);
+            match res_expr {
+              case Res(new_expr, next_m) => {
+                let res_args = map_expand(args, next_fuel, env, next_m);
+                match res_args {
+                  case ResList(new_args, final_m) => ExpandResult.Res(AppCST(new_expr, new_args, sp), final_m)
+                }
+              }
+            }
+          }
+        }
+      };
+      case _ => ExpandResult.Res(c, mark)
+    }
+  }
+};
+
+def expand_cst_top(c: CST): CST = {
+  let res = expand_cst(1000, list_empty[MacroEnvEntry](), 0, c);
+  match res {
+    case Res(cst, m) => cst
   }
 };
 
 def expander_main(): Any = {
-  let cst = CST.Symbol("test", Span(0, 0, list_empty[Integer]()));
-  expand_cst(cst)
+  let cst = Symbol("test", Span(0, 0, list_empty[Integer]()));
+  expand_cst_top(cst)
 };
-
 expander_main()

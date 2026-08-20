@@ -2,6 +2,27 @@ From Stdlib Require Import Ascii.
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
 Require Import Chester.CST.
+
+Require Import String.
+
+Fixpoint string_of_nat (n : nat) : string :=
+  match n with
+  | 0 => "0" | 1 => "1" | 2 => "2" | 3 => "3" | 4 => "4" | 5 => "5"
+  | 6 => "6" | 7 => "7" | 8 => "8" | 9 => "9" | _ => "X"
+  end.
+
+Definition mangle_name (n : string) (ctx : list nat) : string :=
+  let fix join (ls : list nat) : string :=
+    match ls with
+    | nil => EmptyString
+    | cons x xs => append (append "_" (string_of_nat x)) (join xs)
+    end
+  in
+  match ctx with
+  | nil => n
+  | cons _ _ => append n (join ctx)
+  end.
+
 Require Import Chester.AST.
 Require Import Chester.Formatter.
 Open Scope string_scope.
@@ -59,14 +80,30 @@ Fixpoint list_nat_eq (l1 l2 : list nat) : bool :=
   | _, _ => false
   end.
 
+
 Fixpoint lookup_type (name : string) (ctx : list nat) (env : TypeEnv) : option AST :=
   match env with
   | [] => None
-  | ((n, c), ty) :: rest =>
-      if string_dec name n then 
-        if list_nat_eq ctx c then Some ty else lookup_type name ctx rest
+  | (k, k_ctx, v) :: rest =>
+      if andb (if string_dec name k then true else false) (list_nat_eq ctx k_ctx)
+      then Some v
       else lookup_type name ctx rest
   end.
+
+Fixpoint resolve_hygiene (env : TypeEnv) (name : string) (ctx : list nat) : option (AST * list nat) :=
+  match lookup_type name ctx env with
+  | Some res => Some (res, ctx)
+  | None =>
+      match ctx with
+      | nil => None
+      | cons _ ctx' => resolve_hygiene env name ctx'
+      end
+  end.
+
+
+
+
+
 
 Definition StringType := AstRef "String".
 Definition IntType := AstRef "Int".
@@ -82,11 +119,11 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) : ElabM unit :=
 Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct expr} : ElabM (AST * AST) :=
   match expr with
   | Symbol name span =>
-      match lookup_type name (context span) env with
-      | Some ty => 
+      match resolve_hygiene env name (context span) with
+      | Some (ty, resolved_ctx) => 
           match expected with
-          | Some exp => unify 100 ty exp ;; ret (AstRef name, ty)
-          | None => ret (AstRef name, ty)
+          | Some exp => unify 100 ty exp ;; ret (AstRef (mangle_name name resolved_ctx), ty)
+          | None => ret (AstRef (mangle_name name resolved_ctx), ty)
           end
       | None => ret (AstRef name, AstRef "Any")
       end
@@ -148,7 +185,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
                 valueAst <- elaborate current_env value None ;
                 let new_env := ((name, context span), snd valueAst) :: current_env in
                 rest <- map_elabs new_env xs ;
-                ret (AstLet name (fst valueAst) :: fst rest, snd rest)
+                ret (AstLet (mangle_name name (context span)) (fst valueAst) :: fst rest, snd rest)
             | DefCST name _ _ ret_ty _ span =>
                 tyAst <- elaborate current_env ret_ty (Some TypeUniverse) ;
                 let new_env := ((name, context span), fst tyAst) :: current_env in
@@ -171,7 +208,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
   | LetCST name value body span =>
       valueAst <- elaborate env value None ;
       bodyAst <- elaborate (((name, context span), snd valueAst) :: env) body expected ;
-      ret (AstBlock [AstLet name (fst valueAst)] (fst bodyAst), snd bodyAst)
+      ret (AstBlock [AstLet (mangle_name name (context span)) (fst valueAst)] (fst bodyAst), snd bodyAst)
       
   | IfCST cond thenB elseB _ =>
       condAst <- elaborate env cond None ;
@@ -208,7 +245,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
                    end) ;
       bodyAst <- elaborate (((arg_name, context span), fst argTyAst) :: env) body None ;
       let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) [] in
-      ret (AstLam arg_name (fst argTyAst) (fst bodyAst), arrTy)
+      ret (AstLam (mangle_name arg_name (context span)) (fst argTyAst) (fst bodyAst), arrTy)
 
   | AppCST func args _ =>
       funcAst <- elaborate env func None ;

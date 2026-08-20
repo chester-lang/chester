@@ -237,3 +237,5 @@ Fixpoint expand_cst (c : CST) : CST :=
   | MatchCST expr cases span => MatchCST (expand_cst expr) cases span
   | _ => c
   end.
+
+Definition expand_cst_top (expr : CST) : CST := expand_cst expr.
