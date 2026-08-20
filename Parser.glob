@@ -1,0 +1,243 @@
+DIGEST a44806377d915d47d22fcf65ae933fcb
+FParser
+R27:40 Stdlib.Strings.String <> <> lib
+R70:73 Stdlib.Lists.List <> <> lib
+R83:95 Stdlib.Lists.List ListNotations <> mod
+R113:115 CST <> <> lib
+ind 190:194 <> Token
+constr 210:218 <> TokSymbol
+constr 250:258 <> TokString
+constr 290:295 <> TokInt
+constr 327:335 <> TokLParen
+constr 357:365 <> TokRParen
+constr 387:395 <> TokLBrace
+constr 417:425 <> TokRBrace
+constr 447:457 <> TokLBracket
+constr 479:489 <> TokRBracket
+R228:231 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R222:227 Stdlib.Strings.String <> string ind
+R236:239 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R232:235 CST <> Span rec
+R240:244 Parser <> Token:1 ind
+R268:271 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R262:267 Stdlib.Strings.String <> string ind
+R276:279 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R272:275 CST <> Span rec
+R280:284 Parser <> Token:1 ind
+R305:308 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R299:304 Stdlib.Strings.String <> string ind
+R313:316 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R309:312 CST <> Span rec
+R317:321 Parser <> Token:1 ind
+R343:346 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R339:342 CST <> Span rec
+R347:351 Parser <> Token:1 ind
+R373:376 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R369:372 CST <> Span rec
+R377:381 Parser <> Token:1 ind
+R403:406 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R399:402 CST <> Span rec
+R407:411 Parser <> Token:1 ind
+R433:436 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R429:432 CST <> Span rec
+R437:441 Parser <> Token:1 ind
+R465:468 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R461:464 CST <> Span rec
+R469:473 Parser <> Token:1 ind
+R497:500 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R493:496 CST <> Span rec
+R501:505 Parser <> Token:1 ind
+scheme 190:194 <> Token_rect
+scheme 190:194 <> Token_ind
+scheme 190:194 <> Token_rec
+scheme 190:194 <> Token_sind
+def 552:561 <> token_span
+R568:572 Parser <> Token ind
+binder 564:564 <> t:3
+R577:580 CST <> Span rec
+R593:593 Parser <> t:3 var
+R604:612 Parser <> TokSymbol constr
+R627:635 Parser <> TokString constr
+R650:655 Parser <> TokInt constr
+R670:678 Parser <> TokLParen constr
+R691:699 Parser <> TokRParen constr
+R712:720 Parser <> TokLBrace constr
+R733:741 Parser <> TokRBrace constr
+R754:764 Parser <> TokLBracket constr
+R777:787 Parser <> TokRBracket constr
+def 855:863 <> is_rparen
+R870:874 Parser <> Token ind
+binder 866:866 <> t:5
+R879:882 Corelib.Init.Datatypes <> bool ind
+R895:895 Parser <> t:5 var
+R902:910 Parser <> TokRParen constr
+R917:920 Corelib.Init.Datatypes <> true constr
+R929:933 Corelib.Init.Datatypes <> false constr
+def 952:962 <> is_rbracket
+R969:973 Parser <> Token ind
+binder 965:965 <> t:7
+R978:981 Corelib.Init.Datatypes <> bool ind
+R994:994 Parser <> t:7 var
+R1001:1011 Parser <> TokRBracket constr
+R1018:1021 Corelib.Init.Datatypes <> true constr
+R1030:1034 Corelib.Init.Datatypes <> false constr
+def 1053:1061 <> is_rbrace
+R1068:1072 Parser <> Token ind
+binder 1064:1064 <> t:9
+R1077:1080 Corelib.Init.Datatypes <> bool ind
+R1093:1093 Parser <> t:9 var
+R1100:1108 Parser <> TokRBrace constr
+R1115:1118 Corelib.Init.Datatypes <> true constr
+R1127:1131 Corelib.Init.Datatypes <> false constr
+ind 1237:1247 <> ParseResult
+constr 1274:1280 <> ParseOk
+constr 1321:1328 <> ParseErr
+binder 1250:1250 <> A:11
+R1285:1288 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R1284:1284 Parser <> A:11 var
+R1299:1302 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R1289:1292 Corelib.Init.Datatypes <> list ind
+R1294:1298 Parser <> Token ind
+R1303:1313 Parser <> ParseResult:12 ind
+R1315:1315 Parser <> A:11 var
+R1338:1341 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R1332:1337 Stdlib.Strings.String <> string ind
+R1342:1352 Parser <> ParseResult:12 ind
+R1354:1354 Parser <> A:11 var
+scheme 1237:1247 <> ParseResult_rect
+scheme 1237:1247 <> ParseResult_ind
+scheme 1237:1247 <> ParseResult_rec
+scheme 1237:1247 <> ParseResult_sind
+R1368:1374 Parser <> ParseOk constr
+R1368:1374 Parser <> ParseOk constr
+R1391:1398 Parser <> ParseErr constr
+R1391:1398 Parser <> ParseErr constr
+sec 1486:1496 <> ParserLogic
+def 1651:1659 <> parse_cst
+def 3442:3455 <> parse_sequence
+R1669:1671 Corelib.Init.Datatypes <> nat ind
+binder 1662:1665 <> fuel:14
+R1684:1687 Corelib.Init.Datatypes <> list ind
+R1689:1693 Parser <> Token ind
+binder 1675:1680 <> tokens:15
+R3465:3467 Corelib.Init.Datatypes <> nat ind
+binder 3458:3461 <> fuel:16
+R3480:3483 Corelib.Init.Datatypes <> list ind
+R3485:3489 Parser <> Token ind
+binder 3471:3476 <> tokens:17
+R3515:3518 Corelib.Init.Logic <> ::type_scope:x_'->'_x not
+R3510:3514 Parser <> Token ind
+R3519:3522 Corelib.Init.Datatypes <> bool ind
+binder 3493:3506 <> end_token_type:18
+R1698:1708 Parser <> ParseResult ind
+R1710:1712 CST <> CST ind
+R3527:3537 Parser <> ParseResult ind
+R3548:3550 Corelib.Init.Datatypes <> ::type_scope:x_'*'_x not
+R3540:3543 Corelib.Init.Datatypes <> list ind
+R3545:3547 CST <> CST ind
+R3551:3554 CST <> Span rec
+R1727:1730 Parser <> fuel:14 var
+R1748:1755 Parser <> ParseErr constr
+R1777:1777 Corelib.Init.Datatypes <> S constr
+R1802:1807 Parser <> tokens:15 var
+R1824:1825 Stdlib.Lists.List ListNotations ::list_scope:'['_']' not
+R1830:1837 Parser <> ParseErr constr
+R1876:1879 Corelib.Init.Datatypes <> ::list_scope:x_'::'_x not
+R1927:1935 Parser <> TokSymbol constr
+R1947:1953 Parser <> ParseOk constr
+R1956:1961 CST <> Symbol constr
+R1990:1998 Parser <> TokString constr
+R2009:2015 Parser <> ParseOk constr
+R2018:2030 CST <> StringLiteral constr
+R2058:2063 Parser <> TokInt constr
+R2074:2080 Parser <> ParseOk constr
+R2083:2096 CST <> IntegerLiteral constr
+R2137:2145 Parser <> TokLParen constr
+R2216:2229 Parser <> parse_sequence:20 def
+R2242:2250 Parser <> is_rparen def
+R2275:2281 Parser <> ParseOk constr
+R2283:2283 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2292:2293 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2299:2299 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2330:2336 Parser <> ParseOk constr
+R2339:2343 CST <> Tuple constr
+R2355:2360 CST <> mkSpan constr
+R2363:2371 CST <> start_pos proj
+R2383:2389 CST <> end_pos proj
+R2424:2431 Parser <> ParseErr constr
+R2438:2445 Parser <> ParseErr constr
+R2500:2510 Parser <> TokLBracket constr
+R2587:2600 Parser <> parse_sequence:20 def
+R2613:2623 Parser <> is_rbracket def
+R2648:2654 Parser <> ParseOk constr
+R2656:2656 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2665:2666 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2672:2672 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2703:2709 Parser <> ParseOk constr
+R2712:2722 CST <> ListLiteral constr
+R2734:2739 CST <> mkSpan constr
+R2742:2750 CST <> start_pos proj
+R2762:2768 CST <> end_pos proj
+R2803:2810 Parser <> ParseErr constr
+R2817:2824 Parser <> ParseErr constr
+R2879:2887 Parser <> TokLBrace constr
+R3012:3025 Parser <> parse_sequence:20 def
+R3038:3046 Parser <> is_rbrace def
+R3071:3077 Parser <> ParseOk constr
+R3079:3079 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R3088:3089 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R3095:3095 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R3126:3132 Parser <> ParseOk constr
+R3135:3139 CST <> Block constr
+R3150:3151 Stdlib.Lists.List ListNotations ::list_scope:'['_']' not
+R3154:3159 CST <> mkSpan constr
+R3162:3170 CST <> start_pos proj
+R3182:3188 CST <> end_pos proj
+R3223:3230 Parser <> ParseErr constr
+R3237:3244 Parser <> ParseErr constr
+R3304:3311 Parser <> ParseErr constr
+R3570:3573 Parser <> fuel:16 var
+R3591:3598 Parser <> ParseErr constr
+R3620:3620 Corelib.Init.Datatypes <> S constr
+R3645:3650 Parser <> tokens:17 var
+R3667:3668 Stdlib.Lists.List ListNotations ::list_scope:'['_']' not
+R3673:3680 Parser <> ParseErr constr
+R3742:3745 Corelib.Init.Datatypes <> ::list_scope:x_'::'_x not
+R3769:3782 Parser <> end_token_type:18 var
+R3874:3882 Parser <> parse_cst:19 def
+R3890:3895 Parser <> tokens:17 var
+R3918:3924 Parser <> ParseOk constr
+R3969:3982 Parser <> parse_sequence:20 def
+R3996:4009 Parser <> end_token_type:18 var
+R4036:4042 Parser <> ParseOk constr
+R4044:4044 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R4054:4055 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R4061:4061 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R4095:4101 Parser <> ParseOk constr
+R4103:4103 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R4126:4127 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R4133:4133 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R4113:4116 Corelib.Init.Datatypes <> ::list_scope:x_'::'_x not
+R4162:4169 Parser <> ParseErr constr
+R4176:4183 Parser <> ParseErr constr
+R4225:4232 Parser <> ParseErr constr
+R4239:4246 Parser <> ParseErr constr
+R3805:3811 Parser <> ParseOk constr
+R3813:3813 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R3816:3817 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R3830:3830 Corelib.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R3814:3815 Stdlib.Lists.List ListNotations ::list_scope:'['_']' not
+R3818:3827 Parser <> token_span def
+R4298:4308 Parser ParserLogic <> sec
+def 4396:4400 <> parse
+R4412:4415 Corelib.Init.Datatypes <> list ind
+R4417:4421 Parser <> Token ind
+binder 4403:4408 <> tokens:26
+R4426:4436 Parser <> ParseResult ind
+R4438:4440 CST <> CST ind
+R4447:4455 Parser <> parse_cst def
+R4475:4477 Corelib.Init.Peano <> ::nat_scope:x_'+'_x not
+R4471:4473 Corelib.Init.Peano <> ::nat_scope:x_'*'_x not
+R4458:4463 Stdlib.Lists.List <> length abbrev
+R4465:4470 Parser <> tokens:26 var
+R4482:4487 Parser <> tokens:26 var
