@@ -15,4 +15,4 @@ jobs:
       with:
         nix_path: nixpkgs=channel:nixos-unstable
     - name: Build and Test
-      run: nix develop --command sh -c "make && dune build && dune runtest"
+      run: nix develop --command sh -c "coq_makefile -f _CoqProject -o Makefile && make && dune build && dune runtest"
