@@ -71,7 +71,7 @@ Definition fresh_meta : ElabM AST :=
   end.
 
 Definition TypeEnv := list ((string * list nat) * AST).
-Definition init_elab_state := mkElabState 0.
+Definition init_elab_state := mkElabState 0 empty_state.
 
 Fixpoint list_nat_eq (l1 l2 : list nat) : bool :=
   match l1, l2 with

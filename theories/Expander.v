@@ -184,6 +184,10 @@ Fixpoint expand_cst (c : CST) : CST :=
             let fix extract_variants (vs : list CST) : list CST :=
               match vs with
               | [] => []
+              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
+                  AppCST (Symbol ":" empty_span) [AppCST (Symbol vname empty_span) vargs empty_span; ret_ty] empty_span :: extract_variants vrest
+              | SeqOf (Symbol "case" _ :: Symbol vname _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
+                  AppCST (Symbol ":" empty_span) [Symbol vname empty_span; ret_ty] empty_span :: extract_variants vrest
               | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: []) _ :: vrest =>
                   AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
               | SeqOf (Symbol "case" _ :: Symbol vname _ :: []) _ :: vrest =>
@@ -197,6 +201,10 @@ Fixpoint expand_cst (c : CST) : CST :=
             let fix extract_variants (vs : list CST) : list CST :=
               match vs with
               | [] => []
+              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
+                  AppCST (Symbol ":" empty_span) [AppCST (Symbol vname empty_span) vargs empty_span; ret_ty] empty_span :: extract_variants vrest
+              | SeqOf (Symbol "case" _ :: Symbol vname _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
+                  AppCST (Symbol ":" empty_span) [Symbol vname empty_span; ret_ty] empty_span :: extract_variants vrest
               | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: []) _ :: vrest =>
                   AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
               | SeqOf (Symbol "case" _ :: Symbol vname _ :: []) _ :: vrest =>

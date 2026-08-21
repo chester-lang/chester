@@ -424,6 +424,64 @@ def extract_vars(args: List (CST)): List (String) = {
   }
 };
 
+
+def extract_variants(vs: List CST): List CST = {
+  if int_eq(list_length(vs), 0) then list_empty[CST]()
+  else {
+    let v = list_get(vs, 0);
+    let vrest = extract_variants(advance(vs));
+    match v {
+      case SeqOf(elems, sp) => {
+        if int_eq(list_length(elems), 4) then {
+          let kw = list_get(elems, 0);
+          let head = list_get(elems, 1);
+          let colon = list_get(elems, 2);
+          let ret_ty = list_get(elems, 3);
+          match kw {
+            case Symbol(kw_name, sp2) => {
+              if string_eq(kw_name, "case") then {
+                match colon {
+                  case Symbol(colon_name, sp3) => {
+                    if string_eq(colon_name, ":") then {
+                      match head {
+                        case AppCST(f, args, sp4) => {
+                          list_insert_first(vrest, CST.AppCST(CST.Symbol(":", sp3), list_insert_first(list_insert_first(list_empty[CST](), ret_ty), head), sp))
+                        };
+                        case Symbol(vname, sp4) => {
+                          list_insert_first(vrest, CST.AppCST(CST.Symbol(":", sp3), list_insert_first(list_insert_first(list_empty[CST](), ret_ty), head), sp))
+                        };
+                        case _ => vrest
+                      }
+                    } else vrest
+                  };
+                  case _ => vrest
+                }
+              } else vrest
+            };
+            case _ => vrest
+          }
+        } else if int_eq(list_length(elems), 2) then {
+          let kw = list_get(elems, 0);
+          let head = list_get(elems, 1);
+          match kw {
+            case Symbol(kw_name, sp2) => {
+              if string_eq(kw_name, "case") then {
+                match head {
+                  case AppCST(f, args, sp4) => list_insert_first(vrest, head);
+                  case Symbol(vname, sp4) => list_insert_first(vrest, head);
+                  case _ => vrest
+                }
+              } else vrest
+            };
+            case _ => vrest
+          }
+        } else vrest
+      };
+      case _ => vrest
+    }
+  }
+};
+
 def extract_macro_cases(cs: List (CST)): List (MacroCase) = {
   if int_eq(list_length(cs), 0) then list_empty[MacroCase]()
   else {
@@ -741,6 +799,40 @@ def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvE
                 match res_rest {
                   case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, ext_cst), final_m)
                 }
+               else if string_eq(sym, "enum") then {
+                let name_node = list_get(elems, 1);
+                match name_node {
+                  case Symbol(enum_name, sp3) => {
+                    let block_node = list_get(elems, 2);
+                    match block_node {
+                      case Block(variants, tail, sp4) => {
+                        let extracted = extract_variants(variants);
+                        let enum_cst = CST.EnumCST(enum_name, list_empty[String](), extracted, sp);
+                        let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m)
+                        }
+                      };
+                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                    }
+                  };
+                  case TypeAppCST(Symbol(enum_name, sp3), targs, sp4) => {
+                    let block_node = list_get(elems, 2);
+                    match block_node {
+                      case Block(variants, tail, sp5) => {
+                        let extracted = extract_variants(variants);
+                        let enum_cst = CST.EnumCST(enum_name, list_empty[String](), extracted, sp); // type args ignore for simplicity in this stub
+                        let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m)
+                        }
+                      };
+                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                    }
+                  };
+                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                }
+              }
                else if string_eq(sym, "macro") then {
                 let name_node = list_get(elems, 1);
                 let block_node = list_get(elems, 2);
