@@ -78,6 +78,7 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   | AstRecord name _ _ => TsIdentifier "null"
   | AstFieldAccess expr field => TsPropertyAccess (emit_ts_expr expr) field
   | AstMeta id => TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
+  | AstUniverse _ => TsIIFE [TsThrow "Universe in term"]
   | AstError e => TsIIFE [TsThrow e]
   | AstSpan _ inner => emit_ts_expr inner
   end
@@ -177,6 +178,7 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
       in TsLet "_match_val" (emit_ts_expr expr) :: emit_cases cases))
   | AstFieldAccess expr field => TsExprStmt (TsPropertyAccess (emit_ts_expr expr) field)
   | AstMeta id => TsExprStmt (TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))
+  | AstUniverse _ => TsExprStmt (TsIIFE [TsThrow "Universe in term"])
   | AstError e => TsExprStmt (TsIIFE [TsThrow e])
   | AstSpan _ inner => emit_ts_stmt inner
   end
@@ -211,6 +213,7 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
             end
         end
       in TsLet "_match_val" (emit_ts_expr expr) :: emit_cases cases
+  | AstUniverse _ => [TsThrow "Universe in term"]
   | AstError e => [TsThrow e]
   | AstSpan _ inner => emit_ts_block inner
   | AstRef name => [TsReturn (TsIdentifier name)]
@@ -325,6 +328,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
   | AstRecord name _ _ => GoIdentifier "nil"
   | AstFieldAccess expr field => GoSelector (emit_go_expr expr) field
   | AstMeta id => GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
+  | AstUniverse _ => GoCall (GoFuncLiteral [] [GoPanic "Universe in term"]) []
   | AstError e => GoCall (GoFuncLiteral [] [GoPanic e]) []
   | AstSpan _ inner => emit_go_expr inner
   end
@@ -396,6 +400,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       in GoExprStmt (GoCall (GoFuncLiteral [] (GoLet "_match_val" (emit_go_expr expr) :: emit_cases cases)) [])
   | AstFieldAccess expr field => GoExprStmt (GoSelector (emit_go_expr expr) field)
   | AstMeta id => GoExprStmt (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))
+  | AstUniverse _ => GoExprStmt (GoCall (GoFuncLiteral [] [GoPanic "Universe in term"]) [])
   | AstError e => GoExprStmt (GoCall (GoFuncLiteral [] [GoPanic e]) [])
   | AstSpan _ inner => emit_go_stmt inner
   end
@@ -431,6 +436,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
             end
         end
       in GoLet "_match_val" (emit_go_expr expr) :: emit_cases cases
+  | AstUniverse _ => [GoPanic "Universe in term"]
   | AstError e => [GoPanic e]
   | AstSpan _ inner => emit_go_block inner
   | AstRef name => [GoReturn (GoIdentifier name)]

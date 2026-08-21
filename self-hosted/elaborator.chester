@@ -1,3 +1,50 @@
+
+def subst_ast(x: String, v: AST, body: AST): AST = {
+  match body {
+    case AstRef(name) => {
+      if string_eq(name, x) then v else body
+    };
+    case AstUniverse(l) => AST.AstUniverse(l);
+    case AstTuple(elems) => AST.AstTuple(elems); // simplistic
+    case AstStringLit(s) => AST.AstStringLit(s);
+    case AstIntLit(n) => AST.AstIntLit(n);
+    case AstBoolLit(b) => AST.AstBoolLit(b);
+    case AstBlock(stmts, tail) => AST.AstBlock(stmts, tail); // simplistic
+    case AstApp(f, args) => AST.AstApp(subst_ast(x, v, f), args); // simplistic
+    case AstLam(argName, argTy, argBody) => {
+      let newTy = subst_ast(x, v, argTy);
+      if string_eq(argName, x) then AST.AstLam(argName, newTy, argBody)
+      else AST.AstLam(argName, newTy, subst_ast(x, v, argBody))
+    };
+    case AstPi(argName, argTy, retTy, effs) => {
+      let newTy = subst_ast(x, v, argTy);
+      if string_eq(argName, x) then AST.AstPi(argName, newTy, retTy, effs)
+      else AST.AstPi(argName, newTy, subst_ast(x, v, retTy), effs)
+    };
+    case AstLet(n, val) => AST.AstLet(n, subst_ast(x, v, val));
+    case _ => body
+  }
+};
+
+def whnf(expr: AST): AST = {
+  match expr {
+    case AstApp(f, args) => {
+      let f_whnf = whnf(f);
+      match f_whnf {
+        case AstLam(argName, argTy, body) => {
+          if int_eq(list_length(args), 0) then f_whnf
+          else {
+            let arg = list_get(args, 0);
+            let body_subst = subst_ast(argName, arg, body);
+            whnf(body_subst)
+          }
+        };
+        case _ => AST.AstApp(f_whnf, args)
+      }
+    };
+    case _ => expr
+  }
+};
 enum ElabState {
   case MkElabState(env: List Pair, next_var: Integer, subst: List Pair);
 };

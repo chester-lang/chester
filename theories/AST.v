@@ -44,6 +44,7 @@ Inductive PatternAST : Type :=
 *)
 Inductive AST : Type :=
   | AstRef : string -> AST
+  | AstUniverse : nat -> AST
   | AstTuple : list AST -> AST
   | AstStringLit : string -> AST
   | AstIntLit : nat -> AST

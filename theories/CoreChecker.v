@@ -26,34 +26,111 @@ Arguments TyErr {A}.
 
 (* A very naive equality checker for AST nodes. 
    In a real dependently typed language, this would be alpha-equivalence + beta-reduction. *)
-Fixpoint eq_ast (t1 t2 : AST) : bool :=
+
+Fixpoint subst_ast (x : string) (v : AST) (body : AST) : AST :=
+  match body with
+  | AstRef name => if String.eqb name x then v else body
+  | AstUniverse l => AstUniverse l
+  | AstTuple elems => AstTuple (map (subst_ast x v) elems)
+  | AstStringLit s => AstStringLit s
+  | AstIntLit n => AstIntLit n
+  | AstBoolLit b => AstBoolLit b
+  | AstBlock stmts tail => 
+      AstBlock (map (subst_ast x v) stmts) (subst_ast x v tail)
+  | AstApp f args => AstApp (subst_ast x v f) (map (subst_ast x v) args)
+  | AstTypeApp f args => AstTypeApp (subst_ast x v f) (map (subst_ast x v) args)
+  | AstLam argName argTy argBody =>
+      let newTy := subst_ast x v argTy in
+      if String.eqb argName x then AstLam argName newTy argBody
+      else AstLam argName newTy (subst_ast x v argBody)
+  | AstPi argName argTy retTy effs =>
+      let newTy := subst_ast x v argTy in
+      if String.eqb argName x then AstPi argName newTy retTy effs
+      else AstPi argName newTy (subst_ast x v retTy) effs
+  | AstDo e effs => AstDo (subst_ast x v e) (map (subst_ast x v) effs)
+  | AstHandle e eff hs => 
+      AstHandle (subst_ast x v e) eff (map (fun p => (fst p, subst_ast x v (snd p))) hs)
+  | AstLet n val => AstLet n (subst_ast x v val)
+  | AstIf c t e => AstIf (subst_ast x v c) (subst_ast x v t) (subst_ast x v e)
+  | AstDef n tp p r b => AstDef n tp p r b (* Not substituting inside defs for now *)
+  | AstFunTy tp p r effs => AstFunTy tp p (subst_ast x v r) effs
+  | AstEnum n tp vars => AstEnum n tp vars
+  | AstMatch expr cases => AstMatch (subst_ast x v expr) cases (* Simplistic *)
+  | AstRecord n tp fields => AstRecord n tp fields
+  | AstFieldAccess expr f => AstFieldAccess (subst_ast x v expr) f
+  | AstMeta m => AstMeta m
+  | AstSpan sp inner => AstSpan sp (subst_ast x v inner)
+  | AstError msg => AstError msg
+  end.
+
+Fixpoint whnf_fuel (fuel : nat) (expr : AST) : AST :=
+  match fuel with
+  | 0 => expr
+  | S fuel' =>
+      match expr with
+      | AstApp f args =>
+          let f' := whnf_fuel fuel' f in
+          match f' with
+          | AstLam argName argTy body =>
+              match args with
+              | arg :: rest =>
+                  let body' := subst_ast argName arg body in
+                  match rest with
+                  | [] => whnf_fuel fuel' body'
+                  | _ => whnf_fuel fuel' (AstApp body' rest)
+                  end
+              | [] => f'
+              end
+          | _ => AstApp f' args
+          end
+      | AstSpan sp inner => whnf_fuel fuel' inner
+      | _ => expr
+      end
+  end.
+
+Definition whnf (expr : AST) : AST := whnf_fuel 1000 expr.
+
+
+Fixpoint strip_span (e : AST) : AST :=
+  match e with
+  | AstSpan _ inner => strip_span inner
+  | AstTuple elems => AstTuple (map strip_span elems)
+  | AstBlock stmts tail => AstBlock (map strip_span stmts) (strip_span tail)
+  | AstApp f args => AstApp (strip_span f) (map strip_span args)
+  | AstTypeApp f args => AstTypeApp (strip_span f) (map strip_span args)
+  | AstLam n ty b => AstLam n (strip_span ty) (strip_span b)
+  | AstPi n ty ret effs => AstPi n (strip_span ty) (strip_span ret) effs
+  | AstDo e effs => AstDo (strip_span e) effs
+  | AstHandle e eff hs => AstHandle (strip_span e) eff (map (fun p => (fst p, strip_span (snd p))) hs)
+  | AstLet n val => AstLet n (strip_span val)
+  | AstIf c t e => AstIf (strip_span c) (strip_span t) (strip_span e)
+  | AstDef n tp p r b => AstDef n tp p r b
+  | AstFunTy tp p r effs => AstFunTy tp p (strip_span r) effs
+  | AstMatch expr cases => AstMatch (strip_span expr) cases
+  | AstRecord n tp fields => AstRecord n tp fields
+  | AstFieldAccess expr f => AstFieldAccess (strip_span expr) f
+  | _ => e
+  end.
+
+Fixpoint equiv_ast_raw (t1 t2 : AST) : bool :=
   match t1, t2 with
   | AstRef n1, AstRef n2 => String.eqb n1 n2
+  | AstUniverse l1, AstUniverse l2 => Nat.eqb l1 l2
   | AstStringLit s1, AstStringLit s2 => String.eqb s1 s2
   | AstIntLit n1, AstIntLit n2 => Nat.eqb n1 n2
   | AstBoolLit b1, AstBoolLit b2 => Bool.eqb b1 b2
-  | AstApp f1 a1, AstApp f2 a2 => false (* simplistic *)
+  | AstApp f1 a1, AstApp f2 a2 => false (* Simplistic for multiple args *)
   | AstLam n1 t1 b1, AstLam n2 t2 b2 => false
   | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 => 
-      (* naive string eq for binder, realistically needs De Bruijn or alpha equivalence *)
-      String.eqb n1 n2 && eq_ast ty1 ty2 && eq_ast ret1 ret2
+      String.eqb n1 n2 && equiv_ast_raw ty1 ty2 && equiv_ast_raw ret1 ret2
   | AstMeta m1, AstMeta m2 => Nat.eqb m1 m2
-  | AstLet n1 v1, AstLet n2 v2 => false
-  | AstBlock _ _, AstBlock _ _ => false
-  | AstIf c1 t1 e1, AstIf c2 t2 e2 => false
-  | AstDef n1 tp1 p1 r1 b1, AstDef n2 tp2 p2 r2 b2 => false
-  | AstEnum _ _ _, AstEnum _ _ _ => false
-  | AstMatch _ _, AstMatch _ _ => false
-  | AstRecord _ _ _, AstRecord _ _ _ => false
-  | AstFieldAccess _ _, AstFieldAccess _ _ => false
-  | AstSpan _ a1, AstSpan _ a2 => eq_ast a1 a2
-  | AstSpan _ a1, _ => false
-  | _, AstSpan _ a2 => false
   | _, _ => false
   end.
 
-(* Since AST types are types themselves (e.g. Type, Int, String), we might want some built-ins. *)
-Definition TypeUniverse := AstRef "Type".
+Definition equiv_ast (t1 t2 : AST) : bool :=
+  equiv_ast_raw (strip_span (whnf t1)) (strip_span (whnf t2)).
+
+Definition TypeUniverse := AstUniverse 0.
 Definition IntType := AstRef "Int".
 Definition StringType := AstRef "String".
 Definition BoolType := AstRef "Bool".
@@ -72,7 +149,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       match lookup_type name env with
       | Some ty => 
           match expected with
-          | Some expTy => if eq_ast ty expTy then TyOk ty else TyErr "Type mismatch"
+          | Some expTy => if equiv_ast ty expTy then TyOk ty else TyErr "Type mismatch"
           | None => TyOk ty
           end
       | None => TyErr ("Unbound variable: " ++ name)
@@ -80,26 +157,26 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       
   | AstIntLit _ => 
       match expected with
-      | Some expTy => if eq_ast IntType expTy then TyOk IntType else TyErr "Type mismatch"
+      | Some expTy => if equiv_ast IntType expTy then TyOk IntType else TyErr "Type mismatch"
       | None => TyOk IntType
       end
   
   | AstStringLit _ => 
       match expected with
-      | Some expTy => if eq_ast StringType expTy then TyOk StringType else TyErr "Type mismatch"
+      | Some expTy => if equiv_ast StringType expTy then TyOk StringType else TyErr "Type mismatch"
       | None => TyOk StringType
       end
       
   | AstBoolLit _ =>
       match expected with
-      | Some expTy => if eq_ast BoolType expTy then TyOk BoolType else TyErr "Type mismatch"
+      | Some expTy => if equiv_ast BoolType expTy then TyOk BoolType else TyErr "Type mismatch"
       | None => TyOk BoolType
       end
   
   | AstLam argName argTy body =>
       match expected with
       | Some (AstPi _ expArgTy expRetTy _) =>
-          if eq_ast argTy expArgTy then
+          if equiv_ast argTy expArgTy then
             match infer_check ((argName, argTy) :: env) body (Some expRetTy) with
             | TyOk _ => TyOk (AstPi argName argTy expRetTy [])
             | TyErr e => TyErr e
@@ -121,9 +198,10 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
           | arg :: _ => 
               match infer_check env arg (Some argTy) with
               | TyOk _ => 
+                  let actualRetTy := subst_ast argName arg retTy in
                   match expected with
-                  | Some expTy => if eq_ast retTy expTy then TyOk retTy else TyErr "Type mismatch"
-                  | None => TyOk retTy
+                  | Some expTy => if equiv_ast actualRetTy expTy then TyOk actualRetTy else TyErr "Type mismatch"
+                  | None => TyOk actualRetTy
                   end
               | TyErr e => TyErr e
               end
@@ -134,16 +212,19 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       end
       
   | AstPi argName argTy retTy effs =>
-      match infer_check env argTy (Some TypeUniverse) with
-      | TyOk _ =>
-          match infer_check ((argName, argTy) :: env) retTy (Some TypeUniverse) with
-          | TyOk _ => 
+      match infer_check env argTy None with
+      | TyOk (AstUniverse l1) =>
+          match infer_check ((argName, argTy) :: env) retTy None with
+          | TyOk (AstUniverse l2) => 
+              let outUni := AstUniverse (Nat.max l1 l2) in
               match expected with
-              | Some expTy => if eq_ast TypeUniverse expTy then TyOk TypeUniverse else TyErr "Type mismatch"
-              | None => TyOk TypeUniverse
+              | Some expTy => if equiv_ast outUni expTy then TyOk outUni else TyErr "Type mismatch"
+              | None => TyOk outUni
               end
+          | TyOk _ => TyErr "Return type of Pi is not a Universe"
           | TyErr e => TyErr e
           end
+      | TyOk _ => TyErr "Argument type of Pi is not a Universe"
       | TyErr e => TyErr e
       end
       
@@ -219,7 +300,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 | TyOk ty_body =>
                     match check_cases rest with
                     | TyOk ty_rest =>
-                        if eq_ast ty_body ty_rest then TyOk ty_body else TyErr "Match branches have mismatching types"
+                        if equiv_ast ty_body ty_rest then TyOk ty_body else TyErr "Match branches have mismatching types"
                     | err => err
                     end
                 | err => err
@@ -252,3 +333,22 @@ Definition check (env : TypeEnv) (expr : AST) (expected : AST) : TyResult unit :
   | TyOk _ => TyOk tt
   | TyErr e => TyErr e
   end.
+
+(* 
+  --- Tests ---
+*)
+Require Import String.
+Definition test_env : TypeEnv := 
+  [ ("Bool"%string, AstUniverse 0);
+    ("true"%string, AstRef "Bool"%string) ].
+
+Definition test_func : AST := 
+  AstLam "b"%string (AstRef "Bool"%string) (AstIf (AstRef "b"%string) (AstRef "Int"%string) (AstRef "String"%string)).
+
+Definition test_app_true : AST := 
+  AstApp test_func [AstRef "true"%string].
+
+Definition test_whnf_app : AST := whnf test_app_true.
+
+Eval compute in test_whnf_app.
+

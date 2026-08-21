@@ -6,6 +6,7 @@ enum PatternAST {
 
 enum AST {
   case AstRef(name: String);
+  case AstUniverse(level: Integer);
   case AstTuple(elems: List AST);
   case AstStringLit(val: String);
   case AstIntLit(val: Integer);
