@@ -471,12 +471,29 @@ def elab_variant(v: CST): Pair = {
   match v {
     case AppCST(f, args, sp) => {
       match f {
-        case Symbol(vname, sp2) => Pair.MkPair(vname, list_empty[AST]());
-        case _ => Pair.MkPair("unknown", list_empty[AST]())
+        case Symbol(op, sp2) => {
+          if string_eq(op, ":") then {
+            let lhs = list_get(args, 0);
+            let rhs = list_get(args, 1);
+            let rhs_res = elaborate(list_empty[Pair](), rhs, OptionAST.NoneAST());
+            let ret_ty = match rhs_res { case MkPair(ast, ty) => ast };
+            match lhs {
+              case AppCST(inner_f, inner_args, sp3) => {
+                match inner_f {
+                  case Symbol(vname, sp4) => Pair.MkPair(vname, Pair.MkPair(list_empty[AST](), ret_ty));
+                  case _ => Pair.MkPair("unknown", Pair.MkPair(list_empty[AST](), ret_ty))
+                }
+              };
+              case Symbol(vname, sp3) => Pair.MkPair(vname, Pair.MkPair(list_empty[AST](), ret_ty));
+              case _ => Pair.MkPair("unknown", Pair.MkPair(list_empty[AST](), ret_ty))
+            }
+          } else Pair.MkPair(op, Pair.MkPair(list_empty[AST](), AST.AstRef("Any")))
+        };
+        case _ => Pair.MkPair("unknown", Pair.MkPair(list_empty[AST](), AST.AstRef("Any")))
       }
     };
-    case Symbol(vname, sp) => Pair.MkPair(vname, list_empty[AST]());
-    case _ => Pair.MkPair("unknown", list_empty[AST]())
+    case Symbol(vname, sp) => Pair.MkPair(vname, Pair.MkPair(list_empty[AST](), AST.AstRef("Any")));
+    case _ => Pair.MkPair("unknown", Pair.MkPair(list_empty[AST](), AST.AstRef("Any")))
   }
 };
 

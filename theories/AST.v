@@ -62,7 +62,7 @@ Inductive AST : Type :=
   | AstIf : AST -> AST -> AST -> AST (* cond, then, else *)
   | AstDef : string -> list string -> list (string * AST) -> AST -> AST -> AST (* name, type_params, params, ret_ty, body *)
   | AstFunTy : list string -> list (string * AST) -> AST -> EffectSet -> AST (* type_params, params, ret_ty, effects — non-curried *)
-  | AstEnum : string -> list string -> list (string * list AST) -> AST (* name, type_params, variants *)
+  | AstEnum : string -> list string -> list (string * list AST * AST) -> AST (* name, type_params, variants *)
   | AstMatch : AST -> list (PatternAST * AST) -> AST (* expr, cases *)
   | AstRecord : string -> list string -> list (string * AST) -> AST (* name, type_params, fields *)
   | AstFieldAccess : AST -> string -> AST (* expr, field_name *)

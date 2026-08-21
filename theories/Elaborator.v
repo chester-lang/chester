@@ -434,26 +434,31 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       ret (AstTypeApp (fst funcAst) argsRes, AstRef "TypeUniverse")
 
   | EnumCST name type_params variants _ =>
-      let fix elab_variant (v : CST) : string * list AST :=
+      let fix elab_variant (v : CST) : string * list AST * AST :=
         match v with
+        | AppCST (Symbol ":" _) (AppCST (Symbol vname _) args _ :: ret_ty :: []) _ =>
+            let fix elab_fields (fs : list CST) : list AST :=
+              match fs with
+              | [] => []
+              | _ :: rest => AstRef "Any" :: elab_fields rest
+              end
+            in
+            ((vname, elab_fields args), AstRef "Any")
+        | AppCST (Symbol ":" _) (Symbol vname _ :: ret_ty :: []) _ =>
+            ((vname, []), AstRef "Any")
         | AppCST (Symbol vname _) args _ =>
             let fix elab_fields (fs : list CST) : list AST :=
               match fs with
               | [] => []
-              | f :: rest =>
-                  let fld := match f with
-                    | SeqOf (_ :: Symbol ":" _ :: ty :: _) _ => AstRef "Any"
-                    | _ => AstRef "Any"
-                    end in
-                  fld :: elab_fields rest
+              | _ :: rest => AstRef "Any" :: elab_fields rest
               end
             in
-            (vname, elab_fields args)
-        | Symbol vname _ => (vname, [])
-        | _ => ("unknown", [])
+            ((vname, elab_fields args), AstRef "Any")
+        | Symbol vname _ => ((vname, []), AstRef "Any")
+        | _ => (("unknown", []), AstRef "Any")
         end
       in
-      let fix elab_variants (vs : list CST) : list (string * list AST) :=
+      let fix elab_variants (vs : list CST) : list (string * list AST * AST) :=
         match vs with
         | [] => []
         | v :: rest => elab_variant v :: elab_variants rest

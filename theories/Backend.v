@@ -89,9 +89,9 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
   | AstEnum name _ variants =>
-      let fix emit_variant (v : string * list AST) : string * TypeScriptExpr :=
-        let vname := fst v in
-        let fields := snd v in
+      let fix emit_variant (v : string * list AST * AST) : string * TypeScriptExpr :=
+        let vname := fst (fst v) in
+        let fields := snd (fst v) in
         let fix field_names (n : nat) (fs : list AST) : list string :=
           match fs with
           | [] => []
@@ -111,7 +111,7 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
         | _ => (vname, TsArrow params [TsReturn body])
         end
       in
-      let fix emit_variants (vs : list (string * list AST)) : list (string * TypeScriptExpr) :=
+      let fix emit_variants (vs : list (string * list AST * AST)) : list (string * TypeScriptExpr) :=
         match vs with
         | [] => []
         | v :: rest => emit_variant v :: emit_variants rest
