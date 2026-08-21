@@ -113,3 +113,17 @@ Definition get_span (c : CST) : Span :=
   | Error _ span => span
   | _ => empty_span
   end.
+
+
+Inductive ParserCST : CST -> Prop :=
+  | ParserSymbol : forall s sp, ParserCST (Symbol s sp)
+  | ParserString : forall v sp, ParserCST (StringLiteral v sp)
+  | ParserInt : forall v sp, ParserCST (IntegerLiteral v sp)
+  | ParserBool : forall v sp, ParserCST (BoolLiteral v sp)
+  | ParserTuple : forall elems sp, Forall ParserCST elems -> ParserCST (Tuple elems sp)
+  | ParserList : forall elems sp, Forall ParserCST elems -> ParserCST (ListLiteral elems sp)
+  | ParserSeq : forall elems sp, Forall ParserCST elems -> ParserCST (SeqOf elems sp)
+  | ParserBlock : forall stmts sp, 
+      Forall ParserCST stmts -> 
+      ParserCST (Block stmts (Symbol "Unit"%string empty_span) sp)
+  | ParserComment : forall text sp, ParserCST (CommentCST text sp).
