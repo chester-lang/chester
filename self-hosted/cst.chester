@@ -21,4 +21,5 @@ enum CST {
   case MatchCST(expr: CST, cases: List (CST), span: Span);
   case RecordCST(name: String, type_params: List (String), fields: List (CST), span: Span);
   case MacroDefCST(name: String, cases: List (CST), span: Span);
+  case ExtensionCST(name: String, type_params: List (String), target_ty: CST, methods: List (CST), span: Span);
 };

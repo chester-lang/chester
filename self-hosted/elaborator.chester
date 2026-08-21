@@ -365,6 +365,93 @@ def elab_tuple_elems(env: List Pair, es: List CST): Pair = {
   }
 };
 
+
+def get_base_type(t: AST): AST = {
+  match t {
+    case AstApp(f, a) => get_base_type(f);
+    case AstTypeApp(f, a) => get_base_type(f);
+    case _ => t
+  }
+};
+
+def check_type_match(target: AST, actual: AST): Bool = {
+  let bt1 = get_base_type(target);
+  let bt2 = get_base_type(actual);
+  match bt1 {
+    case AstRef(n1) => {
+      match bt2 {
+        case AstRef(n2) => string_eq(n1, n2);
+        case _ => false
+      }
+    };
+    case _ => false
+  }
+};
+
+def lookup_ext_method(field: String, meths: List (ExtMethod)): String = {
+  if int_eq(list_length(meths), 0) then ""
+  else {
+    let m = list_get(meths, 0);
+    match m {
+      case MkExtMethod(n, full) => {
+        if string_eq(n, field) then full
+        else lookup_ext_method(field, advance(meths))
+      }
+    }
+  }
+};
+
+def find_ext_method(ty: AST, field: String, exts: List (ExtDecl)): String = {
+  if int_eq(list_length(exts), 0) then ""
+  else {
+    let ext = list_get(exts, 0);
+    match ext {
+      case MkExtDecl(ext_name, target_ty, meths) => {
+        if check_type_match(target_ty, ty) then {
+           let meth_name = lookup_ext_method(field, meths);
+           if string_eq(meth_name, "") then find_ext_method(ty, field, advance(exts))
+           else meth_name
+        } else {
+           find_ext_method(ty, field, advance(exts))
+        }
+      }
+    }
+  }
+};
+
+def extract_ext_methods(meths: List (CST), ext_name: String): List (ExtMethod) = {
+  if int_eq(list_length(meths), 0) then list_empty[ExtMethod]()
+  else {
+    let m = list_get(meths, 0);
+    let rest = extract_ext_methods(advance(meths), ext_name);
+    match m {
+      case DefCST(n, tps, ps, rt, b, sp) => {
+        let full = string_append(string_append(ext_name, "."), n);
+        list_insert_first(rest, ExtMethod.MkExtMethod(n, full))
+      };
+      case _ => rest
+    }
+  }
+};
+
+def elab_ext_methods(env: List (Pair), meths: List (CST), ext_name: String): List (AST) = {
+  if int_eq(list_length(meths), 0) then list_empty[AST]()
+  else {
+    let m = list_get(meths, 0);
+    let rest = elab_ext_methods(env, advance(meths), ext_name);
+    match m {
+      case DefCST(n, tps, ps, rt, b, sp) => {
+        let full_name = string_append(string_append(ext_name, "."), n);
+        let mod_m = DefCST(full_name, tps, ps, rt, b, sp);
+        let res = elaborate(env, mod_m, OptionAST.NoneAST());
+        match res {
+           case MkPair(ast, ty) => list_insert_first(rest, ast)
+        }
+      };
+      case _ => rest
+    }
+  }
+};
 def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
   match expr {
     case Symbol(name, span) => {
@@ -512,8 +599,28 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
       }
     };
     case AppCST(func, args, span) => {
-      // Detect combined two-telescope call: f[A,B](x,y) — erase type args, apply value args
       match func {
+        case FieldAccess(expr, field, fsp) => {
+          let exprAst_res = elaborate(env, expr, OptionAST.NoneAST());
+          match exprAst_res {
+            case MkPair(eAst, eTy) => {
+              let state = get_elab_state();
+              let full_name = match state {
+                case MkElabState(e, next_var, subst, exts) => find_ext_method(eTy, field, exts)
+              };
+              if string_eq(full_name, "") then {
+                let funcAst = AST.AstFieldAccess(eAst, field);
+                let args_res = elab_check_args(env, AST.AstRef("UnknownType"), args);
+                match args_res {
+                  case MkPair(argsAst, argsTy) => Pair.MkPair(AST.AstApp(funcAst, argsAst), argsTy)
+                }
+              } else {
+                let new_cst = AppCST(Symbol(full_name, fsp), list_insert_first(args, expr), span);
+                elaborate(env, new_cst, expected)
+              }
+            }
+          }
+        };
         case TypeAppCST(inner_func, targs, tspan) => {
           let funcAst_res = elaborate(env, inner_func, OptionAST.NoneAST());
           match funcAst_res {
@@ -596,6 +703,24 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
       let eAst_res = elaborate(env, expr, OptionAST.NoneAST());
       match eAst_res {
         case MkPair(eAst, eTy) => Pair.MkPair(AST.AstFieldAccess(eAst, field), AST.AstRef("TypeUniverse"))
+      }
+    };
+    case ExtensionCST(ext_name, tparams, target_ty, meths, span) => {
+      let targetTy_res = elaborate(env, target_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+      match targetTy_res {
+        case MkPair(tAst, tTy) => {
+           let state = get_elab_state();
+           match state {
+             case MkElabState(e, next_var, subst, exts) => {
+                let ext_meths = extract_ext_methods(meths, ext_name);
+                let new_ext = ExtDecl.MkExtDecl(ext_name, tAst, ext_meths);
+                put_elab_state(ElabState.MkElabState(e, next_var, subst, list_insert_first(exts, new_ext)));
+                
+                let meths_res = elab_ext_methods(env, meths, ext_name);
+                Pair.MkPair(AST.AstExtension(ext_name, tparams, tAst, meths_res), AST.AstRef("Unit"))
+             }
+           }
+        }
       }
     };
     case Error(msg, span) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));

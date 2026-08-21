@@ -24,6 +24,7 @@ enum AST {
   case AstMatch(expr: AST, cases: List Pair);
   case AstRecord(name: String, type_params: List String, fields: List Pair);
   case AstFieldAccess(expr: AST, field_name: String);
+  case AstExtension(ext_name: String, type_params: List String, target_ty: AST, methods: List AST);
   
   case AstSpan(span: Span, inner: AST);
   case AstError(msg: String);

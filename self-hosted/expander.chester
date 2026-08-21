@@ -630,6 +630,53 @@ def parse_op_decl(fixity: OpFixity, elems: List (CST), fuel: Integer, env: List 
   let new_op_env = list_insert_first(op_env, new_op_entry);
   process_stmts(fuel, env, new_op_env, m, rest_ss)
 };
+
+def parse_ext_type_params(c: CST): List (String) = {
+  match c {
+    case ListLiteral(elems, sp) => extract_type_params(elems);
+    case _ => list_empty[String]()
+  }
+};
+
+def extract_type_params(elems: List (CST)): List (String) = {
+  if int_eq(list_length(elems), 0) then list_empty[String]()
+  else {
+    let first = list_get(elems, 0);
+    let rest = extract_type_params(advance(elems));
+    match first {
+      case Symbol(s, sp) => list_insert_first(rest, s);
+      case _ => rest
+    }
+  }
+};
+
+def extract_ext_target(elems: List (CST), start_idx: Integer, end_idx: Integer, span: Span): CST = {
+  if int_eq(start_idx, end_idx) then Error("No target type", span)
+  else if int_eq(int_add(start_idx, 1), end_idx) then list_get(elems, start_idx)
+  else {
+    let slice_len = int_sub(end_idx, start_idx);
+    // Actually we can just pack it into a SeqOf and let it be collapsed later?
+    // Wait, the target type could be `List T`, which parses as SeqOf. 
+    // We can just construct a SeqOf manually for the slice.
+    let slice = list_empty[CST]();
+    // It's easier to just pass the sublist, but Chester doesn't have a built-in sublist.
+    // Let's just create it recursively.
+    build_sublist(elems, start_idx, end_idx, span)
+  }
+};
+
+def build_sublist(elems: List (CST), curr: Integer, end_idx: Integer, span: Span): CST = {
+  if int_eq(curr, end_idx) then Tuple(list_empty[CST](), span) // Empty seq
+  else {
+    let next_cst = build_sublist(elems, int_add(curr, 1), end_idx, span);
+    let head = list_get(elems, curr);
+    match next_cst {
+      case Tuple(empty_ls, sp2) => SeqOf(list_insert_first(list_empty[CST](), head), span);
+      case SeqOf(ls, sp2) => SeqOf(list_insert_first(ls, head), span);
+      case _ => SeqOf(list_insert_first(list_insert_first(list_empty[CST](), next_cst), head), span)
+    }
+  }
+};
 def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvEntry), m: Integer, ss: List (CST)): ExpandResultList = {
   if int_eq(list_length(ss), 0) then ExpandResultList.ResList(list_empty[CST](), m)
   else {
@@ -659,7 +706,42 @@ def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvE
                 parse_op_decl(OpFixity.Prefix(), elems, fuel, env, op_env, m, rest_ss)
               } else if string_eq(sym, "postfix") then {
                 parse_op_decl(OpFixity.Postfix(), elems, fuel, env, op_env, m, rest_ss)
-              } else if string_eq(sym, "macro") then {
+              } } else if string_eq(sym, "extension") then {
+                let len = list_length(elems);
+                let name_node = list_get(elems, 1);
+                let ext_name = match name_node {
+                  case Symbol(n, sp2) => n;
+                  case _ => ""
+                };
+                let has_tparams = match list_get(elems, 2) {
+                  case ListLiteral(l, sp3) => true;
+                  case _ => false
+                };
+                let tparams = parse_ext_type_params(list_get(elems, 2));
+                let on_idx = if has_tparams then 3 else 2;
+                let target_ty = extract_ext_target(elems, int_add(on_idx, 1), int_sub(len, 1), sp);
+                
+                // Elaborator needs to parse methods. We can just expand the block
+                let block_node = list_get(elems, int_sub(len, 1));
+                let meths = match block_node {
+                  case Block(m_stmts, t, sp3) => {
+                     // We should just pass the raw statements or expand them?
+                     // Ext methods should be expanded. We can just expand the whole block.
+                     let expanded_block = expand_cst(fuel, env, op_env, m, block_node);
+                     match expanded_block {
+                       case Res(Block(new_stmts, new_t, sp4), final_m) => new_stmts;
+                       case _ => list_empty[CST]()
+                     }
+                  };
+                  case _ => list_empty[CST]()
+                };
+                
+                let ext_cst = ExtensionCST(ext_name, tparams, target_ty, meths, sp);
+                let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                match res_rest {
+                  case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, ext_cst), final_m)
+                }
+               else if string_eq(sym, "macro") then {
                 let name_node = list_get(elems, 1);
                 let block_node = list_get(elems, 2);
                 match name_node {
