@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chester Programming Language</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Lora:ital,wght@0,400;0,600;1,400&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="hero">
+        <div class="container hero-content">
+            <img src="assets/logo.svg" alt="Chester Logo" class="logo">
+            <h1>Chester</h1>
+            <p class="tagline">The dependently typed, mathematically verified language for the modern era.</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/chester-lang/chester" class="btn primary">View on GitHub</a>
+                <a href="#features" class="btn secondary">Learn More</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="showcase">
+            <div class="code-window">
+                <div class="window-header">
+                    <span class="dot red"></span>
+                    <span class="dot yellow"></span>
+                    <span class="dot green"></span>
+                </div>
+                <pre><code class="language-chester"><span class="keyword">def</span> <span class="function">my_id</span>(<span class="type">T</span>: <span class="type">Type 0</span>, <span class="variable">x</span>: <span class="type">T</span>): <span class="type">T</span> = x;
+
+<span class="keyword">macro</span> <span class="function">swap</span> {
+  <span class="keyword">case</span> (a, b) => {
+    <span class="keyword">let</span> tmp = a;
+    <span class="keyword">let</span> a = b;
+    <span class="keyword">let</span> b = tmp;
+  }
+}
+
+<span class="keyword">let</span> my_val = <span class="function">my_id</span>(<span class="type">Int</span>, <span class="number">42</span>);
+<span class="function">swap</span>(my_val, other_val);
+</code></pre>
+            </div>
+        </section>
+
+        <section id="features" class="features">
+            <div class="feature">
+                <h2>Mathematically Verified</h2>
+                <p>Chester's core compiler pipeline is fully extracted from Coq/Rocq proofs. Its parser, elaborator, and type checker have strong structural guarantees, ensuring the compiler doesn't miscompile valid code.</p>
+            </div>
+            <div class="feature">
+                <h2>True Theorem Proving</h2>
+                <p>Inspired by Lean and Idris 2, Chester supports a rigorous universe hierarchy (<code>Type 0</code>, <code>Type 1</code>...), dependent types, and compile-time beta evaluation via Weak Head Normal Form (WHNF).</p>
+            </div>
+            <div class="feature">
+                <h2>Extensible Syntax</h2>
+                <p>Shape the language to your domain. Chester supports hygienic macros that prevent variable capture, topological Pratt parsing for custom operator precedence, and Scala-style extension methods.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 The Chester Language Project. Open source under the MIT License.</p>
+        </div>
+    </footer>
+</body>
+</html>

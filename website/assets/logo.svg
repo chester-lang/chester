@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Background -->
+  <circle cx="100" cy="100" r="90" fill="#f8f9fa" stroke="#1f2d3d" stroke-width="6"/>
+  <!-- Stylized C -->
+  <path d="M 140 60 A 50 50 0 1 0 140 140" fill="none" stroke="#1f2d3d" stroke-width="24" stroke-linecap="round"/>
+  <!-- Proof Tree Motif -->
+  <line x1="100" y1="90" x2="100" y2="150" stroke="#d4af37" stroke-width="8" stroke-linecap="round"/>
+  <line x1="100" y1="90" x2="60" y2="50" stroke="#d4af37" stroke-width="8" stroke-linecap="round"/>
+  <line x1="100" y1="90" x2="140" y2="50" stroke="#d4af37" stroke-width="8" stroke-linecap="round"/>
+  <!-- Nodes -->
+  <circle cx="100" cy="150" r="10" fill="#1f2d3d"/>
+  <circle cx="100" cy="90" r="10" fill="#1f2d3d"/>
+  <circle cx="60" cy="50" r="10" fill="#1f2d3d"/>
+  <circle cx="140" cy="50" r="10" fill="#1f2d3d"/>
+</svg>
