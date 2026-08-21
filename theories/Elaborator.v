@@ -2,6 +2,7 @@ From Stdlib Require Import Ascii.
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
 Require Import Chester.CST.
+Require Import Chester.CoreChecker.
 
 Require Import String.
 
@@ -29,7 +30,7 @@ Open Scope string_scope.
 Import ListNotations.
 
 Inductive ElabState :=
-| mkElabState : nat -> ElabState.
+| mkElabState : nat -> SolverState -> ElabState.
 
 Definition ElabM (A : Type) := ElabState -> (A * ElabState) + (list ascii * ElabState).
 
@@ -64,13 +65,12 @@ Definition set_state (s : ElabState) : ElabM unit :=
 Definition fresh_meta : ElabM AST :=
   s <- get_state ;
   match s with
-  | mkElabState n =>
-      set_state (mkElabState (S n)) ;;
+  | mkElabState n sol =>
+      set_state (mkElabState (S n) sol) ;;
       ret (AstMeta n)
   end.
 
 Definition TypeEnv := list ((string * list nat) * AST).
-Fixpoint zonk (a : AST) : AST := a.
 Definition init_elab_state := mkElabState 0.
 
 Fixpoint list_nat_eq (l1 l2 : list nat) : bool :=
@@ -110,10 +110,91 @@ Definition IntType := AstRef "Int".
 Definition BoolType := AstRef "Bool".
 Definition TypeUniverse := AstRef "Type".
 
-Fixpoint unify (fuel : nat) (t1 t2 : AST) : ElabM unit :=
+Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
   match fuel with
   | 0 => ret tt
-  | S fuel' => ret tt
+  | S fuel' => 
+      let fix unify_list (l1 l2 : list AST) : ElabM unit :=
+        match l1, l2 with
+        | [], [] => ret tt
+        | x :: xs, y :: ys => unify fuel' x y ;; unify_list xs ys
+        | _, _ => ret tt
+        end in
+      let t1' := strip_span (whnf t1) in
+      let t2' := strip_span (whnf t2) in
+      match t1', t2' with
+      | AstMeta m1, AstMeta m2 =>
+          if Nat.eqb m1 m2 then ret tt else
+          s <- get_state ;
+          match s with
+          | mkElabState n sol =>
+              match type_metas sol m1 with
+              | Solved v1 => unify fuel' v1 t2'
+              | _ => match type_metas sol m2 with
+                     | Solved v2 => unify fuel' t1' v2
+                     | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol))
+                     end
+              end
+          end
+      | AstMeta m1, _ =>
+          s <- get_state ;
+          match s with
+          | mkElabState n sol =>
+              match type_metas sol m1 with
+              | Solved v1 => unify fuel' v1 t2'
+              | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol))
+              end
+          end
+      | _, AstMeta m2 =>
+          s <- get_state ;
+          match s with
+          | mkElabState n sol =>
+              match type_metas sol m2 with
+              | Solved v2 => unify fuel' t1' v2
+              | _ => set_state (mkElabState n (update_type_state m2 (Solved t1') sol))
+              end
+          end
+      | AstApp f1 a1, AstApp f2 a2 =>
+          unify fuel' f1 f2 ;; unify_list a1 a2
+      | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 =>
+          unify fuel' ty1 ty2 ;; unify fuel' ret1 ret2
+      | _, _ => ret tt
+      end
+  end.
+
+Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
+  match fuel with
+  | 0 => ret expr
+  | S fuel' =>
+      match strip_span expr with
+      | AstMeta m =>
+          s <- get_state ;
+          match s with
+          | mkElabState n sol =>
+              match type_metas sol m with
+              | Solved v => zonk fuel' v
+              | _ => ret (AstMeta m)
+              end
+          end
+      | AstApp f args =>
+          f' <- zonk fuel' f ;
+          let fix zonk_list (l : list AST) : ElabM (list AST) :=
+            match l with
+            | [] => ret []
+            | x :: xs => x' <- zonk fuel' x ; xs' <- zonk_list xs ; ret (x' :: xs')
+            end in
+          args' <- zonk_list args ;
+          ret (AstApp f' args')
+      | AstPi n ty retTy effs =>
+          ty' <- zonk fuel' ty ;
+          retTy' <- zonk fuel' retTy ;
+          ret (AstPi n ty' retTy' effs)
+      | AstLam n ty body =>
+          ty' <- zonk fuel' ty ;
+          body' <- zonk fuel' body ;
+          ret (AstLam n ty' body')
+      | _ => ret expr
+      end
   end.
 
 Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct expr} : ElabM (AST * AST) :=
@@ -474,3 +555,19 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       exprAst <- elaborate env expr None ;
       ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
   end.
+
+(* 
+  --- Unification Tests ---
+*)
+Definition test_unify_env := mkElabState 0 empty_state.
+
+Definition meta1 := AstMeta 1.
+Definition int_ty := AstRef "Int"%string.
+
+Definition test_unify_run : ElabM unit := unify 100 meta1 int_ty.
+
+Definition test_zonk_run : ElabM AST :=
+  bind test_unify_run (fun _ => zonk 100 meta1).
+
+Eval compute in test_zonk_run test_unify_env.
+
