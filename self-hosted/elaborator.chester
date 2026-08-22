@@ -5,12 +5,12 @@ def subst_ast(x: String, v: AST, body: AST): AST = {
       if string_eq(name, x) then v else body
     };
     case AstUniverse(l) => AST.AstUniverse(l);
-    case AstTuple(elems) => AST.AstTuple(elems); // simplistic
+    case AstTuple(elems) => AST.AstTuple(list_map(elems, \e => subst_ast(x, v, e)));
     case AstStringLit(s) => AST.AstStringLit(s);
     case AstIntLit(n) => AST.AstIntLit(n);
     case AstBoolLit(b) => AST.AstBoolLit(b);
-    case AstBlock(stmts, tail) => AST.AstBlock(stmts, tail); // simplistic
-    case AstApp(f, args) => AST.AstApp(subst_ast(x, v, f), args); // simplistic
+    case AstBlock(stmts, tail) => AST.AstBlock(list_map(stmts, \s => subst_ast(x, v, s)), subst_ast(x, v, tail));
+    case AstApp(f, args) => AST.AstApp(subst_ast(x, v, f), list_map(args, \a => subst_ast(x, v, a)));
     case AstLam(argName, argTy, argBody) => {
       let newTy = subst_ast(x, v, argTy);
       if string_eq(argName, x) then AST.AstLam(argName, newTy, argBody)
