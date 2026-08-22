@@ -821,7 +821,7 @@ def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvE
                     match block_node {
                       case Block(variants, tail, sp5) => {
                         let extracted = extract_variants(variants);
-                        let enum_cst = CST.EnumCST(enum_name, list_empty[String](), extracted, sp); // type args ignore for simplicity in this stub
+                        let enum_cst = CST.EnumCST(enum_name, targs, extracted, sp);
                         let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
                         match res_rest {
                           case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m)
