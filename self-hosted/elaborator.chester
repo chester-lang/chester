@@ -1013,6 +1013,6 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
     case Error(msg, span) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
     case Comment(msg, span) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
     case MacroDefCST(name, cases, span) => Pair.MkPair(AST.AstError("Macro in elab"), AST.AstRef("Any"));
-    case _ => Pair.MkPair(AST.AstError("Unknown CST"), AST.AstRef("Any"))
+    case _ => Pair.MkPair(AST.AstError("Unsupported CST in self-hosted elaborator"), AST.AstRef("Any"))
   }
 };
