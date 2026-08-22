@@ -1,0 +1,5 @@
+extension ListExt[T] on List T {
+  def get(self: List T, idx: Integer): T = list_get(self, idx);
+}
+let xs = [1, 2, 3];
+xs.get(0);
