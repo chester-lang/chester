@@ -480,7 +480,20 @@ def elab_variant(v: CST): Pair = {
             match lhs {
               case AppCST(inner_f, inner_args, sp3) => {
                 match inner_f {
-                  case Symbol(vname, sp4) => Pair.MkPair(vname, Pair.MkPair(list_empty[AST](), ret_ty));
+                  case Symbol(vname, sp4) => {
+                    let fix elab_fields (fs : List CST) : List AST = {
+                      if int_eq(list_length(fs), 0) then list_empty[AST]()
+                      else {
+                        let f0 = list_get(fs, 0);
+                        let rest = elab_fields(advance(fs));
+                        let f0_res = elaborate(list_empty[Pair](), f0, OptionAST.NoneAST());
+                        match f0_res {
+                          case MkPair(f_ast, f_ty) => list_insert_first(rest, f_ast)
+                        }
+                      }
+                    } in
+                    Pair.MkPair(vname, Pair.MkPair(elab_fields(inner_args), ret_ty))
+                  };
                   case _ => Pair.MkPair("unknown", Pair.MkPair(list_empty[AST](), ret_ty))
                 }
               };
