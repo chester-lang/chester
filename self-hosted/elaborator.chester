@@ -906,14 +906,20 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
           let funcAst_res = elaborate(env, inner_func, OptionAST.NoneAST());
           match funcAst_res {
             case MkPair(fAst, fTy) => {
-              let args_res = elab_check_args(env, fTy, args);
+              let targsAst_res = elab_check_targs(env, targs);
+              let typed_fAst = AST.AstTypeApp(fAst, targsAst_res);
+              let typed_fTy = match fTy {
+                case AstFunTy(type_params, params, ret_ty, effs) => ret_ty;
+                case _ => fTy
+              };
+              let args_res = elab_check_args(env, typed_fTy, args);
               match args_res {
                 case MkPair(argsAst, argsTy) => {
                   match expected {
                     case SomeAST(exp) => unify(100, argsTy, exp);
                     case NoneAST => ()
                   };
-                  Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
+                  Pair.MkPair(AST.AstApp(typed_fAst, argsAst), argsTy)
                 }
               }
             }
