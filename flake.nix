@@ -68,6 +68,7 @@
         pkgs.writeShellScriptBin "formatter" ''
           ${pkgs.nixfmt-rfc-style}/bin/nixfmt flake.nix
           ${pkgs.ocamlformat}/bin/ocamlformat -i $(find bin test -name "*.ml" -o -name "*.mli")
+          ${pkgs.ocamlPackages.dune_3}/bin/dune exec bin/chester_fmt.exe -- $(find self-hosted stdlib tests -name "*.chester")
         ''
       );
     };

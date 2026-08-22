@@ -1,12 +1,17 @@
-macro swap {
-  case (a, b) => {
-    let tmp = a;
-    let a = b;
-    let b = tmp;
-  }
+{
+  macro swap {
+    case (a, b) => {
+      let tmp = a;
+      let a = b;
+      let b = tmp;
+      Unit
+    };
+    Unit
+  } let tmp = 42;
+  let a = 1;
+  let b = 2;
+  swap (a, b);
+  tmp;
+  // // Should still be 42, not overwritten by macro's `tmp`
+  Unit
 }
-let tmp = 42;
-let a = 1;
-let b = 2;
-swap(a, b);
-tmp; // Should still be 42, not overwritten by macro's `tmp`

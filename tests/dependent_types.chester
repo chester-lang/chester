@@ -1,2 +1,5 @@
-def my_id(T: Type, x: T): T = x;
-let a = my_id(Int, 42);
+{
+  def my_id (T : Type, x : T) : T = x;
+  let a = my_id (Int, 42);
+  Unit
+}

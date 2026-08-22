@@ -1,25 +1,29 @@
-// Chester Concrete Syntax Tree (CST)
-enum CST {
-  case Symbol(name: String, span: Span);
-  case Tuple(elements: List (CST), span: Span);
-  case ListLiteral(elements: List (CST), span: Span);
-  case Block(elements: List (CST), tail: List (CST), span: Span);
-  case StringLiteral(value: String, span: Span);
-  case IntegerLiteral(value: String, span: Span);
-  case SeqOf(elements: List (CST), span: Span);
-  case FieldAccess(expr: CST, field: String, span: Span);
-  case Comment(text: String, span: Span);
-  case Error(msg: String, span: Span);
-  // Macro expanded nodes
-  case LetCST(name: String, value: CST, next: CST, span: Span);
-  case IfCST(cond: CST, then_branch: CST, else_branch: CST, span: Span);
-  case DefCST(name: String, type_params: List (String), params: List (CST), ret_ty: CST, body: CST, span: Span);
-  case LamCST(arg_name: String, opt_arg_ty: CST, body: CST, span: Span);
-  case AppCST(func: CST, args: List (CST), span: Span);
-  case TypeAppCST(func: CST, targs: List (CST), span: Span);
-  case EnumCST(name: String, type_params: List (String), variants: List (CST), span: Span);
-  case MatchCST(expr: CST, cases: List (CST), span: Span);
-  case RecordCST(name: String, type_params: List (String), fields: List (CST), span: Span);
-  case MacroDefCST(name: String, cases: List (CST), span: Span);
-  case ExtensionCST(name: String, type_params: List (String), target_ty: CST, methods: List (CST), span: Span);
-};
+{
+  // // Chester Concrete Syntax Tree (CST)
+  enum CST {
+    case Symbol (name : String, span : Span);
+    case Tuple (elements : List (CST), span : Span);
+    case ListLiteral (elements : List (CST), span : Span);
+    case Block (elements : List (CST), tail : List (CST), span : Span);
+    case StringLiteral (value : String, span : Span);
+    case IntegerLiteral (value : String, span : Span);
+    case SeqOf (elements : List (CST), span : Span);
+    case FieldAccess (expr : CST, field : String, span : Span);
+    case Comment (text : String, span : Span);
+    case Error (msg : String, span : Span);
+    // // Macro expanded nodes
+    case LetCST (name : String, value : CST, next : CST, span : Span);
+    case IfCST (cond : CST, then_branch : CST, else_branch : CST, span : Span);
+    case DefCST (name : String, type_params : List (String), params : List (CST), ret_ty : CST, body : CST, span : Span);
+    case LamCST (arg_name : String, opt_arg_ty : CST, body : CST, span : Span);
+    case AppCST (func : CST, args : List (CST), span : Span);
+    case TypeAppCST (func : CST, targs : List (CST), span : Span);
+    case EnumCST (name : String, type_params : List (String), variants : List (CST), span : Span);
+    case MatchCST (expr : CST, cases : List (CST), span : Span);
+    case RecordCST (name : String, type_params : List (String), fields : List (CST), span : Span);
+    case MacroDefCST (name : String, cases : List (CST), span : Span);
+    case ExtensionCST (name : String, type_params : List (String), target_ty : CST, methods : List (CST), span : Span);
+    Unit
+  };
+  Unit
+}

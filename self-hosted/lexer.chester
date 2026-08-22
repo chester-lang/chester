@@ -1,123 +1,113 @@
-enum TokenKind {
-  case Identifier;
-  case IntegerLit;
-  case StringLit;
-  case Symbol(value: String);
-  case Whitespace;
-  case Comment(text: String);
-  case EOF;
-};
-
-record Span(
-  start: Integer,
-  end: Integer,
-  context: List (Integer)
-);
-
-record Token(
-  kind: TokenKind,
-  text: String,
-  span: Span
-);
-
-def is_whitespace(c: String): Bool = {
-  let is_space = string_eq(c, " ");
-  let is_nl    = string_eq(c, "\n");
-  let is_tab   = string_eq(c, "\t");
-  let is_cr    = string_eq(c, "\r");
-  bool_or(is_space, bool_or(is_nl, bool_or(is_tab, is_cr)))
-};
-
-def is_digit(c: String): Bool = {
-  let is_0 = string_eq(c, "0");
-  let is_1 = string_eq(c, "1");
-  let is_2 = string_eq(c, "2");
-  let is_3 = string_eq(c, "3");
-  let is_4 = string_eq(c, "4");
-  let is_5 = string_eq(c, "5");
-  let is_6 = string_eq(c, "6");
-  let is_7 = string_eq(c, "7");
-  let is_8 = string_eq(c, "8");
-  let is_9 = string_eq(c, "9");
-  bool_or(is_0, bool_or(is_1, bool_or(is_2, bool_or(is_3, bool_or(is_4, bool_or(is_5, bool_or(is_6, bool_or(is_7, bool_or(is_8, is_9)))))))))
-};
-
-def is_symbol(c: String): Bool = {
-  let is_lparen   = string_eq(c, "(");
-  let is_rparen   = string_eq(c, ")");
-  let is_lbrace   = string_eq(c, "{");
-  let is_rbrace   = string_eq(c, "}");
-  let is_lbracket = string_eq(c, "[");
-  let is_rbracket = string_eq(c, "]");
-  let is_dot      = string_eq(c, ".");
-  let is_comma    = string_eq(c, ",");
-  let is_semi     = string_eq(c, ";");
-  let is_colon    = string_eq(c, ":");
-  let is_eq       = string_eq(c, "=");
-  let is_plus     = string_eq(c, "+");
-  let is_minus    = string_eq(c, "-");
-  let is_star     = string_eq(c, "*");
-  let is_slash    = string_eq(c, "/");
-  let is_lt       = string_eq(c, "<");
-  let is_gt       = string_eq(c, ">");
-  let b1 = bool_or(is_lparen,   bool_or(is_rparen,   bool_or(is_lbrace,   is_rbrace)));
-  let b2 = bool_or(is_lbracket, bool_or(is_rbracket, bool_or(is_dot,      is_comma)));
-  let b3 = bool_or(is_semi,     bool_or(is_colon,    bool_or(is_eq,       is_plus)));
-  let b4 = bool_or(is_minus,    bool_or(is_star,     bool_or(is_slash,    bool_or(is_lt, is_gt))));
-  bool_or(b1, bool_or(b2, bool_or(b3, b4)))
-};
-
-def is_alpha(c: String): Bool = {
-  // Not whitespace, not digit, not symbol, not empty
-  let not_ws    = bool_not(is_whitespace(c));
-  let not_dig   = bool_not(is_digit(c));
-  let not_empty = bool_not(string_eq(c, ""));
-  bool_and(not_ws, bool_and(not_dig, bool_and(not_empty, bool_not(is_symbol(c)))))
-};
-
-def lex_whitespace(source: String, idx: Integer, len: Integer): Integer = {
-  if int_eq(idx, len) then idx
-  else {
-    let c = string_char_at(source, idx);
-    if is_whitespace(c) then lex_whitespace(source, idx + 1, len) else idx
-  }
-};
-
-def lex_number(source: String, idx: Integer, len: Integer): Integer = {
-  if int_eq(idx, len) then idx
-  else {
-    let c = string_char_at(source, idx);
-    if is_digit(c) then lex_number(source, idx + 1, len) else idx
-  }
-};
-
-def lex_identifier(source: String, idx: Integer, len: Integer): Integer = {
-  if int_eq(idx, len) then idx
-  else {
-    let c = string_char_at(source, idx);
-    if is_alpha(c) then lex_identifier(source, idx + 1, len) else idx
-  }
-};
-
-def lex_string(source: String, idx: Integer, len: Integer): Integer = {
-  if int_eq(idx, len) then idx
-  else {
-    let c = string_char_at(source, idx);
-    if string_eq(c, "\"") then idx + 1  // End of string
-    else if string_eq(c, "\\") then lex_string(source, idx + 2, len)  // Skip escaped char
+{
+  enum TokenKind {
+    case Identifier;
+    case IntegerLit;
+    case StringLit;
+    case Symbol (value : String);
+    case Whitespace;
+    case Comment (text : String);
+    case EOF;
+    Unit
+  };
+  record Span (start : Integer, end : Integer, context : List (Integer));
+  record Token (kind : TokenKind, text : String, span : Span);
+  def is_whitespace (c : String) : Bool = {
+    let is_space = string_eq (c, " ");
+    let is_nl = string_eq (c, "\n");
+    let is_tab = string_eq (c, "\t");
+    let is_cr = string_eq (c, "\r");
+    bool_or (is_space, bool_or (is_nl, bool_or (is_tab, is_cr)));
+    Unit
+  };
+  def is_digit (c : String) : Bool = {
+    let is_0 = string_eq (c, "0");
+    let is_1 = string_eq (c, "1");
+    let is_2 = string_eq (c, "2");
+    let is_3 = string_eq (c, "3");
+    let is_4 = string_eq (c, "4");
+    let is_5 = string_eq (c, "5");
+    let is_6 = string_eq (c, "6");
+    let is_7 = string_eq (c, "7");
+    let is_8 = string_eq (c, "8");
+    let is_9 = string_eq (c, "9");
+    bool_or (is_0, bool_or (is_1, bool_or (is_2, bool_or (is_3, bool_or (is_4, bool_or (is_5, bool_or (is_6, bool_or (is_7, bool_or (is_8, is_9)))))))));
+    Unit
+  };
+  def is_symbol (c : String) : Bool = {
+    let is_lparen = string_eq (c, "(");
+    let is_rparen = string_eq (c, ")");
+    let is_lbrace = string_eq (c, "{");
+    let is_rbrace = string_eq (c, "}");
+    let is_lbracket = string_eq (c, "[");
+    let is_rbracket = string_eq (c, "]");
+    let is_dot = string_eq (c, ".");
+    let is_comma = string_eq (c, ",");
+    let is_semi = string_eq (c, ";");
+    let is_colon = string_eq (c, ":");
+    let is_eq = string_eq (c, "=");
+    let is_plus = string_eq (c, "+");
+    let is_minus = string_eq (c, "-");
+    let is_star = string_eq (c, "*");
+    let is_slash = string_eq (c, "/");
+    let is_lt = string_eq (c, "<");
+    let is_gt = string_eq (c, ">");
+    let b1 = bool_or (is_lparen, bool_or (is_rparen, bool_or (is_lbrace, is_rbrace)));
+    let b2 = bool_or (is_lbracket, bool_or (is_rbracket, bool_or (is_dot, is_comma)));
+    let b3 = bool_or (is_semi, bool_or (is_colon, bool_or (is_eq, is_plus)));
+    let b4 = bool_or (is_minus, bool_or (is_star, bool_or (is_slash, bool_or (is_lt, is_gt))));
+    bool_or (b1, bool_or (b2, bool_or (b3, b4)));
+    Unit
+  };
+  def is_alpha (c : String) : Bool = {
+    // // Not whitespace, not digit, not symbol, not empty
+    let not_ws = bool_not (is_whitespace (c));
+    let not_dig = bool_not (is_digit (c));
+    let not_empty = bool_not (string_eq (c, ""));
+    bool_and (not_ws, bool_and (not_dig, bool_and (not_empty, bool_not (is_symbol (c)))));
+    Unit
+  };
+  def lex_whitespace (source : String, idx : Integer, len : Integer) : Integer = {
+    if int_eq (idx, len) then idx else {
+      let c = string_char_at (source, idx);
+      if is_whitespace (c) then lex_whitespace (source, idx + 1, len) else idx;
+      Unit
+    };
+    Unit
+  };
+  def lex_number (source : String, idx : Integer, len : Integer) : Integer = {
+    if int_eq (idx, len) then idx else {
+      let c = string_char_at (source, idx);
+      if is_digit (c) then lex_number (source, idx + 1, len) else idx;
+      Unit
+    };
+    Unit
+  };
+  def lex_identifier (source : String, idx : Integer, len : Integer) : Integer = {
+    if int_eq (idx, len) then idx else {
+      let c = string_char_at (source, idx);
+      if is_alpha (c) then lex_identifier (source, idx + 1, len) else idx;
+      Unit
+    };
+    Unit
+  };
+  def lex_string (source : String, idx : Integer, len : Integer) : Integer = {
+    if int_eq (idx, len) then idx else {
+      let c = string_char_at (source, idx);
+      if string_eq (c, "\" ") then idx + 1  // End of string
+    else if string_eq(c, " \ \ ") then lex_string(source, idx + 2, len)  // Skip escaped char
     else lex_string(source, idx + 1, len)
   }
 };
 
 def check_keyword(text: String): TokenKind = {
   // Currently all identifiers map to Identifier; keywords can be added here
-  if string_eq(text, "def") then TokenKind.Identifier
+  if string_eq(text, " def ") then TokenKind.Identifier
   else TokenKind.Identifier
 };
 
 def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): List (Token) = {
   if int_eq(idx, len)
-  then list_append(acc, Token(TokenKind.EOF, "", Span(idx, idx, list_empty[Integer]())))
+  then list_append(acc, Token(TokenKind.EOF, " ", Span(idx, idx, list_empty[Integer]())))
   else {
     let c = string_char_at(source, idx);
     if is_whitespace(c)
@@ -132,41 +122,44 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
       let tok     = Token(TokenKind.IntegerLit, text, Span(idx, end_idx, list_empty[Integer]()));
       lex_helper(source, end_idx, len, list_append(acc, tok))
     }
-    else if string_eq(c, "\"")
-    then {
-      let end_idx = lex_string(source, idx + 1, len);
-      let text    = string_substring(source, idx + 1, end_idx - 1);
-      let tok     = Token(TokenKind.StringLit, text, Span(idx, end_idx, list_empty[Integer]()));
-      lex_helper(source, end_idx, len, list_append(acc, tok))
-    }
-    else if is_symbol(c)
-    then {
-      let next_c = string_char_at(source, idx + 1);
-      if bool_and(string_eq(c, "="), string_eq(next_c, "="))
-      then {
-        let tok = Token(TokenKind.Symbol("=="), "==", Span(idx, idx + 2, list_empty[Integer]()));
-        lex_helper(source, idx + 2, len, list_append(acc, tok))
-      }
-      else {
-        let tok = Token(TokenKind.Symbol(c), c, Span(idx, idx + 1, list_empty[Integer]()));
-        lex_helper(source, idx + 1, len, list_append(acc, tok))
-      }
-    }
-    else {
-      let end_idx = lex_identifier(source, idx, len);
-      let text    = string_substring(source, idx, end_idx);
-      let kind    = check_keyword(text);
-      let tok     = Token(kind, text, Span(idx, end_idx, list_empty[Integer]()));
-      lex_helper(source, end_idx, len, list_append(acc, tok))
-    }
-  }
-};
-
-def lex(source: String): List (Token) = {
-  lex_helper(source, 0, string_length(source), list_empty[Token]())
-};
-
-def lexer_main(): Integer = {
-  let tokens = lex("def foo(x: Integer): String = {\n  let y = \"hello \\\"world\\\"\";\n  if (x == 5) { y } else { \"no\" }\n}");
-  list_length(tokens)
-};
+    else if string_eq(c, " \ "") then {
+        let end_idx = lex_string (source, idx + 1, len);
+        let text = string_substring (source, idx + 1, end_idx - 1);
+        let tok = Token (TokenKind . StringLit, text, Span (idx, end_idx, list_empty [Integer] ()));
+        lex_helper (source, end_idx, len, list_append (acc, tok));
+        Unit
+      } else if is_symbol (c) then {
+        let next_c = string_char_at (source, idx + 1);
+        if bool_and (string_eq (c, "="), string_eq (next_c, "=")) then {
+          let tok = Token (TokenKind . Symbol ("=="), "==", Span (idx, idx + 2, list_empty [Integer] ()));
+          lex_helper (source, idx + 2, len, list_append (acc, tok));
+          Unit
+        } else {
+          let tok = Token (TokenKind . Symbol (c), c, Span (idx, idx + 1, list_empty [Integer] ()));
+          lex_helper (source, idx + 1, len, list_append (acc, tok));
+          Unit
+        };
+        Unit
+      } else {
+        let end_idx = lex_identifier (source, idx, len);
+        let text = string_substring (source, idx, end_idx);
+        let kind = check_keyword (text);
+        let tok = Token (kind, text, Span (idx, end_idx, list_empty [Integer] ()));
+        lex_helper (source, end_idx, len, list_append (acc, tok));
+        Unit
+      };
+      Unit
+    };
+    Unit
+  };
+  def lex (source : String) : List (Token) = {
+    lex_helper (source, 0, string_length (source), list_empty [Token] ());
+    Unit
+  };
+  def lexer_main () : Integer = {
+    let tokens = lex ("def foo(x: Integer): String = {\n  let y = \" hello \ \ \ "world\\\" \ ";\n  if (x == 5) { y } else { \" no \ " }\n}");
+    list_length (tokens);
+    Unit
+  };
+  Unit
+}
