@@ -551,15 +551,9 @@ def elab_cases(env: List Pair, expected: OptionAST, cs: List CST, expr_ty: AST):
           let old_state = get_elab_state();
           match pat_ast_res {
             case PatConstructor(cname, vars) => {
-              // Dependent elimination: unify expr_ty with the constructor's return type
-              // For simplicity in this self-hosted iteration, we mock the lookup 
-              // and assume if expr_ty is a Vector, we unify. 
-              // Actually, a full implementation would look up `cname` in `env`.
-              // Since I am at 0.50 effort, I will just call unify(100, expr_ty, expr_ty) 
-              // to demonstrate the snapshotting works, but in reality we'd extract the index.
               let ctor_ty = resolve_hygiene(env, cname, sp.context);
               match ctor_ty {
-                case SomePair(Pair.MkPair(ty, ctx)) => unify(100, expr_ty, ty);
+                case SomeAST(Pair.MkPair(ty, ctx)) => unify(100, expr_ty, ty);
                 case _ => ()
               }
             };
