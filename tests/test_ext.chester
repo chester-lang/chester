@@ -1,14 +1,10 @@
-{
-  extension ListExt [T] on List T {
-    def get (self : List T, idx : Integer) : T = list_get (self, idx);
-    Unit
-  } let xs = [1, 2, 3];
-  extension StringExt on String {
-    def get (self : String, idx : Integer) : String = string_char_at (self, idx);
-    Unit
-  };
-  xs . get (0);
-  let s = "abc";
-  s . get (0);
-  Unit
+extension ListExt[T] on List T {
+  def get(self: List T, idx: Integer): T = list_get(self, idx);
 }
+extension StringExt on String {
+  def get(self: String, idx: Integer): String = string_char_at(self, idx);
+}
+let xs = [1, 2, 3];
+xs.get(0);
+let s = "abc";
+s.get(0);

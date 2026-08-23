@@ -22,12 +22,21 @@ let write_file filename contents =
     ~finally:(fun () -> close_out_noerr ch)
     (fun () -> output_string ch contents)
 
-let format_file filename =
-  let source = read_file filename in
+let format_source filename source =
   let tokens = Lexer.tokenize filename source in
   let cst = parse tokens in
-  let formatted = string_of_char_list (format_cst 1000 0 cst) ^ "\n" in
-  if formatted <> source then write_file filename formatted
+  string_of_char_list (format_cst 1000 0 cst) ^ "\n"
+
+let format_file filename =
+  let source = read_file filename in
+  let formatted = format_source filename source in
+  if formatted <> source then
+    let reformatted = format_source filename formatted in
+    if reformatted = formatted then write_file filename formatted
+    else
+      prerr_endline
+        ("chester_fmt: skipping " ^ filename
+       ^ ": formatter output is not idempotent yet")
 
 let () =
   match Array.to_list Sys.argv with

@@ -1,6 +1,3 @@
-{
-  infixl "+";
-  infixl "-" same_as "+";
-  infixl "*" tighter_than "+";
-  Unit
-}
+infixl "+";
+infixl "-" same_as "+";
+infixl "*" tighter_than "+";
