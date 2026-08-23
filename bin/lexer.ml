@@ -9,16 +9,16 @@ let char_list_of_string s =
   aux (String.length s - 1) []
 
 let make_span file_name start_idx _end_idx =
-  let pos =
+  let make_pos idx =
     {
-      index = { unicode = start_idx; utf16 = start_idx };
+      index = { unicode = idx; utf16 = idx };
       line = 0;
-      column = { unicode = 0; utf16 = 0 };
+      column = { unicode = idx; utf16 = idx };
     }
   in
   {
     file_name = char_list_of_string file_name;
-    range = { start_pos = pos; end_pos = pos };
+    range = { start_pos = make_pos start_idx; end_pos = make_pos _end_idx };
     context = [];
   }
 

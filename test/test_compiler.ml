@@ -70,7 +70,7 @@ let%expect_test "parse shape recovery" =
       def foo(a, b) = {
         a + b;
         @ @;
-        Unit;
+        Unit
       };
       [1, 2, 3];
     }
@@ -79,7 +79,7 @@ let%expect_test "parse shape recovery" =
 let%expect_test "format program from parser cst" =
   check_format
     "extension ListExt[T] on List T { def get(self: List T, idx: Integer): T = \
-     list_get(self, idx); }\n\
+     list_get(self, idx); };\n\
      let xs=[1,2,3];\n\
      xs.get(0);\n";
   [%expect
@@ -102,9 +102,9 @@ let%expect_test "format comments from parser cst" =
     let tmp = 1;
     // inline
     def f(x: Integer): Integer = if x then {
-      1;
+      1
     } else {
-      0;
+      0
     };
     |}]
 

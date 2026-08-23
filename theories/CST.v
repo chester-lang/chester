@@ -123,7 +123,8 @@ Inductive ParserCST : CST -> Prop :=
   | ParserTuple : forall elems sp, Forall ParserCST elems -> ParserCST (Tuple elems sp)
   | ParserList : forall elems sp, Forall ParserCST elems -> ParserCST (ListLiteral elems sp)
   | ParserSeq : forall elems sp, Forall ParserCST elems -> ParserCST (SeqOf elems sp)
-  | ParserBlock : forall stmts sp, 
-      Forall ParserCST stmts -> 
-      ParserCST (Block stmts (Symbol "Unit"%string empty_span) sp)
+  | ParserBlock : forall stmts tail sp,
+      Forall ParserCST stmts ->
+      ParserCST tail ->
+      ParserCST (Block stmts tail sp)
   | ParserComment : forall text sp, ParserCST (CommentCST text sp).

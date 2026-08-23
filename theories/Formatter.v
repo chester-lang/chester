@@ -27,6 +27,19 @@ Fixpoint join_strings (sep : string) (ls : list string) : string :=
 Definition string_eqb (left right : string) : bool :=
   if string_dec left right then true else false.
 
+Definition with_utf16_eqb (left right : WithUTF16) : bool :=
+  Nat.eqb (unicode left) (unicode right) && Nat.eqb (utf16 left) (utf16 right).
+
+Definition pos_eqb (left right : Pos) : bool :=
+  with_utf16_eqb (index left) (index right) &&
+  Nat.eqb (line left) (line right) &&
+  with_utf16_eqb (column left) (column right).
+
+Definition span_is_empty (span : Span) : bool :=
+  string_eqb (file_name span) "" &&
+  pos_eqb (start_pos (range span)) zero_pos &&
+  pos_eqb (end_pos (range span)) zero_pos.
+
 Fixpoint string_in (needle : string) (haystack : list string) : bool :=
   match haystack with
   | [] => false
@@ -40,18 +53,9 @@ Definition symbol_is (name : string) (expr : CST) : bool :=
   | _ => false
   end.
 
-Definition is_unit_tail (expr : CST) : bool := symbol_is "Unit" expr.
-
-Definition statement_starters : list string :=
-  [ "let"; "def"; "enum"; "record"; "effect"; "macro"; "extension";
-    "infix"; "infixl"; "infixr"; "prefix"; "postfix" ].
-
-Definition starts_statement (expr : CST) : bool :=
+Definition is_unit_tail (expr : CST) : bool :=
   match expr with
-  | CommentCST _ _ => true
-  | Symbol name _ => string_in name statement_starters
-  | SeqOf (Symbol name _ :: _) _ => string_in name statement_starters
-  | SeqOf (CommentCST _ _ :: _) _ => true
+  | Symbol name span => string_eqb name "Unit" && span_is_empty span
   | _ => false
   end.
 
@@ -60,36 +64,6 @@ Definition stmt_from_seq (elements : list CST) : CST :=
   | [] => Symbol "Empty" empty_span
   | [single] => single
   | _ => SeqOf elements empty_span
-  end.
-
-Fixpoint split_seq_after_blocks (acc : list CST) (elements : list CST) : list CST :=
-  match elements with
-  | [] =>
-      match rev acc with
-      | [] => []
-      | chunk => [stmt_from_seq chunk]
-      end
-  | element :: rest =>
-      let acc' := element :: acc in
-      match element, rest with
-      | Block _ _ _, next :: _ =>
-          if starts_statement next
-          then stmt_from_seq (rev acc') :: split_seq_after_blocks [] rest
-          else split_seq_after_blocks acc' rest
-      | _, _ => split_seq_after_blocks acc' rest
-      end
-  end.
-
-Definition split_stmt (stmt : CST) : list CST :=
-  match stmt with
-  | SeqOf elements _ => split_seq_after_blocks [] elements
-  | _ => [stmt]
-  end.
-
-Fixpoint split_all_stmts (stmts : list CST) : list CST :=
-  match stmts with
-  | [] => []
-  | stmt :: rest => split_stmt stmt ++ split_all_stmts rest
   end.
 
 Definition format_comment (text : string) : string :=
@@ -125,17 +99,18 @@ Definition tight_before_symbols : list string :=
 Definition tight_after_symbols : list string := [ "."; backslash ].
 
 Definition spaced_group_after_symbols : list string :=
-  [ "="; "=>"; "->"; ":"; ","; ";"; "case"; "if"; "then"; "else";
-    "match"; "with"; "on"; "handle"; "perform"; "let"; "def"; "enum";
-    "record"; "effect"; "macro"; "extension"; "infix"; "infixl"; "infixr";
-    "prefix"; "postfix"; "+"; "-"; "*"; "/"; "%"; "=="; "!="; "<";
+  [ "="; "=>"; "->"; ":"; ","; ";"; "+"; "-"; "*"; "/"; "%"; "=="; "!="; "<";
     ">"; "<="; ">="; "&&"; "||"; "|"; "&" ].
 
-Definition needs_space_before_group (prev : CST) : bool :=
+Definition cst_adjacent (left right : CST) : bool :=
+  pos_eqb (end_pos (range (get_span left))) (start_pos (range (get_span right))).
+
+Definition needs_space_before_group (prev current : CST) : bool :=
   match prev with
   | Symbol name _ =>
       if string_in name tight_after_symbols then false
-      else string_in name spaced_group_after_symbols
+      else if string_in name spaced_group_after_symbols then true
+      else negb (cst_adjacent prev current)
   | Tuple _ _ => false
   | ListLiteral _ _ => false
   | AppCST _ _ _ => false
@@ -149,8 +124,8 @@ Definition needs_space (prev : option CST) (current : CST) : bool :=
   | None => false
   | Some p =>
       match current with
-      | Tuple _ _ => needs_space_before_group p
-      | ListLiteral _ _ => needs_space_before_group p
+      | Tuple _ _ => needs_space_before_group p current
+      | ListLiteral _ _ => needs_space_before_group p current
       | Symbol name _ =>
           if string_in name tight_before_symbols then false
           else
@@ -200,7 +175,7 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
                 List.app body_lines (map format_comment_cst comments)
             | _ => [format_cst f next_indent stmt ++ ";"]
             end in
-          let stmt_lines := List.concat (map format_stmt_line (split_all_stmts elements)) in
+          let stmt_lines := List.concat (map format_stmt_line elements) in
           let tail_lines := if is_unit_tail tail then [] else [format_cst f next_indent tail] in
           let lines := List.app stmt_lines tail_lines in
           match lines with
@@ -369,7 +344,7 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       end
   end.
 
-Fixpoint format_program_stmts (fuel : nat) (indent : nat) (stmts : list CST) : string :=
+Fixpoint format_program_body (fuel : nat) (indent : nat) (stmts : list CST) (tail : CST) : string :=
   match fuel with
   | 0 => "/* ERROR: formatter out of fuel */"
   | S f =>
@@ -386,14 +361,14 @@ Fixpoint format_program_stmts (fuel : nat) (indent : nat) (stmts : list CST) : s
             List.app body_lines (map format_comment_cst comments)
         | _ => [format_cst f indent stmt ++ ";"]
         end in
-      join_strings (newline ++ gen_spaces indent)
-        (List.concat (map format_stmt_line (split_all_stmts stmts)))
+      let stmt_lines := List.concat (map format_stmt_line stmts) in
+      let tail_lines := if is_unit_tail tail then [] else [format_cst f indent tail] in
+      join_strings (newline ++ gen_spaces indent) (List.app stmt_lines tail_lines)
   end.
 
 Definition format_program (fuel : nat) (expr : CST) : string :=
   match expr with
   | Block stmts tail _ =>
-      if is_unit_tail tail then format_program_stmts fuel 0 stmts
-      else format_cst fuel 0 expr
+      format_program_body fuel 0 stmts tail
   | _ => format_cst fuel 0 expr
   end.
