@@ -33,6 +33,7 @@ Extraction "Compiler.ml"
   Chester.Elaborator.unify
   Chester.Elaborator.init_elab_state
   Chester.Formatter.format_cst
+  Chester.Formatter.format_program
   Chester.Backend.emit_ts 
   Chester.Backend.emit_go
   Chester.TypeScriptInterop.ts_to_chester

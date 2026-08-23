@@ -1,6 +1,7 @@
 extension ListExt[T] on List T {
   def get(self: List T, idx: Integer): T = list_get(self, idx);
 }
+
 extension StringExt on String {
   def get(self: String, idx: Integer): String = string_char_at(self, idx);
 }

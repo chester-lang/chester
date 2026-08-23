@@ -21,6 +21,20 @@ Fixpoint join_strings (sep : string) (ls : list string) : string :=
   | x :: xs => x ++ sep ++ join_strings sep xs
   end.
 
+Definition newline : string := String (ascii_of_nat 10) "".
+
+Definition is_unit_tail (expr : CST) : bool :=
+  match expr with
+  | Symbol name _ => if string_dec name "Unit" then true else false
+  | _ => false
+  end.
+
+Definition format_comment (text : string) : string :=
+  match text with
+  | String "/"%char (String "/"%char _) => text
+  | _ => "// " ++ text
+  end.
+
 (* 
   The Pretty Printer / Code Formatter 
   Takes a fuel, current indentation level, and CST to format.
@@ -34,7 +48,7 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | StringLiteral val _ => """" ++ val ++ """"
       | IntegerLiteral val _ => val
       | BoolLiteral b _ => if b then "true" else "false"
-      | CommentCST text _ => "// " ++ text
+      | CommentCST text _ => format_comment text
       
       | Tuple elements _ => 
           "(" ++ join_strings ", " (map (format_cst f indent) elements) ++ ")"
@@ -43,22 +57,22 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       
       | Block elements tail _ =>
           let next_indent := indent + 2 in
-          let nl_indent := String (ascii_of_nat 10) (gen_spaces next_indent) in
+          let nl_indent := newline ++ gen_spaces next_indent in
           let fix format_stmts (stmts : list CST) : string :=
             match stmts with
             | [] => ""
             | CommentCST text _ :: rest =>
-                "// " ++ text ++ nl_indent ++ format_stmts rest
+                format_comment text ++ nl_indent ++ format_stmts rest
             | s :: rest =>
                 format_cst f next_indent s ++ ";" ++ nl_indent ++ format_stmts rest
             end
           in
           let formatted_elems := format_stmts elements in
-          let formatted_tail := format_cst f next_indent tail in
+          let formatted_tail := if is_unit_tail tail then "" else format_cst f next_indent tail in
           "{" ++ nl_indent ++ 
           formatted_elems ++ 
           formatted_tail ++
-          String (ascii_of_nat 10) (gen_spaces indent) ++ "}"
+          newline ++ gen_spaces indent ++ "}"
           
       | SeqOf elements _ =>
           let formatted_elems := map (format_cst f indent) elements in
@@ -66,7 +80,7 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
           
       | LetCST name val body _ =>
           "let " ++ name ++ " = " ++ format_cst f indent val ++ ";" ++ 
-          String (ascii_of_nat 10) (gen_spaces indent) ++ format_cst f indent body
+          newline ++ gen_spaces indent ++ format_cst f indent body
           
       | IfCST cond thenB elseB _ =>
           "if " ++ format_cst f indent cond ++ 
@@ -113,11 +127,11 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
                                    end
                                end in
                 "case " ++ pat_str ++ " => " ++ format_cst f (indent + 2) body ++ ";" ++
-                (match rest with | [] => "" | _ => String (ascii_of_nat 10) (gen_spaces (indent + 2)) ++ format_cases rest end)
+                (match rest with | [] => "" | _ => newline ++ gen_spaces (indent + 2) ++ format_cases rest end)
             end
           in
-          "match " ++ format_cst f indent expr ++ " {" ++ String (ascii_of_nat 10) (gen_spaces (indent + 2)) ++ 
-          format_cases cases ++ String (ascii_of_nat 10) (gen_spaces indent) ++ "}"
+          "match " ++ format_cst f indent expr ++ " {" ++ newline ++ gen_spaces (indent + 2) ++
+          format_cases cases ++ newline ++ gen_spaces indent ++ "}"
           
       | RecordCST name type_params fields _ =>
           "record " ++ name ++ " { ... }"
@@ -132,4 +146,29 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | HandleCST body eff handlers _ => "handle { " ++ format_cst f indent body ++ " } with " ++ eff ++ " { ... }"
       | Error msg _ => "/* ERROR: " ++ msg ++ " */" 
       end
+  end.
+
+Fixpoint format_program_stmts (fuel : nat) (indent : nat) (stmts : list CST) : string :=
+  match fuel with
+  | 0 => "/* ERROR: formatter out of fuel */"
+  | S f =>
+      match stmts with
+      | [] => ""
+      | [CommentCST text _] => format_comment text
+      | [stmt] => format_cst f indent stmt ++ ";"
+      | CommentCST text _ :: rest =>
+          format_comment text ++ newline ++ gen_spaces indent ++
+          format_program_stmts f indent rest
+      | stmt :: rest =>
+          format_cst f indent stmt ++ ";" ++ newline ++ gen_spaces indent ++
+          format_program_stmts f indent rest
+      end
+  end.
+
+Definition format_program (fuel : nat) (expr : CST) : string :=
+  match expr with
+  | Block stmts tail _ =>
+      if is_unit_tail tail then format_program_stmts fuel 0 stmts
+      else format_cst fuel 0 expr
+  | _ => format_cst fuel 0 expr
   end.

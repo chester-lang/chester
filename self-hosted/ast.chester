@@ -16,7 +16,6 @@ enum AST {
   case AstTypeApp(func: AST, args: List AST);
   case AstLam(argName: String, argTy: AST, body: AST);
   case AstPi(argName: String, argTy: AST, retTy: AST, effs: List String);
-
   case AstLet(name: String, value: AST);
   case AstIf(cond: AST, then_branch: AST, else_branch: AST);
   case AstDef(name: String, type_params: List String, params: List Pair, ret_ty: AST, body: AST);
@@ -26,7 +25,6 @@ enum AST {
   case AstRecord(name: String, type_params: List String, fields: List Pair);
   case AstFieldAccess(expr: AST, field_name: String);
   case AstExtension(ext_name: String, type_params: List String, target_ty: AST, methods: List AST);
-
   case AstSpan(span: Span, inner: AST);
   case AstError(msg: String);
 };

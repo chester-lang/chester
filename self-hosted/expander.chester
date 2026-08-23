@@ -1,9 +1,7 @@
-
 // The Self-Hosted Macro Expander
-
 enum PatternCST {
   case PatWildcardCST(span: Span);
-  case PatConstructorCST(vname: String, vars: List (String), span: Span);
+  case PatConstructorCST(vname: String, vars: List(String), span: Span);
   case PatVarCST(vname: String, span: Span);
 };
 
@@ -33,21 +31,19 @@ enum RelResult {
 };
 
 enum OpEnvEntry {
-  case OpEntry(name: String, fixity: OpFixity, rels: List (OpRel));
+  case OpEntry(name: String, fixity: OpFixity, rels: List(OpRel));
 };
 
 enum MacroEnvEntry {
-  case Entry(name: String, cases: List (MacroCase));
+  case Entry(name: String, cases: List(MacroCase));
 };
 
 enum SubstEntry {
   case Sub(name: String, value: CST);
 };
-
 def add_mark_span(mark: Integer, s: Span): Span = {
   Span(s.start, s.end, list_insert_first(s.context, mark))
 };
-
 def add_mark_cst(mark: Integer, c: CST): CST = {
   match c {
     case Symbol(n, s) => Symbol(n, add_mark_span(mark, s));
@@ -73,64 +69,51 @@ def add_mark_cst(mark: Integer, c: CST): CST = {
     case _ => c
   }
 };
-
-def add_mark_cst_list(mark: Integer, ls: List (CST)): List (CST) = {
-  if int_eq(list_length(ls), 0) then list_empty[CST]()
-  else list_insert_first(add_mark_cst_list(mark, advance(ls)), add_mark_cst(mark, list_get(ls, 0)))
+def add_mark_cst_list(mark: Integer, ls: List(CST)): List(CST) = {
+  if int_eq(list_length(ls), 0) then list_empty[CST]() else list_insert_first(add_mark_cst_list(mark, advance(ls)), add_mark_cst(mark, list_get(ls, 0)))
 };
 
 enum MacroLookupResult {
-  case Found(cases: List (MacroCase));
+  case Found(cases: List(MacroCase));
   case NotFound;
 };
-
-def lookup_macro(name: String, env: List (MacroEnvEntry)): MacroLookupResult = {
-  if int_eq(list_length(env), 0) then MacroLookupResult.NotFound()
-  else {
+def lookup_macro(name: String, env: List(MacroEnvEntry)): MacroLookupResult = {
+  if int_eq(list_length(env), 0) then MacroLookupResult.NotFound() else {
     let entry = list_get(env, 0);
     match entry {
       case Entry(n, cases) => {
-        if string_eq(name, n) then MacroLookupResult.Found(cases)
-        else lookup_macro(name, advance(env))
+        if string_eq(name, n) then MacroLookupResult.Found(cases) else lookup_macro(name, advance(env))
       };
       case _ => lookup_macro(name, advance(env))
     }
   }
 };
-
-def lookup_subst(n: String, subst: List (SubstEntry)): CST = {
-  if int_eq(list_length(subst), 0) then Error("Not found", Span(0,0,list_empty[Integer]()))
-  else {
+def lookup_subst(n: String, subst: List(SubstEntry)): CST = {
+  if int_eq(list_length(subst), 0) then Error("Not found", Span(0, 0, list_empty[Integer]())) else {
     let entry = list_get(subst, 0);
     match entry {
       case Sub(k, v) => {
-        if string_eq(n, k) then v
-        else lookup_subst(n, advance(subst))
+        if string_eq(n, k) then v else lookup_subst(n, advance(subst))
       };
       case _ => lookup_subst(n, advance(subst))
     }
   }
 };
-
-def has_subst(n: String, subst: List (SubstEntry)): Bool = {
-  if int_eq(list_length(subst), 0) then false
-  else {
+def has_subst(n: String, subst: List(SubstEntry)): Bool = {
+  if int_eq(list_length(subst), 0) then false else {
     let entry = list_get(subst, 0);
     match entry {
       case Sub(k, v) => {
-        if string_eq(n, k) then true
-        else has_subst(n, advance(subst))
+        if string_eq(n, k) then true else has_subst(n, advance(subst))
       };
       case _ => has_subst(n, advance(subst))
     }
   }
 };
-
-def subst_cst(subst: List (SubstEntry), c: CST): CST = {
+def subst_cst(subst: List(SubstEntry), c: CST): CST = {
   match c {
     case Symbol(n, s) => {
-      if has_subst(n, subst) then lookup_subst(n, subst)
-      else c
+      if has_subst(n, subst) then lookup_subst(n, subst) else c
     };
     case Tuple(elems, s) => Tuple(subst_cst_list(subst, elems), s);
     case ListLiteral(elems, s) => ListLiteral(subst_cst_list(subst, elems), s);
@@ -150,24 +133,19 @@ def subst_cst(subst: List (SubstEntry), c: CST): CST = {
     case _ => c
   }
 };
-
-def subst_cst_list(subst: List (SubstEntry), ls: List (CST)): List (CST) = {
-  if int_eq(list_length(ls), 0) then list_empty[CST]()
-  else list_insert_first(subst_cst_list(subst, advance(ls)), subst_cst(subst, list_get(ls, 0)))
+def subst_cst_list(subst: List(SubstEntry), ls: List(CST)): List(CST) = {
+  if int_eq(list_length(ls), 0) then list_empty[CST]() else list_insert_first(subst_cst_list(subst, advance(ls)), subst_cst(subst, list_get(ls, 0)))
 };
 
 enum ZipResult {
-  case Zipped(subst: List (SubstEntry));
+  case Zipped(subst: List(SubstEntry));
   case ZipFailed;
 };
-
-def zip_args(vs: List (String), as_: List (CST)): ZipResult = {
+def zip_args(vs: List(String), as_: List(CST)): ZipResult = {
   if int_eq(list_length(vs), 0) then {
-    if int_eq(list_length(as_), 0) then ZipResult.Zipped(list_empty[SubstEntry]())
-    else ZipResult.ZipFailed()
+    if int_eq(list_length(as_), 0) then ZipResult.Zipped(list_empty[SubstEntry]()) else ZipResult.ZipFailed()
   } else {
-    if int_eq(list_length(as_), 0) then ZipResult.ZipFailed()
-    else {
+    if int_eq(list_length(as_), 0) then ZipResult.ZipFailed() else {
       let v = list_get(vs, 0);
       let a = list_get(as_, 0);
       let tail_res = zip_args(advance(vs), advance(as_));
@@ -183,10 +161,8 @@ enum MacroMatchResult {
   case Matched(cst: CST);
   case NoMatch;
 };
-
-def apply_macro(cases: List (MacroCase), args: List (CST), mark: Integer): MacroMatchResult = {
-  if int_eq(list_length(cases), 0) then MacroMatchResult.NoMatch()
-  else {
+def apply_macro(cases: List(MacroCase), args: List(CST), mark: Integer): MacroMatchResult = {
+  if int_eq(list_length(cases), 0) then MacroMatchResult.NoMatch() else {
     let c = list_get(cases, 0);
     match c {
       case CasePair(pat, template) => {
@@ -206,35 +182,29 @@ def apply_macro(cases: List (MacroCase), args: List (CST), mark: Integer): Macro
     }
   }
 };
-
-def split_at_eq(acc: List (CST), ls: List (CST)): List (List (CST)) = {
-  if int_eq(list_length(ls), 0) then list_empty[List (CST)]()
-  else {
+def split_at_eq(acc: List(CST), ls: List(CST)): List(List(CST)) = {
+  if int_eq(list_length(ls), 0) then list_empty[List(CST)]() else {
     let x = list_get(ls, 0);
     let rest = advance(ls); // assuming advance is provided in TS mock
     match x {
       case Symbol(s, sp) => {
         if string_eq(s, "=") then {
-          let res = list_empty[List (CST)]();
+          let res = list_empty[List(CST)]();
           list_append(list_append(res, acc), rest)
-        }
-        else split_at_eq(list_append(acc, x), rest)
+        } else split_at_eq(list_append(acc, x), rest)
       };
       case _ => split_at_eq(list_append(acc, x), rest)
     }
   }
 };
-
-def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
-  if int_eq(list_length(elems), 0) then acc
-  else {
+def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
+  if int_eq(list_length(elems), 0) then acc else {
     let x = list_get(elems, 0);
     let rest = advance(elems);
     match x {
       case Symbol(s, sp) => {
         if string_eq(s, ".") then {
-          if int_eq(list_length(rest), 0) then collapse_apps(rest, list_append(acc, x))
-          else {
+          if int_eq(list_length(rest), 0) then collapse_apps(rest, list_append(acc, x)) else {
             let next_x = list_get(rest, 0);
             match next_x {
               case Symbol(field, sp2) => {
@@ -257,8 +227,7 @@ def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
       };
       case Tuple(args, sp) => {
         let acc_len = list_length(acc);
-        if int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x))
-        else {
+        if int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x)) else {
           let func = list_get(acc, int_sub(acc_len, 1));
           let new_acc = list_drop_last(acc);
           let node = AppCST(func, args, sp);
@@ -267,8 +236,7 @@ def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
       };
       case ListLiteral(targs, sp) => {
         let acc_len = list_length(acc);
-        if int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x))
-        else {
+        if int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x)) else {
           let func = list_get(acc, int_sub(acc_len, 1));
           let new_acc = list_drop_last(acc);
           let node = TypeAppCST(func, targs, sp);
@@ -279,30 +247,23 @@ def collapse_apps(elems: List (CST), acc: List (CST)): List (CST) = {
     }
   }
 };
-
-def expand_if(elems: List (CST), span: Span): CST = {
+def expand_if(elems: List(CST), span: Span): CST = {
   Error("Not implemented expand_if", span)
 };
 
 enum PrattResult {
-  case Parsed(expr: CST, rest: List (CST));
+  case Parsed(expr: CST, rest: List(CST));
   case PrattError(msg: String);
 };
-
-def pratt_parse(fuel: Integer, elems: List (CST), left_op: String, op_env: List (OpEnvEntry)): PrattResult = {
-  if int_eq(fuel, 0) then PrattResult.PrattError("Out of fuel")
-  else if int_eq(list_length(elems), 0) then PrattResult.PrattError("Unexpected end of expression")
-  else {
+def pratt_parse(fuel: Integer, elems: List(CST), left_op: String, op_env: List(OpEnvEntry)): PrattResult = {
+  if int_eq(fuel, 0) then PrattResult.PrattError("Out of fuel") else if int_eq(list_length(elems), 0) then PrattResult.PrattError("Unexpected end of expression") else {
     let lhs = list_get(elems, 0);
     let rest = advance(elems);
     pratt_loop(int_sub(fuel, 1), lhs, rest, left_op, op_env)
   }
 };
-
-def pratt_loop(fuel: Integer, lhs: CST, elems: List (CST), left_op: String, op_env: List (OpEnvEntry)): PrattResult = {
-  if int_eq(fuel, 0) then PrattResult.PrattError("Out of fuel")
-  else if int_eq(list_length(elems), 0) then PrattResult.Parsed(lhs, elems)
-  else {
+def pratt_loop(fuel: Integer, lhs: CST, elems: List(CST), left_op: String, op_env: List(OpEnvEntry)): PrattResult = {
+  if int_eq(fuel, 0) then PrattResult.PrattError("Out of fuel") else if int_eq(list_length(elems), 0) then PrattResult.Parsed(lhs, elems) else {
     let next_tok = list_get(elems, 0);
     match next_tok {
       case Symbol(op, sp) => {
@@ -357,13 +318,10 @@ def pratt_loop(fuel: Integer, lhs: CST, elems: List (CST), left_op: String, op_e
     }
   }
 };
-
-def expand_seq_expr(elems: List (CST), op_env: List (OpEnvEntry), span: Span): CST = {
+def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST = {
   let collapsed = collapse_apps(elems, list_empty[CST]());
   let len = list_length(collapsed);
-  if int_eq(len, 0) then Tuple(list_empty[CST](), span)
-  else if int_eq(len, 1) then list_get(collapsed, 0)
-  else {
+  if int_eq(len, 0) then Tuple(list_empty[CST](), span) else if int_eq(len, 1) then list_get(collapsed, 0) else {
     let first = list_get(collapsed, 0);
     match first {
       case Symbol(s, sp) => {
@@ -383,8 +341,7 @@ def expand_seq_expr(elems: List (CST), op_env: List (OpEnvEntry), span: Span): C
           let pr = pratt_parse(1000, collapsed, "", op_env);
           match pr {
             case Parsed(expr, rest) => {
-              if int_eq(list_length(rest), 0) then expr
-              else Error("Incomplete parse", span)
+              if int_eq(list_length(rest), 0) then expr else Error("Incomplete parse", span)
             };
             case PrattError(msg) => Error(msg, span)
           }
@@ -394,8 +351,7 @@ def expand_seq_expr(elems: List (CST), op_env: List (OpEnvEntry), span: Span): C
         let pr = pratt_parse(1000, collapsed, "", op_env);
         match pr {
           case Parsed(expr, rest) => {
-            if int_eq(list_length(rest), 0) then expr
-            else Error("Incomplete parse", span)
+            if int_eq(list_length(rest), 0) then expr else Error("Incomplete parse", span)
           };
           case PrattError(msg) => Error(msg, span)
         }
@@ -404,17 +360,15 @@ def expand_seq_expr(elems: List (CST), op_env: List (OpEnvEntry), span: Span): C
   }
 };
 
-
 enum ExpandResult {
   case Res(cst: CST, mark: Integer);
 };
-enum ExpandResultList {
-  case ResList(csts: List (CST), mark: Integer);
-};
 
-def extract_vars(args: List (CST)): List (String) = {
-  if int_eq(list_length(args), 0) then list_empty[String]()
-  else {
+enum ExpandResultList {
+  case ResList(csts: List(CST), mark: Integer);
+};
+def extract_vars(args: List(CST)): List(String) = {
+  if int_eq(list_length(args), 0) then list_empty[String]() else {
     let first = list_get(args, 0);
     let rest = extract_vars(advance(args));
     match first {
@@ -423,11 +377,8 @@ def extract_vars(args: List (CST)): List (String) = {
     }
   }
 };
-
-
 def extract_variants(vs: List CST): List CST = {
-  if int_eq(list_length(vs), 0) then list_empty[CST]()
-  else {
+  if int_eq(list_length(vs), 0) then list_empty[CST]() else {
     let v = list_get(vs, 0);
     let vrest = extract_variants(advance(vs));
     match v {
@@ -481,16 +432,13 @@ def extract_variants(vs: List CST): List CST = {
     }
   }
 };
-
-def extract_macro_cases(cs: List (CST)): List (MacroCase) = {
-  if int_eq(list_length(cs), 0) then list_empty[MacroCase]()
-  else {
+def extract_macro_cases(cs: List(CST)): List(MacroCase) = {
+  if int_eq(list_length(cs), 0) then list_empty[MacroCase]() else {
     let x = list_get(cs, 0);
     let r = extract_macro_cases(advance(cs));
     match x {
       case SeqOf(elems, sp) => {
-        if int_eq(list_length(elems), 0) then list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
-        else {
+        if int_eq(list_length(elems), 0) then list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x)) else {
           let first = list_get(elems, 0);
           match first {
             case Symbol(sym_case, sp1) => {
@@ -501,8 +449,8 @@ def extract_macro_cases(cs: List (CST)): List (MacroCase) = {
                   case Symbol(vname, sp2) => {
                     match args_node {
                       case Tuple(args_cst, sp3) => {
-                         let body_cst = list_get(elems, 4);
-                         list_insert_first(r, MacroCase.CasePair(PatternPatConstructorCST(vname, extract_vars(args_cst), sp), body_cst))
+                        let body_cst = list_get(elems, 4);
+                        list_insert_first(r, MacroCase.CasePair(PatternPatConstructorCST(vname, extract_vars(args_cst), sp), body_cst))
                       };
                       case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
                     }
@@ -517,14 +465,12 @@ def extract_macro_cases(cs: List (CST)): List (MacroCase) = {
           }
         }
       };
-      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(Span(0,0,list_empty[Integer]())), x))
+      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(Span(0, 0, list_empty[Integer]())), x))
     }
   }
 };
-
-def map_expand(ls: List (CST), fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvEntry), m: Integer): ExpandResultList = {
-  if int_eq(list_length(ls), 0) then ExpandResultList.ResList(list_empty[CST](), m)
-  else {
+def map_expand(ls: List(CST), fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer): ExpandResultList = {
+  if int_eq(list_length(ls), 0) then ExpandResultList.ResList(list_empty[CST](), m) else {
     let x = list_get(ls, 0);
     let res_x = expand_cst(fuel, env, m, x);
     match res_x {
@@ -540,28 +486,22 @@ def map_expand(ls: List (CST), fuel: Integer, env: List (MacroEnvEntry), op_env:
   }
 };
 
-
 enum LookupOp {
-  case FoundOp(fixity: OpFixity, rels: List (OpRel));
+  case FoundOp(fixity: OpFixity, rels: List(OpRel));
   case NotFoundOp;
 };
-
-def lookup_op(name: String, env: List (OpEnvEntry)): LookupOp = {
-  if int_eq(list_length(env), 0) then LookupOp.NotFoundOp()
-  else {
+def lookup_op(name: String, env: List(OpEnvEntry)): LookupOp = {
+  if int_eq(list_length(env), 0) then LookupOp.NotFoundOp() else {
     let first = list_get(env, 0);
     match first {
       case OpEntry(n, fixity, rels) => {
-        if string_eq(n, name) then LookupOp.FoundOp(fixity, rels)
-        else lookup_op(name, advance(env))
+        if string_eq(n, name) then LookupOp.FoundOp(fixity, rels) else lookup_op(name, advance(env))
       }
     }
   }
 };
-
-def has_looser_than(rels: List (OpRel), target: String): Bool = {
-  if int_eq(list_length(rels), 0) then false
-  else {
+def has_looser_than(rels: List(OpRel), target: String): Bool = {
+  if int_eq(list_length(rels), 0) then false else {
     let r = list_get(rels, 0);
     let found = match r {
       case LooserThan(other) => string_eq(other, target);
@@ -570,10 +510,8 @@ def has_looser_than(rels: List (OpRel), target: String): Bool = {
     if found then true else has_looser_than(advance(rels), target)
   }
 };
-
-def has_same_as(rels: List (OpRel), target: String): Bool = {
-  if int_eq(list_length(rels), 0) then false
-  else {
+def has_same_as(rels: List(OpRel), target: String): Bool = {
+  if int_eq(list_length(rels), 0) then false else {
     let r = list_get(rels, 0);
     let found = match r {
       case SameAs(other) => string_eq(other, target);
@@ -586,10 +524,8 @@ def has_same_as(rels: List (OpRel), target: String): Bool = {
 // Forward declare is_tighter_than to break cycles isn't supported, we need them ordered,
 // wait, Chester doesn't have forward declarations but supports mutual recursion if they are at top level?
 // Actually, Chester resolves all defs globally! So order doesn't matter.
-
-def check_rels_for_tighter(fuel: Integer, rels: List (OpRel), target: String, env: List (OpEnvEntry)): Bool = {
-  if int_eq(list_length(rels), 0) then false
-  else {
+def check_rels_for_tighter(fuel: Integer, rels: List(OpRel), target: String, env: List(OpEnvEntry)): Bool = {
+  if int_eq(list_length(rels), 0) then false else {
     let r = list_get(rels, 0);
     let rest = advance(rels);
     let found = match r {
@@ -600,38 +536,29 @@ def check_rels_for_tighter(fuel: Integer, rels: List (OpRel), target: String, en
     if found then true else check_rels_for_tighter(fuel, rest, target, env)
   }
 };
-
-def check_env_for_looser(fuel: Integer, current: String, target: String, env_idx: Integer, env: List (OpEnvEntry)): Bool = {
-  if int_eq(env_idx, list_length(env)) then false
-  else {
+def check_env_for_looser(fuel: Integer, current: String, target: String, env_idx: Integer, env: List(OpEnvEntry)): Bool = {
+  if int_eq(env_idx, list_length(env)) then false else {
     let entry = list_get(env, env_idx);
     let found = match entry {
       case OpEntry(n, fixity, rels) => {
-        if has_looser_than(rels, current) then is_tighter_than(fuel, n, target, env)
-        else if has_same_as(rels, current) then is_tighter_than(fuel, n, target, env)
-        else false
+        if has_looser_than(rels, current) then is_tighter_than(fuel, n, target, env) else if has_same_as(rels, current) then is_tighter_than(fuel, n, target, env) else false
       }
     };
     if found then true else check_env_for_looser(fuel, current, target, int_add(env_idx, 1), env)
   }
 };
-
-def is_tighter_than(fuel: Integer, start: String, target: String, env: List (OpEnvEntry)): Bool = {
-  if int_eq(fuel, 0) then false
-  else if string_eq(start, target) then true
-  else {
+def is_tighter_than(fuel: Integer, start: String, target: String, env: List(OpEnvEntry)): Bool = {
+  if int_eq(fuel, 0) then false else if string_eq(start, target) then true else {
     let next_fuel = int_sub(fuel, 1);
     let entry = lookup_op(start, env);
     let found_forward = match entry {
       case FoundOp(fixity, rels) => check_rels_for_tighter(next_fuel, rels, target, env);
       case NotFoundOp => false
     };
-    if found_forward then true
-    else check_env_for_looser(next_fuel, start, target, 0, env)
+    if found_forward then true else check_env_for_looser(next_fuel, start, target, 0, env)
   }
 };
-
-def get_relation(op1: String, op2: String, env: List (OpEnvEntry)): RelResult = {
+def get_relation(op1: String, op2: String, env: List(OpEnvEntry)): RelResult = {
   let t12 = is_tighter_than(100, op1, op2, env);
   let t21 = is_tighter_than(100, op2, op1, env);
   if bool_and(t12, t21) then {
@@ -647,15 +574,10 @@ def get_relation(op1: String, op2: String, env: List (OpEnvEntry)): RelResult = 
       };
       case NotFoundOp => RelResult.RelSameL()
     }
-  } else if t12 then RelResult.RelTighter()
-  else if t21 then RelResult.RelLooser()
-  else RelResult.RelIncomparable()
+  } else if t12 then RelResult.RelTighter() else if t21 then RelResult.RelLooser() else RelResult.RelIncomparable()
 };
-
-
-def parse_op_rels_loop(elems: List (CST)): List (OpRel) = {
-  if int_lt(list_length(elems), 2) then list_empty[OpRel]()
-  else {
+def parse_op_rels_loop(elems: List(CST)): List(OpRel) = {
+  if int_lt(list_length(elems), 2) then list_empty[OpRel]() else {
     let rel_sym = list_get(elems, 0);
     let target = list_get(elems, 1);
     let rest = advance(advance(elems));
@@ -665,10 +587,7 @@ def parse_op_rels_loop(elems: List (CST)): List (OpRel) = {
     };
     let parsed_rel = match rel_sym {
       case Symbol(s, sp) => {
-        if string_eq(s, "same_as") then OpRel.SameAs(parsed_target)
-        else if string_eq(s, "tighter_than") then OpRel.TighterThan(parsed_target)
-        else if string_eq(s, "looser_than") then OpRel.LooserThan(parsed_target)
-        else OpRel.SameAs("")
+        if string_eq(s, "same_as") then OpRel.SameAs(parsed_target) else if string_eq(s, "tighter_than") then OpRel.TighterThan(parsed_target) else if string_eq(s, "looser_than") then OpRel.LooserThan(parsed_target) else OpRel.SameAs("")
       };
       case _ => OpRel.SameAs("")
     };
@@ -676,8 +595,7 @@ def parse_op_rels_loop(elems: List (CST)): List (OpRel) = {
     list_insert_first(tail_rels, parsed_rel)
   }
 };
-
-def parse_op_decl(fixity: OpFixity, elems: List (CST), fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvEntry), m: Integer, rest_ss: List (CST)): ExpandResultList = {
+def parse_op_decl(fixity: OpFixity, elems: List(CST), fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, rest_ss: List(CST)): ExpandResultList = {
   let name_node = list_get(elems, 1);
   let op_name = match name_node {
     case StringLiteral(val, sp) => val;
@@ -688,17 +606,14 @@ def parse_op_decl(fixity: OpFixity, elems: List (CST), fuel: Integer, env: List 
   let new_op_env = list_insert_first(op_env, new_op_entry);
   process_stmts(fuel, env, new_op_env, m, rest_ss)
 };
-
-def parse_ext_type_params(c: CST): List (String) = {
+def parse_ext_type_params(c: CST): List(String) = {
   match c {
     case ListLiteral(elems, sp) => extract_type_params(elems);
     case _ => list_empty[String]()
   }
 };
-
-def extract_type_params(elems: List (CST)): List (String) = {
-  if int_eq(list_length(elems), 0) then list_empty[String]()
-  else {
+def extract_type_params(elems: List(CST)): List(String) = {
+  if int_eq(list_length(elems), 0) then list_empty[String]() else {
     let first = list_get(elems, 0);
     let rest = extract_type_params(advance(elems));
     match first {
@@ -707,11 +622,8 @@ def extract_type_params(elems: List (CST)): List (String) = {
     }
   }
 };
-
-def extract_ext_target(elems: List (CST), start_idx: Integer, end_idx: Integer, span: Span): CST = {
-  if int_eq(start_idx, end_idx) then Error("No target type", span)
-  else if int_eq(int_add(start_idx, 1), end_idx) then list_get(elems, start_idx)
-  else {
+def extract_ext_target(elems: List(CST), start_idx: Integer, end_idx: Integer, span: Span): CST = {
+  if int_eq(start_idx, end_idx) then Error("No target type", span) else if int_eq(int_add(start_idx, 1), end_idx) then list_get(elems, start_idx) else {
     let slice_len = int_sub(end_idx, start_idx);
     // Actually we can just pack it into a SeqOf and let it be collapsed later?
     // Wait, the target type could be `List T`, which parses as SeqOf.
@@ -722,8 +634,7 @@ def extract_ext_target(elems: List (CST), start_idx: Integer, end_idx: Integer, 
     build_sublist(elems, start_idx, end_idx, span)
   }
 };
-
-def build_sublist(elems: List (CST), curr: Integer, end_idx: Integer, span: Span): CST = {
+def build_sublist(elems: List(CST), curr: Integer, end_idx: Integer, span: Span): CST = {
   if int_eq(curr, end_idx) then Tuple(list_empty[CST](), span) // Empty seq
   else {
     let next_cst = build_sublist(elems, int_add(curr, 1), end_idx, span);
@@ -735,23 +646,22 @@ def build_sublist(elems: List (CST), curr: Integer, end_idx: Integer, span: Span
     }
   }
 };
-def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvEntry), m: Integer, ss: List (CST)): ExpandResultList = {
-  if int_eq(list_length(ss), 0) then ExpandResultList.ResList(list_empty[CST](), m)
-  else {
+def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, ss: List(CST)): ExpandResultList = {
+  if int_eq(list_length(ss), 0) then ExpandResultList.ResList(list_empty[CST](), m) else {
     let s = list_get(ss, 0);
     let rest_ss = advance(ss);
     match s {
       case SeqOf(elems, sp) => {
         if int_eq(list_length(elems), 0) then {
-           let res_s = expand_cst(fuel, env, op_env, m, s);
-           match res_s {
-             case Res(fst_cst, next_m) => {
-               let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
-               match res_rest {
-                 case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
-               }
-             }
-           }
+          let res_s = expand_cst(fuel, env, op_env, m, s);
+          match res_s {
+            case Res(fst_cst, next_m) => {
+              let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
+              match res_rest {
+                case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+              }
+            }
+          }
         } else {
           let first = list_get(elems, 0);
           match first {
@@ -764,42 +674,40 @@ def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvE
                 parse_op_decl(OpFixity.Prefix(), elems, fuel, env, op_env, m, rest_ss)
               } else if string_eq(sym, "postfix") then {
                 parse_op_decl(OpFixity.Postfix(), elems, fuel, env, op_env, m, rest_ss)
-              } } else if string_eq(sym, "extension") then {
-                let len = list_length(elems);
-                let name_node = list_get(elems, 1);
-                let ext_name = match name_node {
-                  case Symbol(n, sp2) => n;
-                  case _ => ""
+              }
+            } else if string_eq(sym, "extension") then {
+              let len = list_length(elems);
+              let name_node = list_get(elems, 1);
+              let ext_name = match name_node {
+                case Symbol(n, sp2) => n;
+                case _ => ""
+              };
+              let has_tparams = match list_get(elems, 2) {
+                case ListLiteral(l, sp3) => true;
+                case _ => false
+              };
+              let tparams = parse_ext_type_params(list_get(elems, 2));
+              let on_idx = if has_tparams then 3 else 2;
+              let target_ty = extract_ext_target(elems, int_add(on_idx, 1), int_sub(len, 1), sp);
+              // Elaborator needs to parse methods. We can just expand the block
+              let block_node = list_get(elems, int_sub(len, 1));
+              let meths = match block_node {
+                case Block(m_stmts, t, sp3) => {
+                  // We should just pass the raw statements or expand them?
+                  // Ext methods should be expanded. We can just expand the whole block.
+                  let expanded_block = expand_cst(fuel, env, op_env, m, block_node);
+                  match expanded_block {
+                    case Res(Block(new_stmts, new_t, sp4), final_m) => new_stmts;
+                    case _ => list_empty[CST]()
+                  }
                 };
-                let has_tparams = match list_get(elems, 2) {
-                  case ListLiteral(l, sp3) => true;
-                  case _ => false
-                };
-                let tparams = parse_ext_type_params(list_get(elems, 2));
-                let on_idx = if has_tparams then 3 else 2;
-                let target_ty = extract_ext_target(elems, int_add(on_idx, 1), int_sub(len, 1), sp);
-
-                // Elaborator needs to parse methods. We can just expand the block
-                let block_node = list_get(elems, int_sub(len, 1));
-                let meths = match block_node {
-                  case Block(m_stmts, t, sp3) => {
-                     // We should just pass the raw statements or expand them?
-                     // Ext methods should be expanded. We can just expand the whole block.
-                     let expanded_block = expand_cst(fuel, env, op_env, m, block_node);
-                     match expanded_block {
-                       case Res(Block(new_stmts, new_t, sp4), final_m) => new_stmts;
-                       case _ => list_empty[CST]()
-                     }
-                  };
-                  case _ => list_empty[CST]()
-                };
-
-                let ext_cst = ExtensionCST(ext_name, tparams, target_ty, meths, sp);
-                let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
-                match res_rest {
-                  case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, ext_cst), final_m)
-                }
-               else if string_eq(sym, "enum") then {
+                case _ => list_empty[CST]()
+              };
+              let ext_cst = ExtensionCST(ext_name, tparams, target_ty, meths, sp);
+              let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+              match res_rest {
+                case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, ext_cst), final_m)
+              } else if string_eq(sym, "enum") then {
                 let name_node = list_get(elems, 1);
                 match name_node {
                   case Symbol(enum_name, sp3) => {
@@ -832,8 +740,7 @@ def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvE
                   };
                   case _ => ExpandResultList.ResList(list_empty[CST](), m)
                 }
-              }
-               else if string_eq(sym, "macro") then {
+              } else if string_eq(sym, "macro") then {
                 let name_node = list_get(elems, 1);
                 let block_node = list_get(elems, 2);
                 match name_node {
@@ -941,10 +848,8 @@ def process_stmts(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvE
     }
   }
 };
-
-def expand_cst(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvEntry), mark: Integer, c: CST): ExpandResult = {
-  if int_eq(fuel, 0) then ExpandResult.Res(c, mark)
-  else {
+def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), mark: Integer, c: CST): ExpandResult = {
+  if int_eq(fuel, 0) then ExpandResult.Res(c, mark) else {
     let next_fuel = int_sub(fuel, 1);
     match c {
       case Block(stmts, tail, sp) => {
@@ -1034,14 +939,12 @@ def expand_cst(fuel: Integer, env: List (MacroEnvEntry), op_env: List (OpEnvEntr
     }
   }
 };
-
 def expand_cst_top(c: CST): CST = {
   let res = expand_cst(1000, list_empty[MacroEnvEntry](), list_empty[OpEnvEntry](), 0, c);
   match res {
     case Res(cst, m) => cst
   }
 };
-
 def expander_main(): Any = {
   let cst = Symbol("test", Span(0, 0, list_empty[Integer]()));
   expand_cst_top(cst)
