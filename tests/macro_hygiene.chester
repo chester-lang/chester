@@ -3,10 +3,11 @@ macro swap {
     let tmp = a;
     let a = b;
     let b = tmp;
-  }
-}
+  };
+};
 let tmp = 42;
 let a = 1;
 let b = 2;
 swap(a, b);
-tmp; // Should still be 42, not overwritten by macro's `tmp`
+tmp;
+// Should still be 42, not overwritten by macro's `tmp`

@@ -1,52 +1,49 @@
 record ParseResult[T](result: T, remaining: List(Token));
-
 // We need a helper to check if a token is a specific symbol
 def is_symbol_token(tok: Token, sym: String): Bool = {
-  string_eq(tok.text, sym)
+  string_eq(tok.text, sym);
 };
-
 // advance removes the first token
 def advance(tokens: List(Token)): List(Token) = {
   let len = list_length(tokens);
-  if int_eq(len, 0) then tokens else list_make(int_sub(len, 1), \i => list_get(tokens, int_add(i, 1)))
+  if int_eq(len, 0) then tokens else list_make(int_sub(len, 1), \i => list_get(tokens, int_add(i, 1)));
 };
-
 // We need to mutually recurse, so we define all functions
 // Actually, Chester supports top-level mutual recursion
 def parse_tuple_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
   if int_eq(list_length(tokens), 0) then {
-    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens)
+    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens);
   } else {
     let tok = list_get(tokens, 0);
     match tok.kind {
       case Symbol(s) => {
         if string_eq(s, ")") then {
-          ParseResult(CST.Tuple(acc, Span(0, 0, list_empty[Integer]())), advance(tokens))
+          ParseResult(CST.Tuple(acc, Span(0, 0, list_empty[Integer]())), advance(tokens));
         } else {
           let p = parse_atom_sequence(tokens);
           match p.result {
             case Error(m, sp) => p;
             case _ => {
               if int_eq(list_length(p.remaining), 0) then {
-                ParseResult(CST.Error("Unexpected EOF in tuple", Span(0, 0, list_empty[Integer]())), p.remaining)
+                ParseResult(CST.Error("Unexpected EOF in tuple", Span(0, 0, list_empty[Integer]())), p.remaining);
               } else {
                 let next_tok = list_get(p.remaining, 0);
                 match next_tok.kind {
                   case Symbol(s2) => {
                     if string_eq(s2, ",") then {
-                      parse_tuple_helper(advance(p.remaining), list_append(acc, p.result))
+                      parse_tuple_helper(advance(p.remaining), list_append(acc, p.result));
                     } else if string_eq(s2, ")") then {
-                      ParseResult(CST.Tuple(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining))
+                      ParseResult(CST.Tuple(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining));
                     } else {
-                      ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining)
-                    }
+                      ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining);
+                    };
                   };
-                  case _ => ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining)
-                }
-              }
-            }
-          }
-        }
+                  case _ => ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining);
+                };
+              };
+            };
+          };
+        };
       };
       case _ => {
         let p = parse_atom_sequence(tokens);
@@ -54,65 +51,65 @@ def parse_tuple_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = 
           case Error(m, sp) => p;
           case _ => {
             if int_eq(list_length(p.remaining), 0) then {
-              ParseResult(CST.Error("Unexpected EOF in tuple", Span(0, 0, list_empty[Integer]())), p.remaining)
+              ParseResult(CST.Error("Unexpected EOF in tuple", Span(0, 0, list_empty[Integer]())), p.remaining);
             } else {
               let next_tok = list_get(p.remaining, 0);
               match next_tok.kind {
                 case Symbol(s2) => {
                   if string_eq(s2, ",") then {
-                    parse_tuple_helper(advance(p.remaining), list_append(acc, p.result))
+                    parse_tuple_helper(advance(p.remaining), list_append(acc, p.result));
                   } else if string_eq(s2, ")") then {
-                    ParseResult(CST.Tuple(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining))
+                    ParseResult(CST.Tuple(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining));
                   } else {
-                    ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining)
-                  }
+                    ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining);
+                  };
                 };
-                case _ => ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+                case _ => ParseResult(CST.Error("Expected ',' or ')'", next_tok.span), p.remaining);
+              };
+            };
+          };
+        };
+      };
+    };
+  };
 };
 def parse_tuple(tokens: List(Token)): ParseResult(CST) = {
-  parse_tuple_helper(tokens, list_empty[CST]())
+  parse_tuple_helper(tokens, list_empty[CST]());
 };
 def parse_list_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
   if int_eq(list_length(tokens), 0) then {
-    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens)
+    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens);
   } else {
     let tok = list_get(tokens, 0);
     match tok.kind {
       case Symbol(s) => {
         if string_eq(s, "]") then {
-          ParseResult(CST.ListLiteral(acc, Span(0, 0, list_empty[Integer]())), advance(tokens))
+          ParseResult(CST.ListLiteral(acc, Span(0, 0, list_empty[Integer]())), advance(tokens));
         } else {
           let p = parse_atom_sequence(tokens);
           match p.result {
             case Error(m, sp) => p;
             case _ => {
               if int_eq(list_length(p.remaining), 0) then {
-                ParseResult(CST.Error("Unexpected EOF in list", Span(0, 0, list_empty[Integer]())), p.remaining)
+                ParseResult(CST.Error("Unexpected EOF in list", Span(0, 0, list_empty[Integer]())), p.remaining);
               } else {
                 let next_tok = list_get(p.remaining, 0);
                 match next_tok.kind {
                   case Symbol(s2) => {
                     if string_eq(s2, ",") then {
-                      parse_list_helper(advance(p.remaining), list_append(acc, p.result))
+                      parse_list_helper(advance(p.remaining), list_append(acc, p.result));
                     } else if string_eq(s2, "]") then {
-                      ParseResult(CST.ListLiteral(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining))
+                      ParseResult(CST.ListLiteral(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining));
                     } else {
-                      ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
-                    }
+                      ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining);
+                    };
                   };
-                  case _ => ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
-                }
-              }
-            }
-          }
-        }
+                  case _ => ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining);
+                };
+              };
+            };
+          };
+        };
       };
       case _ => {
         let p = parse_atom_sequence(tokens);
@@ -120,67 +117,67 @@ def parse_list_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
           case Error(m, sp) => p;
           case _ => {
             if int_eq(list_length(p.remaining), 0) then {
-              ParseResult(CST.Error("Unexpected EOF in list", Span(0, 0, list_empty[Integer]())), p.remaining)
+              ParseResult(CST.Error("Unexpected EOF in list", Span(0, 0, list_empty[Integer]())), p.remaining);
             } else {
               let next_tok = list_get(p.remaining, 0);
               match next_tok.kind {
                 case Symbol(s2) => {
                   if string_eq(s2, ",") then {
-                    parse_list_helper(advance(p.remaining), list_append(acc, p.result))
+                    parse_list_helper(advance(p.remaining), list_append(acc, p.result));
                   } else if string_eq(s2, "]") then {
-                    ParseResult(CST.ListLiteral(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining))
+                    ParseResult(CST.ListLiteral(list_append(acc, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining));
                   } else {
-                    ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
-                  }
+                    ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining);
+                  };
                 };
-                case _ => ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+                case _ => ParseResult(CST.Error("Expected ',' or ']'", next_tok.span), p.remaining);
+              };
+            };
+          };
+        };
+      };
+    };
+  };
 };
 def parse_list(tokens: List(Token)): ParseResult(CST) = {
-  parse_list_helper(tokens, list_empty[CST]())
+  parse_list_helper(tokens, list_empty[CST]());
 };
 def parse_block_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
   if int_eq(list_length(tokens), 0) then {
-    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens)
+    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens);
   } else {
     let tok = list_get(tokens, 0);
     match tok.kind {
       case Symbol(s) => {
         if string_eq(s, "}") then {
-          ParseResult(CST.Block(acc, list_empty[CST](), Span(0, 0, list_empty[Integer]())), advance(tokens))
+          ParseResult(CST.Block(acc, list_empty[CST](), Span(0, 0, list_empty[Integer]())), advance(tokens));
         } else {
           let p = parse_atom_sequence(tokens);
           match p.result {
             case Error(m, sp) => p;
             case _ => {
               if int_eq(list_length(p.remaining), 0) then {
-                ParseResult(CST.Error("Unexpected EOF in block", Span(0, 0, list_empty[Integer]())), p.remaining)
+                ParseResult(CST.Error("Unexpected EOF in block", Span(0, 0, list_empty[Integer]())), p.remaining);
               } else {
                 let next_tok = list_get(p.remaining, 0);
                 match next_tok.kind {
                   case Symbol(s2) => {
                     if string_eq(s2, ";") then {
-                      parse_block_helper(advance(p.remaining), list_append(acc, p.result))
+                      parse_block_helper(advance(p.remaining), list_append(acc, p.result));
                     } else if string_eq(s2, "}") then {
                       // tail expression!
                       let tail = list_empty[CST]();
-                      ParseResult(CST.Block(acc, list_append(tail, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining))
+                      ParseResult(CST.Block(acc, list_append(tail, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining));
                     } else {
-                      ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining)
-                    }
+                      ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining);
+                    };
                   };
-                  case _ => ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining)
-                }
-              }
-            }
-          }
-        }
+                  case _ => ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining);
+                };
+              };
+            };
+          };
+        };
       };
       case _ => {
         let p = parse_atom_sequence(tokens);
@@ -188,32 +185,32 @@ def parse_block_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = 
           case Error(m, sp) => p;
           case _ => {
             if int_eq(list_length(p.remaining), 0) then {
-              ParseResult(CST.Error("Unexpected EOF in block", Span(0, 0, list_empty[Integer]())), p.remaining)
+              ParseResult(CST.Error("Unexpected EOF in block", Span(0, 0, list_empty[Integer]())), p.remaining);
             } else {
               let next_tok = list_get(p.remaining, 0);
               match next_tok.kind {
                 case Symbol(s2) => {
                   if string_eq(s2, ";") then {
-                    parse_block_helper(advance(p.remaining), list_append(acc, p.result))
+                    parse_block_helper(advance(p.remaining), list_append(acc, p.result));
                   } else if string_eq(s2, "}") then {
                     // tail expression!
                     let tail = list_empty[CST]();
-                    ParseResult(CST.Block(acc, list_append(tail, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining))
+                    ParseResult(CST.Block(acc, list_append(tail, p.result), Span(0, 0, list_empty[Integer]())), advance(p.remaining));
                   } else {
-                    ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining)
-                  }
+                    ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining);
+                  };
                 };
-                case _ => ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+                case _ => ParseResult(CST.Error("Expected ';' or '}'", next_tok.span), p.remaining);
+              };
+            };
+          };
+        };
+      };
+    };
+  };
 };
 def parse_block(tokens: List(Token)): ParseResult(CST) = {
-  parse_block_helper(tokens, list_empty[CST]())
+  parse_block_helper(tokens, list_empty[CST]());
 };
 def is_terminator(tok: Token): Bool = {
   match tok.kind {
@@ -224,35 +221,35 @@ def is_terminator(tok: Token): Bool = {
       let is_rbracket = string_eq(s, "]");
       let is_semi = string_eq(s, ";");
       let is_comma = string_eq(s, ",");
-      bool_or(is_rparen, bool_or(is_rbrace, bool_or(is_rbracket, bool_or(is_semi, is_comma))))
+      bool_or(is_rparen, bool_or(is_rbrace, bool_or(is_rbracket, bool_or(is_semi, is_comma))));
     };
-    case _ => false
-  }
+    case _ => false;
+  };
 };
 def parse_atom_sequence_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
   if int_eq(list_length(tokens), 0) then {
-    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens)
+    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens);
   } else {
     let tok = list_get(tokens, 0);
     if is_terminator(tok) then {
       let len = list_length(acc);
-      if int_eq(len, 1) then ParseResult(list_get(acc, 0), tokens) else ParseResult(CST.SeqOf(acc, Span(0, 0, list_empty[Integer]())), tokens)
+      if int_eq(len, 1) then ParseResult(list_get(acc, 0), tokens) else ParseResult(CST.SeqOf(acc, Span(0, 0, list_empty[Integer]())), tokens);
     } else {
       let p = parse_atom(tokens);
       match p.result {
         case Error(m, sp) => p;
-        case _ => parse_atom_sequence_helper(p.remaining, list_append(acc, p.result))
-      }
-    }
-  }
+        case _ => parse_atom_sequence_helper(p.remaining, list_append(acc, p.result));
+      };
+    };
+  };
 };
 def parse_atom_sequence(tokens: List(Token)): ParseResult(CST) = {
-  parse_atom_sequence_helper(tokens, list_empty[CST]())
+  parse_atom_sequence_helper(tokens, list_empty[CST]());
 };
 def parse_atom(tokens: List(Token)): ParseResult(CST) = {
   let len = list_length(tokens);
   if int_eq(len, 0) then {
-    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens)
+    ParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens);
   } else {
     let tok = list_get(tokens, 0);
     let rest = advance(tokens);
@@ -262,28 +259,29 @@ def parse_atom(tokens: List(Token)): ParseResult(CST) = {
       case StringLit => ParseResult(CST.StringLiteral(tok.text, tok.span), rest);
       case EOF => ParseResult(CST.Error("Unexpected EOF", tok.span), rest);
       case Symbol(s) => {
-        if string_eq(s, "(") then parse_tuple(rest) else if string_eq(s, "{") then parse_block(rest) else if string_eq(s, "[") then parse_list(rest) else ParseResult(CST.Symbol(tok.text, tok.span), rest)
+        if string_eq(s, "(") then parse_tuple(rest) else if string_eq(s, "{") then parse_block(rest) else if string_eq(s, "[") then parse_list(rest) else ParseResult(CST.Symbol(tok.text, tok.span), rest);
       };
-      case Whitespace => ParseResult(CST.Error("Unexpected whitespace", tok.span), rest) // Whitespace should be filtered
-    }
-  }
+      case Whitespace => ParseResult(CST.Error("Unexpected whitespace", tok.span), rest);
+      // Whitespace should be filtered
+    };
+  };
 };
 def filter_whitespace(tokens: List(Token)): List(Token) = {
   list_filter(tokens, \tok => {
     match tok.kind {
       case Whitespace => false;
-      case _ => true
-    }
-  })
+      case _ => true;
+    };
+  });
 };
 def parse(tokens: List(Token)): ParseResult(CST) = {
   let filtered = filter_whitespace(tokens);
-  parse_atom_sequence(filtered)
+  parse_atom_sequence(filtered);
 };
 def main_parser(): Any = {
   let tokens = lex("let x = 5;");
   let p = parse(tokens);
   // Just return p to check if it compiles!
-  p
+  p;
 };
-main_parser()
+main_parser();

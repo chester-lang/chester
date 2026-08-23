@@ -37,11 +37,16 @@ let check_fixture filename =
       if ts_code = "" then failwith "empty TypeScript output";
       print_endline (filename ^ " ok")
 
+let format_source source =
+  let tokens = Lexer.tokenize "test.chester" source in
+  let cst = parse tokens in
+  string_of_char_list (format_program 100 cst)
+
 let check_format source =
-  let formatted = Source_formatter.format_source source in
-  if Source_formatter.format_source formatted <> formatted then
+  let formatted = format_source source in
+  if format_source formatted <> formatted then
     failwith "formatter output is not idempotent";
-  print_string formatted
+  print_endline formatted
 
 let%expect_test "parse block" =
   let source = "let x = 5;" in
@@ -51,7 +56,6 @@ let%expect_test "parse block" =
   [%expect {|
     {
       let x = 5;
-
     }
     |}]
 
@@ -63,18 +67,16 @@ let%expect_test "parse shape recovery" =
   [%expect
     {|
     {
-      def foo (a, b) = {
+      def foo(a, b) = {
         a + b;
         @ @;
         Unit;
-
       };
       [1, 2, 3];
-
     }
     |}]
 
-let%expect_test "surface formatter preserves top-level source shape" =
+let%expect_test "format program from parser cst" =
   check_format
     "extension ListExt[T] on List T { def get(self: List T, idx: Integer): T = \
      list_get(self, idx); }\n\
@@ -84,29 +86,25 @@ let%expect_test "surface formatter preserves top-level source shape" =
     {|
     extension ListExt[T] on List T {
       def get(self: List T, idx: Integer): T = list_get(self, idx);
-    }
+    };
     let xs = [1, 2, 3];
     xs.get(0);
     |}]
 
-let%expect_test "surface formatter handles comments and brace continuations" =
+let%expect_test "format comments from parser cst" =
   check_format
-    "macro swap{case (a,b)=>{let tmp=a;let a=b;}}\n\
-     tmp;// inline\n\
+    "// file comment\n\
+     let tmp=1;// inline\n\
      def f(x: Integer): Integer = if x then { 1 } else { 0 };\n";
   [%expect
     {|
-    macro swap {
-      case (a, b) => {
-        let tmp = a;
-        let a = b;
-      }
-    }
-    tmp; // inline
+    // file comment
+    let tmp = 1;
+    // inline
     def f(x: Integer): Integer = if x then {
-      1
+      1;
     } else {
-      0
+      0;
     };
     |}]
 

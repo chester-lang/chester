@@ -64,11 +64,19 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
+          formatterPath = pkgs.lib.makeBinPath [
+            pkgs.nixfmt-rfc-style
+            pkgs.ocamlformat
+            pkgs.ocamlPackages.dune_3
+            pkgs.ocamlPackages.ocaml
+            pkgs.ocamlPackages.findlib
+          ];
         in
         pkgs.writeShellScriptBin "formatter" ''
-          ${pkgs.nixfmt-rfc-style}/bin/nixfmt flake.nix
-          ${pkgs.ocamlformat}/bin/ocamlformat -i $(find bin test -name "*.ml" -o -name "*.mli")
-          ${pkgs.ocamlPackages.dune_3}/bin/dune exec bin/chester_fmt.exe -- $(find self-hosted stdlib tests -name "*.chester")
+          export PATH=${formatterPath}:$PATH
+          nixfmt flake.nix
+          ocamlformat -i $(find bin test -name "*.ml" -o -name "*.mli")
+          dune exec bin/chester_fmt.exe -- $(find self-hosted stdlib tests -name "*.chester")
         ''
       );
     };

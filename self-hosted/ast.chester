@@ -3,7 +3,6 @@ enum PatternAST {
   case PatVar(name: String);
   case PatConstructor(name: String, vars: List String);
 };
-
 enum AST {
   case AstRef(name: String);
   case AstUniverse(level: Integer);
