@@ -764,6 +764,65 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                     };
                   }
                 };
+              } else if string_eq(sym, "effect") then {
+                let name_node = list_get(elems, 1);
+                match name_node {
+                  case Symbol(eff_name, sp3) => {
+                    let has_targs = match list_get(elems, 2) {
+                      case ListLiteral(targs, sp_targs) => true;
+                      case _ => false
+                    };
+                    let block_idx = if has_targs then 3 else 2;
+                    let block_node = list_get(elems, block_idx);
+                    match block_node {
+                      case Block(decls, t, sp4) => {
+                        let eff_cst = CST.EffectCST(eff_name, list_empty[String](), decls, sp);
+                        let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, eff_cst), final_m)
+                        };
+                      };
+                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                    };
+                  };
+                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                };
+              } else if string_eq(sym, "perform") then {
+                let app_node = list_get(elems, 1);
+                match app_node {
+                  case AppCST(op, args, sp3) => {
+                    let do_cst = CST.DoCST(op, args, sp);
+                    let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                    match res_rest {
+                      case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, do_cst), final_m)
+                    };
+                  };
+                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                };
+              } else if string_eq(sym, "handle") then {
+                let body_block = list_get(elems, 1);
+                match body_block {
+                  case Block(body_stmts, tail, sp3) => {
+                    let eff_name_node = list_get(elems, 3);
+                    match eff_name_node {
+                      case Symbol(eff_name, sp4) => {
+                        let handler_block = list_get(elems, 4);
+                        match handler_block {
+                          case Block(handlers, ht, sp5) => {
+                            let handle_cst = CST.HandleCST(CST.Block(body_stmts, CST.Symbol("Unit", Span(0,0,list_empty[Integer]())), sp3), eff_name, list_empty[CST](), sp);
+                            let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                            match res_rest {
+                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, handle_cst), final_m)
+                            };
+                          };
+                          case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                        };
+                      };
+                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                    };
+                  };
+                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                };
               } else if string_eq(sym, "let") then {
                 let name_node = list_get(elems, 1);
                 let val_exprs = advance(advance(advance(elems)));

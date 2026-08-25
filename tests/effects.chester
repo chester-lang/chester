@@ -1,0 +1,15 @@
+effect State[T] {
+  def get(): T;
+  def put(s: T): Unit;
+}
+
+def main() = {
+  handle {
+    let x = perform get();
+    perform put(x);
+    x
+  } with State {
+    case get() => 42;
+    case put(s) => Unit
+  }
+}

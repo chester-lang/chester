@@ -931,6 +931,32 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
     case Error(msg, span) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
     case Comment(msg, span) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
     case MacroDefCST(name, cases, span) => Pair.MkPair(AST.AstError("Macro in elab"), AST.AstRef("Any"));
+    case EffectCST(name, type_params, decls, span) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
+    case DoCST(op, args, span) => {
+      let op_elab = elaborate(env, op, OptionAST.NoneAST());
+      match op_elab {
+        case MkPair(op_ast, op_ty) => {
+          let fix elab_args(fs: List CST): List AST = {
+            if int_eq(list_length(fs), 0) then list_empty[AST]() else {
+              let f0 = list_get(fs, 0);
+              let rest = elab_args(advance(fs));
+              let f0_res = elaborate(env, f0, OptionAST.NoneAST());
+              match f0_res {
+                case MkPair(f_ast, f_ty) => list_insert_first(rest, f_ast)
+              };
+            }
+          };
+          Pair.MkPair(AST.AstDo(op_ast, elab_args(args)), AST.AstRef("Unknown"))
+        }
+      }
+    };
+    case HandleCST(body, eff, handlers, span) => {
+      let body_elab = elaborate(env, body, OptionAST.NoneAST());
+      match body_elab {
+        case MkPair(body_ast, body_ty) => Pair.MkPair(AST.AstHandle(body_ast, eff, list_empty[Pair]()), body_ty)
+      }
+    };
+
     case _ => Pair.MkPair(AST.AstError("Unsupported CST in self-hosted elaborator"), AST.AstRef("Any"))
   };
 }
