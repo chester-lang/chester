@@ -330,9 +330,9 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       ret (AstLam (mangle_name arg_name (context span)) (fst argTyAst) (fst bodyAst), arrTy)
 
   | AppCST func args _ =>
-      (* Check if func is a TypeAppCST — combined two-telescope call f[A,B](x,y) *)
+      (* Check if func is a ImplicitAppCST — combined two-telescope call f[A,B](x,y) *)
       match func with
-      | TypeAppCST inner_func _targs _tspan =>
+      | ImplicitAppCST inner_func _targs _tspan =>
           (* Erase the implicit [A,B] telescope; elaborate only the inner function and explicit args *)
           funcAst <- elaborate env inner_func None ;
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
@@ -418,7 +418,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
           ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
       end
 
-  | TypeAppCST func args _ =>
+  | ImplicitAppCST func args _ =>
       (* Standalone implicit application f[A,B] without explicit args — used in type position *)
       funcAst <- elaborate env func None ;
       let fix check_targs (as_ : list CST) : ElabM (list AST) :=
@@ -431,7 +431,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         end
       in
       argsRes <- check_targs args ;
-      ret (AstTypeApp (fst funcAst) argsRes, AstRef "TypeUniverse")
+      ret (AstImplicitApp (fst funcAst) argsRes, AstRef "TypeUniverse")
 
   | EnumCST name type_params variants _ =>
       let fix elab_variant (v : CST) : string * list AST * AST :=

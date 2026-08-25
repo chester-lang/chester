@@ -26,7 +26,7 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
       end
   | ListLiteral targs tspan :: rest =>
       match acc with
-      | expr :: acc_rest => collapse_apps_aux rest (TypeAppCST expr targs tspan :: acc_rest)
+      | expr :: acc_rest => collapse_apps_aux rest (ImplicitAppCST expr targs tspan :: acc_rest)
       | [] => collapse_apps_aux rest (ListLiteral targs tspan :: [])
       end
   | x :: rest => collapse_apps_aux rest (x :: acc)
@@ -156,7 +156,7 @@ Fixpoint expand_cst (c : CST) : CST :=
             | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: Tuple args empty_span :: rest_def) s :: process_stmts rest
             end
             
-        | SeqOf (Symbol "def" _ :: AppCST (TypeAppCST (Symbol name _) targs _) args _ :: rest_def) s :: rest =>
+        | SeqOf (Symbol "def" _ :: AppCST (ImplicitAppCST (Symbol name _) targs _) args _ :: rest_def) s :: rest =>
             match split_at_eq [] rest_def with
             | Some (ty_exprs, body_exprs) =>
                 let ret_ty := match ty_exprs with 
@@ -197,7 +197,7 @@ Fixpoint expand_cst (c : CST) : CST :=
             in
             EnumCST name [] (extract_variants variants) s :: process_stmts rest
             
-        | SeqOf (Symbol "enum" _ :: TypeAppCST (Symbol name _) targs _ :: Block variants _ _ :: []) s :: rest =>
+        | SeqOf (Symbol "enum" _ :: ImplicitAppCST (Symbol name _) targs _ :: Block variants _ _ :: []) s :: rest =>
             let fix extract_variants (vs : list CST) : list CST :=
               match vs with
               | [] => []
@@ -227,7 +227,7 @@ Fixpoint expand_cst (c : CST) : CST :=
         | SeqOf (Symbol "record" _ :: AppCST (Symbol name _) fields _ :: []) s :: rest =>
             RecordCST name [] fields s :: process_stmts rest
             
-        | SeqOf (Symbol "record" _ :: AppCST (TypeAppCST (Symbol name _) targs _) fields _ :: []) s :: rest =>
+        | SeqOf (Symbol "record" _ :: AppCST (ImplicitAppCST (Symbol name _) targs _) fields _ :: []) s :: rest =>
             let extract_targ (a: CST) : string := 
                match a with Symbol n _ => n | _ => "T" end 
             in

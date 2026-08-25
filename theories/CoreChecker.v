@@ -38,7 +38,7 @@ Fixpoint subst_ast (x : string) (v : AST) (body : AST) : AST :=
   | AstBlock stmts tail => 
       AstBlock (map (subst_ast x v) stmts) (subst_ast x v tail)
   | AstApp f args => AstApp (subst_ast x v f) (map (subst_ast x v) args)
-  | AstTypeApp f args => AstTypeApp (subst_ast x v f) (map (subst_ast x v) args)
+  | AstImplicitApp f args => AstImplicitApp (subst_ast x v f) (map (subst_ast x v) args)
   | AstLam argName argTy argBody =>
       let newTy := subst_ast x v argTy in
       if String.eqb argName x then AstLam argName newTy argBody
@@ -97,7 +97,7 @@ Fixpoint strip_span (e : AST) : AST :=
   | AstTuple elems => AstTuple (map strip_span elems)
   | AstBlock stmts tail => AstBlock (map strip_span stmts) (strip_span tail)
   | AstApp f args => AstApp (strip_span f) (map strip_span args)
-  | AstTypeApp f args => AstTypeApp (strip_span f) (map strip_span args)
+  | AstImplicitApp f args => AstImplicitApp (strip_span f) (map strip_span args)
   | AstLam n ty b => AstLam n (strip_span ty) (strip_span b)
   | AstPi n ty ret effs => AstPi n (strip_span ty) (strip_span ret) effs
   | AstDo e effs => AstDo (strip_span e) effs

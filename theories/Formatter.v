@@ -146,7 +146,7 @@ Definition needs_space_before_group (prev current : CST) : bool :=
   | Tuple _ _ => false
   | ListLiteral _ _ => false
   | AppCST _ _ _ => false
-  | TypeAppCST _ _ _ => false
+  | ImplicitAppCST _ _ _ => false
   | FieldAccessCST _ _ _ => false
   | _ => true
   end.
@@ -241,7 +241,7 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | DefCST _ _ _ _ _ _
       | LamCST _ _ _ _
       | AppCST _ _ _
-      | TypeAppCST _ _ _
+      | ImplicitAppCST _ _ _
       | EnumCST _ _ _ _
       | MatchCST _ _ _
       | RecordCST _ _ _ _

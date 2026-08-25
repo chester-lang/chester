@@ -52,7 +52,7 @@ def add_mark_cst(mark: Integer, c: CST): CST = {
     case DefCST(n, tps, params, rt, body, s) => DefCST(n, tps, add_mark_cst_list(mark, params), add_mark_cst(mark, rt), add_mark_cst(mark, body), add_mark_span(mark, s));
     case LamCST(n, argty, body, s) => LamCST(n, add_mark_cst(mark, argty), add_mark_cst(mark, body), add_mark_span(mark, s));
     case AppCST(f, args, s) => AppCST(add_mark_cst(mark, f), add_mark_cst_list(mark, args), add_mark_span(mark, s));
-    case TypeAppCST(f, targs, s) => TypeAppCST(add_mark_cst(mark, f), add_mark_cst_list(mark, targs), add_mark_span(mark, s));
+    case ImplicitAppCST(f, targs, s) => ImplicitAppCST(add_mark_cst(mark, f), add_mark_cst_list(mark, targs), add_mark_span(mark, s));
     case EnumCST(n, tps, vars, s) => EnumCST(n, tps, add_mark_cst_list(mark, vars), add_mark_span(mark, s));
     case MatchCST(expr, cases, s) => MatchCST(add_mark_cst(mark, expr), add_mark_cst_list(mark, cases), add_mark_span(mark, s));
     case RecordCST(n, tps, fields, s) => RecordCST(n, tps, add_mark_cst_list(mark, fields), add_mark_span(mark, s));
@@ -117,7 +117,7 @@ def subst_cst(subst: List(SubstEntry), c: CST): CST = {
     case DefCST(n, tps, params, rt, body, s) => DefCST(n, tps, subst_cst_list(subst, params), subst_cst(subst, rt), subst_cst(subst, body), s);
     case LamCST(n, argty, body, s) => LamCST(n, subst_cst(subst, argty), subst_cst(subst, body), s);
     case AppCST(f, args, s) => AppCST(subst_cst(subst, f), subst_cst_list(subst, args), s);
-    case TypeAppCST(f, targs, s) => TypeAppCST(subst_cst(subst, f), subst_cst_list(subst, targs), s);
+    case ImplicitAppCST(f, targs, s) => ImplicitAppCST(subst_cst(subst, f), subst_cst_list(subst, targs), s);
     case EnumCST(n, tps, vars, s) => EnumCST(n, tps, subst_cst_list(subst, vars), s);
     case MatchCST(expr, cases, s) => MatchCST(subst_cst(subst, expr), subst_cst_list(subst, cases), s);
     case RecordCST(n, tps, fields, s) => RecordCST(n, tps, subst_cst_list(subst, fields), s);
@@ -230,7 +230,7 @@ def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
         if int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x)) else {
           let func = list_get(acc, int_sub(acc_len, 1));
           let new_acc = list_drop_last(acc);
-          let node = TypeAppCST(func, targs, sp);
+          let node = ImplicitAppCST(func, targs, sp);
           collapse_apps(rest, list_append(new_acc, node))
         };
       };
@@ -365,7 +365,7 @@ def extract_vars(args: List(CST)): List(String) = {
     };
   }
 };
-def extract_variants(vs: List[CST]): List[CST] = {
+def extract_variants(vs: List(CST)): List(CST) = {
   if int_eq(list_length(vs), 0) then list_empty[CST]() else {
     let v = list_get(vs, 0);
     let vrest = extract_variants(advance(vs));
@@ -613,7 +613,7 @@ def extract_ext_target(elems: List(CST), start_idx: Integer, end_idx: Integer, s
   if int_eq(start_idx, end_idx) then Error("No target type", span) else if int_eq(int_add(start_idx, 1), end_idx) then list_get(elems, start_idx) else {
     let slice_len = int_sub(end_idx, start_idx);
     // Actually we can just pack it into a SeqOf and let it be collapsed later?
-    // Wait, the target type could be `List[T]`, which parses as SeqOf.
+    // Wait, the target type could be `List(T)`, which parses as SeqOf.
     // We can just construct a SeqOf manually for the slice.
     let slice = list_empty[CST]();
     // It's easier to just pass the sublist, but Chester doesn't have a built-in sublist.
@@ -711,7 +711,7 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                       case _ => ExpandResultList.ResList(list_empty[CST](), m)
                     };
                   };
-                  case TypeAppCST(Symbol(enum_name, sp3), targs, sp4) => {
+                  case ImplicitAppCST(Symbol(enum_name, sp3), targs, sp4) => {
                     let block_node = list_get(elems, 2);
                     match block_node {
                       case Block(variants, tail, sp5) => {

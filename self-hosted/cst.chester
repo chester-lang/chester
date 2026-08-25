@@ -16,7 +16,7 @@ enum CST {
   case DefCST(name: String, type_params: List(String), params: List(CST), ret_ty: CST, body: CST, span: Span);
   case LamCST(arg_name: String, opt_arg_ty: CST, body: CST, span: Span);
   case AppCST(func: CST, args: List(CST), span: Span);
-  case TypeAppCST(func: CST, targs: List(CST), span: Span);
+  case ImplicitAppCST(func: CST, targs: List(CST), span: Span);
   case EnumCST(name: String, type_params: List(String), variants: List(CST), span: Span);
   case MatchCST(expr: CST, cases: List(CST), span: Span);
   case RecordCST(name: String, type_params: List(String), fields: List(CST), span: Span);
