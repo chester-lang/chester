@@ -41,11 +41,11 @@ def whnf(expr: AST): AST = {
   };
 };
 enum ElabState {
-  case MkElabState(env: List Pair, next_var: Integer, subst: List Pair, exts: List ExtDecl)
+  case MkElabState(env: List[Pair], next_var: Integer, subst: List[Pair], exts: List[ExtDecl])
 };
 def get_elab_state(): ElabState = prim__get_elab_state();
 def put_elab_state(s: ElabState): Unit = prim__put_elab_state(s);
-def lookup_meta(id: Integer, subst: List Pair): OptionAST = {
+def lookup_meta(id: Integer, subst: List[Pair]): OptionAST = {
   if int_eq(list_length(subst), 0) then OptionAST.NoneAST() else {
     let entry = list_get(subst, 0);
     match entry {
@@ -93,7 +93,7 @@ def fresh_meta(): AST = {
     };
   }
 };
-def unify_list(fuel: Integer, l1: List AST, l2: List AST): Unit = {
+def unify_list(fuel: Integer, l1: List[AST], l2: List[AST]): Unit = {
   if int_eq(list_length(l1), 0) then () else {
     if int_eq(list_length(l2), 0) then () else {
       unify(fuel, list_get(l1, 0), list_get(l2, 0));
@@ -191,7 +191,7 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
     };
   }
 };
-def list_nat_eq(l1: List Integer, l2: List Integer): Bool = {
+def list_nat_eq(l1: List[Integer], l2: List[Integer]): Bool = {
   if int_eq(list_length(l1), 0) then {
     if int_eq(list_length(l2), 0) then true else false;
   } else {
@@ -202,7 +202,7 @@ def list_nat_eq(l1: List Integer, l2: List Integer): Bool = {
     };
   }
 };
-def lookup_type(name: String, ctx: List Integer, env: List Pair): OptionAST = {
+def lookup_type(name: String, ctx: List[Integer], env: List[Pair]): OptionAST = {
   if int_eq(list_length(env), 0) then OptionAST.NoneAST() else {
     let entry = list_get(env, 0);
     match entry {
@@ -220,7 +220,7 @@ def lookup_type(name: String, ctx: List Integer, env: List Pair): OptionAST = {
     };
   }
 };
-def resolve_hygiene(env: List Pair, name: String, ctx: List Integer): Pair = {
+def resolve_hygiene(env: List[Pair], name: String, ctx: List[Integer]): Pair = {
   let res = lookup_type(name, ctx, env);
   match res {
     case SomeAST(ty) => Pair.MkPair(ty, ctx);
@@ -229,16 +229,16 @@ def resolve_hygiene(env: List Pair, name: String, ctx: List Integer): Pair = {
     };
   }
 };
-def join_ctx(ls: List Integer): String = {
+def join_ctx(ls: List[Integer]): String = {
   if int_eq(list_length(ls), 0) then "" else string_append(string_append("_", int_to_string(list_get(ls, 0))), join_ctx(advance(ls)))
 };
-def mangle_name(n: String, ctx: List Integer): String = {
+def mangle_name(n: String, ctx: List[Integer]): String = {
   if int_eq(list_length(ctx), 0) then n else string_append(n, join_ctx(ctx))
 };
-def append_env(e1: List Pair, e2: List Pair): List Pair = {
+def append_env(e1: List[Pair], e2: List[Pair]): List[Pair] = {
   if int_eq(list_length(e1), 0) then e2 else list_insert_first(append_env(advance(e1), e2), list_get(e1, 0))
 };
-def extract_vars(args: List CST): List String = {
+def extract_vars(args: List[CST]): List[String] = {
   if int_eq(list_length(args), 0) then list_empty[String]() else {
     let a = list_get(args, 0);
     let rest = extract_vars(advance(args));
@@ -248,14 +248,14 @@ def extract_vars(args: List CST): List String = {
     };
   }
 };
-def add_vars_to_env(env: List Pair, vars: List String, ctx: List Integer): List Pair = {
+def add_vars_to_env(env: List[Pair], vars: List[String], ctx: List[Integer]): List[Pair] = {
   if int_eq(list_length(vars), 0) then env else {
     let v = list_get(vars, 0);
     let rest = add_vars_to_env(env, advance(vars), ctx);
     list_insert_first(rest, Pair.MkPair(Pair.MkPair(v, ctx), fresh_meta()))
   };
 };
-def elab_check_args(env: List Pair, fs: AST, as_: List CST): Pair = {
+def elab_check_args(env: List[Pair], fs: AST, as_: List[CST]): Pair = {
   if int_eq(list_length(as_), 0) then Pair.MkPair(list_empty[AST](), fs) else {
     let a = list_get(as_, 0);
     let rest = advance(as_);
@@ -322,7 +322,7 @@ def elab_check_args(env: List Pair, fs: AST, as_: List CST): Pair = {
     }
   };
 };
-def map_elabs(env: List Pair, ls: List CST): Pair = {
+def map_elabs(env: List[Pair], ls: List[CST]): Pair = {
   if int_eq(list_length(ls), 0) then Pair.MkPair(list_empty[AST](), env) else {
     let x = list_get(ls, 0);
     let xs = advance(ls);
@@ -377,7 +377,7 @@ def map_elabs(env: List Pair, ls: List CST): Pair = {
     }
   };
 };
-def elab_map_params(env: List Pair, ps: List CST): Pair = {
+def elab_map_params(env: List[Pair], ps: List[CST]): Pair = {
   if int_eq(list_length(ps), 0) then Pair.MkPair(list_empty[Pair](), list_empty[Pair]()) else {
     let p = list_get(ps, 0);
     let rest_res = elab_map_params(env, advance(ps));
@@ -407,7 +407,7 @@ def elab_map_params(env: List Pair, ps: List CST): Pair = {
     };
   }
 };
-def elab_check_targs(env: List Pair, as_: List CST): List AST = {
+def elab_check_targs(env: List[Pair], as_: List[CST]): List[AST] = {
   if int_eq(list_length(as_), 0) then list_empty[AST]() else {
     let a = list_get(as_, 0);
     let rest = elab_check_targs(env, advance(as_));
@@ -433,7 +433,7 @@ def elab_variant(v: CST): Pair = {
               case AppCST(inner_f, inner_args, sp3) => {
                 match inner_f {
                   case Symbol(vname, sp4) => {
-                    let fix elab_fields(fs: List CST): List AST = {
+                    let fix elab_fields(fs: List[CST]): List[AST] = {
                       if int_eq(list_length(fs), 0) then list_empty[AST]() else {
                         let f0 = list_get(fs, 0);
                         let rest = elab_fields(advance(fs));
@@ -459,13 +459,13 @@ def elab_variant(v: CST): Pair = {
     case _ => Pair.MkPair("unknown", Pair.MkPair(list_empty[AST](), AST.AstRef("Any")))
   };
 };
-def elab_variants(vs: List CST): List Pair = {
+def elab_variants(vs: List[CST]): List[Pair] = {
   if int_eq(list_length(vs), 0) then list_empty[Pair]() else {
     let v = list_get(vs, 0);
     list_insert_first(elab_variants(advance(vs)), elab_variant(v))
   };
 };
-def elab_cases(env: List Pair, expected: OptionAST, cs: List CST, expr_ty: AST): Pair = {
+def elab_cases(env: List[Pair], expected: OptionAST, cs: List[CST], expr_ty: AST): Pair = {
   if int_eq(list_length(cs), 0) then Pair.MkPair(list_empty[Pair](), AST.AstRef("Any")) else {
     let c = list_get(cs, 0);
     let rest_res = elab_cases(env, expected, advance(cs), expr_ty);
@@ -529,7 +529,7 @@ def elab_cases(env: List Pair, expected: OptionAST, cs: List CST, expr_ty: AST):
     };
   }
 };
-def elab_tuple_elems(env: List Pair, es: List CST): Pair = {
+def elab_tuple_elems(env: List[Pair], es: List[CST]): Pair = {
   if int_eq(list_length(es), 0) then Pair.MkPair(list_empty[AST](), AST.AstRef("Unit")) else {
     let e = list_get(es, 0);
     let eAst_res = elaborate(env, e, OptionAST.NoneAST());
@@ -620,7 +620,7 @@ def elab_ext_methods(env: List(Pair), meths: List(CST), ext_name: String): List(
     };
   }
 };
-def zonk_list(fuel: Integer, l: List AST): List AST = {
+def zonk_list(fuel: Integer, l: List[AST]): List[AST] = {
   if int_eq(list_length(l), 0) then list_empty[AST]() else {
     let hd = zonk(fuel, list_get(l, 0));
     let tl = zonk_list(fuel, advance(l));
@@ -653,7 +653,7 @@ def zonk(fuel: Integer, expr: AST): AST = {
     };
   }
 };
-def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
+def elaborate(env: List[Pair], expr: CST, expected: OptionAST): Pair = {
   match expr {
     case Symbol(name, span) => {
       let res = resolve_hygiene(env, name, span.context);
@@ -936,7 +936,7 @@ def elaborate(env: List Pair, expr: CST, expected: OptionAST): Pair = {
       let op_elab = elaborate(env, op, OptionAST.NoneAST());
       match op_elab {
         case MkPair(op_ast, op_ty) => {
-          let fix elab_args(fs: List CST): List AST = {
+          let fix elab_args(fs: List[CST]): List[AST] = {
             if int_eq(list_length(fs), 0) then list_empty[AST]() else {
               let f0 = list_get(fs, 0);
               let rest = elab_args(advance(fs));

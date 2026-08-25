@@ -1,31 +1,31 @@
 enum PatternAST {
   case PatWildcard;
   case PatVar(name: String);
-  case PatConstructor(name: String, vars: List String)
+  case PatConstructor(name: String, vars: List[String])
 };
 enum AST {
   case AstRef(name: String);
   case AstUniverse(level: Integer);
-  case AstTuple(elems: List AST);
+  case AstTuple(elems: List[AST]);
   case AstStringLit(val: String);
   case AstIntLit(val: Integer);
   case AstBoolLit(val: Bool);
-  case AstBlock(stmts: List AST, tail: AST);
-  case AstApp(func: AST, args: List AST);
-  case AstTypeApp(func: AST, args: List AST);
+  case AstBlock(stmts: List[AST], tail: AST);
+  case AstApp(func: AST, args: List[AST]);
+  case AstTypeApp(func: AST, args: List[AST]);
   case AstLam(argName: String, argTy: AST, body: AST);
-  case AstPi(argName: String, argTy: AST, retTy: AST, effs: List String);
+  case AstPi(argName: String, argTy: AST, retTy: AST, effs: List[String]);
   case AstLet(name: String, value: AST);
   case AstIf(cond: AST, then_branch: AST, else_branch: AST);
-  case AstDef(name: String, type_params: List String, params: List Pair, ret_ty: AST, body: AST);
-  case AstFunTy(type_params: List String, params: List Pair, ret_ty: AST, effs: List String);
-  case AstEnum(name: String, type_params: List String, variants: List Pair);
-  case AstMatch(expr: AST, cases: List Pair);
-  case AstRecord(name: String, type_params: List String, fields: List Pair);
+  case AstDef(name: String, type_params: List[String], params: List[Pair], ret_ty: AST, body: AST);
+  case AstFunTy(type_params: List[String], params: List[Pair], ret_ty: AST, effs: List[String]);
+  case AstEnum(name: String, type_params: List[String], variants: List[Pair]);
+  case AstMatch(expr: AST, cases: List[Pair]);
+  case AstRecord(name: String, type_params: List[String], fields: List[Pair]);
   case AstFieldAccess(expr: AST, field_name: String);
-  case AstExtension(ext_name: String, type_params: List String, target_ty: AST, methods: List AST);
+  case AstExtension(ext_name: String, type_params: List[String], target_ty: AST, methods: List[AST]);
   case AstSpan(span: Span, inner: AST);
   case AstError(msg: String);
-  case AstDo(op: AST, args: List AST);
-  case AstHandle(body: AST, eff: String, handlers: List Pair)
+  case AstDo(op: AST, args: List[AST]);
+  case AstHandle(body: AST, eff: String, handlers: List[Pair])
 }

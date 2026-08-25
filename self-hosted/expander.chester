@@ -365,7 +365,7 @@ def extract_vars(args: List(CST)): List(String) = {
     };
   }
 };
-def extract_variants(vs: List CST): List CST = {
+def extract_variants(vs: List[CST]): List[CST] = {
   if int_eq(list_length(vs), 0) then list_empty[CST]() else {
     let v = list_get(vs, 0);
     let vrest = extract_variants(advance(vs));
@@ -613,7 +613,7 @@ def extract_ext_target(elems: List(CST), start_idx: Integer, end_idx: Integer, s
   if int_eq(start_idx, end_idx) then Error("No target type", span) else if int_eq(int_add(start_idx, 1), end_idx) then list_get(elems, start_idx) else {
     let slice_len = int_sub(end_idx, start_idx);
     // Actually we can just pack it into a SeqOf and let it be collapsed later?
-    // Wait, the target type could be `List T`, which parses as SeqOf.
+    // Wait, the target type could be `List[T]`, which parses as SeqOf.
     // We can just construct a SeqOf manually for the slice.
     let slice = list_empty[CST]();
     // It's easier to just pass the sublist, but Chester doesn't have a built-in sublist.
