@@ -53,6 +53,38 @@ Definition symbol_is (name : string) (expr : CST) : bool :=
   | _ => false
   end.
 
+
+Fixpoint last_elem (ls : list CST) : option CST :=
+  match ls with
+  | [] => None
+  | [x] => Some x
+  | _ :: rest => last_elem rest
+  end.
+
+Definition ends_with_block (stmt : CST) : bool :=
+  match stmt with
+  | Block _ _ _ => true
+  | SeqOf elements _ =>
+      match last_elem elements with
+      | Some (Block _ _ _) => true
+      | _ => false
+      end
+  | _ => false
+  end.
+
+Definition starts_with_let (stmt : CST) : bool :=
+  match stmt with
+  | SeqOf (Symbol "let"%string _ :: _) _ => true
+  | _ => false
+  end.
+
+Definition needs_semicolon (stmt : CST) : bool :=
+  match stmt with
+  | CommentCST _ _ => false
+  | _ => 
+      true
+  end.
+
 Definition is_unit_tail (expr : CST) : bool :=
   match expr with
   | Symbol name span => string_eqb name "Unit" && span_is_empty span
@@ -167,13 +199,17 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
             | CommentCST text _ => [format_comment text]
             | SeqOf elements _ =>
                 let (body, comments) := split_trailing_comments elements in
+                let body_cst := stmt_from_seq body in
+                let semi := if needs_semicolon body_cst then ";" else "" in
                 let body_lines :=
                   match body with
                   | [] => []
-                  | _ => [format_cst f next_indent (stmt_from_seq body) ++ ";"]
+                  | _ => [format_cst f next_indent body_cst ++ semi]
                   end in
                 List.app body_lines (map format_comment_cst comments)
-            | _ => [format_cst f next_indent stmt ++ ";"]
+            | _ => 
+                let semi := if needs_semicolon stmt then ";" else "" in
+                [format_cst f next_indent stmt ++ semi]
             end in
           let stmt_lines := List.concat (map format_stmt_line elements) in
           let tail_lines := if is_unit_tail tail then [] else [format_cst f next_indent tail] in
@@ -200,146 +236,20 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
             end in
           format_seq None elements
 
-      | LetCST name val body _ =>
-          "let " ++ name ++ " = " ++ format_cst f indent val ++ ";" ++
-          newline ++ gen_spaces indent ++ format_cst f indent body
-
-      | IfCST cond thenB elseB _ =>
-          "if " ++ format_cst f indent cond ++
-          " then " ++ format_cst f indent thenB ++
-          " else " ++ format_cst f indent elseB
-
-      | DefCST name type_params params ret_ty body _ =>
-          let fix format_params (ps : list (string * CST)) : string :=
-            match ps with
-            | [] => ""
-            | [(n, t)] => n ++ ": " ++ format_cst f indent t
-            | (n, t) :: rest => n ++ ": " ++ format_cst f indent t ++ ", " ++ format_params rest
-            end in
-          let type_params_str :=
-            match type_params with
-            | [] => ""
-            | _ => "[" ++ join_strings ", " type_params ++ "]"
-            end in
-          "def " ++ name ++ type_params_str ++ "(" ++ format_params params ++ "): " ++
-          format_cst f indent ret_ty ++ " = " ++ format_cst f indent body
-
-      | LamCST arg_name opt_arg_ty body _ =>
-          let arg_str := match opt_arg_ty with
-                         | Some t => "(" ++ arg_name ++ ": " ++ format_cst f indent t ++ ")"
-                         | None => arg_name
-                         end in
-          backslash ++ arg_str ++ " => " ++ format_cst f indent body
-
-      | TypeAppCST func args _ =>
-          format_cst f indent func ++ "[" ++ join_strings ", " (map (format_cst f indent) args) ++ "]"
-      | AppCST func args _ =>
-          format_cst f indent func ++ "(" ++ join_strings ", " (map (format_cst f indent) args) ++ ")"
-
-      | EnumCST name type_params variants _ =>
-          let type_params_str :=
-            match type_params with
-            | [] => ""
-            | _ => "[" ++ join_strings ", " type_params ++ "]"
-            end in
-          let next_indent := indent + 2 in
-          let line_prefix := newline ++ gen_spaces next_indent in
-          let lines := map (fun v => format_cst f next_indent v ++ ";") variants in
-          match lines with
-          | [] => "enum " ++ name ++ type_params_str ++ " {}"
-          | _ =>
-              "enum " ++ name ++ type_params_str ++ " {" ++ line_prefix ++
-              join_strings line_prefix lines ++ newline ++ gen_spaces indent ++ "}"
-          end
-
-      | MatchCST expr cases _ =>
-          let fix format_cases (cs : list (PatternCST * CST)) : list string :=
-            match cs with
-            | [] => []
-            | (pat, body) :: rest =>
-                let pat_str := match pat with
-                               | PatWildcardCST _ => "_"
-                               | PatVarCST v _ => v
-                               | PatConstructorCST cname vars _ =>
-                                   match vars with
-                                   | [] => cname
-                                   | _ => cname ++ "(" ++ join_strings ", " vars ++ ")"
-                                   end
-                               end in
-                ("case " ++ pat_str ++ " => " ++ format_cst f (indent + 2) body ++ ";") ::
-                format_cases rest
-            end in
-          "match " ++ format_cst f indent expr ++ " {" ++ newline ++
-          gen_spaces (indent + 2) ++
-          join_strings (newline ++ gen_spaces (indent + 2)) (format_cases cases) ++
-          newline ++ gen_spaces indent ++ "}"
-
-      | RecordCST name type_params fields _ =>
-          let type_params_str :=
-            match type_params with
-            | [] => ""
-            | _ => "[" ++ join_strings ", " type_params ++ "]"
-            end in
-          let next_indent := indent + 2 in
-          let line_prefix := newline ++ gen_spaces next_indent in
-          let lines := map (fun field => format_cst f next_indent field ++ ";") fields in
-          match lines with
-          | [] => "record " ++ name ++ type_params_str ++ " {}"
-          | _ =>
-              "record " ++ name ++ type_params_str ++ " {" ++ line_prefix ++
-              join_strings line_prefix lines ++ newline ++ gen_spaces indent ++ "}"
-          end
-
-      | FieldAccessCST base field _ =>
-          format_cst f indent base ++ "." ++ field
-
-      | MacroDefCST name cases _ =>
-          let fix format_cases (cs : list (PatternCST * CST)) : list string :=
-            match cs with
-            | [] => []
-            | (pat, body) :: rest =>
-                let pat_str := match pat with
-                               | PatWildcardCST _ => "_"
-                               | PatVarCST v _ => v
-                               | PatConstructorCST cname vars _ =>
-                                   match vars with
-                                   | [] => cname
-                                   | _ => cname ++ "(" ++ join_strings ", " vars ++ ")"
-                                   end
-                               end in
-                ("case " ++ pat_str ++ " => " ++ format_cst f (indent + 2) body ++ ";") ::
-                format_cases rest
-            end in
-          "macro " ++ name ++ " {" ++ newline ++ gen_spaces (indent + 2) ++
-          join_strings (newline ++ gen_spaces (indent + 2)) (format_cases cases) ++
-          newline ++ gen_spaces indent ++ "}"
-
-      | EffectCST name params decls _ =>
-          let params_str :=
-            match params with
-            | [] => ""
-            | _ => "[" ++ join_strings ", " params ++ "]"
-            end in
-          let next_indent := indent + 2 in
-          let line_prefix := newline ++ gen_spaces next_indent in
-          let lines := map (fun decl => format_cst f next_indent decl ++ ";") decls in
-          match lines with
-          | [] => "effect " ++ name ++ params_str ++ " {}"
-          | _ =>
-              "effect " ++ name ++ params_str ++ " {" ++ line_prefix ++
-              join_strings line_prefix lines ++ newline ++ gen_spaces indent ++ "}"
-          end
-
-      | DoCST op args _ =>
-          "perform " ++ format_cst f indent op ++ "(" ++
-          join_strings ", " (map (format_cst f indent) args) ++ ")"
-      | HandleCST body eff handlers _ =>
-          let next_indent := indent + 2 in
-          let line_prefix := newline ++ gen_spaces next_indent in
-          let handler_lines := map (fun handler => format_cst f next_indent handler ++ ";") handlers in
-          "handle " ++ format_cst f indent body ++ " with " ++ eff ++ " {" ++
-          line_prefix ++ join_strings line_prefix handler_lines ++
-          newline ++ gen_spaces indent ++ "}"
+            | LetCST _ _ _ _
+      | IfCST _ _ _ _
+      | DefCST _ _ _ _ _ _
+      | LamCST _ _ _ _
+      | AppCST _ _ _
+      | TypeAppCST _ _ _
+      | EnumCST _ _ _ _
+      | MatchCST _ _ _
+      | RecordCST _ _ _ _
+      | EffectCST _ _ _ _
+      | DoCST _ _ _
+      | FieldAccessCST _ _ _
+      | MacroDefCST _ _ _
+      | HandleCST _ _ _ _ => "/* EXPANDED NODE */"
       | Error msg _ => "/* ERROR: " ++ msg ++ " */"
       end
   end.
@@ -353,13 +263,17 @@ Fixpoint format_program_body (fuel : nat) (indent : nat) (stmts : list CST) (tai
         | CommentCST text _ => [format_comment text]
         | SeqOf elements _ =>
             let (body, comments) := split_trailing_comments elements in
+            let body_cst := stmt_from_seq body in
+            let semi := if needs_semicolon body_cst then ";" else "" in
             let body_lines :=
               match body with
               | [] => []
-              | _ => [format_cst f indent (stmt_from_seq body) ++ ";"]
+              | _ => [format_cst f indent body_cst ++ semi]
               end in
             List.app body_lines (map format_comment_cst comments)
-        | _ => [format_cst f indent stmt ++ ";"]
+        | _ => 
+            let semi := if needs_semicolon stmt then ";" else "" in
+            [format_cst f indent stmt ++ semi]
         end in
       let stmt_lines := List.concat (map format_stmt_line stmts) in
       let tail_lines := if is_unit_tail tail then [] else [format_cst f indent tail] in

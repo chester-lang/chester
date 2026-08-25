@@ -2,40 +2,40 @@
 enum PatternCST {
   case PatWildcardCST(span: Span);
   case PatConstructorCST(vname: String, vars: List(String), span: Span);
-  case PatVarCST(vname: String, span: Span);
+  case PatVarCST(vname: String, span: Span)
 };
 enum MacroCase {
-  case CasePair(pat: PatternCST, body: CST);
+  case CasePair(pat: PatternCST, body: CST)
 };
 enum OpFixity {
   case InfixL;
   case InfixR;
   case Prefix;
-  case Postfix;
+  case Postfix
 };
 enum OpRel {
   case TighterThan(other: String);
   case LooserThan(other: String);
-  case SameAs(other: String);
+  case SameAs(other: String)
 };
 enum RelResult {
   case RelTighter;
   case RelLooser;
   case RelSameL;
   case RelSameR;
-  case RelIncomparable;
+  case RelIncomparable
 };
 enum OpEnvEntry {
-  case OpEntry(name: String, fixity: OpFixity, rels: List(OpRel));
+  case OpEntry(name: String, fixity: OpFixity, rels: List(OpRel))
 };
 enum MacroEnvEntry {
-  case Entry(name: String, cases: List(MacroCase));
+  case Entry(name: String, cases: List(MacroCase))
 };
 enum SubstEntry {
-  case Sub(name: String, value: CST);
+  case Sub(name: String, value: CST)
 };
 def add_mark_span(mark: Integer, s: Span): Span = {
-  Span(s.start, s.end, list_insert_first(s.context, mark));
+  Span(s.start, s.end, list_insert_first(s.context, mark))
 };
 def add_mark_cst(mark: Integer, c: CST): CST = {
   match c {
@@ -59,53 +59,53 @@ def add_mark_cst(mark: Integer, c: CST): CST = {
     case Comment(t, s) => Comment(t, add_mark_span(mark, s));
     case MacroDefCST(n, cases, s) => MacroDefCST(n, add_mark_cst_list(mark, cases), add_mark_span(mark, s));
     case Error(m, s) => Error(m, add_mark_span(mark, s));
-    case _ => c;
+    case _ => c
   };
 };
 def add_mark_cst_list(mark: Integer, ls: List(CST)): List(CST) = {
-  if int_eq(list_length(ls), 0) then list_empty[CST]() else list_insert_first(add_mark_cst_list(mark, advance(ls)), add_mark_cst(mark, list_get(ls, 0)));
+  if int_eq(list_length(ls), 0) then list_empty[CST]() else list_insert_first(add_mark_cst_list(mark, advance(ls)), add_mark_cst(mark, list_get(ls, 0)))
 };
 enum MacroLookupResult {
   case Found(cases: List(MacroCase));
-  case NotFound;
+  case NotFound
 };
 def lookup_macro(name: String, env: List(MacroEnvEntry)): MacroLookupResult = {
   if int_eq(list_length(env), 0) then MacroLookupResult.NotFound() else {
     let entry = list_get(env, 0);
     match entry {
       case Entry(n, cases) => {
-        if string_eq(name, n) then MacroLookupResult.Found(cases) else lookup_macro(name, advance(env));
+        if string_eq(name, n) then MacroLookupResult.Found(cases) else lookup_macro(name, advance(env))
       };
-      case _ => lookup_macro(name, advance(env));
+      case _ => lookup_macro(name, advance(env))
     };
-  };
+  }
 };
 def lookup_subst(n: String, subst: List(SubstEntry)): CST = {
   if int_eq(list_length(subst), 0) then Error("Not found", Span(0, 0, list_empty[Integer]())) else {
     let entry = list_get(subst, 0);
     match entry {
       case Sub(k, v) => {
-        if string_eq(n, k) then v else lookup_subst(n, advance(subst));
+        if string_eq(n, k) then v else lookup_subst(n, advance(subst))
       };
-      case _ => lookup_subst(n, advance(subst));
+      case _ => lookup_subst(n, advance(subst))
     };
-  };
+  }
 };
 def has_subst(n: String, subst: List(SubstEntry)): Bool = {
   if int_eq(list_length(subst), 0) then false else {
     let entry = list_get(subst, 0);
     match entry {
       case Sub(k, v) => {
-        if string_eq(n, k) then true else has_subst(n, advance(subst));
+        if string_eq(n, k) then true else has_subst(n, advance(subst))
       };
-      case _ => has_subst(n, advance(subst));
+      case _ => has_subst(n, advance(subst))
     };
-  };
+  }
 };
 def subst_cst(subst: List(SubstEntry), c: CST): CST = {
   match c {
     case Symbol(n, s) => {
-      if has_subst(n, subst) then lookup_subst(n, subst) else c;
+      if has_subst(n, subst) then lookup_subst(n, subst) else c
     };
     case Tuple(elems, s) => Tuple(subst_cst_list(subst, elems), s);
     case ListLiteral(elems, s) => ListLiteral(subst_cst_list(subst, elems), s);
@@ -122,15 +122,15 @@ def subst_cst(subst: List(SubstEntry), c: CST): CST = {
     case MatchCST(expr, cases, s) => MatchCST(subst_cst(subst, expr), subst_cst_list(subst, cases), s);
     case RecordCST(n, tps, fields, s) => RecordCST(n, tps, subst_cst_list(subst, fields), s);
     case MacroDefCST(n, cases, s) => MacroDefCST(n, subst_cst_list(subst, cases), s);
-    case _ => c;
+    case _ => c
   };
 };
 def subst_cst_list(subst: List(SubstEntry), ls: List(CST)): List(CST) = {
-  if int_eq(list_length(ls), 0) then list_empty[CST]() else list_insert_first(subst_cst_list(subst, advance(ls)), subst_cst(subst, list_get(ls, 0)));
+  if int_eq(list_length(ls), 0) then list_empty[CST]() else list_insert_first(subst_cst_list(subst, advance(ls)), subst_cst(subst, list_get(ls, 0)))
 };
 enum ZipResult {
   case Zipped(subst: List(SubstEntry));
-  case ZipFailed;
+  case ZipFailed
 };
 def zip_args(vs: List(String), as_: List(CST)): ZipResult = {
   if int_eq(list_length(vs), 0) then {
@@ -142,14 +142,14 @@ def zip_args(vs: List(String), as_: List(CST)): ZipResult = {
       let tail_res = zip_args(advance(vs), advance(as_));
       match tail_res {
         case Zipped(tail_subst) => ZipResult.Zipped(list_insert_first(tail_subst, SubstEntry.Sub(v, a)));
-        case ZipFailed => ZipResult.ZipFailed();
+        case ZipFailed => ZipResult.ZipFailed()
       };
-    };
+    }
   };
 };
 enum MacroMatchResult {
   case Matched(cst: CST);
-  case NoMatch;
+  case NoMatch
 };
 def apply_macro(cases: List(MacroCase), args: List(CST), mark: Integer): MacroMatchResult = {
   if int_eq(list_length(cases), 0) then MacroMatchResult.NoMatch() else {
@@ -162,15 +162,15 @@ def apply_macro(cases: List(MacroCase), args: List(CST), mark: Integer): MacroMa
             let zip_res = zip_args(vars, args);
             match zip_res {
               case Zipped(subst) => MacroMatchResult.Matched(add_mark_cst(mark, subst_cst(subst, template)));
-              case ZipFailed => apply_macro(advance(cases), args, mark);
+              case ZipFailed => apply_macro(advance(cases), args, mark)
             };
           };
-          case _ => apply_macro(advance(cases), args, mark);
+          case _ => apply_macro(advance(cases), args, mark)
         };
       };
-      case _ => apply_macro(advance(cases), args, mark);
+      case _ => apply_macro(advance(cases), args, mark)
     };
-  };
+  }
 };
 def split_at_eq(acc: List(CST), ls: List(CST)): List(List(CST)) = {
   if int_eq(list_length(ls), 0) then list_empty[List(CST)]() else {
@@ -182,11 +182,11 @@ def split_at_eq(acc: List(CST), ls: List(CST)): List(List(CST)) = {
         if string_eq(s, "=") then {
           let res = list_empty[List(CST)]();
           list_append(list_append(res, acc), rest);
-        } else split_at_eq(list_append(acc, x), rest);
+        } else split_at_eq(list_append(acc, x), rest)
       };
-      case _ => split_at_eq(list_append(acc, x), rest);
+      case _ => split_at_eq(list_append(acc, x), rest)
     };
-  };
+  }
 };
 def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
   if int_eq(list_length(elems), 0) then acc else {
@@ -206,14 +206,14 @@ def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
                   let expr = list_get(acc, int_sub(acc_len, 1));
                   let new_acc = list_drop_last(acc);
                   let node = FieldAccess(expr, field, sp);
-                  collapse_apps(advance(rest), list_append(new_acc, node));
+                  collapse_apps(advance(rest), list_append(new_acc, node))
                 };
               };
-              case _ => collapse_apps(rest, list_append(acc, x));
+              case _ => collapse_apps(rest, list_append(acc, x))
             };
           };
         } else {
-          collapse_apps(rest, list_append(acc, x));
+          collapse_apps(rest, list_append(acc, x))
         };
       };
       case Tuple(args, sp) => {
@@ -222,7 +222,7 @@ def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
           let func = list_get(acc, int_sub(acc_len, 1));
           let new_acc = list_drop_last(acc);
           let node = AppCST(func, args, sp);
-          collapse_apps(rest, list_append(new_acc, node));
+          collapse_apps(rest, list_append(new_acc, node))
         };
       };
       case ListLiteral(targs, sp) => {
@@ -231,25 +231,25 @@ def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
           let func = list_get(acc, int_sub(acc_len, 1));
           let new_acc = list_drop_last(acc);
           let node = TypeAppCST(func, targs, sp);
-          collapse_apps(rest, list_append(new_acc, node));
+          collapse_apps(rest, list_append(new_acc, node))
         };
       };
-      case _ => collapse_apps(rest, list_append(acc, x));
+      case _ => collapse_apps(rest, list_append(acc, x))
     };
-  };
+  }
 };
 def expand_if(elems: List(CST), span: Span): CST = {
-  Error("Not implemented expand_if", span);
+  Error("Not implemented expand_if", span)
 };
 enum PrattResult {
   case Parsed(expr: CST, rest: List(CST));
-  case PrattError(msg: String);
+  case PrattError(msg: String)
 };
 def pratt_parse(fuel: Integer, elems: List(CST), left_op: String, op_env: List(OpEnvEntry)): PrattResult = {
   if int_eq(fuel, 0) then PrattResult.PrattError("Out of fuel") else if int_eq(list_length(elems), 0) then PrattResult.PrattError("Unexpected end of expression") else {
     let lhs = list_get(elems, 0);
     let rest = advance(elems);
-    pratt_loop(int_sub(fuel, 1), lhs, rest, left_op, op_env);
+    pratt_loop(int_sub(fuel, 1), lhs, rest, left_op, op_env)
   };
 };
 def pratt_loop(fuel: Integer, lhs: CST, elems: List(CST), left_op: String, op_env: List(OpEnvEntry)): PrattResult = {
@@ -266,9 +266,9 @@ def pratt_loop(fuel: Integer, lhs: CST, elems: List(CST), left_op: String, op_en
                 case Parsed(rhs, rest_after) => {
                   let args = list_insert_first(list_insert_first(list_empty[CST](), rhs), lhs);
                   let new_lhs = AppCST(Symbol(op, sp), args, sp);
-                  pratt_loop(int_sub(fuel, 1), new_lhs, rest_after, left_op, op_env);
+                  pratt_loop(int_sub(fuel, 1), new_lhs, rest_after, left_op, op_env)
                 };
-                case PrattError(msg) => PrattResult.PrattError(msg);
+                case PrattError(msg) => PrattResult.PrattError(msg)
               };
             } else {
               let rel = get_relation(left_op, op, op_env);
@@ -281,9 +281,9 @@ def pratt_loop(fuel: Integer, lhs: CST, elems: List(CST), left_op: String, op_en
                     case Parsed(rhs, rest_after) => {
                       let args = list_insert_first(list_insert_first(list_empty[CST](), rhs), lhs);
                       let new_lhs = AppCST(Symbol(op, sp), args, sp);
-                      pratt_loop(int_sub(fuel, 1), new_lhs, rest_after, left_op, op_env);
+                      pratt_loop(int_sub(fuel, 1), new_lhs, rest_after, left_op, op_env)
                     };
-                    case PrattError(msg) => PrattResult.PrattError(msg);
+                    case PrattError(msg) => PrattResult.PrattError(msg)
                   };
                 };
                 case RelSameR => {
@@ -292,21 +292,21 @@ def pratt_loop(fuel: Integer, lhs: CST, elems: List(CST), left_op: String, op_en
                     case Parsed(rhs, rest_after) => {
                       let args = list_insert_first(list_insert_first(list_empty[CST](), rhs), lhs);
                       let new_lhs = AppCST(Symbol(op, sp), args, sp);
-                      pratt_loop(int_sub(fuel, 1), new_lhs, rest_after, left_op, op_env);
+                      pratt_loop(int_sub(fuel, 1), new_lhs, rest_after, left_op, op_env)
                     };
-                    case PrattError(msg) => PrattResult.PrattError(msg);
+                    case PrattError(msg) => PrattResult.PrattError(msg)
                   };
                 };
-                case RelIncomparable => PrattResult.PrattError("Ambiguous precedence");
+                case RelIncomparable => PrattResult.PrattError("Ambiguous precedence")
               };
-            };
+            }
           };
-          case NotFoundOp => PrattResult.Parsed(lhs, elems);
+          case NotFoundOp => PrattResult.Parsed(lhs, elems)
         };
       };
-      case _ => PrattResult.Parsed(lhs, elems);
+      case _ => PrattResult.Parsed(lhs, elems)
     };
-  };
+  }
 };
 def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST = {
   let collapsed = collapse_apps(elems, list_empty[CST]());
@@ -322,7 +322,7 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
             let body = list_get(collapsed, 3);
             match arg_tok {
               case Symbol(arg_name, sp2) => LamCST(arg_name, Error("None", sp), body, span);
-              case _ => SeqOf(collapsed, span);
+              case _ => SeqOf(collapsed, span)
             };
           } else SeqOf(collapsed, span);
         } else if string_eq(s, "match") then {
@@ -331,29 +331,29 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
           let pr = pratt_parse(1000, collapsed, "", op_env);
           match pr {
             case Parsed(expr, rest) => {
-              if int_eq(list_length(rest), 0) then expr else Error("Incomplete parse", span);
+              if int_eq(list_length(rest), 0) then expr else Error("Incomplete parse", span)
             };
-            case PrattError(msg) => Error(msg, span);
+            case PrattError(msg) => Error(msg, span)
           };
-        };
+        }
       };
       case _ => {
         let pr = pratt_parse(1000, collapsed, "", op_env);
         match pr {
           case Parsed(expr, rest) => {
-            if int_eq(list_length(rest), 0) then expr else Error("Incomplete parse", span);
+            if int_eq(list_length(rest), 0) then expr else Error("Incomplete parse", span)
           };
-          case PrattError(msg) => Error(msg, span);
+          case PrattError(msg) => Error(msg, span)
         };
-      };
+      }
     };
-  };
+  }
 };
 enum ExpandResult {
-  case Res(cst: CST, mark: Integer);
+  case Res(cst: CST, mark: Integer)
 };
 enum ExpandResultList {
-  case ResList(csts: List(CST), mark: Integer);
+  case ResList(csts: List(CST), mark: Integer)
 };
 def extract_vars(args: List(CST)): List(String) = {
   if int_eq(list_length(args), 0) then list_empty[String]() else {
@@ -361,9 +361,9 @@ def extract_vars(args: List(CST)): List(String) = {
     let rest = extract_vars(advance(args));
     match first {
       case Symbol(vname, sp) => list_insert_first(rest, vname);
-      case _ => rest;
+      case _ => rest
     };
-  };
+  }
 };
 def extract_variants(vs: List CST): List CST = {
   if int_eq(list_length(vs), 0) then list_empty[CST]() else {
@@ -384,20 +384,20 @@ def extract_variants(vs: List CST): List CST = {
                     if string_eq(colon_name, ":") then {
                       match head {
                         case AppCST(f, args, sp4) => {
-                          list_insert_first(vrest, CST.AppCST(CST.Symbol(":", sp3), list_insert_first(list_insert_first(list_empty[CST](), ret_ty), head), sp));
+                          list_insert_first(vrest, CST.AppCST(CST.Symbol(":", sp3), list_insert_first(list_insert_first(list_empty[CST](), ret_ty), head), sp))
                         };
                         case Symbol(vname, sp4) => {
-                          list_insert_first(vrest, CST.AppCST(CST.Symbol(":", sp3), list_insert_first(list_insert_first(list_empty[CST](), ret_ty), head), sp));
+                          list_insert_first(vrest, CST.AppCST(CST.Symbol(":", sp3), list_insert_first(list_insert_first(list_empty[CST](), ret_ty), head), sp))
                         };
-                        case _ => vrest;
+                        case _ => vrest
                       };
-                    } else vrest;
+                    } else vrest
                   };
-                  case _ => vrest;
+                  case _ => vrest
                 };
-              } else vrest;
+              } else vrest
             };
-            case _ => vrest;
+            case _ => vrest
           };
         } else if int_eq(list_length(elems), 2) then {
           let kw = list_get(elems, 0);
@@ -408,17 +408,17 @@ def extract_variants(vs: List CST): List CST = {
                 match head {
                   case AppCST(f, args, sp4) => list_insert_first(vrest, head);
                   case Symbol(vname, sp4) => list_insert_first(vrest, head);
-                  case _ => vrest;
+                  case _ => vrest
                 };
-              } else vrest;
+              } else vrest
             };
-            case _ => vrest;
+            case _ => vrest
           };
-        } else vrest;
+        } else vrest
       };
-      case _ => vrest;
+      case _ => vrest
     };
-  };
+  }
 };
 def extract_macro_cases(cs: List(CST)): List(MacroCase) = {
   if int_eq(list_length(cs), 0) then list_empty[MacroCase]() else {
@@ -438,24 +438,24 @@ def extract_macro_cases(cs: List(CST)): List(MacroCase) = {
                     match args_node {
                       case Tuple(args_cst, sp3) => {
                         let body_cst = list_get(elems, 4);
-                        list_insert_first(r, MacroCase.CasePair(PatternPatConstructorCST(vname, extract_vars(args_cst), sp), body_cst));
+                        list_insert_first(r, MacroCase.CasePair(PatternPatConstructorCST(vname, extract_vars(args_cst), sp), body_cst))
                       };
-                      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x));
+                      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
                     };
                   };
-                  case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x));
+                  case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
                 };
               } else {
-                list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x));
+                list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
               };
             };
-            case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x));
+            case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(sp), x))
           };
-        };
+        }
       };
-      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(Span(0, 0, list_empty[Integer]())), x));
+      case _ => list_insert_first(r, MacroCase.CasePair(PatternPatWildcardCST(Span(0, 0, list_empty[Integer]())), x))
     };
-  };
+  }
 };
 def map_expand(ls: List(CST), fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer): ExpandResultList = {
   if int_eq(list_length(ls), 0) then ExpandResultList.ResList(list_empty[CST](), m) else {
@@ -466,25 +466,25 @@ def map_expand(ls: List(CST), fuel: Integer, env: List(MacroEnvEntry), op_env: L
         let res_rest = map_expand(advance(ls), fuel, env, next_m);
         match res_rest {
           case ResList(rest_csts, final_m) => {
-            ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+            ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
           };
-        };
+        }
       };
-    };
+    }
   };
 };
 enum LookupOp {
   case FoundOp(fixity: OpFixity, rels: List(OpRel));
-  case NotFoundOp;
+  case NotFoundOp
 };
 def lookup_op(name: String, env: List(OpEnvEntry)): LookupOp = {
   if int_eq(list_length(env), 0) then LookupOp.NotFoundOp() else {
     let first = list_get(env, 0);
     match first {
       case OpEntry(n, fixity, rels) => {
-        if string_eq(n, name) then LookupOp.FoundOp(fixity, rels) else lookup_op(name, advance(env));
+        if string_eq(n, name) then LookupOp.FoundOp(fixity, rels) else lookup_op(name, advance(env))
       };
-    };
+    }
   };
 };
 def has_looser_than(rels: List(OpRel), target: String): Bool = {
@@ -492,9 +492,9 @@ def has_looser_than(rels: List(OpRel), target: String): Bool = {
     let r = list_get(rels, 0);
     let found = match r {
       case LooserThan(other) => string_eq(other, target);
-      case _ => false;
+      case _ => false
     };
-    if found then true else has_looser_than(advance(rels), target);
+    if found then true else has_looser_than(advance(rels), target)
   };
 };
 def has_same_as(rels: List(OpRel), target: String): Bool = {
@@ -502,9 +502,9 @@ def has_same_as(rels: List(OpRel), target: String): Bool = {
     let r = list_get(rels, 0);
     let found = match r {
       case SameAs(other) => string_eq(other, target);
-      case _ => false;
+      case _ => false
     };
-    if found then true else has_same_as(advance(rels), target);
+    if found then true else has_same_as(advance(rels), target)
   };
 };
 // Forward declare is_tighter_than to break cycles isn't supported, we need them ordered,
@@ -517,9 +517,9 @@ def check_rels_for_tighter(fuel: Integer, rels: List(OpRel), target: String, env
     let found = match r {
       case TighterThan(other) => is_tighter_than(fuel, other, target, env);
       case SameAs(other) => is_tighter_than(fuel, other, target, env);
-      case _ => false;
+      case _ => false
     };
-    if found then true else check_rels_for_tighter(fuel, rest, target, env);
+    if found then true else check_rels_for_tighter(fuel, rest, target, env)
   };
 };
 def check_env_for_looser(fuel: Integer, current: String, target: String, env_idx: Integer, env: List(OpEnvEntry)): Bool = {
@@ -527,10 +527,10 @@ def check_env_for_looser(fuel: Integer, current: String, target: String, env_idx
     let entry = list_get(env, env_idx);
     let found = match entry {
       case OpEntry(n, fixity, rels) => {
-        if has_looser_than(rels, current) then is_tighter_than(fuel, n, target, env) else if has_same_as(rels, current) then is_tighter_than(fuel, n, target, env) else false;
+        if has_looser_than(rels, current) then is_tighter_than(fuel, n, target, env) else if has_same_as(rels, current) then is_tighter_than(fuel, n, target, env) else false
       };
     };
-    if found then true else check_env_for_looser(fuel, current, target, int_add(env_idx, 1), env);
+    if found then true else check_env_for_looser(fuel, current, target, int_add(env_idx, 1), env)
   };
 };
 def is_tighter_than(fuel: Integer, start: String, target: String, env: List(OpEnvEntry)): Bool = {
@@ -539,9 +539,9 @@ def is_tighter_than(fuel: Integer, start: String, target: String, env: List(OpEn
     let entry = lookup_op(start, env);
     let found_forward = match entry {
       case FoundOp(fixity, rels) => check_rels_for_tighter(next_fuel, rels, target, env);
-      case NotFoundOp => false;
+      case NotFoundOp => false
     };
-    if found_forward then true else check_env_for_looser(next_fuel, start, target, 0, env);
+    if found_forward then true else check_env_for_looser(next_fuel, start, target, 0, env)
   };
 };
 def get_relation(op1: String, op2: String, env: List(OpEnvEntry)): RelResult = {
@@ -557,11 +557,11 @@ def get_relation(op1: String, op2: String, env: List(OpEnvEntry)): RelResult = {
           case InfixR => RelResult.RelSameR();
           case _ => RelResult.RelSameL();
           // fallback
-        };
+        }
       };
-      case NotFoundOp => RelResult.RelSameL();
+      case NotFoundOp => RelResult.RelSameL()
     };
-  } else if t12 then RelResult.RelTighter() else if t21 then RelResult.RelLooser() else RelResult.RelIncomparable();
+  } else if t12 then RelResult.RelTighter() else if t21 then RelResult.RelLooser() else RelResult.RelIncomparable()
 };
 def parse_op_rels_loop(elems: List(CST)): List(OpRel) = {
   if int_lt(list_length(elems), 2) then list_empty[OpRel]() else {
@@ -570,33 +570,33 @@ def parse_op_rels_loop(elems: List(CST)): List(OpRel) = {
     let rest = advance(advance(elems));
     let parsed_target = match target {
       case StringLiteral(val, sp) => val;
-      case _ => "";
+      case _ => ""
     };
     let parsed_rel = match rel_sym {
       case Symbol(s, sp) => {
-        if string_eq(s, "same_as") then OpRel.SameAs(parsed_target) else if string_eq(s, "tighter_than") then OpRel.TighterThan(parsed_target) else if string_eq(s, "looser_than") then OpRel.LooserThan(parsed_target) else OpRel.SameAs("");
+        if string_eq(s, "same_as") then OpRel.SameAs(parsed_target) else if string_eq(s, "tighter_than") then OpRel.TighterThan(parsed_target) else if string_eq(s, "looser_than") then OpRel.LooserThan(parsed_target) else OpRel.SameAs("")
       };
-      case _ => OpRel.SameAs("");
+      case _ => OpRel.SameAs("")
     };
     let tail_rels = parse_op_rels_loop(rest);
-    list_insert_first(tail_rels, parsed_rel);
+    list_insert_first(tail_rels, parsed_rel)
   };
 };
 def parse_op_decl(fixity: OpFixity, elems: List(CST), fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, rest_ss: List(CST)): ExpandResultList = {
   let name_node = list_get(elems, 1);
   let op_name = match name_node {
     case StringLiteral(val, sp) => val;
-    case _ => "";
+    case _ => ""
   };
   let rels = parse_op_rels_loop(advance(advance(elems)));
   let new_op_entry = OpEnvEntry.OpEntry(op_name, fixity, rels);
   let new_op_env = list_insert_first(op_env, new_op_entry);
-  process_stmts(fuel, env, new_op_env, m, rest_ss);
+  process_stmts(fuel, env, new_op_env, m, rest_ss)
 };
 def parse_ext_type_params(c: CST): List(String) = {
   match c {
     case ListLiteral(elems, sp) => extract_type_params(elems);
-    case _ => list_empty[String]();
+    case _ => list_empty[String]()
   };
 };
 def extract_type_params(elems: List(CST)): List(String) = {
@@ -605,9 +605,9 @@ def extract_type_params(elems: List(CST)): List(String) = {
     let rest = extract_type_params(advance(elems));
     match first {
       case Symbol(s, sp) => list_insert_first(rest, s);
-      case _ => rest;
+      case _ => rest
     };
-  };
+  }
 };
 def extract_ext_target(elems: List(CST), start_idx: Integer, end_idx: Integer, span: Span): CST = {
   if int_eq(start_idx, end_idx) then Error("No target type", span) else if int_eq(int_add(start_idx, 1), end_idx) then list_get(elems, start_idx) else {
@@ -618,7 +618,7 @@ def extract_ext_target(elems: List(CST), start_idx: Integer, end_idx: Integer, s
     let slice = list_empty[CST]();
     // It's easier to just pass the sublist, but Chester doesn't have a built-in sublist.
     // Let's just create it recursively.
-    build_sublist(elems, start_idx, end_idx, span);
+    build_sublist(elems, start_idx, end_idx, span)
   };
 };
 def build_sublist(elems: List(CST), curr: Integer, end_idx: Integer, span: Span): CST = {
@@ -629,9 +629,9 @@ def build_sublist(elems: List(CST), curr: Integer, end_idx: Integer, span: Span)
     match next_cst {
       case Tuple(empty_ls, sp2) => SeqOf(list_insert_first(list_empty[CST](), head), span);
       case SeqOf(ls, sp2) => SeqOf(list_insert_first(ls, head), span);
-      case _ => SeqOf(list_insert_first(list_insert_first(list_empty[CST](), next_cst), head), span);
+      case _ => SeqOf(list_insert_first(list_insert_first(list_empty[CST](), next_cst), head), span)
     };
-  };
+  }
 };
 def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, ss: List(CST)): ExpandResultList = {
   if int_eq(list_length(ss), 0) then ExpandResultList.ResList(list_empty[CST](), m) else {
@@ -645,9 +645,9 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
             case Res(fst_cst, next_m) => {
               let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
               match res_rest {
-                case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+                case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
               };
-            };
+            }
           };
         } else {
           let first = list_get(elems, 0);
@@ -660,18 +660,18 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
               } else if string_eq(sym, "prefix") then {
                 parse_op_decl(OpFixity.Prefix(), elems, fuel, env, op_env, m, rest_ss);
               } else if string_eq(sym, "postfix") then {
-                parse_op_decl(OpFixity.Postfix(), elems, fuel, env, op_env, m, rest_ss);
+                parse_op_decl(OpFixity.Postfix(), elems, fuel, env, op_env, m, rest_ss)
               };
             } else if string_eq(sym, "extension") then {
               let len = list_length(elems);
               let name_node = list_get(elems, 1);
               let ext_name = match name_node {
                 case Symbol(n, sp2) => n;
-                case _ => "";
+                case _ => ""
               };
               let has_tparams = match list_get(elems, 2) {
                 case ListLiteral(l, sp3) => true;
-                case _ => false;
+                case _ => false
               };
               let tparams = parse_ext_type_params(list_get(elems, 2));
               let on_idx = if has_tparams then 3 else 2;
@@ -685,10 +685,10 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                   let expanded_block = expand_cst(fuel, env, op_env, m, block_node);
                   match expanded_block {
                     case Res(Block(new_stmts, new_t, sp4), final_m) => new_stmts;
-                    case _ => list_empty[CST]();
+                    case _ => list_empty[CST]()
                   };
                 };
-                case _ => list_empty[CST]();
+                case _ => list_empty[CST]()
               };
               let ext_cst = ExtensionCST(ext_name, tparams, target_ty, meths, sp);
               let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
@@ -705,10 +705,10 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         let enum_cst = CST.EnumCST(enum_name, list_empty[String](), extracted, sp);
                         let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
                         match res_rest {
-                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m);
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m)
                         };
                       };
-                      case _ => ExpandResultList.ResList(list_empty[CST](), m);
+                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
                     };
                   };
                   case TypeAppCST(Symbol(enum_name, sp3), targs, sp4) => {
@@ -719,13 +719,13 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         let enum_cst = CST.EnumCST(enum_name, targs, extracted, sp);
                         let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
                         match res_rest {
-                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m);
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m)
                         };
                       };
-                      case _ => ExpandResultList.ResList(list_empty[CST](), m);
+                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
                     };
                   };
-                  case _ => ExpandResultList.ResList(list_empty[CST](), m);
+                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
                 };
               } else if string_eq(sym, "macro") then {
                 let name_node = list_get(elems, 1);
@@ -737,7 +737,7 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         let extracted = extract_macro_cases(cases);
                         let new_env_entry = MacroEnvEntry.Entry(mac_name, extracted);
                         let new_env = list_insert_first(env, new_env_entry);
-                        process_stmts(fuel, new_env, op_env, m, rest_ss);
+                        process_stmts(fuel, new_env, op_env, m, rest_ss)
                       };
                       case _ => {
                         let res_s = expand_cst(fuel, env, op_env, m, s);
@@ -745,11 +745,11 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                           case Res(fst_cst, next_m) => {
                             let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
                             match res_rest {
-                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
                             };
-                          };
+                          }
                         };
-                      };
+                      }
                     };
                   };
                   case _ => {
@@ -758,11 +758,11 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                       case Res(fst_cst, next_m) => {
                         let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
                         match res_rest {
-                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
                         };
-                      };
+                      }
                     };
-                  };
+                  }
                 };
               } else if string_eq(sym, "let") then {
                 let name_node = list_get(elems, 1);
@@ -777,11 +777,11 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         match res_rest {
                           case ResList(rest_csts, final_m) => {
                             let node = LetCST(name, fst_val, Symbol("Unit", sp), sp);
-                            ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m);
+                            ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
                           };
-                        };
+                        }
                       };
-                    };
+                    }
                   };
                   case _ => {
                     let res_s = expand_cst(fuel, env, op_env, m, s);
@@ -789,11 +789,11 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                       case Res(fst_cst, next_m) => {
                         let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
                         match res_rest {
-                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
                         };
-                      };
+                      }
                     };
-                  };
+                  }
                 };
               } else {
                 let res_s = expand_cst(fuel, env, op_env, m, s);
@@ -801,11 +801,11 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                   case Res(fst_cst, next_m) => {
                     let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
                     match res_rest {
-                      case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+                      case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
                     };
-                  };
+                  }
                 };
-              };
+              }
             };
             case _ => {
               let res_s = expand_cst(fuel, env, op_env, m, s);
@@ -813,13 +813,13 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                 case Res(fst_cst, next_m) => {
                   let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
                   match res_rest {
-                    case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+                    case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
                   };
-                };
+                }
               };
-            };
+            }
           };
-        };
+        }
       };
       case _ => {
         let res_s = expand_cst(fuel, env, op_env, m, s);
@@ -827,13 +827,13 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
           case Res(fst_cst, next_m) => {
             let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
             match res_rest {
-              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m);
+              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
             };
-          };
+          }
         };
-      };
+      }
     };
-  };
+  }
 };
 def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), mark: Integer, c: CST): ExpandResult = {
   if int_eq(fuel, 0) then ExpandResult.Res(c, mark) else {
@@ -845,21 +845,21 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
           case ResList(new_stmts, next_m) => {
             let res_tail = expand_cst(next_fuel, env, op_env, next_m, tail);
             match res_tail {
-              case Res(new_tail, final_m) => ExpandResult.Res(Block(new_stmts, new_tail, sp), final_m);
+              case Res(new_tail, final_m) => ExpandResult.Res(Block(new_stmts, new_tail, sp), final_m)
             };
-          };
+          }
         };
       };
       case Tuple(elems, sp) => {
         let res_elems = map_expand(elems, next_fuel, env, op_env, mark);
         match res_elems {
-          case ResList(new_elems, next_m) => ExpandResult.Res(Tuple(new_elems, sp), next_m);
+          case ResList(new_elems, next_m) => ExpandResult.Res(Tuple(new_elems, sp), next_m)
         };
       };
       case ListLiteral(elems, sp) => {
         let res_elems = map_expand(elems, next_fuel, env, op_env, mark);
         match res_elems {
-          case ResList(new_elems, next_m) => ExpandResult.Res(ListLiteral(new_elems, sp), next_m);
+          case ResList(new_elems, next_m) => ExpandResult.Res(ListLiteral(new_elems, sp), next_m)
         };
       };
       case SeqOf(elems, sp) => {
@@ -867,20 +867,20 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
         match res_elems {
           case ResList(new_elems, next_m) => {
             let expanded = expand_seq_expr(new_elems, op_env, sp);
-            expand_cst(next_fuel, env, op_env, next_m, expanded);
+            expand_cst(next_fuel, env, op_env, next_m, expanded)
           };
-        };
+        }
       };
       case FieldAccess(expr, f, sp) => {
         let res_expr = expand_cst(next_fuel, env, op_env, mark, expr);
         match res_expr {
-          case Res(new_expr, next_m) => ExpandResult.Res(FieldAccess(new_expr, f, sp), next_m);
+          case Res(new_expr, next_m) => ExpandResult.Res(FieldAccess(new_expr, f, sp), next_m)
         };
       };
       case MatchCST(expr, cases, sp) => {
         let res_expr = expand_cst(next_fuel, env, op_env, mark, expr);
         match res_expr {
-          case Res(new_expr, next_m) => ExpandResult.Res(MatchCST(new_expr, cases, sp), next_m);
+          case Res(new_expr, next_m) => ExpandResult.Res(MatchCST(new_expr, cases, sp), next_m)
         };
       };
       case AppCST(f, args, sp) => {
@@ -896,17 +896,17 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
                   case NoMatch => {
                     let res_args = map_expand(args, next_fuel, env, op_env, mark);
                     match res_args {
-                      case ResList(new_args, final_m) => ExpandResult.Res(AppCST(f, new_args, sp), final_m);
+                      case ResList(new_args, final_m) => ExpandResult.Res(AppCST(f, new_args, sp), final_m)
                     };
-                  };
+                  }
                 };
               };
               case NotFound => {
                 let res_args = map_expand(args, next_fuel, env, op_env, mark);
                 match res_args {
-                  case ResList(new_args, final_m) => ExpandResult.Res(AppCST(f, new_args, sp), final_m);
+                  case ResList(new_args, final_m) => ExpandResult.Res(AppCST(f, new_args, sp), final_m)
                 };
-              };
+              }
             };
           };
           case _ => {
@@ -915,25 +915,25 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
               case Res(new_expr, next_m) => {
                 let res_args = map_expand(args, next_fuel, env, op_env, next_m);
                 match res_args {
-                  case ResList(new_args, final_m) => ExpandResult.Res(AppCST(new_expr, new_args, sp), final_m);
+                  case ResList(new_args, final_m) => ExpandResult.Res(AppCST(new_expr, new_args, sp), final_m)
                 };
-              };
+              }
             };
-          };
+          }
         };
       };
-      case _ => ExpandResult.Res(c, mark);
+      case _ => ExpandResult.Res(c, mark)
     };
-  };
+  }
 };
 def expand_cst_top(c: CST): CST = {
   let res = expand_cst(1000, list_empty[MacroEnvEntry](), list_empty[OpEnvEntry](), 0, c);
   match res {
-    case Res(cst, m) => cst;
+    case Res(cst, m) => cst
   };
 };
 def expander_main(): Any = {
   let cst = Symbol("test", Span(0, 0, list_empty[Integer]()));
-  expand_cst_top(cst);
+  expand_cst_top(cst)
 };
-expander_main();
+expander_main()

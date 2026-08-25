@@ -1,7 +1,7 @@
 enum PatternAST {
   case PatWildcard;
   case PatVar(name: String);
-  case PatConstructor(name: String, vars: List String);
+  case PatConstructor(name: String, vars: List String)
 };
 enum AST {
   case AstRef(name: String);
@@ -25,5 +25,5 @@ enum AST {
   case AstFieldAccess(expr: AST, field_name: String);
   case AstExtension(ext_name: String, type_params: List String, target_ty: AST, methods: List AST);
   case AstSpan(span: Span, inner: AST);
-  case AstError(msg: String);
-};
+  case AstError(msg: String)
+}

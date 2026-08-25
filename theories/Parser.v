@@ -6,6 +6,25 @@ Import ListNotations.
 Open Scope string_scope.
 Require Import Chester.CST.
 
+Fixpoint last_elem (ls : list CST) : option CST :=
+  match ls with
+  | [] => None
+  | [x] => Some x
+  | _ :: rest => last_elem rest
+  end.
+
+Definition ends_with_block (stmt : CST) : bool :=
+  match stmt with
+  | Block _ _ _ => true
+  | SeqOf elements _ =>
+      match last_elem elements with
+      | Some (Block _ _ _) => true
+      | _ => false
+      end
+  | _ => false
+  end.
+
+
 Inductive Token : Type :=
   | TokId : string -> Span -> Token
   | TokInt : string -> Span -> Token
@@ -215,8 +234,16 @@ with parse_body_fuel (fuel : nat) (term : string) (toks : list Token)
                 else if string_dec sep "," then
                   let body := parse_body_fuel fuel' term after_sep in
                   (item :: fst body, snd body)
+                else
+                  if ends_with_block item then
+                    let body := parse_body_fuel fuel' term rest1 in
+                    (item :: fst body, snd body)
+                  else ([], (item, rest1))
+            | _ =>
+                if ends_with_block item then
+                  let body := parse_body_fuel fuel' term rest1 in
+                  (item :: fst body, snd body)
                 else ([], (item, rest1))
-            | _ => ([], (item, rest1))
             end
       | _ =>
           let parsed := parse_loop_fuel fuel' (ModeSeq term) toks in

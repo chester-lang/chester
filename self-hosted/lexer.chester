@@ -5,7 +5,7 @@ enum TokenKind {
   case Symbol(value: String);
   case Whitespace;
   case Comment(text: String);
-  case EOF;
+  case EOF
 };
 record Span(start: Integer, end: Integer, context: List(Integer));
 record Token(kind: TokenKind, text: String, span: Span);
@@ -14,7 +14,7 @@ def is_whitespace(c: String): Bool = {
   let is_nl = string_eq(c, "\n");
   let is_tab = string_eq(c, "\t");
   let is_cr = string_eq(c, "\r");
-  bool_or(is_space, bool_or(is_nl, bool_or(is_tab, is_cr)));
+  bool_or(is_space, bool_or(is_nl, bool_or(is_tab, is_cr)))
 };
 def is_digit(c: String): Bool = {
   let is_0 = string_eq(c, "0");
@@ -27,7 +27,7 @@ def is_digit(c: String): Bool = {
   let is_7 = string_eq(c, "7");
   let is_8 = string_eq(c, "8");
   let is_9 = string_eq(c, "9");
-  bool_or(is_0, bool_or(is_1, bool_or(is_2, bool_or(is_3, bool_or(is_4, bool_or(is_5, bool_or(is_6, bool_or(is_7, bool_or(is_8, is_9)))))))));
+  bool_or(is_0, bool_or(is_1, bool_or(is_2, bool_or(is_3, bool_or(is_4, bool_or(is_5, bool_or(is_6, bool_or(is_7, bool_or(is_8, is_9)))))))))
 };
 def is_symbol(c: String): Bool = {
   let is_lparen = string_eq(c, "(");
@@ -51,31 +51,31 @@ def is_symbol(c: String): Bool = {
   let b2 = bool_or(is_lbracket, bool_or(is_rbracket, bool_or(is_dot, is_comma)));
   let b3 = bool_or(is_semi, bool_or(is_colon, bool_or(is_eq, is_plus)));
   let b4 = bool_or(is_minus, bool_or(is_star, bool_or(is_slash, bool_or(is_lt, is_gt))));
-  bool_or(b1, bool_or(b2, bool_or(b3, b4)));
+  bool_or(b1, bool_or(b2, bool_or(b3, b4)))
 };
 def is_alpha(c: String): Bool = {
   // Not whitespace, not digit, not symbol, not empty
   let not_ws = bool_not(is_whitespace(c));
   let not_dig = bool_not(is_digit(c));
   let not_empty = bool_not(string_eq(c, ""));
-  bool_and(not_ws, bool_and(not_dig, bool_and(not_empty, bool_not(is_symbol(c)))));
+  bool_and(not_ws, bool_and(not_dig, bool_and(not_empty, bool_not(is_symbol(c)))))
 };
 def lex_whitespace(source: String, idx: Integer, len: Integer): Integer = {
   if int_eq(idx, len) then idx else {
     let c = string_char_at(source, idx);
-    if is_whitespace(c) then lex_whitespace(source, idx + 1, len) else idx;
+    if is_whitespace(c) then lex_whitespace(source, idx + 1, len) else idx
   };
 };
 def lex_number(source: String, idx: Integer, len: Integer): Integer = {
   if int_eq(idx, len) then idx else {
     let c = string_char_at(source, idx);
-    if is_digit(c) then lex_number(source, idx + 1, len) else idx;
+    if is_digit(c) then lex_number(source, idx + 1, len) else idx
   };
 };
 def lex_identifier(source: String, idx: Integer, len: Integer): Integer = {
   if int_eq(idx, len) then idx else {
     let c = string_char_at(source, idx);
-    if is_alpha(c) then lex_identifier(source, idx + 1, len) else idx;
+    if is_alpha(c) then lex_identifier(source, idx + 1, len) else idx
   };
 };
 def lex_string(source: String, idx: Integer, len: Integer): Integer = {
@@ -122,21 +122,21 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
         lex_helper(source, idx + 2, len, list_append(acc, tok));
       } else {
         let tok = Token(TokenKind.Symbol(c), c, Span(idx, idx + 1, list_empty[Integer]()));
-        lex_helper(source, idx + 1, len, list_append(acc, tok));
+        lex_helper(source, idx + 1, len, list_append(acc, tok))
       };
     } else {
       let end_idx = lex_identifier(source, idx, len);
       let text = string_substring(source, idx, end_idx);
       let kind = check_keyword(text);
       let tok = Token(kind, text, Span(idx, end_idx, list_empty[Integer]()));
-      lex_helper(source, end_idx, len, list_append(acc, tok));
+      lex_helper(source, end_idx, len, list_append(acc, tok))
     };
-  };
+  }
 };
 def lex(source: String): List(Token) = {
-  lex_helper(source, 0, string_length(source), list_empty[Token]());
+  lex_helper(source, 0, string_length(source), list_empty[Token]())
 };
 def lexer_main(): Integer = {
   let tokens = lex("def foo(x: Integer): String = {\n  let y = \" hello \\\"world\\\" \";\n  if (x == 5) { y } else { \" no \" }\n}");
-  list_length(tokens);
-};
+  list_length(tokens)
+}
