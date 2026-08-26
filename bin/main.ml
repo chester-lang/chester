@@ -21,6 +21,14 @@ let preamble =
    const prim__string_substring = (s, start, end) => s.substring(start, end);\n\
    const prim__string_concat = (s1, s2) => s1 + s2;\n\
    const prim__list_empty = () => [];\n\
+   const prim__int_mul = (a, b) => a * b;\n\
+   const prim__int_div = (a, b) => Math.floor(a / b);\n\
+   const prim__int_mod = (a, b) => ((a % b) + b) % b;\n\
+   const prim__int_gt = (a, b) => a > b;\n\
+   const prim__int_ge = (a, b) => a >= b;\n\
+   const prim__int_le = (a, b) => a <= b;\n\
+   const prim__int_neg = (a) => -a;\n\
+   const prim__int_to_string = (n) => String(n);\n\
    let _elab_state = null;\n\
    const prim__get_elab_state = () => _elab_state;\n\
    const prim__put_elab_state = (s) => { _elab_state = s; return Unit; };\n\

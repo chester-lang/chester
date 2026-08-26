@@ -13,11 +13,29 @@ enum Result[T, E] {
   case Ok(value: T);
   case Err(err: E)
 };
+// Arithmetic operators
+infixl "+";
+infixl "-" same_as "+";
+infixl "*" tighter_than "+";
+infixl "/" same_as "*";
+infixl "%" same_as "*";
+// Comparison operators
+infixl "<";
+infixl ">" same_as "<";
+infixl "<=" same_as "<";
+infixl ">=" same_as "<";
 // Integer primitives
 def int_eq(a: Integer, b: Integer): Bool = prim__int_eq(a, b);
 def int_lt(a: Integer, b: Integer): Bool = prim__int_lt(a, b);
 def int_add(a: Integer, b: Integer): Integer = prim__int_add(a, b);
 def int_sub(a: Integer, b: Integer): Integer = prim__int_sub(a, b);
+def int_mul(a: Integer, b: Integer): Integer = prim__int_mul(a, b);
+def int_div(a: Integer, b: Integer): Integer = prim__int_div(a, b);
+def int_mod(a: Integer, b: Integer): Integer = prim__int_mod(a, b);
+def int_gt(a: Integer, b: Integer): Bool = prim__int_gt(a, b);
+def int_ge(a: Integer, b: Integer): Bool = prim__int_ge(a, b);
+def int_le(a: Integer, b: Integer): Bool = prim__int_le(a, b);
+def int_neg(a: Integer): Integer = prim__int_neg(a);
 // List primitives
 def list_length[T](list: List(T)): Integer = prim__list_length(list);
 def list_get[T](list: List(T), index: Integer): T = prim__list_get(list, index);
@@ -27,6 +45,32 @@ def string_length(s: String): Integer = prim__string_length(s);
 def string_substring(s: String, start: Integer, end: Integer): String = prim__string_substring(s, start, end);
 def string_concat(s1: String, s2: String): String = prim__string_concat(s1, s2);
 def string_eq(s1: String, s2: String): Bool = prim__string_eq(s1, s2);
+// Alias: string_append is identical to string_concat
+def string_append(s1: String, s2: String): String = prim__string_concat(s1, s2);
+// Convert integer to its decimal string representation
+def digit_char(d: Integer): String = {
+  if int_eq(d, 0) then "0" else
+  if int_eq(d, 1) then "1" else
+  if int_eq(d, 2) then "2" else
+  if int_eq(d, 3) then "3" else
+  if int_eq(d, 4) then "4" else
+  if int_eq(d, 5) then "5" else
+  if int_eq(d, 6) then "6" else
+  if int_eq(d, 7) then "7" else
+  if int_eq(d, 8) then "8" else "9"
+};
+def int_to_string_helper(n: Integer, acc: String): String = {
+  if int_eq(n, 0) then acc else {
+    let d = int_mod(n, 10);
+    let rest = int_div(n, 10);
+    int_to_string_helper(rest, string_concat(digit_char(d), acc))
+  }
+};
+def int_to_string(n: Integer): String = {
+  if int_eq(n, 0) then "0"
+  else if int_lt(n, 0) then string_concat("-", int_to_string_helper(int_neg(n), ""))
+  else int_to_string_helper(n, "")
+};
 def string_char_at(s: String, index: Integer): String = {
   if int_lt(index, string_length(s)) then {
     string_substring(s, index, int_add(index, 1));
