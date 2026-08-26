@@ -881,7 +881,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       let exprAst_res = elaborate(env, expr, OptionAST.NoneAST());
       match exprAst_res {
         case MkPair(eAst, eTy) => {
-          let cases_res = elab_cases(env, expected, cases);
+          let cases_res = elab_cases(env, expected, cases, eTy);
           match cases_res {
             case MkPair(cAsts, cTy) => {
               Pair.MkPair(AST.AstMatch(eAst, cAsts), cTy)

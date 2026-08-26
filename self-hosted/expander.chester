@@ -967,6 +967,110 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                   };
                   case _ => ExpandResultList.ResList(list_empty[CST](), m)
                 };
+              } else if string_eq(sym, "def") then {
+                let app_node = list_get(elems, 1);
+                match app_node {
+                  case AppCST(f, args, f_sp) => {
+                    let parse_head = match f {
+                      case Symbol(n, sp_n) => Pair.MkPair(n, list_empty[String]());
+                      case ImplicitAppCST(inner_f, targs, sp_t) => {
+                        match inner_f {
+                          case Symbol(n, sp_n) => {
+                            let fix extract_targs(ts: List(CST)): List(String) = {
+                              if int_eq(list_length(ts), 0) then list_empty[String]() else {
+                                let t0 = list_get(ts, 0);
+                                let rest = extract_targs(advance(ts));
+                                match t0 {
+                                  case Symbol(tn, tsp) => list_insert_first(rest, tn);
+                                  case _ => list_insert_first(rest, "T")
+                                }
+                              }
+                            };
+                            Pair.MkPair(n, extract_targs(targs))
+                          };
+                          case _ => Pair.MkPair("", list_empty[String]())
+                        }
+                      };
+                      case _ => Pair.MkPair("", list_empty[String]())
+                    };
+                    match parse_head {
+                      case MkPair(def_name, tparams) => {
+                        if string_eq(def_name, "") then {
+                          let res_s = expand_cst(fuel, env, op_env, m, s);
+                          match res_s {
+                            case Res(fst_cst, next_m) => {
+                              let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
+                              match res_rest {
+                                case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                              };
+                            }
+                          };
+                        } else {
+                          let rest_def = advance(advance(elems));
+                          let split_res = split_at_eq(list_empty[CST](), rest_def);
+                          if int_eq(list_length(split_res), 0) then {
+                            let res_s = expand_cst(fuel, env, op_env, m, s);
+                            match res_s {
+                              case Res(fst_cst, next_m) => {
+                                let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
+                                match res_rest {
+                                  case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                                };
+                              }
+                            };
+                          } else {
+                            let ty_exprs = list_get(split_res, 0);
+                            let body_exprs = list_get(split_res, 1);
+                            
+                            let ty_len = list_length(ty_exprs);
+                            let ret_ty = if int_eq(ty_len, 0) then Symbol("Unknown", sp) else {
+                              let c0 = list_get(ty_exprs, 0);
+                              match c0 {
+                                case Symbol(c0_s, c0_sp) => {
+                                  if string_eq(c0_s, ":") then expand_seq_expr(advance(ty_exprs), op_env, sp) else Symbol("Unknown", sp)
+                                };
+                                case _ => Symbol("Unknown", sp)
+                              }
+                            };
+                            
+                            let body_len = list_length(body_exprs);
+                            let body_cst = if int_eq(body_len, 1) then list_get(body_exprs, 0) else expand_seq_expr(body_exprs, op_env, sp);
+                            
+                            let fix extract_params(as_list: List(CST)): List(CST) = {
+                              if int_eq(list_length(as_list), 0) then list_empty[CST]() else {
+                                let a0 = list_get(as_list, 0);
+                                let rest = extract_params(advance(as_list));
+                                match a0 {
+                                  case Symbol(pn, psp) => list_insert_first(rest, SeqOf(list_insert_first(list_insert_first(list_insert_first(list_empty[CST](), Symbol("Unknown", psp)), Symbol(":", psp)), Symbol(pn, psp)), psp));
+                                  case SeqOf(p_elems, psp) => list_insert_first(rest, a0);
+                                  case _ => list_insert_first(rest, SeqOf(list_insert_first(list_insert_first(list_insert_first(list_empty[CST](), Symbol("Unknown", sp)), Symbol(":", sp)), Symbol("unknown", sp)), sp))
+                                }
+                              }
+                            };
+                            let params = extract_params(args);
+                            
+                            let def_cst = DefCST(def_name, tparams, params, ret_ty, body_cst, sp);
+                            let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                            match res_rest {
+                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, def_cst), final_m)
+                            }
+                          }
+                        }
+                      }
+                    }
+                  };
+                  case _ => {
+                    let res_s = expand_cst(fuel, env, op_env, m, s);
+                    match res_s {
+                      case Res(fst_cst, next_m) => {
+                        let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+                        };
+                      }
+                    };
+                  }
+                };
               } else if string_eq(sym, "let") then {
                 let name_node = list_get(elems, 1);
                 let val_exprs = advance(advance(advance(elems)));
