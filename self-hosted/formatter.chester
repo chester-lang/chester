@@ -1,0 +1,404 @@
+def string_eqb(left: String, right: String): Bool = string_eq(left, right);
+
+def string_in(s: String, l: List(String)): Bool = {
+  if int_eq(list_length(l), 0) then false else {
+    if string_eq(s, list_get(l, 0)) then true else string_in(s, advance(l))
+  }
+};
+
+def last_elem(ls: List(CST)): OptionCST = {
+  let len = list_length(ls);
+  if int_eq(len, 0) then OptionCST.NoneCST() else OptionCST.SomeCST(list_get(ls, len - 1))
+};
+
+def ends_with_block(stmt: CST): Bool = {
+  match stmt {
+    case Block(stmts, tail, sp) => true;
+    case SeqOf(elems, sp) => {
+      let last = last_elem(elems);
+      match last {
+        case SomeCST(Block(s, t, sp2)) => true;
+        case _ => false
+      }
+    };
+    case _ => false
+  }
+};
+
+def starts_with_let(stmt: CST): Bool = {
+  match stmt {
+    case SeqOf(elems, sp) => {
+      if int_eq(list_length(elems), 0) then false else {
+        match list_get(elems, 0) {
+          case Symbol(s, sp2) => string_eq(s, "let");
+          case _ => false
+        }
+      }
+    };
+    case _ => false
+  }
+};
+
+def needs_semicolon(stmt: CST): Bool = {
+  match stmt {
+    case Comment(t, sp) => false;
+    case _ => true
+  }
+};
+
+def is_unit_tail(expr: CST): Bool = {
+  match expr {
+    case Symbol(n, sp) => {
+      let is_unit = string_eq(n, "Unit");
+      let sp_len = list_length(sp.context);
+      let is_empty = bool_and(int_eq(sp.start, 0), bool_and(int_eq(sp.end, 0), int_eq(sp_len, 0)));
+      bool_and(is_unit, is_empty)
+    };
+    case _ => false
+  }
+};
+
+def stmt_from_seq(elements: List(CST)): CST = {
+  let len = list_length(elements);
+  if int_eq(len, 0) then Symbol("Empty", Span(0,0,list_empty[Integer]()))
+  else if int_eq(len, 1) then list_get(elements, 0)
+  else SeqOf(elements, Span(0,0,list_empty[Integer]()))
+};
+
+def format_comment(text: String): String = {
+  if int_lt(string_length(text), 2) then string_concat("// ", text) else {
+    let prefix = string_substring(text, 0, 2);
+    if string_eq(prefix, "//") then text else string_concat("// ", text)
+  }
+};
+
+def format_comment_cst(expr: CST): String = {
+  match expr {
+    case Comment(text, sp) => format_comment(text);
+    case _ => ""
+  }
+};
+
+def split_trailing_comments(elements: List(CST)): Pair = {
+  if int_eq(list_length(elements), 0) then Pair.MkPair(list_empty[CST](), list_empty[CST]()) else {
+    let elem = list_get(elements, 0);
+    let res = split_trailing_comments(advance(elements));
+    match res {
+      case MkPair(body, comments) => {
+        if int_eq(list_length(body), 0) then {
+          match elem {
+            case Comment(t, sp) => Pair.MkPair(list_empty[CST](), list_insert_first(comments, elem));
+            case _ => Pair.MkPair(list_insert_first(list_empty[CST](), elem), comments)
+          }
+        } else {
+          Pair.MkPair(list_insert_first(body, elem), comments)
+        }
+      }
+    }
+  }
+};
+
+def tight_before_symbols(): List(String) = {
+  let l = list_empty[String]();
+  let l = list_insert_first(l, ":");
+  let l = list_insert_first(l, ".");
+  let l = list_insert_first(l, "]");
+  let l = list_insert_first(l, ")");
+  let l = list_insert_first(l, ";");
+  let l = list_insert_first(l, ",");
+  l
+};
+
+def tight_after_symbols(): List(String) = {
+  let l = list_empty[String]();
+  let l = list_insert_first(l, "\\");
+  let l = list_insert_first(l, ".");
+  l
+};
+
+def spaced_group_after_symbols(): List(String) = {
+  let l = list_empty[String]();
+  let l = list_insert_first(l, "&");
+  let l = list_insert_first(l, "|");
+  let l = list_insert_first(l, "||");
+  let l = list_insert_first(l, "&&");
+  let l = list_insert_first(l, ">=");
+  let l = list_insert_first(l, "<=");
+  let l = list_insert_first(l, ">");
+  let l = list_insert_first(l, "<");
+  let l = list_insert_first(l, "!=");
+  let l = list_insert_first(l, "==");
+  let l = list_insert_first(l, "%");
+  let l = list_insert_first(l, "/");
+  let l = list_insert_first(l, "*");
+  let l = list_insert_first(l, "-");
+  let l = list_insert_first(l, "+");
+  let l = list_insert_first(l, ";");
+  let l = list_insert_first(l, ",");
+  let l = list_insert_first(l, ":");
+  let l = list_insert_first(l, "->");
+  let l = list_insert_first(l, "=>");
+  let l = list_insert_first(l, "=");
+  l
+};
+
+def get_span(c: CST): Span = {
+  match c {
+    case Symbol(n, s) => s;
+    case Tuple(e, s) => s;
+    case ListLiteral(e, s) => s;
+    case Block(e, t, s) => s;
+    case StringLiteral(v, s) => s;
+    case IntegerLiteral(v, s) => s;
+    case SeqOf(e, s) => s;
+    case FieldAccess(e, f, s) => s;
+    case Comment(t, s) => s;
+    case Error(m, s) => s;
+    case LetCST(n, v, nx, s) => s;
+    case IfCST(cnd, t, e, s) => s;
+    case DefCST(n, tps, p, rt, b, s) => s;
+    case LamCST(an, at, b, s) => s;
+    case AppCST(f, a, s) => s;
+    case ImplicitAppCST(f, ta, s) => s;
+    case EnumCST(n, tps, v, s) => s;
+    case MatchCST(ex, c, s) => s;
+    case RecordCST(n, tps, f, s) => s;
+    case MacroDefCST(n, c, s) => s;
+    case ExtensionCST(n, tps, tt, m, s) => s;
+    case EffectCST(n, tps, d, s) => s;
+    case DoCST(op, a, s) => s;
+    case HandleCST(b, eff, h, s) => s
+  }
+};
+
+def cst_adjacent(left: CST, right: CST): Bool = {
+  let ls = get_span(left);
+  let rs = get_span(right);
+  int_eq(ls.end, rs.start)
+};
+
+def needs_space_before_group(prev: CST, current: CST): Bool = {
+  match prev {
+    case Symbol(n, s) => {
+      if string_in(n, tight_after_symbols()) then false
+      else if string_in(n, spaced_group_after_symbols()) then true
+      else bool_not(cst_adjacent(prev, current))
+    };
+    case Tuple(e, s) => false;
+    case ListLiteral(e, s) => false;
+    case AppCST(f, a, s) => false;
+    case ImplicitAppCST(f, ta, s) => false;
+    case FieldAccess(e, f, s) => false;
+    case _ => true
+  }
+};
+
+def needs_space(prev: OptionCST, current: CST): Bool = {
+  match prev {
+    case NoneCST() => false;
+    case SomeCST(p) => {
+      match current {
+        case Tuple(e, s) => needs_space_before_group(p, current);
+        case ListLiteral(e, s) => needs_space_before_group(p, current);
+        case Symbol(n, s) => {
+          if string_in(n, tight_before_symbols()) then false else {
+            match p {
+              case Symbol(pn, ps) => if string_in(pn, tight_after_symbols()) then false else true;
+              case _ => true
+            }
+          }
+        };
+        case _ => {
+          match p {
+            case Symbol(pn, ps) => if string_in(pn, tight_after_symbols()) then false else true;
+            case _ => true
+          }
+        }
+      }
+    }
+  }
+};
+
+def gen_spaces(n: Integer): String = {
+  if int_eq(n, 0) then "" else string_concat(" ", gen_spaces(n - 1))
+};
+
+def join_strings(sep: String, ls: List(String)): String = {
+  let len = list_length(ls);
+  if int_eq(len, 0) then ""
+  else if int_eq(len, 1) then list_get(ls, 0)
+  else string_concat(list_get(ls, 0), string_concat(sep, join_strings(sep, advance(ls))))
+};
+
+def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
+  if int_eq(fuel, 0) then "/* ERROR: formatter out of fuel */" else {
+    let next_fuel = fuel - 1;
+    match expr {
+      case Symbol(name, sp) => name;
+      case StringLiteral(val, sp) => string_concat("\"", string_concat(val, "\""));
+      case IntegerLiteral(val, sp) => val;
+      case Comment(text, sp) => format_comment(text);
+      
+      case Tuple(elements, sp) => {
+        let fix map_format(ls: List(CST)): List(String) = {
+          if int_eq(list_length(ls), 0) then list_empty[String]() else {
+            let fst = format_cst(next_fuel, indent, list_get(ls, 0));
+            list_insert_first(map_format(advance(ls)), fst)
+          }
+        };
+        string_concat("(", string_concat(join_strings(", ", map_format(elements)), ")"))
+      };
+      
+      case ListLiteral(elements, sp) => {
+        let fix map_format(ls: List(CST)): List(String) = {
+          if int_eq(list_length(ls), 0) then list_empty[String]() else {
+            let fst = format_cst(next_fuel, indent, list_get(ls, 0));
+            list_insert_first(map_format(advance(ls)), fst)
+          }
+        };
+        string_concat("[", string_concat(join_strings(", ", map_format(elements)), "]"))
+      };
+
+      case Block(elements, tail, sp) => {
+        let next_indent = indent + 2;
+        let line_prefix = string_concat("\n", gen_spaces(next_indent));
+        
+        let fix map_stmt_line(ls: List(CST)): List(String) = {
+          if int_eq(list_length(ls), 0) then list_empty[String]() else {
+            let stmt = list_get(ls, 0);
+            let rest_lines = map_stmt_line(advance(ls));
+            let curr_lines = match stmt {
+              case Comment(text, csp) => list_insert_first(list_empty[String](), format_comment(text));
+              case SeqOf(elems, csp) => {
+                let split_res = split_trailing_comments(elems);
+                match split_res {
+                  case MkPair(body, comments) => {
+                    let body_cst = stmt_from_seq(body);
+                    let semi = if needs_semicolon(body_cst) then ";" else "";
+                    let body_lines = if int_eq(list_length(body), 0) then list_empty[String]() else {
+                      list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, next_indent, body_cst), semi))
+                    };
+                    let fix map_comments(cs: List(CST)): List(String) = {
+                      if int_eq(list_length(cs), 0) then list_empty[String]() else {
+                        list_insert_first(map_comments(advance(cs)), format_comment_cst(list_get(cs, 0)))
+                      }
+                    };
+                    let c_lines = map_comments(comments);
+                    // Append c_lines to body_lines
+                    let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+                      if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+                    };
+                    append_lists(body_lines, c_lines)
+                  }
+                }
+              };
+              case _ => {
+                let semi = if needs_semicolon(stmt) then ";" else "";
+                list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, next_indent, stmt), semi))
+              }
+            };
+            let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+              if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+            };
+            append_lists(curr_lines, rest_lines)
+          }
+        };
+        
+        let stmt_lines = map_stmt_line(elements);
+        let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, next_indent, tail));
+        let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+          if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+        };
+        let lines = append_lists(stmt_lines, tail_lines);
+        
+        if int_eq(list_length(lines), 0) then "{}" else {
+          string_concat("{", string_concat(line_prefix, string_concat(join_strings(line_prefix, lines), string_concat("\n", string_concat(gen_spaces(indent), "}")))))
+        }
+      };
+
+      case SeqOf(elements, sp) => {
+        let fix format_seq(prev: OptionCST, rest: List(CST)): String = {
+          if int_eq(list_length(rest), 0) then "" else {
+            let current = list_get(rest, 0);
+            let tail = advance(rest);
+            let separator = if needs_space(prev, current) then " " else "";
+            let formatted = string_concat(separator, format_cst(next_fuel, indent, current));
+            match current {
+              case Comment(ctext, csp) => {
+                if int_eq(list_length(tail), 0) then string_concat(formatted, format_seq(OptionCST.SomeCST(current), tail)) else {
+                  let suffix = string_concat("\n", string_concat(gen_spaces(indent), format_seq(OptionCST.NoneCST(), tail)));
+                  string_concat(formatted, suffix)
+                }
+              };
+              case _ => string_concat(formatted, format_seq(OptionCST.SomeCST(current), tail))
+            }
+          }
+        };
+        format_seq(OptionCST.NoneCST(), elements)
+      };
+
+      case _ => "/* EXPANDED NODE */"
+    }
+  }
+};
+
+def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: CST): String = {
+  if int_eq(fuel, 0) then "/* ERROR: formatter out of fuel */" else {
+    let next_fuel = fuel - 1;
+    let fix map_stmt_line(ls: List(CST)): List(String) = {
+      if int_eq(list_length(ls), 0) then list_empty[String]() else {
+        let stmt = list_get(ls, 0);
+        let rest_lines = map_stmt_line(advance(ls));
+        let curr_lines = match stmt {
+          case Comment(text, csp) => list_insert_first(list_empty[String](), format_comment(text));
+          case SeqOf(elems, csp) => {
+            let split_res = split_trailing_comments(elems);
+            match split_res {
+              case MkPair(body, comments) => {
+                let body_cst = stmt_from_seq(body);
+                let semi = if needs_semicolon(body_cst) then ";" else "";
+                let body_lines = if int_eq(list_length(body), 0) then list_empty[String]() else {
+                  list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, indent, body_cst), semi))
+                };
+                let fix map_comments(cs: List(CST)): List(String) = {
+                  if int_eq(list_length(cs), 0) then list_empty[String]() else {
+                    list_insert_first(map_comments(advance(cs)), format_comment_cst(list_get(cs, 0)))
+                  }
+                };
+                let c_lines = map_comments(comments);
+                let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+                  if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+                };
+                append_lists(body_lines, c_lines)
+              }
+            }
+          };
+          case _ => {
+            let semi = if needs_semicolon(stmt) then ";" else "";
+            list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, indent, stmt), semi))
+          }
+        };
+        let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+          if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+        };
+        append_lists(curr_lines, rest_lines)
+      }
+    };
+    
+    let stmt_lines = map_stmt_line(stmts);
+    let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, indent, tail));
+    let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+      if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+    };
+    let lines = append_lists(stmt_lines, tail_lines);
+    let line_prefix = string_concat("\n", gen_spaces(indent));
+    join_strings(line_prefix, lines)
+  }
+};
+
+def format_program(fuel: Integer, expr: CST): String = {
+  match expr {
+    case Block(stmts, tail, sp) => format_program_body(fuel, 0, stmts, tail);
+    case _ => format_cst(fuel, 0, expr)
+  }
+};
