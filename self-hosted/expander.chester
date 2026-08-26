@@ -238,8 +238,58 @@ def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
     };
   }
 };
-def expand_if(elems: List(CST), span: Span): CST = {
-  Error("Not implemented expand_if", span)
+enum OptionCST {
+  case SomeCST(cst: CST);
+  case NoneCST()
+};
+
+def expand_if(elems: List(CST), span: Span): OptionCST = {
+  let len = list_length(elems);
+  if int_lt(len, 4) then OptionCST.NoneCST() else {
+    let tok0 = list_get(elems, 0);
+    match tok0 {
+      case Symbol(s0, sp0) => {
+        if string_eq(s0, "if") then {
+          let cond = list_get(elems, 1);
+          let tok2 = list_get(elems, 2);
+          match tok2 {
+            case Symbol(s2, sp2) => {
+              if string_eq(s2, "then") then {
+                let thenB = list_get(elems, 3);
+                if int_eq(len, 4) then {
+                  OptionCST.SomeCST(IfCST(cond, thenB, Tuple(list_empty[CST](), span), span))
+                } else if int_lt(len, 6) then {
+                  OptionCST.NoneCST()
+                } else {
+                  let tok4 = list_get(elems, 4);
+                  match tok4 {
+                    case Symbol(s4, sp4) => {
+                      if string_eq(s4, "else") then {
+                        let fix get_rest(idx: Integer, acc: List(CST)): List(CST) = {
+                          if int_eq(idx, len) then list_reverse(acc) else get_rest(int_add(idx, 1), list_insert_first(acc, list_get(elems, idx)))
+                        };
+                        let rest = get_rest(5, list_empty[CST]());
+                        let else_if_res = expand_if(rest, span);
+                        match else_if_res {
+                          case SomeCST(else_if_cst) => OptionCST.SomeCST(IfCST(cond, thenB, else_if_cst, span));
+                          case NoneCST() => {
+                            if int_eq(list_length(rest), 1) then OptionCST.SomeCST(IfCST(cond, thenB, list_get(rest, 0), span)) else OptionCST.NoneCST()
+                          }
+                        }
+                      } else OptionCST.NoneCST()
+                    };
+                    case _ => OptionCST.NoneCST()
+                  }
+                }
+              } else OptionCST.NoneCST()
+            };
+            case _ => OptionCST.NoneCST()
+          }
+        } else OptionCST.NoneCST()
+      };
+      case _ => OptionCST.NoneCST()
+    }
+  }
 };
 enum PrattResult {
   case Parsed(expr: CST, rest: List(CST));
@@ -310,9 +360,13 @@ def pratt_loop(fuel: Integer, lhs: CST, elems: List(CST), left_op: String, op_en
 };
 def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST = {
   let collapsed = collapse_apps(elems, list_empty[CST]());
-  let len = list_length(collapsed);
-  if int_eq(len, 0) then Tuple(list_empty[CST](), span) else if int_eq(len, 1) then list_get(collapsed, 0) else {
-    let first = list_get(collapsed, 0);
+  let if_res = expand_if(collapsed, span);
+  match if_res {
+    case SomeCST(if_cst) => if_cst;
+    case NoneCST() => {
+      let len = list_length(collapsed);
+      if int_eq(len, 0) then Tuple(list_empty[CST](), span) else if int_eq(len, 1) then list_get(collapsed, 0) else {
+        let first = list_get(collapsed, 0);
     match first {
       case Symbol(s, sp) => {
         if string_eq(s, "\\") then {
@@ -325,8 +379,97 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
               case _ => SeqOf(collapsed, span)
             };
           } else SeqOf(collapsed, span);
-        } else if string_eq(s, "match") then {
-          Error("Not implemented match", span);
+                } else if string_eq(s, "match") then {
+          if int_lt(len, 3) then Error("Incomplete match", span) else {
+            let expr = list_get(collapsed, 1);
+            let blk = list_get(collapsed, 2);
+            match blk {
+              case Block(cases, tail, bsp) => {
+                let fix extract_cases(cs: List(CST)): List(CST) = {
+                  if int_eq(list_length(cs), 0) then list_empty[CST]() else {
+                    let c = list_get(cs, 0);
+                    let rest_cs = advance(cs);
+                    let rest_extracted = extract_cases(rest_cs);
+                    match c {
+                      case SeqOf(celems, csp) => {
+                        let clen = list_length(celems);
+                        if int_lt(clen, 4) then rest_extracted else {
+                          let ctok0 = list_get(celems, 0);
+                          match ctok0 {
+                            case Symbol(csym, csp2) => {
+                              if string_eq(csym, "case") then {
+                                let ctok1 = list_get(celems, 1);
+                                match ctok1 {
+                                  case Symbol(psym, psp) => {
+                                    if string_eq(psym, "_") then {
+                                      let ctok2 = list_get(celems, 2);
+                                      match ctok2 {
+                                        case Symbol(arrsym, arrsp) => {
+                                          if string_eq(arrsym, "=>") then {
+                                            let fix get_body(idx: Integer, acc: List(CST)): List(CST) = {
+                                              if int_eq(idx, clen) then list_reverse(acc) else get_body(int_add(idx, 1), list_insert_first(acc, list_get(celems, idx)))
+                                            };
+                                            let body_elems = get_body(3, list_empty[CST]());
+                                            let body_cst = if int_eq(list_length(body_elems), 0) then Tuple(list_empty[CST](), csp) else if int_eq(list_length(body_elems), 1) then list_get(body_elems, 0) else SeqOf(body_elems, csp);
+                                            let new_case = SeqOf(list_insert_first(list_insert_first(list_empty[CST](), body_cst), ctok1), csp);
+                                            list_insert_first(rest_extracted, new_case)
+                                          } else rest_extracted
+                                        };
+                                        case _ => rest_extracted
+                                      }
+                                    } else {
+                                      // case var => body
+                                      let ctok2 = list_get(celems, 2);
+                                      match ctok2 {
+                                        case Symbol(arrsym, arrsp) => {
+                                          if string_eq(arrsym, "=>") then {
+                                            let fix get_body(idx: Integer, acc: List(CST)): List(CST) = {
+                                              if int_eq(idx, clen) then list_reverse(acc) else get_body(int_add(idx, 1), list_insert_first(acc, list_get(celems, idx)))
+                                            };
+                                            let body_elems = get_body(3, list_empty[CST]());
+                                            let body_cst = if int_eq(list_length(body_elems), 0) then Tuple(list_empty[CST](), csp) else if int_eq(list_length(body_elems), 1) then list_get(body_elems, 0) else SeqOf(body_elems, csp);
+                                            let new_case = SeqOf(list_insert_first(list_insert_first(list_empty[CST](), body_cst), ctok1), csp);
+                                            list_insert_first(rest_extracted, new_case)
+                                          } else rest_extracted
+                                        };
+                                        case _ => rest_extracted
+                                      }
+                                    }
+                                  };
+                                  case AppCST(f, args, fsp) => {
+                                    let ctok2 = list_get(celems, 2);
+                                    match ctok2 {
+                                      case Symbol(arrsym, arrsp) => {
+                                        if string_eq(arrsym, "=>") then {
+                                          let fix get_body(idx: Integer, acc: List(CST)): List(CST) = {
+                                            if int_eq(idx, clen) then list_reverse(acc) else get_body(int_add(idx, 1), list_insert_first(acc, list_get(celems, idx)))
+                                          };
+                                          let body_elems = get_body(3, list_empty[CST]());
+                                          let body_cst = if int_eq(list_length(body_elems), 0) then Tuple(list_empty[CST](), csp) else if int_eq(list_length(body_elems), 1) then list_get(body_elems, 0) else SeqOf(body_elems, csp);
+                                          let new_case = SeqOf(list_insert_first(list_insert_first(list_empty[CST](), body_cst), ctok1), csp);
+                                          list_insert_first(rest_extracted, new_case)
+                                        } else rest_extracted
+                                      };
+                                      case _ => rest_extracted
+                                    }
+                                  };
+                                  case _ => rest_extracted
+                                }
+                              } else rest_extracted
+                            };
+                            case _ => rest_extracted
+                          }
+                        }
+                      };
+                      case _ => rest_extracted
+                    }
+                  }
+                };
+                MatchCST(expr, extract_cases(cases), span)
+              };
+              case _ => Error("Expected block for match cases", span)
+            }
+          }
         } else {
           let pr = pratt_parse(1000, collapsed, "", op_env);
           match pr {
@@ -347,6 +490,7 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
         };
       }
     };
+  }
   }
 };
 enum ExpandResult {
