@@ -33,14 +33,15 @@ Inductive EffectRef :=
   | EffectRowVar : string -> EffectRef.
 
 (*
-  EffectSet on AstPi / AstFunTy = capabilities / effect row (Effekt ∩ Koka reading).
+  EffectSet on AstPi / AstFunTy = capabilities / open effect row (Effekt ∩ Koka).
   Lexical handlers install capabilities; perform uses the nearest matching capability.
-  Multi-shot resume forks by replaying the handle body with an answer stream
-  (runtime in the TS/Go preamble) — each resume(v) re-enters after perform.
-  EffectRowVar enables open-row subsumption: a row ⟨ℓ₁,…|μ⟩ accepts extra labels.
-  Evidence vectors (`__chester_evidence` / `__chester_with_evidence`) snapshot
-  handlers for labels when emitting effectful first-class calls / box under a row.
-  Blocks are second-class by default; `box`/`unbox` delay a thunk (capture set on AstBox).
+  Multi-shot: answer-stream replay in the TS/Go runtime — each resume(v) re-enters
+  after perform; the handler's result is the handle result (body abort).
+  EffectRowVar (μ) is attached to inferred def/lam effect sets; unify uses
+  effect_row_subsumes; call sites only push concrete labels into pending.
+  box records capture labels on AstBox; if those caps are active at the box site
+  the type is sealed (pure) and unbox need not re-require them (evidence escape).
+  Otherwise unbox re-requires the caps. Go emit + go_preamble mirror the TS runtime.
 *)
 Definition EffectSet := list EffectRef.
 

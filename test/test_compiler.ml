@@ -1,5 +1,6 @@
 open Compiler_lib.Compiler
 open Chester_frontend
+open Effects_runtime
 
 let string_of_char_list chars =
   let buf = Buffer.create (List.length chars) in
@@ -40,6 +41,15 @@ let check_fixture filename =
       if go_code = "" then failwith "empty Go output";
       print_endline (filename ^ " ok")
 
+let expect_type_error filename =
+  let source = read_file (fixture_path filename) in
+  let tokens = Lexer.tokenize filename source in
+  let cst = parse tokens in
+  let expanded_cst = expand_cst_top cst in
+  match elaborate_top [] expanded_cst None init_elab_state with
+  | Inr (msg, _) -> print_endline (string_of_char_list msg)
+  | Inl _ -> failwith ("expected type error for " ^ filename)
+
 let run_fixture_main filename =
   let source = read_file (fixture_path filename) in
   let tokens = Lexer.tokenize filename source in
@@ -48,78 +58,8 @@ let run_fixture_main filename =
   match elaborate_top [] expanded_cst None init_elab_state with
   | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
   | Inl ((ast, _), _) ->
-      let ts_ast = emit_ts ast in
-      let ts_code = string_of_char_list (stringify_ts_stmt ts_ast) in
-      let preamble =
-        "const Unit = {};\n\
-         const prim__string_eq = (a, b) => a === b;\n\
-         const prim__int_add = (a, b) => a + b;\n\
-         const int_add = prim__int_add;\n\
-         let __chester_caps = [];\n\
-         const __chester_handle = (label, bodyFn, handlers) => {\n\
-           const run = (answers) => {\n\
-             let ai = 0;\n\
-             const frame = {\n\
-               label, handlers,\n\
-               take: () => {\n\
-                 if (ai < answers.length) return { ok: true, v: answers[ai++] };\n\
-                 return { ok: false };\n\
-               },\n\
-               fork: (v) => run(answers.slice(0, ai).concat([v]))\n\
-             };\n\
-             __chester_caps.push(frame);\n\
-             try { return bodyFn(); }\n\
-             catch (e) {\n\
-               if (e && e.__chester_handled === frame) return e.result;\n\
-               throw e;\n\
-             }\n\
-             finally { __chester_caps.pop(); }\n\
-           };\n\
-           return run([]);\n\
-         };\n\
-         const __chester_perform = (op, args) => {\n\
-           for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
-             const frame = __chester_caps[i];\n\
-             const h = frame.handlers[op];\n\
-             if (!h) continue;\n\
-             const got = frame.take();\n\
-             if (got.ok) return got.v;\n\
-             const resume = (v) => frame.fork(v);\n\
-             let fn = h;\n\
-             for (let j = 0; j < args.length; j++) fn = fn(args[j]);\n\
-             const result = fn(resume);\n\
-             throw { __chester_handled: frame, result };\n\
-           }\n\
-           throw new Error(\"Unhandled effect operation: \" + op);\n\
-         };\n\
-         const __chester_evidence = (labels) => {\n\
-           const ev = [];\n\
-           for (let li = 0; li < labels.length; li++) {\n\
-             const lab = labels[li];\n\
-             for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
-               if (__chester_caps[i].label === lab) {\n\
-                 ev.push({ label: lab, handlers: __chester_caps[i].handlers });\n\
-                 break;\n\
-               }\n\
-             }\n\
-           }\n\
-           return ev;\n\
-         };\n\
-         const __chester_with_evidence = (ev, bodyFn) => {\n\
-           let i = 0;\n\
-           const go = () => {\n\
-             if (i >= ev.length) return bodyFn();\n\
-             const { label, handlers } = ev[i++];\n\
-             return __chester_handle(label, go, handlers);\n\
-           };\n\
-           return go();\n\
-         };\n\
-         const __chester_box = (labels, bodyFn) => {\n\
-           const ev = __chester_evidence(labels);\n\
-           return () => __chester_with_evidence(ev, bodyFn);\n\
-         };\n"
-      in
-      let js = preamble ^ ts_code ^ "\n;console.log(main());" in
+      let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
+      let js = ts_test_preamble ^ ts_code ^ "\n;console.log(main());" in
       let tmp = Filename.temp_file "chester_fx" ".mjs" in
       let out = Filename.temp_file "chester_fx_out" ".txt" in
       let oc = open_out tmp in
@@ -139,6 +79,36 @@ let run_fixture_main filename =
       Sys.remove out;
       if st <> 0 then failwith ("node failed: " ^ line);
       print_endline line
+
+let has_substr hay needle =
+  let n = String.length needle in
+  let rec loop i =
+    if i + n > String.length hay then false
+    else if String.sub hay i n = needle then true
+    else loop (i + 1)
+  in
+  loop 0
+
+let rename_chester_main go_code =
+  let needle = "func main(" in
+  let repl = "func chester_main(" in
+  let n = String.length needle in
+  let rec find i =
+    if i + n > String.length go_code then None
+    else if String.sub go_code i n = needle then Some i
+    else find (i + 1)
+  in
+  match find 0 with
+  | None -> go_code
+  | Some i ->
+      String.sub go_code 0 i ^ repl
+      ^ String.sub go_code (i + n) (String.length go_code - i - n)
+
+let assemble_go_program ast =
+  let body =
+    rename_chester_main (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
+  in
+  go_effects_preamble ^ "\n" ^ body ^ "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n"
 
 let format_source source =
   let tokens = Lexer.tokenize "test.chester" source in
@@ -263,6 +233,10 @@ let%expect_test "runtime effects rows" =
   run_fixture_main "tests/effects_rows.chester";
   [%expect {| 15 |}]
 
+let%expect_test "unbox without handler is rejected" =
+  expect_type_error "tests/effects_unbox_unhandled.chester";
+  [%expect {| Unhandled effect: State |}]
+
 let%expect_test "go emit effects handle" =
   let source = read_file (fixture_path "tests/effects.chester") in
   let tokens = Lexer.tokenize "tests/effects.chester" source in
@@ -271,18 +245,52 @@ let%expect_test "go emit effects handle" =
   match elaborate_top [] expanded_cst None init_elab_state with
   | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
   | Inl ((ast, _), _) ->
-      let go_code = string_of_char_list (stringify_go_stmt (emit_go ast)) in
-      let has s =
-        let n = String.length s in
-        let rec loop i =
-          if i + n > String.length go_code then false
-          else if String.sub go_code i n = s then true
-          else loop (i + 1)
-        in
-        loop 0
-      in
+      let prog = assemble_go_program ast in
       print_endline
-        (if String.length go_code > 0 && has "__chester_handle" && has "__chester_perform"
+        (if has_substr prog "__chester_handle"
+            && has_substr prog "__chester_perform"
+            && has_substr prog "chester_main"
+            && has_substr prog "package main"
+            && has_substr prog "func main()"
          then "go effects ok"
          else "go effects missing");
       [%expect {| go effects ok |}]
+
+let%expect_test "go run effects when go available" =
+  let source = read_file (fixture_path "tests/effects.chester") in
+  let tokens = Lexer.tokenize "tests/effects.chester" source in
+  let cst = parse tokens in
+  let expanded_cst = expand_cst_top cst in
+  match elaborate_top [] expanded_cst None init_elab_state with
+  | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
+  | Inl ((ast, _), _) ->
+      if Sys.command "command -v go >/dev/null 2>&1" <> 0 then
+        print_endline "go skip"
+      else begin
+        let dir = Filename.temp_file "chester_go" "" in
+        Sys.remove dir;
+        Sys.mkdir dir 0o755;
+        let path = Filename.concat dir "main.go" in
+        let oc = open_out path in
+        output_string oc (assemble_go_program ast);
+        close_out oc;
+        let out = Filename.temp_file "chester_go_out" ".txt" in
+        let st =
+          Sys.command
+            (Printf.sprintf "cd %s && go run . > %s 2>&1"
+               (Filename.quote dir) (Filename.quote out))
+        in
+        let line =
+          let ic = open_in out in
+          let l = try input_line ic with End_of_file -> "" in
+          close_in ic;
+          l
+        in
+        Sys.remove out;
+        let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+        if st <> 0 then print_endline ("go fail: " ^ line)
+        else print_endline line
+      end;
+      [%expect {|
+        go skip
+      |}]

@@ -127,6 +127,39 @@ Fixpoint merge_effects (a b : EffectSet) : EffectSet :=
   | x :: xs => merge_effects xs (add_effect x b)
   end.
 
+Fixpoint string_in_list (s : string) (xs : list string) : bool :=
+  match xs with
+  | [] => false
+  | x :: rest => if string_dec s x then true else string_in_list s rest
+  end.
+
+(* True when every concrete effect in `needed` is installed on the capability stack. *)
+Fixpoint effects_covered_by (needed : EffectSet) (active : list string) : bool :=
+  match needed with
+  | [] => true
+  | EffectRowVar _ :: rest => effects_covered_by rest active
+  | UserEffect n :: rest =>
+      if string_in_list n active then effects_covered_by rest active else false
+  | BuiltinEffect n :: rest =>
+      if string_in_list n active then effects_covered_by rest active else false
+  end.
+
+Definition get_active_caps : ElabM (list string) :=
+  s <- get_state ;
+  match s with mkElabState _ _ _ _ caps _ => ret caps end.
+
+Definition fresh_row_var : ElabM EffectRef :=
+  s <- get_state ;
+  match s with
+  | mkElabState n sol exts effs caps pending =>
+      set_state (mkElabState (S n) sol exts effs caps pending) ;;
+      ret (EffectRowVar ("μ" ++ string_of_nat n))
+  end.
+
+Definition with_open_row (effs : EffectSet) : ElabM EffectSet :=
+  rv <- fresh_row_var ;
+  ret (app effs [rv]).
+
 Definition get_pending : ElabM EffectSet :=
   s <- get_state ;
   match s with mkElabState _ _ _ _ _ pending => ret pending end.
@@ -348,7 +381,25 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
       | AstApp f1 a1, AstApp f2 a2 =>
           unify fuel' f1 f2 ;; unify_list a1 a2
       | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 =>
-          unify fuel' ty1 ty2 ;; unify fuel' ret1 ret2
+          unify fuel' ty1 ty2 ;;
+          unify fuel' ret1 ret2 ;;
+          (* Koka-lite: rows compatible if either subsumes the other (open tails). *)
+          if orb (effect_row_subsumes eff1 eff2) (effect_row_subsumes eff2 eff1)
+          then ret tt
+          else throw "Effect row mismatch"
+      | AstFunTy tp1 p1 r1 e1, AstFunTy tp2 p2 r2 e2 =>
+          let fix unify_params (a b : list (string * AST)) : ElabM unit :=
+            match a, b with
+            | [], [] => ret tt
+            | (_, t) :: xs, (_, u) :: ys => unify fuel' t u ;; unify_params xs ys
+            | _, _ => ret tt
+            end
+          in
+          unify_params p1 p2 ;;
+          unify fuel' r1 r2 ;;
+          if orb (effect_row_subsumes e1 e2) (effect_row_subsumes e2 e1)
+          then ret tt
+          else throw "Effect row mismatch"
       | _, _ => ret tt
       end
   end.
@@ -562,13 +613,22 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       eAst <- elaborate fuel' env e None ;
       caps <- get_pending ;
       set_pending old_pending ;;
-      ret (AstBox (fst eAst) caps, AstPi "x" (AstRef "Unit") (snd eAst) caps)
+      active <- get_active_caps ;
+      (* Seal when all required caps are on the lexical stack: evidence is
+         captured at runtime and the box type is pure. Otherwise the box
+         type retains caps and unbox re-requires them. *)
+      let ty_effs := if effects_covered_by caps active then [] else caps in
+      ret (AstBox (fst eAst) caps, AstPi "x" (AstRef "Unit") (snd eAst) ty_effs)
 
   | UnboxCST e span =>
       eAst <- elaborate fuel' env e None ;
-      (* Caps are sealed into AstBox evidence at runtime (__chester_box);
-         unbox does not re-require them in the pending set (Koka evidence /
-         Effekt box under a handler may escape). Lexical handlers still apply. *)
+      pending <- get_pending ;
+      let caps := match snd eAst with
+                  | AstPi _ _ _ effs => effect_labels effs
+                  | AstFunTy _ _ _ effs => effect_labels effs
+                  | _ => []
+                  end in
+      set_pending (merge_effects pending caps) ;;
       ret (AstUnbox (fst eAst), match snd eAst with
                                 | AstPi _ _ ret _ => ret
                                 | AstFunTy _ _ ret _ => ret
@@ -604,8 +664,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       set_pending [] ;;
       bodyAst <- elaborate fuel' body_env body (Some (fst retAst)) ;
       body_effs <- get_pending ;
+      open_effs <- with_open_row body_effs ;
       set_pending (merge_effects old_pending body_effs) ;;
-      let fun_ty := AstFunTy type_params paramsAst (fst retAst) body_effs in
+      let fun_ty := AstFunTy type_params paramsAst (fst retAst) open_effs in
       ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
 
   | LamCST arg_name opt_arg_ty body span =>
@@ -617,8 +678,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       set_pending [] ;;
       bodyAst <- elaborate fuel' (((arg_name, context span), fst argTyAst) :: env) body None ;
       body_effs <- get_pending ;
+      open_effs <- with_open_row body_effs ;
       set_pending (merge_effects old_pending body_effs) ;;
-      let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) body_effs in
+      let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) open_effs in
       ret (AstLam (mangle_name arg_name (context span)) (fst argTyAst) (fst bodyAst), arrTy)
 
   | AppCST func args span =>

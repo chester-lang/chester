@@ -42,6 +42,38 @@ Fixpoint effect_label_go_lits (es : EffectSet) : list GoExpr :=
   | e :: xs => GoStringLiteral (effect_label e) :: effect_label_go_lits xs
   end.
 
+Definition go_direct_call (name : string) : bool :=
+  let fix starts_with (pre s : string) : bool :=
+    match pre, s with
+    | EmptyString, _ => true
+    | String pc pre', String sc s' =>
+        if Ascii.eqb pc sc then starts_with pre' s' else false
+    | _, _ => false
+    end
+  in
+  if string_dec name "int_add" then true
+  else if string_dec name "int_eq" then true
+  else if string_dec name "Unit" then true
+  else if starts_with "prim__" name then true
+  else if starts_with "__chester_" name then true
+  else false.
+
+(* Interface{} values (e.g. resume) need a type assert before calling. *)
+Definition go_call_emitted (direct : bool) (callee : GoExpr) (args : list GoExpr) : GoExpr :=
+  if direct then GoCall callee args
+  else
+    match args with
+    | [] => GoCall (GoTypeAssert callee "func() interface{}") []
+    | [a] => GoCall (GoTypeAssert callee "func(interface{}) interface{}") [a]
+    | a :: rest =>
+        let fix go (f : GoExpr) (xs : list GoExpr) : GoExpr :=
+          match xs with
+          | [] => f
+          | x :: xs' => go (GoCall (GoTypeAssert f "func(interface{}) interface{}") [x]) xs'
+          end
+        in go (GoCall (GoTypeAssert callee "func(interface{}) interface{}") [a]) rest
+    end.
+
 (* 
   TypeScript Backend
 *)
@@ -378,7 +410,9 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
         | x :: xs => emit_go_stmt x :: map_go_stmt xs
         end
       in GoCall (GoFuncLiteral [] (map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)])) []
-  | AstApp func args => GoCall (emit_go_expr func) (map_go_expr args)
+  | AstApp func args =>
+      let direct := match func with AstRef n => go_direct_call n | _ => false end in
+      go_call_emitted direct (emit_go_expr func) (map_go_expr args)
   | AstImplicitApp func _args => emit_go_expr func  (* type args erased *)
   | AstFunTy _tparams _params _ret_ty _effs => GoIdentifier "interface{}"
   | AstLam argName argTy body => GoFuncLiteral [argName] (emit_go_block body)
@@ -406,7 +440,8 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
       GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
          GoFuncLiteral [] [GoReturn (emit_go_expr e)]]
-  | AstUnbox e => GoCall (emit_go_expr e) []
+  | AstUnbox e =>
+      go_call_emitted false (emit_go_expr e) []
   | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) []
   | AstDef name _ params _ body => GoCall (GoFuncLiteral [] [GoFuncDecl name (map fst params) (emit_go_block body)]) []
   | AstEnum _ _ _ => GoIdentifier "nil"
@@ -470,13 +505,15 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
         | x :: xs => emit_go_stmt x :: map_go_stmt xs
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] (map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)])) [])
-  | AstApp func args => 
+  | AstApp func args =>
+      let direct := match func with AstRef n => go_direct_call n | _ => false end in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
         | x :: xs => emit_go_expr x :: map_go_expr xs
         end
-      in GoExprStmt (GoCall (emit_go_expr func) (map_go_expr args))
+      in
+      GoExprStmt (go_call_emitted direct (emit_go_expr func) (map_go_expr args))
   | AstImplicitApp func _args => GoExprStmt (emit_go_expr func)  (* type args erased *)
   | AstFunTy _tparams _params _ret_ty _effs => GoExprStmt (GoIdentifier "interface{}")
   | AstLam argName argTy body => GoExprStmt (GoFuncLiteral [argName] (emit_go_block body))
@@ -509,7 +546,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       GoExprStmt (GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
          GoFuncLiteral [] [GoReturn (emit_go_expr e)]])
-  | AstUnbox e => GoExprStmt (GoCall (emit_go_expr e) [])
+  | AstUnbox e => GoExprStmt (go_call_emitted false (emit_go_expr e) [])
   | AstIf cond true_br false_br => GoExprStmt (GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) [])
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
@@ -583,13 +620,15 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
       in [GoReturn (GoArray (map_go_expr elems))]
   | AstStringLit s => [GoReturn (GoStringLiteral s)]
   | AstIntLit n => [GoReturn (GoIntLiteral (nat_to_string n))]
-  | AstApp func args => 
+  | AstApp func args =>
+      let direct := match func with AstRef n => go_direct_call n | _ => false end in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
         | x :: xs => emit_go_expr x :: map_go_expr xs
         end
-      in [GoReturn (GoCall (emit_go_expr func) (map_go_expr args))]
+      in
+      [GoReturn (go_call_emitted direct (emit_go_expr func) (map_go_expr args))]
   | AstImplicitApp func _args => [GoReturn (emit_go_expr func)]  (* type args erased *)
   | AstFunTy _tparams _params _ret_ty _effs => [GoReturn (GoIdentifier "interface{}")]
   | AstLam argName argTy body => [GoReturn (GoFuncLiteral [argName] (emit_go_block body))]
@@ -623,7 +662,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
       [GoReturn (GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
          GoFuncLiteral [] [GoReturn (emit_go_expr e)]])]
-  | AstUnbox e => [GoReturn (GoCall (emit_go_expr e) [])]
+  | AstUnbox e => [GoReturn (go_call_emitted false (emit_go_expr e) [])]
   | AstDef name _ params _ body => [GoReturn (GoCall (GoFuncLiteral [] [GoFuncDecl name (map fst params) (emit_go_block body)]) [])]
   | AstEnum _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]
@@ -641,6 +680,24 @@ Definition emit_go (ast : AST) : GoStmt :=
         | x :: xs => emit_go_stmt x :: map_go_stmt xs
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] (map_go_stmt stmts ++ [GoExprStmt (emit_go_expr ret)])) [])
+  | _ => emit_go_stmt ast
+  end.
+
+(* Top-level Go emit: keep declarations at package scope (no wrapping IIFE). *)
+Definition emit_go_top (ast : AST) : GoStmt :=
+  match ast with
+  | AstBlock stmts ret =>
+      let fix map_go_stmt (ls : list AST) : list GoStmt :=
+        match ls with
+        | [] => []
+        | AstRef "Unit" :: xs => map_go_stmt xs
+        | x :: xs => emit_go_stmt x :: map_go_stmt xs
+        end
+      in
+      match ret with
+      | AstRef "Unit" => GoBlock (map_go_stmt stmts)
+      | _ => GoBlock (map_go_stmt stmts ++ [GoExprStmt (emit_go_expr ret)])
+      end
   | _ => emit_go_stmt ast
   end.
 

@@ -63,7 +63,12 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
   | GoReturn expr => "return " ++ stringify_go_expr expr ++ "; "
   | GoPanic msg => "panic(" ++ go_quote ++ msg ++ go_quote ++ "); "
   | GoFuncDecl name params body =>
-      "func " ++ name ++ "(" ++ concat_strings " interface{}, " params ++ " interface{}) interface{} { " ++ concat_strings " " (map_go_stmt body) ++ "}"
+      match params with
+      | [] =>
+          "func " ++ name ++ "() interface{} { " ++ concat_strings " " (map_go_stmt body) ++ "}"
+      | _ =>
+          "func " ++ name ++ "(" ++ concat_strings " interface{}, " params ++ " interface{}) interface{} { " ++ concat_strings " " (map_go_stmt body) ++ "}"
+      end
   | GoStruct name => "type " ++ name ++ " struct{}; "
   | GoEmpty => ""
   | GoBlock stmts => concat_strings " " (map_go_stmt stmts)
