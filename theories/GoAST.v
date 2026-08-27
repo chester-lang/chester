@@ -15,6 +15,7 @@ Inductive GoStmt : Type :=
   | GoFuncDecl : string -> list string -> list GoStmt -> GoStmt
   | GoStruct : string -> GoStmt
   | GoEmpty : GoStmt
+  | GoBlock : list GoStmt -> GoStmt
 
 with GoExpr : Type :=
   | GoIntLiteral : string -> GoExpr
@@ -56,6 +57,7 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
       "func " ++ name ++ "(" ++ concat_strings " interface{}, " params ++ " interface{}) interface{} { " ++ concat_strings " " (map_go_stmt body) ++ "}"
   | GoStruct name => "type " ++ name ++ " struct{}; "
   | GoEmpty => ""
+  | GoBlock stmts => concat_strings " " (map_go_stmt stmts)
   end
 
 with stringify_go_expr (expr : GoExpr) {struct expr} : string :=

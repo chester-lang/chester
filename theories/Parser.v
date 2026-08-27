@@ -120,8 +120,28 @@ Fixpoint parse_loop_fuel (fuel : nat) (mode : ParseMode) (toks : list Token)
                   let block_tail := fst (snd body) in
                   let rest1 := snd (snd body) in
                   let rest2 := match rest1 with TokSym s2 _ :: r => if string_dec s2 "}" then r else rest1 | _ => rest1 end in
-                  let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
-                  (Block block_stmts block_tail span :: seq_csts, rest3)
+                  let block_cst := Block block_stmts block_tail span in
+                  match rest2 with
+                  | TokId "else"%string _ :: _ =>
+                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
+                      (block_cst :: seq_csts, rest3)
+                  | TokId "catch"%string _ :: _ =>
+                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
+                      (block_cst :: seq_csts, rest3)
+                  | TokId "same_as"%string _ :: _ =>
+                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
+                      (block_cst :: seq_csts, rest3)
+                  | TokId "tighter_than"%string _ :: _ =>
+                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
+                      (block_cst :: seq_csts, rest3)
+                  | TokId "for"%string _ :: _ =>
+                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
+                      (block_cst :: seq_csts, rest3)
+                  | TokId "with"%string _ :: _ =>
+                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
+                      (block_cst :: seq_csts, rest3)
+                  | _ => ([block_cst], rest2)
+                  end
                 else if string_dec s "(" then
                   let (tuple_elems, rest1) := parse_loop_fuel fuel' (ModeComma ")") rest in
                   let rest2 := match rest1 with TokSym s2 _ :: r => if string_dec s2 ")" then r else rest1 | _ => rest1 end in
@@ -218,47 +238,74 @@ with parse_body_fuel (fuel : nat) (term : string) (toks : list Token)
       | TokComment text s :: rest =>
           let body := parse_body_fuel fuel' term rest in
           (CommentCST text s :: fst body, snd body)
-      | TokSym s _ :: rest =>
-          if string_dec s term then ([], (unit_cst, toks))
-          else if string_dec s ";" then parse_body_fuel fuel' term rest
-          else if string_dec s "," then parse_body_fuel fuel' term rest
-          else
-            let parsed := parse_loop_fuel fuel' (ModeSeq term) toks in
-            let item := make_seq_or_single (fst parsed) in
-            let rest1 := snd parsed in
-            match rest1 with
-            | TokSym sep _ :: after_sep =>
-                if string_dec sep ";" then
-                  let body := parse_body_fuel fuel' term after_sep in
-                  (item :: fst body, snd body)
-                else if string_dec sep "," then
-                  let body := parse_body_fuel fuel' term after_sep in
-                  (item :: fst body, snd body)
-                else
+      | _ =>
+          match toks with
+          | TokSym s _ :: rest =>
+              if string_dec s term then ([], (unit_cst, toks))
+              else if string_dec s ";" then parse_body_fuel fuel' term rest
+              else if string_dec s "," then parse_body_fuel fuel' term rest
+              else
+                let parsed := parse_loop_fuel fuel' (ModeSeq term) toks in
+                let item := make_seq_or_single (fst parsed) in
+                let rest1 := snd parsed in
+                match rest1 with
+                | TokSym sep _ :: after_sep =>
+                    if string_dec sep ";" then
+                      let body := parse_body_fuel fuel' term after_sep in
+                      (item :: fst body, snd body)
+                    else if string_dec sep "," then
+                      let body := parse_body_fuel fuel' term after_sep in
+                      (item :: fst body, snd body)
+                    else if ends_with_block item then
+                      if string_dec sep term then
+                        (item :: [], (unit_cst, rest1))
+                      else
+                        let body := parse_body_fuel fuel' term rest1 in
+                        (item :: fst body, snd body)
+                    else ([], (item, rest1))
+                | [] =>
+                    if ends_with_block item then (item :: [], (unit_cst, rest1))
+                    else ([], (item, rest1))
+                | TokEOF _ :: _ =>
+                    if ends_with_block item then (item :: [], (unit_cst, rest1))
+                    else ([], (item, rest1))
+                | _ =>
+                    if ends_with_block item then
+                      let body := parse_body_fuel fuel' term rest1 in
+                      (item :: fst body, snd body)
+                    else ([], (item, rest1))
+                end
+          | _ =>
+              let parsed := parse_loop_fuel fuel' (ModeSeq term) toks in
+              let item := make_seq_or_single (fst parsed) in
+              let rest1 := snd parsed in
+              match rest1 with
+              | TokSym sep _ :: after_sep =>
+                  if string_dec sep ";" then
+                    let body := parse_body_fuel fuel' term after_sep in
+                    (item :: fst body, snd body)
+                  else if string_dec sep "," then
+                    let body := parse_body_fuel fuel' term after_sep in
+                    (item :: fst body, snd body)
+                  else if ends_with_block item then
+                    if string_dec sep term then
+                      (item :: [], (unit_cst, rest1))
+                    else
+                      let body := parse_body_fuel fuel' term rest1 in
+                      (item :: fst body, snd body)
+                  else ([], (item, rest1))
+              | [] =>
+                  if ends_with_block item then (item :: [], (unit_cst, rest1))
+                  else ([], (item, rest1))
+              | TokEOF _ :: _ =>
+                  if ends_with_block item then (item :: [], (unit_cst, rest1))
+                  else ([], (item, rest1))
+              | _ =>
                   if ends_with_block item then
                     let body := parse_body_fuel fuel' term rest1 in
                     (item :: fst body, snd body)
                   else ([], (item, rest1))
-            | _ =>
-                if ends_with_block item then
-                  let body := parse_body_fuel fuel' term rest1 in
-                  (item :: fst body, snd body)
-                else ([], (item, rest1))
-            end
-      | _ =>
-          let parsed := parse_loop_fuel fuel' (ModeSeq term) toks in
-          let item := make_seq_or_single (fst parsed) in
-          let rest1 := snd parsed in
-          match rest1 with
-          | TokSym sep _ :: after_sep =>
-              if string_dec sep ";" then
-                let body := parse_body_fuel fuel' term after_sep in
-                (item :: fst body, snd body)
-              else if string_dec sep "," then
-                let body := parse_body_fuel fuel' term after_sep in
-                (item :: fst body, snd body)
-              else ([], (item, rest1))
-          | _ => ([], (item, rest1))
+              end
           end
       end
   end.

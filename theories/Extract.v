@@ -28,7 +28,8 @@ Extraction "Compiler.ml"
   Chester.Parser.parse
   Chester.Expander.expand_cst_top 
   Chester.CoreChecker.infer_check 
-  Chester.Elaborator.elaborate 
+  Chester.Elaborator.elaborate
+  Chester.Elaborator.elaborate_top 
   Chester.Elaborator.zonk
   Chester.Elaborator.unify
   Chester.Elaborator.init_elab_state

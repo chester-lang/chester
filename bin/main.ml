@@ -49,11 +49,11 @@ let process_file filename oc =
   let cst = parse tokens in
 
   print_endline ("\n[Expanding " ^ filename ^ "]");
-  let expanded_cst = expand_cst cst in
+  let expanded_cst = expand_cst_top cst in
 
   print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
   print_endline ("\n[Elaborating & TypeChecking " ^ filename ^ "]");
-  match elaborate [] expanded_cst None init_elab_state with
+  match elaborate_top [] expanded_cst None init_elab_state with
   | Inr (msg, _) ->
       print_endline ("Type Error: " ^ string_of_char_list msg);
       print_endline (string_of_char_list (format_cst 100 0 expanded_cst));

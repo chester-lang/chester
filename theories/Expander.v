@@ -26,6 +26,13 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
       end
   | ListLiteral targs tspan :: rest =>
       match acc with
+      | Symbol name sp :: acc_rest =>
+          (* `[]` is implicit app for callables; keep list literals after binders/punct. *)
+          if orb (eqb name "=") (orb (eqb name ":") (orb (eqb name "return")
+                (orb (eqb name "=>") (orb (eqb name ",") (eqb name ";"))))) then
+            collapse_apps_aux rest (ListLiteral targs tspan :: Symbol name sp :: acc_rest)
+          else
+            collapse_apps_aux rest (ImplicitAppCST (Symbol name sp) targs tspan :: acc_rest)
       | expr :: acc_rest => collapse_apps_aux rest (ImplicitAppCST expr targs tspan :: acc_rest)
       | [] => collapse_apps_aux rest (ListLiteral targs tspan :: [])
       end
@@ -123,133 +130,355 @@ Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
       end
   end.
 
-Fixpoint expand_cst (c : CST) : CST :=
+Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
+  match fuel with
+  | 0 => c
+  | S fuel' =>
   match c with
   | Block stmts tail span =>
-      let expanded_stmts := map expand_cst stmts in
-      let expanded_tail := expand_cst tail in
+      let expanded_stmts := map (expand_cst fuel') stmts in
+      let expanded_tail := expand_cst fuel' tail in
       
-      let fix process_stmts (ss : list CST) : list CST :=
+      let fix process_stmts (f2 : nat) (ss : list CST) {struct f2} : list CST :=
+        match f2 with
+        | 0 => ss
+        | S f2' =>
         match ss with
         | [] => []
-        | SeqOf (Symbol "let" _ :: Symbol name _ :: Symbol "=" _ :: val_exprs) s :: rest =>
-            let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr val_exprs s end in
-            LetCST name val_cst (Symbol "Unit" empty_span) s :: process_stmts rest
-            
-        | SeqOf (Symbol "def" _ :: AppCST (Symbol name _) args _ :: rest_def) s :: rest =>
-            match split_at_eq [] rest_def with
-            | Some (ty_exprs, body_exprs) =>
-                let ret_ty := match ty_exprs with 
-                              | Symbol ":" _ :: tys => expand_seq_expr tys s 
-                              | _ => Symbol "Unknown" empty_span 
-                              end in
-                let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr body_exprs s end in
-                let extract_arg (a: CST) : (string * CST) := 
-                   match a with
-                   | Symbol n _ => (n, Symbol "Unknown" empty_span)
-                   | SeqOf (Symbol n _ :: Symbol ":" _ :: ty :: _) _ => (n, ty)
-                   | _ => ("unknown", Symbol "Unknown" empty_span)
-                   end
-                in
-                let params := map extract_arg args in
-                DefCST name [] params ret_ty body_cst s :: process_stmts rest
-            | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: Tuple args empty_span :: rest_def) s :: process_stmts rest
-            end
-            
-        | SeqOf (Symbol "def" _ :: AppCST (ImplicitAppCST (Symbol name _) targs _) args _ :: rest_def) s :: rest =>
-            match split_at_eq [] rest_def with
-            | Some (ty_exprs, body_exprs) =>
-                let ret_ty := match ty_exprs with 
-                              | Symbol ":" _ :: tys => expand_seq_expr tys s 
-                              | _ => Symbol "Unknown" empty_span 
-                              end in
-                let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr body_exprs s end in
-                let extract_arg (a: CST) : (string * CST) := 
-                   match a with
-                   | Symbol n _ => (n, Symbol "Unknown" empty_span)
-                   | SeqOf (Symbol n _ :: Symbol ":" _ :: ty :: _) _ => (n, ty)
-                   | _ => ("unknown", Symbol "Unknown" empty_span)
-                   end
-                in
-                let extract_targ (a: CST) : string := 
-                   match a with Symbol n _ => n | _ => "T" end 
-                in
-                let type_params := map extract_targ targs in
-                let params := map extract_arg args in
-                DefCST name type_params params ret_ty body_cst s :: process_stmts rest
-            | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: ListLiteral targs empty_span :: Tuple args empty_span :: rest_def) s :: process_stmts rest
-            end
-
-        | SeqOf (Symbol "enum" _ :: Symbol name _ :: Block variants _ _ :: []) s :: rest =>
-            let fix extract_variants (vs : list CST) : list CST :=
-              match vs with
-              | [] => []
-              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
-                  AppCST (Symbol ":" empty_span) [AppCST (Symbol vname empty_span) vargs empty_span; ret_ty] empty_span :: extract_variants vrest
-              | SeqOf (Symbol "case" _ :: Symbol vname _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
-                  AppCST (Symbol ":" empty_span) [Symbol vname empty_span; ret_ty] empty_span :: extract_variants vrest
-              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: []) _ :: vrest =>
-                  AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
-              | SeqOf (Symbol "case" _ :: Symbol vname _ :: []) _ :: vrest =>
-                  Symbol vname empty_span :: extract_variants vrest
-              | _ :: vrest => extract_variants vrest
-              end
-            in
-            EnumCST name [] (extract_variants variants) s :: process_stmts rest
-            
-        | SeqOf (Symbol "enum" _ :: ImplicitAppCST (Symbol name _) targs _ :: Block variants _ _ :: []) s :: rest =>
-            let fix extract_variants (vs : list CST) : list CST :=
-              match vs with
-              | [] => []
-              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
-                  AppCST (Symbol ":" empty_span) [AppCST (Symbol vname empty_span) vargs empty_span; ret_ty] empty_span :: extract_variants vrest
-              | SeqOf (Symbol "case" _ :: Symbol vname _ :: Symbol ":" _ :: ret_ty :: []) _ :: vrest =>
-                  AppCST (Symbol ":" empty_span) [Symbol vname empty_span; ret_ty] empty_span :: extract_variants vrest
-              | SeqOf (Symbol "case" _ :: AppCST (Symbol vname _) vargs _ :: []) _ :: vrest =>
-                  AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
-              | SeqOf (Symbol "case" _ :: Symbol vname _ :: []) _ :: vrest =>
-                  Symbol vname empty_span :: extract_variants vrest
-              | _ :: vrest => extract_variants vrest
-              end
-            in
-            let extract_targ (a: CST) : string := 
-               match a with Symbol n _ => n | _ => "T" end 
-            in
-            let type_params := map extract_targ targs in
-            EnumCST name type_params (extract_variants variants) s :: process_stmts rest
-
-        | SeqOf (Symbol "effect" _ :: Symbol name _ :: ListLiteral targs _ :: Block decls _ _ :: []) s :: rest =>
-            EffectCST name [] [] s :: process_stmts rest
-        | SeqOf (Symbol "perform" _ :: AppCST op args _ :: []) s :: rest =>
-            DoCST op args s :: process_stmts rest
-        | SeqOf (Symbol "handle" _ :: Block body _ _ :: Symbol "with" _ :: Symbol eff _ :: Block handlers _ _ :: []) s :: rest =>
-            HandleCST (Block body (Symbol "Unit" empty_span) empty_span) eff [] s :: process_stmts rest
-        | SeqOf (Symbol "record" _ :: AppCST (Symbol name _) fields _ :: []) s :: rest =>
-            RecordCST name [] fields s :: process_stmts rest
-            
-        | SeqOf (Symbol "record" _ :: AppCST (ImplicitAppCST (Symbol name _) targs _) fields _ :: []) s :: rest =>
-            let extract_targ (a: CST) : string := 
-               match a with Symbol n _ => n | _ => "T" end 
-            in
-            let type_params := map extract_targ targs in
-            RecordCST name type_params fields s :: process_stmts rest
-            
         | stmt :: rest =>
-            stmt :: process_stmts rest
+            let processed_stmt := match stmt with
+            | SeqOf (Symbol kwd _ :: rest_seq) s =>
+                if eqb kwd "let" then
+                    match rest_seq with
+                    | Symbol name _ :: Symbol kwd2 _ :: val_exprs =>
+                        if eqb kwd2 "=" then
+                            let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr val_exprs s end in
+                            LetCST name val_cst (Symbol "Unit" empty_span) s
+                        else stmt
+                    | _ => stmt
+                    end
+                else if eqb kwd "def" then
+                    match rest_seq with
+                    | AppCST (Symbol name _) args _ :: rest_def =>
+                        match split_at_eq [] rest_def with
+                        | Some (ty_exprs, body_exprs) =>
+                            let ret_ty := match ty_exprs with 
+                                          | Symbol kwd2 _ :: tys => 
+                                              if eqb kwd2 ":" then expand_seq_expr tys s else Symbol "Unknown" empty_span
+                                          | _ => Symbol "Unknown" empty_span 
+                                          end in
+                            let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr body_exprs s end in
+                            let extract_arg (a: CST) : (string * CST) := 
+                               match a with
+                               | Symbol n _ => (n, Symbol "Unknown" empty_span)
+                               | SeqOf (Symbol n _ :: Symbol kwd2 _ :: ty :: _) _ => 
+                                   if eqb kwd2 ":" then (n, ty) else ("unknown", Symbol "Unknown" empty_span)
+                               | _ => ("unknown", Symbol "Unknown" empty_span)
+                               end
+                            in
+                            let params := map extract_arg args in
+                            DefCST name [] params ret_ty body_cst s
+                        | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: ListLiteral [] empty_span :: Tuple args empty_span :: rest_def) s
+                        end
+                    | AppCST (ImplicitAppCST (Symbol name _) targs _) args _ :: rest_def =>
+                        match split_at_eq [] rest_def with
+                        | Some (ty_exprs, body_exprs) =>
+                            let ret_ty := match ty_exprs with 
+                                          | Symbol kwd2 _ :: tys => 
+                                              if eqb kwd2 ":" then expand_seq_expr tys s else Symbol "Unknown" empty_span
+                                          | _ => Symbol "Unknown" empty_span 
+                                          end in
+                            let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr body_exprs s end in
+                            let extract_arg (a: CST) : (string * CST) := 
+                               match a with
+                               | Symbol n _ => (n, Symbol "Unknown" empty_span)
+                               | SeqOf (Symbol n _ :: Symbol kwd2 _ :: ty :: _) _ => 
+                                   if eqb kwd2 ":" then (n, ty) else ("unknown", Symbol "Unknown" empty_span)
+                               | _ => ("unknown", Symbol "Unknown" empty_span)
+                               end
+                            in
+                            let extract_targ (a: CST) : string := 
+                               match a with Symbol n _ => n | _ => "T" end 
+                            in
+                            let type_params := map extract_targ targs in
+                            let params := map extract_arg args in
+                            DefCST name type_params params ret_ty body_cst s
+                        | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: ListLiteral targs empty_span :: Tuple args empty_span :: rest_def) s
+                        end
+                    | _ => stmt
+                    end
+                else if eqb kwd "extension" then
+                    let methods_of_block (b : CST) : list CST :=
+                      match b with
+                      | Block meths tail _ =>
+                          match tail with
+                          | Symbol u _ =>
+                              if eqb u "Unit" then meths else app meths [tail]
+                          | _ => app meths [tail]
+                          end
+                      | _ => []
+                      end in
+                    match rest_seq with
+                    | [e1; e2; e3; e4] =>
+                        match e1 with
+                        | Symbol name _ =>
+                            match e2 with
+                            | Symbol kwd2 _ =>
+                                if orb (eqb kwd2 "for") (eqb kwd2 "on") then
+                                  match e4 with
+                                  | Block _ _ _ =>
+                                      ExtensionCST name [] e3 (process_stmts f2' (methods_of_block e4)) s
+                                  | _ => stmt
+                                  end
+                                else stmt
+                            | _ => stmt
+                            end
+                        | ImplicitAppCST (Symbol name _) targs _ =>
+                            match e2 with
+                            | Symbol kwd2 _ =>
+                                if orb (eqb kwd2 "for") (eqb kwd2 "on") then
+                                  match e4 with
+                                  | Block _ _ _ =>
+                                      let fix extract_vars (vs : list CST) : list string :=
+                                        match vs with
+                                        | [] => []
+                                        | Symbol v _ :: vrest => v :: extract_vars vrest
+                                        | _ :: vrest => extract_vars vrest
+                                        end in
+                                      ExtensionCST name (extract_vars targs) e3 (process_stmts f2' (methods_of_block e4)) s
+                                  | _ => stmt
+                                  end
+                                else stmt
+                            | _ => stmt
+                            end
+                        | _ => stmt
+                        end
+                    | [e1; e2; e3; e4; e5] =>
+                        match e1 with
+                        | Symbol name _ =>
+                            match e2 with
+                            | ListLiteral targs _ =>
+                                match e3 with
+                                | Symbol kwd2 _ =>
+                                    if orb (eqb kwd2 "for") (eqb kwd2 "on") then
+                                      match e5 with
+                                      | Block _ _ _ =>
+                                          let fix extract_vars (vs : list CST) : list string :=
+                                            match vs with
+                                            | [] => []
+                                            | Symbol v _ :: vrest => v :: extract_vars vrest
+                                            | _ :: vrest => extract_vars vrest
+                                            end in
+                                          ExtensionCST name (extract_vars targs) e4 (process_stmts f2' (methods_of_block e5)) s
+                                      | _ => stmt
+                                      end
+                                    else stmt
+                                | _ => stmt
+                                end
+                            | _ => stmt
+                            end
+                        | _ => stmt
+                        end
+                    | _ => stmt
+                    end
+                else if eqb kwd "enum" then
+                    match rest_seq with
+                    | [e1; e2] =>
+                        match e1 with
+                        | Symbol name _ =>
+                            match e2 with
+                            | Block variants _ _ =>
+                                let fix extract_variants (vs : list CST) : list CST :=
+                                  match vs with
+                                  | [] => []
+                                  | SeqOf (Symbol kwdcase _ :: rest_case) _ :: vrest =>
+                                      if eqb kwdcase "case" then
+                                          match rest_case with
+                                          | [r1; r2; r3] =>
+                                              match r1 with
+                                              | AppCST (Symbol vname _) vargs _ =>
+                                                  match r2 with
+                                                  | Symbol kwdcolon _ =>
+                                                      if eqb kwdcolon ":" then
+                                                          AppCST (Symbol ":" empty_span) [AppCST (Symbol vname empty_span) vargs empty_span; r3] empty_span :: extract_variants vrest
+                                                      else extract_variants vrest
+                                                  | _ => extract_variants vrest
+                                                  end
+                                              | Symbol vname _ =>
+                                                  match r2 with
+                                                  | Symbol kwdcolon _ =>
+                                                      if eqb kwdcolon ":" then
+                                                          AppCST (Symbol ":" empty_span) [Symbol vname empty_span; r3] empty_span :: extract_variants vrest
+                                                      else extract_variants vrest
+                                                  | _ => extract_variants vrest
+                                                  end
+                                              | _ => extract_variants vrest
+                                              end
+                                          | [r1] =>
+                                              match r1 with
+                                              | AppCST (Symbol vname _) vargs _ =>
+                                                  AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
+                                              | Symbol vname _ =>
+                                                  Symbol vname empty_span :: extract_variants vrest
+                                              | _ => extract_variants vrest
+                                              end
+                                          | _ => extract_variants vrest
+                                          end
+                                      else extract_variants vrest
+                                  | _ :: vrest => extract_variants vrest
+                                  end
+                                in
+                                EnumCST name [] (extract_variants variants) s
+                            | _ => stmt
+                            end
+                        | ImplicitAppCST (Symbol name _) targs _ =>
+                            match e2 with
+                            | Block variants _ _ =>
+                                let fix extract_variants (vs : list CST) : list CST :=
+                                  match vs with
+                                  | [] => []
+                                  | SeqOf (Symbol kwdcase _ :: rest_case) _ :: vrest =>
+                                      if eqb kwdcase "case" then
+                                          match rest_case with
+                                          | [r1; r2; r3] =>
+                                              match r1 with
+                                              | AppCST (Symbol vname _) vargs _ =>
+                                                  match r2 with
+                                                  | Symbol kwdcolon _ =>
+                                                      if eqb kwdcolon ":" then
+                                                          AppCST (Symbol ":" empty_span) [AppCST (Symbol vname empty_span) vargs empty_span; r3] empty_span :: extract_variants vrest
+                                                      else extract_variants vrest
+                                                  | _ => extract_variants vrest
+                                                  end
+                                              | Symbol vname _ =>
+                                                  match r2 with
+                                                  | Symbol kwdcolon _ =>
+                                                      if eqb kwdcolon ":" then
+                                                          AppCST (Symbol ":" empty_span) [Symbol vname empty_span; r3] empty_span :: extract_variants vrest
+                                                      else extract_variants vrest
+                                                  | _ => extract_variants vrest
+                                                  end
+                                              | _ => extract_variants vrest
+                                              end
+                                          | [r1] =>
+                                              match r1 with
+                                              | AppCST (Symbol vname _) vargs _ =>
+                                                  AppCST (Symbol vname empty_span) vargs empty_span :: extract_variants vrest
+                                              | Symbol vname _ =>
+                                                  Symbol vname empty_span :: extract_variants vrest
+                                              | _ => extract_variants vrest
+                                              end
+                                          | _ => extract_variants vrest
+                                          end
+                                      else extract_variants vrest
+                                  | _ :: vrest => extract_variants vrest
+                                  end
+                                in
+                                let extract_targ (a: CST) : string := 
+                                   match a with Symbol n _ => n | _ => "T" end 
+                                in
+                                let type_params := map extract_targ targs in
+                                EnumCST name type_params (extract_variants variants) s
+                            | _ => stmt
+                            end
+                        | _ => stmt
+                        end
+                    | _ => stmt
+                    end
+                else if eqb kwd "effect" then
+                    match rest_seq with
+                    | [e1; e2; e3] =>
+                        match e1 with
+                        | Symbol name _ =>
+                            match e2 with
+                            | ListLiteral targs _ =>
+                                match e3 with
+                                | Block decls _ _ => EffectCST name [] [] s
+                                | _ => stmt
+                                end
+                            | _ => stmt
+                            end
+                        | _ => stmt
+                        end
+                    | _ => stmt
+                    end
+                else if eqb kwd "perform" then
+                    match rest_seq with
+                    | [e1] =>
+                        match e1 with
+                        | AppCST op args _ => DoCST op args s
+                        | _ => stmt
+                        end
+                    | _ => stmt
+                    end
+                else if eqb kwd "handle" then
+                    match rest_seq with
+                    | [e1; e2; e3; e4] =>
+                        match e1 with
+                        | Block body _ _ =>
+                            match e2 with
+                            | Symbol kwd2 _ =>
+                                match e3 with
+                                | Symbol eff _ =>
+                                    match e4 with
+                                    | Block handlers _ _ =>
+                                        if eqb kwd2 "with" then
+                                            HandleCST (Block body (Symbol "Unit" empty_span) empty_span) eff [] s
+                                        else stmt
+                                    | _ => stmt
+                                    end
+                                | _ => stmt
+                                end
+                            | _ => stmt
+                            end
+                        | _ => stmt
+                        end
+                    | _ => stmt
+                    end
+                else if eqb kwd "record" then
+                    match rest_seq with
+                    | [e1] =>
+                        match e1 with
+                        | AppCST (Symbol name _) fields _ =>
+                            RecordCST name [] fields s
+                        | AppCST (ImplicitAppCST (Symbol name _) targs _) fields _ =>
+                            let extract_targ (a: CST) : string := 
+                               match a with Symbol n _ => n | _ => "T" end 
+                            in
+                            let type_params := map extract_targ targs in
+                            RecordCST name type_params fields s
+                        | _ => stmt
+                        end
+                    | _ => stmt
+                    end
+                else stmt
+            | ExtensionCST name tparams target_ty meths span => ExtensionCST name tparams target_ty (process_stmts f2' meths) span
+            | Error msg span => Error msg span
+            | _ => stmt
+            end in
+            processed_stmt :: process_stmts f2' rest
+        end
         end
       in
-      Block (process_stmts expanded_stmts) expanded_tail span
+                let final_stmts := process_stmts fuel' expanded_stmts in
+          let final_tail := match process_stmts fuel' [expanded_tail] with
+                            | [] => Tuple [] span
+                            | t :: _ => t
+                            end in
+          Block final_stmts final_tail span
 
-  | Tuple elems span => Tuple (map expand_cst elems) span
-  | ListLiteral elems span => ListLiteral (map expand_cst elems) span
+  | Tuple elems span => Tuple (map (expand_cst fuel') elems) span
+  | ListLiteral elems span => ListLiteral (map (expand_cst fuel') elems) span
   
   | SeqOf elems span => 
-      let expanded_elems := map expand_cst elems in
+      let expanded_elems := map (expand_cst fuel') elems in
       expand_seq_expr expanded_elems span
       
-  | FieldAccessCST expr field span => FieldAccessCST (expand_cst expr) field span
-  | MatchCST expr cases span => MatchCST (expand_cst expr) cases span
+  | FieldAccessCST expr field span => FieldAccessCST (expand_cst fuel' expr) field span
+  | MatchCST expr cases span => MatchCST (expand_cst fuel' expr) cases span
   | _ => c
+    end
   end.
 
-Definition expand_cst_top (expr : CST) : CST := expand_cst expr.
+
+Definition expand_cst_top (expr : CST) : CST := expand_cst 1000 expr.

@@ -60,6 +60,7 @@ Inductive CST : Type :=
   | HandleCST : CST -> string -> list CST -> Span -> CST
   | FieldAccessCST : CST -> string -> Span -> CST (* expr, field_name *)
   | MacroDefCST : string -> list (PatternCST * CST) -> Span -> CST (* name, cases *)
+  | ExtensionCST : string -> list string -> CST -> list CST -> Span -> CST (* name, type_params, target_ty, methods *)
   | Error : string -> Span -> CST.
 
 Definition zero_utf16 := mkWithUTF16 0 0.
@@ -109,6 +110,7 @@ Definition get_span (c : CST) : Span :=
   | DoCST _ _ span => span
   | HandleCST _ _ _ span => span
   | FieldAccessCST _ _ span => span
+  | ExtensionCST _ _ _ _ span => span
   | CommentCST _ span => span
   | Error _ span => span
   | _ => empty_span

@@ -7,10 +7,30 @@ Require Import Chester.CoreChecker.
 Require Import String.
 
 Fixpoint string_of_nat (n : nat) : string :=
-  match n with
-  | 0 => "0" | 1 => "1" | 2 => "2" | 3 => "3" | 4 => "4" | 5 => "5"
-  | 6 => "6" | 7 => "7" | 8 => "8" | 9 => "9" | _ => "X"
+    match n with
+    | 0 => "0" | 1 => "1" | 2 => "2" | 3 => "3" | 4 => "4" | 5 => "5"
+    | 6 => "6" | 7 => "7" | 8 => "8" | 9 => "9" | _ => "X"
+    end.
+
+Definition digit_value (c : ascii) : option nat :=
+  match c with
+  | "0"%char => Some 0 | "1"%char => Some 1 | "2"%char => Some 2
+  | "3"%char => Some 3 | "4"%char => Some 4 | "5"%char => Some 5
+  | "6"%char => Some 6 | "7"%char => Some 7 | "8"%char => Some 8
+  | "9"%char => Some 9 | _ => None
   end.
+
+Fixpoint string_to_nat_aux (s : string) (acc : nat) : nat :=
+  match s with
+  | EmptyString => acc
+  | String c rest =>
+      match digit_value c with
+      | Some d => string_to_nat_aux rest (acc * 10 + d)
+      | None => acc
+      end
+  end.
+
+Definition string_to_nat (s : string) : nat := string_to_nat_aux s 0.
 
 Definition mangle_name (n : string) (ctx : list nat) : string :=
   let fix join (ls : list nat) : string :=
@@ -30,7 +50,7 @@ Open Scope string_scope.
 Import ListNotations.
 
 Inductive ElabState :=
-| mkElabState : nat -> SolverState -> ElabState.
+| mkElabState : nat -> SolverState -> list (string * AST * list (string * string)) -> ElabState.
 
 Definition ElabM (A : Type) := ElabState -> (A * ElabState) + (list ascii * ElabState).
 
@@ -65,13 +85,13 @@ Definition set_state (s : ElabState) : ElabM unit :=
 Definition fresh_meta : ElabM AST :=
   s <- get_state ;
   match s with
-  | mkElabState n sol =>
-      set_state (mkElabState (S n) sol) ;;
+  | mkElabState n sol exts =>
+      set_state (mkElabState (S n) sol exts) ;;
       ret (AstMeta n)
   end.
 
 Definition TypeEnv := list ((string * list nat) * AST).
-Definition init_elab_state := mkElabState 0 empty_state.
+Definition init_elab_state := mkElabState 0 empty_state [].
 
 Fixpoint list_nat_eq (l1 l2 : list nat) : bool :=
   match l1, l2 with
@@ -127,31 +147,31 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
           if Nat.eqb m1 m2 then ret tt else
           s <- get_state ;
           match s with
-          | mkElabState n sol =>
+          | mkElabState n sol exts =>
               match type_metas sol m1 with
               | Solved v1 => unify fuel' v1 t2'
               | _ => match type_metas sol m2 with
                      | Solved v2 => unify fuel' t1' v2
-                     | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol))
+                     | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts)
                      end
               end
           end
       | AstMeta m1, _ =>
           s <- get_state ;
           match s with
-          | mkElabState n sol =>
+          | mkElabState n sol exts =>
               match type_metas sol m1 with
               | Solved v1 => unify fuel' v1 t2'
-              | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol))
+              | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts)
               end
           end
       | _, AstMeta m2 =>
           s <- get_state ;
           match s with
-          | mkElabState n sol =>
+          | mkElabState n sol exts =>
               match type_metas sol m2 with
               | Solved v2 => unify fuel' t1' v2
-              | _ => set_state (mkElabState n (update_type_state m2 (Solved t1') sol))
+              | _ => set_state (mkElabState n (update_type_state m2 (Solved t1') sol) exts)
               end
           end
       | AstApp f1 a1, AstApp f2 a2 =>
@@ -170,7 +190,7 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
       | AstMeta m =>
           s <- get_state ;
           match s with
-          | mkElabState n sol =>
+          | mkElabState n sol exts =>
               match type_metas sol m with
               | Solved v => zonk fuel' v
               | _ => ret (AstMeta m)
@@ -197,7 +217,50 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
       end
   end.
 
-Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct expr} : ElabM (AST * AST) :=
+
+Fixpoint get_base_type (t : AST) : AST :=
+  match t with
+  | AstApp f _ => get_base_type f
+  | AstImplicitApp f _ => get_base_type f
+  | _ => t
+  end.
+
+Fixpoint check_type_match (t1 t2 : AST) : bool :=
+  match get_base_type t1, get_base_type t2 with
+  | AstRef n1, AstRef n2 => if string_dec n1 n2 then true else false
+  | _, _ => false
+  end.
+
+Fixpoint lookup_ext_method (field : string) (meths : list (string * string)) : string :=
+  match meths with
+  | [] => EmptyString
+  | (n, full) :: rest => if string_dec n field then full else lookup_ext_method field rest
+  end.
+
+Fixpoint find_ext_method (ty : AST) (field : string) (exts : list (string * AST * list (string * string))) : string :=
+  match exts with
+  | [] => EmptyString
+  | (ext_name, target_ty, meths) :: rest =>
+      if check_type_match target_ty ty then
+        let res := lookup_ext_method field meths in
+        if string_dec res EmptyString then find_ext_method ty field rest
+        else res
+      else find_ext_method ty field rest
+  end.
+
+Fixpoint extract_ext_methods (meths : list CST) (ext_name : string) : list (string * string) :=
+  match meths with
+  | [] => []
+  | DefCST n tps ps rt b sp :: rest =>
+      let full := append (append ext_name "_") n in
+      (n, full) :: extract_ext_methods rest ext_name
+  | _ :: rest => extract_ext_methods rest ext_name
+  end.
+
+Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option AST) {struct fuel} : ElabM (AST * AST) :=
+  match fuel with
+  | 0 => throw "Out of fuel"
+  | S fuel' =>
   match expr with
   | Symbol name span =>
       match resolve_hygiene env name (context span) with
@@ -211,9 +274,9 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
   | StringLiteral s _ => 
       match expected with Some exp => unify 100 StringType exp | None => ret tt end ;;
       ret (AstStringLit s, StringType)
-  | IntegerLiteral _ _ => 
+  | IntegerLiteral s _ => 
       match expected with Some exp => unify 100 IntType exp | None => ret tt end ;;
-      ret (AstIntLit 42, IntType)
+      ret (AstIntLit (string_to_nat s), IntType)
   | BoolLiteral b _ => 
       match expected with Some exp => unify 100 BoolType exp | None => ret tt end ;;
       ret (AstBoolLit b, BoolType)
@@ -221,7 +284,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       match exprs with
       | [] => throw "Empty SeqOf"
       | func :: args =>
-          funcAst <- elaborate env func None;
+          funcAst <- elaborate fuel' env func None;
           match fst funcAst with
           | AstRef name => if string_dec name "\\" then throw "Lambda!" else ret tt
           | _ => ret tt
@@ -232,18 +295,18 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
               | a :: rest =>
                   match fs with
                   | AstPi _ arg_ty ret_ty _ =>
-                      aAst <- elaborate env a (Some arg_ty);
+                      aAst <- elaborate fuel' env a (Some arg_ty);
                       restAst <- check_args ret_ty rest;
                       ret (fst aAst :: fst restAst, snd restAst)
                   | AstMeta _ =>
                       argTyM <- fresh_meta;
                       retTyM <- fresh_meta;
                       unify 100 fs (AstPi "x" argTyM retTyM []);;
-                      aAst <- elaborate env a (Some argTyM);
+                      aAst <- elaborate fuel' env a (Some argTyM);
                       restAst <- check_args retTyM rest;
                       ret (fst aAst :: fst restAst, snd restAst)
                   | AstRef _ =>
-                      aAst <- elaborate env a None;
+                      aAst <- elaborate fuel' env a None;
                       restAst <- check_args (AstRef "Any") rest;
                       ret (fst aAst :: fst restAst, AstRef "Any")
                   | _ => ret ([], AstRef "Any")
@@ -263,18 +326,18 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         | x :: xs => 
             match x with
             | LetCST name value _ span =>
-                valueAst <- elaborate current_env value None ;
+                valueAst <- elaborate fuel' current_env value None ;
                 let new_env := ((name, context span), snd valueAst) :: current_env in
                 rest <- map_elabs new_env xs ;
                 ret (AstLet (mangle_name name (context span)) (fst valueAst) :: fst rest, snd rest)
             | DefCST name _ _ ret_ty _ span =>
-                tyAst <- elaborate current_env ret_ty (Some TypeUniverse) ;
+                tyAst <- elaborate fuel' current_env ret_ty (Some TypeUniverse) ;
                 let new_env := ((name, context span), fst tyAst) :: current_env in
-                res <- elaborate current_env x None ;
+                res <- elaborate fuel' current_env x None ;
                 rest <- map_elabs new_env xs ;
                 ret (fst res :: fst rest, snd rest)
             | _ =>
-                res <- elaborate current_env x None ;
+                res <- elaborate fuel' current_env x None ;
                 rest <- map_elabs current_env xs ;
                 ret (fst res :: fst rest, snd rest)
             end
@@ -283,18 +346,18 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       stmtsRes <- map_elabs env stmts ;
       let stmtsAst := fst stmtsRes in
       let final_env := snd stmtsRes in
-      retAst <- elaborate final_env ret_expr None ;
+      retAst <- elaborate fuel' final_env ret_expr None ;
       ret (AstBlock stmtsAst (fst retAst), snd retAst)
   
   | LetCST name value body span =>
-      valueAst <- elaborate env value None ;
-      bodyAst <- elaborate (((name, context span), snd valueAst) :: env) body expected ;
+      valueAst <- elaborate fuel' env value None ;
+      bodyAst <- elaborate fuel' (((name, context span), snd valueAst) :: env) body expected ;
       ret (AstBlock [AstLet (mangle_name name (context span)) (fst valueAst)] (fst bodyAst), snd bodyAst)
       
   | IfCST cond thenB elseB _ =>
-      condAst <- elaborate env cond None ;
-      thenAst <- elaborate env thenB expected ;
-      elseAst <- elaborate env elseB expected ;
+      condAst <- elaborate fuel' env cond None ;
+      thenAst <- elaborate fuel' env thenB expected ;
+      elseAst <- elaborate fuel' env elseB expected ;
       ret (AstIf (fst condAst) (fst thenAst) (fst elseAst), snd thenAst)
       
   | DefCST name type_params params ret_ty body span =>
@@ -302,7 +365,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         match ps with
         | [] => ret []
         | (pname, pty) :: rest =>
-            tyAst <- elaborate env pty (Some TypeUniverse) ;
+            tyAst <- elaborate fuel' env pty (Some TypeUniverse) ;
             restAst <- map_params rest ;
             ret ((pname, fst tyAst) :: restAst)
         end
@@ -315,53 +378,71 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         end
       in
       let body_env := build_env paramsAst env in
-      retAst <- elaborate env ret_ty (Some TypeUniverse) ;
-      bodyAst <- elaborate body_env body (Some (fst retAst)) ;
+      retAst <- elaborate fuel' env ret_ty (Some TypeUniverse) ;
+      bodyAst <- elaborate fuel' body_env body (Some (fst retAst)) ;
       let fun_ty := AstFunTy type_params paramsAst (fst retAst) [] in
       ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
 
   | LamCST arg_name opt_arg_ty body span =>
       argTyAst <- (match opt_arg_ty with
-                   | Some ty => elaborate env ty (Some TypeUniverse)
+                   | Some ty => elaborate fuel' env ty (Some TypeUniverse)
                    | None => m <- fresh_meta ; ret (m, TypeUniverse)
                    end) ;
-      bodyAst <- elaborate (((arg_name, context span), fst argTyAst) :: env) body None ;
+      bodyAst <- elaborate fuel' (((arg_name, context span), fst argTyAst) :: env) body None ;
       let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) [] in
       ret (AstLam (mangle_name arg_name (context span)) (fst argTyAst) (fst bodyAst), arrTy)
 
-  | AppCST func args _ =>
-      (* Check if func is a ImplicitAppCST — combined two-telescope call f[A,B](x,y) *)
+  | AppCST func args span =>
       match func with
+      | FieldAccessCST expr field fsp =>
+          exprAst <- elaborate fuel' env expr None ;
+          s <- get_state ;
+          let full_name := match s with mkElabState _ _ exts => find_ext_method (snd exprAst) field exts end in
+          if string_dec full_name EmptyString then
+            let fix elab_args (as_ : list CST) : ElabM (list AST) :=
+              match as_ with
+              | [] => ret []
+              | a :: rest =>
+                  aAst <- elaborate fuel' env a None ;
+                  restAst <- elab_args rest ;
+                  ret (fst aAst :: restAst)
+              end
+            in
+            argsAst <- elab_args args ;
+            ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
+          else
+            let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
+            elaborate fuel' env new_cst expected
       | ImplicitAppCST inner_func _targs _tspan =>
-          (* Erase the implicit [A,B] telescope; elaborate only the inner function and explicit args *)
-          funcAst <- elaborate env inner_func None ;
+          (* Erase the implicit [A,B] telescope; elaborate fuel' only the inner function and explicit args *)
+          funcAst <- elaborate fuel' env inner_func None ;
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] => ret ([], fs)
             | a :: rest =>
                 match fs with
                 | AstFunTy _tparams params ret_ty _ =>
-                    (* Non-curried: elaborate all explicit args against the param list *)
+                    (* Non-curried: elaborate fuel' all explicit args against the param list *)
                     match params with
                     | (_, arg_ty) :: _rest_params =>
-                        aAst <- elaborate env a (Some arg_ty) ;
+                        aAst <- elaborate fuel' env a (Some arg_ty) ;
                         restAst <- check_args (AstFunTy _tparams _rest_params ret_ty []) rest ;
                         ret (fst aAst :: fst restAst, snd restAst)
                     | [] =>
-                        aAst <- elaborate env a None ;
+                        aAst <- elaborate fuel' env a None ;
                         restAst <- check_args (AstRef "Any") rest ;
                         ret (fst aAst :: fst restAst, AstRef "Any")
                     end
                 | AstPi _ arg_ty ret_ty _ =>
-                    aAst <- elaborate env a (Some arg_ty) ;
+                    aAst <- elaborate fuel' env a (Some arg_ty) ;
                     restAst <- check_args ret_ty rest ;
                     ret (fst aAst :: fst restAst, snd restAst)
                 | AstRef _ =>
-                    aAst <- elaborate env a None ;
+                    aAst <- elaborate fuel' env a None ;
                     restAst <- check_args (AstRef "Any") rest ;
                     ret (fst aAst :: fst restAst, AstRef "Any")
                 | _ =>
-                    aAst <- elaborate env a None ;
+                    aAst <- elaborate fuel' env a None ;
                     restAst <- check_args (AstRef "Any") rest ;
                     ret (fst aAst :: fst restAst, AstRef "Any")
                 end
@@ -374,7 +455,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
           end ;;
           ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
       | _ =>
-          funcAst <- elaborate env func None ;
+          funcAst <- elaborate fuel' env func None ;
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] => ret ([], fs)
@@ -383,27 +464,27 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
                 | AstFunTy _tparams params ret_ty _ =>
                     match params with
                     | (_, arg_ty) :: _rest_params =>
-                        aAst <- elaborate env a (Some arg_ty) ;
+                        aAst <- elaborate fuel' env a (Some arg_ty) ;
                         restAst <- check_args (AstFunTy _tparams _rest_params ret_ty []) rest ;
                         ret (fst aAst :: fst restAst, snd restAst)
                     | [] =>
-                        aAst <- elaborate env a None ;
+                        aAst <- elaborate fuel' env a None ;
                         restAst <- check_args (AstRef "Any") rest ;
                         ret (fst aAst :: fst restAst, AstRef "Any")
                     end
                 | AstPi _ arg_ty ret_ty _ =>
-                    aAst <- elaborate env a (Some arg_ty) ;
+                    aAst <- elaborate fuel' env a (Some arg_ty) ;
                     restAst <- check_args ret_ty rest ;
                     ret (fst aAst :: fst restAst, snd restAst)
                 | AstMeta _ =>
                     argTyM <- fresh_meta ;
                     retTyM <- fresh_meta ;
                     unify 100 fs (AstPi "x" argTyM retTyM []) ;;
-                    aAst <- elaborate env a (Some argTyM) ;
+                    aAst <- elaborate fuel' env a (Some argTyM) ;
                     restAst <- check_args retTyM rest ;
                     ret (fst aAst :: fst restAst, snd restAst)
                 | AstRef _ =>
-                    aAst <- elaborate env a None ;
+                    aAst <- elaborate fuel' env a None ;
                     restAst <- check_args (AstRef "Any") rest ;
                     ret (fst aAst :: fst restAst, AstRef "Any")
                 | _ => ret ([], AstRef "Any")
@@ -420,12 +501,12 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
 
   | ImplicitAppCST func args _ =>
       (* Standalone implicit application f[A,B] without explicit args — used in type position *)
-      funcAst <- elaborate env func None ;
+      funcAst <- elaborate fuel' env func None ;
       let fix check_targs (as_ : list CST) : ElabM (list AST) :=
         match as_ with
         | [] => ret []
         | a :: rest =>
-            aAst <- elaborate env a (Some (AstRef "TypeUniverse")) ;
+            aAst <- elaborate fuel' env a (Some (AstRef "TypeUniverse")) ;
             restAst <- check_targs rest ;
             ret (fst aAst :: restAst)
         end
@@ -467,16 +548,16 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       ret (AstEnum name type_params (elab_variants variants), AstRef "Unit")
 
   | MatchCST expr cases _ =>
-      exprAst <- elaborate env expr None ;
+      exprAst <- elaborate fuel' env expr None ;
       let fix elab_cases (cs : list (PatternCST * CST)) : ElabM (list (PatternAST * AST) * AST) :=
         match cs with
         | [] => throw "Empty match not allowed"
         | (PatWildcardCST _, body) :: _ =>
-            bodyAst <- elaborate env body expected ;
+            bodyAst <- elaborate fuel' env body expected ;
             ret ([(PatWildcard, fst bodyAst)], snd bodyAst)
         | (PatVarCST v span, body) :: _ =>
             m <- fresh_meta ;
-            bodyAst <- elaborate (((v, context span), m) :: env) body expected ;
+            bodyAst <- elaborate fuel' (((v, context span), m) :: env) body expected ;
             ret ([(PatVar v, fst bodyAst)], snd bodyAst)
         | (PatConstructorCST name vars span, body) :: _ =>
             let fix add_vars (vs : list string) (e : TypeEnv) {struct vs} : ElabM TypeEnv :=
@@ -488,7 +569,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
               end
             in
             case_env <- add_vars vars env ;
-            bodyAst <- elaborate case_env body expected ;
+            bodyAst <- elaborate fuel' case_env body expected ;
             ret ([(PatConstructor name vars, fst bodyAst)], snd bodyAst)
         end
       in
@@ -511,7 +592,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         match es with
         | [] => ret ([], AstRef "Unit")
         | x :: xs =>
-            xAst <- elaborate env x None;
+            xAst <- elaborate fuel' env x None;
             restAst <- elab_elems xs;
             ret (fst xAst :: fst restAst, AstRef "Tuple")
         end
@@ -524,7 +605,7 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
         match es with
         | [] => ret ([], AstRef "List")
         | x :: xs =>
-            xAst <- elaborate env x None;
+            xAst <- elaborate fuel' env x None;
             restAst <- elab_elems xs;
             ret (fst xAst :: fst restAst, AstRef "List")
         end
@@ -538,12 +619,12 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
 
   | EffectCST name type_params decls _ => ret (AstRef "Unit", AstRef "Unit")
   | DoCST op args _ => 
-      opAst <- elaborate env op None ;
+      opAst <- elaborate fuel' env op None ;
       let fix check_args (as_ : list CST) : ElabM (list AST) :=
         match as_ with
         | [] => ret []
         | a :: rest =>
-            aAst <- elaborate env a None ;
+            aAst <- elaborate fuel' env a None ;
             restAst <- check_args rest ;
             ret (fst aAst :: restAst)
         end
@@ -551,20 +632,47 @@ Fixpoint elaborate (env : TypeEnv) (expr : CST) (expected : option AST) {struct 
       argsRes <- check_args args ;
       ret (AstDo (fst opAst) argsRes, AstRef "Unknown")
   | HandleCST body eff handlers _ =>
-      bodyAst <- elaborate env body None ;
+      bodyAst <- elaborate fuel' env body None ;
       ret (AstHandle (fst bodyAst) (UserEffect eff) [], fst bodyAst)
   | RecordCST name type_params fields _ => 
       ret (AstRecord name type_params [], AstRef "Unit")
       
   | FieldAccessCST expr field _ =>
-      exprAst <- elaborate env expr None ;
+      exprAst <- elaborate fuel' env expr None ;
       ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
+      
+  | ExtensionCST ext_name tparams target_ty meths span =>
+      targetTy_res <- elaborate fuel' env target_ty (Some (AstUniverse 0)) ;
+      s <- get_state ;
+      match s with
+      | mkElabState n sol exts =>
+          let ext_meths := extract_ext_methods meths ext_name in
+          let new_ext := (ext_name, fst targetTy_res, ext_meths) in
+          set_state (mkElabState n sol (new_ext :: exts)) ;;
+          let fix elab_meths (ms : list CST) : ElabM (list AST) :=
+            match ms with
+            | [] => ret []
+            | m :: rest =>
+                ast <- elaborate fuel' env m None ;
+                rest_ast <- elab_meths rest ;
+                let renamed_ast := match m, fst ast with
+                                   | DefCST n _ _ _ _ _, AstDef _ tps ps rt b =>
+                                       AstDef (append (append ext_name "_") n) tps ps rt b
+                                   | _, a => a
+                                   end in
+                ret (renamed_ast :: rest_ast)
+            end
+          in
+          meths_res <- elab_meths meths ;
+          ret (AstExtension ext_name tparams (fst targetTy_res) meths_res, AstRef "Unit")
+      end
+  end
   end.
 
 (* 
   --- Unification Tests ---
 *)
-Definition test_unify_env := mkElabState 0 empty_state.
+Definition test_unify_env := mkElabState 0 empty_state [].
 
 Definition meta1 := AstMeta 1.
 Definition int_ty := AstRef "Int"%string.
@@ -576,3 +684,6 @@ Definition test_zonk_run : ElabM AST :=
 
 Eval compute in test_zonk_run test_unify_env.
 
+
+Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : ElabM (AST * AST) :=
+  elaborate 1000 env expr expected.

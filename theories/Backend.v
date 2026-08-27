@@ -55,6 +55,7 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   | AstIf cond true_br false_br => TsIIFE [TsIfStmt (emit_ts_expr cond) (emit_ts_block true_br) (emit_ts_block false_br)]
   | AstDef name _ params _ body => TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)]
   | AstEnum _ _ _ => TsIdentifier "null"
+  | AstExtension _ _ _ _ => TsIdentifier "null"
   | AstMatch expr cases => TsIIFE (let fix emit_cases (cs : list (PatternAST * AST)) : list TypeScriptStmt :=
         match cs with
         | [] => [TsThrow "Non-exhaustive match"]
@@ -88,6 +89,13 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstLet name value => TsLet name (emit_ts_expr value)
   | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
+  | AstExtension _ _ _ meths =>
+      let fix map_meths (ls : list AST) : list TypeScriptStmt :=
+        match ls with
+        | [] => []
+        | x :: xs => emit_ts_stmt x :: map_meths xs
+        end
+      in TsBlock (map_meths meths)
   | AstEnum name _ variants =>
       let fix emit_variant (v : string * list AST * AST) : string * TypeScriptExpr :=
         let vname := fst (fst v) in
@@ -249,6 +257,7 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
   | AstLet name value => [TsReturn (TsIIFE [TsLet name (emit_ts_expr value)])]
   | AstDef name _ params _ body => [TsReturn (TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)])]
   | AstEnum _ _ _ => [TsReturn (TsIdentifier "null")]
+  | AstExtension _ _ _ _ => [TsReturn (TsIdentifier "null")]
   | AstRecord name _ _ => [TsReturn (TsIdentifier "null")]
   | AstFieldAccess expr field => [TsReturn (TsPropertyAccess (emit_ts_expr expr) field)]
   | AstMeta id => [TsReturn (TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
@@ -304,6 +313,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
   | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) []
   | AstDef name _ params _ body => GoCall (GoFuncLiteral [] [GoFuncDecl name (map fst params) (emit_go_block body)]) []
   | AstEnum _ _ _ => GoIdentifier "nil"
+  | AstExtension _ _ _ _ => GoIdentifier "nil"
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
         match cs with
@@ -339,6 +349,13 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
   | AstDef name _ params _ body => GoFuncDecl name (map fst params) (emit_go_block body)
   | AstRecord name _ _ => GoStruct name
   | AstEnum _ _ _ => GoEmpty
+  | AstExtension _ _ _ meths =>
+      let fix map_meths (ls : list AST) : list GoStmt :=
+        match ls with
+        | [] => []
+        | x :: xs => emit_go_stmt x :: map_meths xs
+        end
+      in GoBlock (map_meths meths)
   | AstRef name => GoExprStmt (GoIdentifier name)
   | AstTuple elems => 
       let fix map_go_expr (ls : list AST) : list GoExpr :=
@@ -472,6 +489,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
   | AstLet name value => [GoReturn (GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) [])]
   | AstDef name _ params _ body => [GoReturn (GoCall (GoFuncLiteral [] [GoFuncDecl name (map fst params) (emit_go_block body)]) [])]
   | AstEnum _ _ _ => [GoReturn (GoIdentifier "nil")]
+  | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstRecord name _ _ => [GoReturn (GoIdentifier "nil")]
   | AstFieldAccess expr field => [GoReturn (GoSelector (emit_go_expr expr) field)]
   | AstMeta id => [GoReturn (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]

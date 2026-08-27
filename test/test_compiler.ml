@@ -28,8 +28,8 @@ let check_fixture filename =
   let source = read_file (fixture_path filename) in
   let tokens = Lexer.tokenize filename source in
   let cst = parse tokens in
-  let expanded_cst = expand_cst cst in
-  match elaborate [] expanded_cst None init_elab_state with
+  let expanded_cst = expand_cst_top cst in
+  match elaborate_top [] expanded_cst None init_elab_state with
   | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
   | Inl ((ast, _), _) ->
       let ts_ast = emit_ts ast in
