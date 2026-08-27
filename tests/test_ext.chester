@@ -1,14 +1,20 @@
 extension ListOps for List(Integer) {
+  def length(self: List(Integer)): Integer = list_length(self);
   def get(self: List(Integer), idx: Integer): Integer = list_get(self, idx)
 }
 extension StringOps for String {
+  def length(self: String): Integer = string_length(self);
   def get(self: String, idx: Integer): String = string_char_at(self, idx)
 }
 def main() = {
   let xs = [1, 2, 3];
   let x = xs.get(0);
+  let n = xs.length();
   let s = "abc";
   let c = s.get(0);
+  let m = s.length();
   print(x);
-  print(c)
+  print(n);
+  print(c);
+  print(m)
 }

@@ -78,6 +78,15 @@ def string_char_at(s: String, index: Integer): String = {
     ""
   };
 };
+// Named extensions: method-call form can overload; ListOps.get / StringOps.length stay unique.
+extension ListOps[T] for List(T) {
+  def length(self: List(T)): Integer = list_length(self);
+  def get(self: List(T), index: Integer): T = list_get(self, index)
+}
+extension StringOps for String {
+  def length(self: String): Integer = string_length(self);
+  def get(self: String, index: Integer): String = string_char_at(self, index)
+}
 def bool_or(a: Bool, b: Bool): Bool = if a then {
   true;
 } else {
