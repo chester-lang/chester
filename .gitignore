@@ -22,3 +22,19 @@ extraction/Compiler.ml
 extraction/Compiler.mli
 _build/
 out/
+
+# One-off local patch/debug helpers (not part of the language)
+check_cases*.py
+find_missing_end*.py
+fix_*.py
+generate_*.py
+match_ends*.py
+parse_log.py
+patch_*.py
+print_stack*.py
+restore_*.py
+rewrite_*.py
+test_regex*.py
+test2.v
+test_ast.ml
+test_expander.ml
