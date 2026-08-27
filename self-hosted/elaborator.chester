@@ -28,8 +28,8 @@ def whnf(expr: AST): AST = {
       let f_whnf = whnf(f);
       match f_whnf {
         case AstLam(argName, argTy, body) => {
-          if int_eq(list_length(args), 0) then f_whnf else {
-            let arg = list_get(args, 0);
+          if int_eq(args.length(), 0) then f_whnf else {
+            let arg = args.get(0);
             let body_subst = subst_ast(argName, arg, body);
             whnf(body_subst)
           };
@@ -46,8 +46,8 @@ enum ElabState {
 def get_elab_state(): ElabState = prim__get_elab_state();
 def put_elab_state(s: ElabState): Unit = prim__put_elab_state(s);
 def lookup_meta(id: Integer, subst: List(Pair)): OptionAST = {
-  if int_eq(list_length(subst), 0) then OptionAST.NoneAST() else {
-    let entry = list_get(subst, 0);
+  if int_eq(subst.length(), 0) then OptionAST.NoneAST() else {
+    let entry = subst.get(0);
     match entry {
       case MkPair(k, v) => {
         if int_eq(k, id) then OptionAST.SomeAST(v) else lookup_meta(id, advance(subst))
@@ -94,9 +94,9 @@ def fresh_meta(): AST = {
   }
 };
 def unify_list(fuel: Integer, l1: List(AST), l2: List(AST)): Unit = {
-  if int_eq(list_length(l1), 0) then () else {
-    if int_eq(list_length(l2), 0) then () else {
-      unify(fuel, list_get(l1, 0), list_get(l2, 0));
+  if int_eq(l1.length(), 0) then () else {
+    if int_eq(l2.length(), 0) then () else {
+      unify(fuel, l1.get(0), l2.get(0));
       unify_list(fuel, advance(l1), advance(l2))
     };
   }
@@ -192,19 +192,19 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
   }
 };
 def list_nat_eq(l1: List(Integer), l2: List(Integer)): Bool = {
-  if int_eq(list_length(l1), 0) then {
-    if int_eq(list_length(l2), 0) then true else false;
+  if int_eq(l1.length(), 0) then {
+    if int_eq(l2.length(), 0) then true else false;
   } else {
-    if int_eq(list_length(l2), 0) then false else {
-      let x = list_get(l1, 0);
-      let y = list_get(l2, 0);
+    if int_eq(l2.length(), 0) then false else {
+      let x = l1.get(0);
+      let y = l2.get(0);
       if int_eq(x, y) then list_nat_eq(advance(l1), advance(l2)) else false
     };
   }
 };
 def lookup_type(name: String, ctx: List(Integer), env: List(Pair)): OptionAST = {
-  if int_eq(list_length(env), 0) then OptionAST.NoneAST() else {
-    let entry = list_get(env, 0);
+  if int_eq(env.length(), 0) then OptionAST.NoneAST() else {
+    let entry = env.get(0);
     match entry {
       case MkPair(k, v) => {
         match k {
@@ -225,22 +225,22 @@ def resolve_hygiene(env: List(Pair), name: String, ctx: List(Integer)): Pair = {
   match res {
     case SomeAST(ty) => Pair.MkPair(ty, ctx);
     case NoneAST => {
-      if int_eq(list_length(ctx), 0) then Pair.MkPair(AST.AstError("Not found"), ctx) else resolve_hygiene(env, name, advance(ctx))
+      if int_eq(ctx.length(), 0) then Pair.MkPair(AST.AstError("Not found"), ctx) else resolve_hygiene(env, name, advance(ctx))
     };
   }
 };
 def join_ctx(ls: List(Integer)): String = {
-  if int_eq(list_length(ls), 0) then "" else string_append(string_append("_", int_to_string(list_get(ls, 0))), join_ctx(advance(ls)))
+  if int_eq(ls.length(), 0) then "" else string_append(string_append("_", int_to_string(ls.get(0))), join_ctx(advance(ls)))
 };
 def mangle_name(n: String, ctx: List(Integer)): String = {
-  if int_eq(list_length(ctx), 0) then n else string_append(n, join_ctx(ctx))
+  if int_eq(ctx.length(), 0) then n else string_append(n, join_ctx(ctx))
 };
 def append_env(e1: List(Pair), e2: List(Pair)): List(Pair) = {
-  if int_eq(list_length(e1), 0) then e2 else list_insert_first(append_env(advance(e1), e2), list_get(e1, 0))
+  if int_eq(e1.length(), 0) then e2 else list_insert_first(append_env(advance(e1), e2), e1.get(0))
 };
 def extract_vars(args: List(CST)): List(String) = {
-  if int_eq(list_length(args), 0) then list_empty[String]() else {
-    let a = list_get(args, 0);
+  if int_eq(args.length(), 0) then list_empty[String]() else {
+    let a = args.get(0);
     let rest = extract_vars(advance(args));
     match a {
       case Symbol(s, sp) => list_insert_first(rest, s);
@@ -249,15 +249,15 @@ def extract_vars(args: List(CST)): List(String) = {
   }
 };
 def add_vars_to_env(env: List(Pair), vars: List(String), ctx: List(Integer)): List(Pair) = {
-  if int_eq(list_length(vars), 0) then env else {
-    let v = list_get(vars, 0);
+  if int_eq(vars.length(), 0) then env else {
+    let v = vars.get(0);
     let rest = add_vars_to_env(env, advance(vars), ctx);
     list_insert_first(rest, Pair.MkPair(Pair.MkPair(v, ctx), fresh_meta()))
   };
 };
 def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
-  if int_eq(list_length(as_), 0) then Pair.MkPair(list_empty[AST](), fs) else {
-    let a = list_get(as_, 0);
+  if int_eq(as_.length(), 0) then Pair.MkPair(list_empty[AST](), fs) else {
+    let a = as_.get(0);
     let rest = advance(as_);
     match fs {
       case AstPi(pname, arg_ty, ret_ty, effs) => {
@@ -323,8 +323,8 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
   };
 };
 def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
-  if int_eq(list_length(ls), 0) then Pair.MkPair(list_empty[AST](), env) else {
-    let x = list_get(ls, 0);
+  if int_eq(ls.length(), 0) then Pair.MkPair(list_empty[AST](), env) else {
+    let x = ls.get(0);
     let xs = advance(ls);
     match x {
       case LetCST(name, value, next, span) => {
@@ -378,16 +378,16 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
   };
 };
 def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
-  if int_eq(list_length(ps), 0) then Pair.MkPair(list_empty[Pair](), list_empty[Pair]()) else {
-    let p = list_get(ps, 0);
+  if int_eq(ps.length(), 0) then Pair.MkPair(list_empty[Pair](), list_empty[Pair]()) else {
+    let p = ps.get(0);
     let rest_res = elab_map_params(env, advance(ps));
     match rest_res {
       case MkPair(restAst, restEnvItems) => {
         match p {
           case Tuple(elems, sp) => {
-            if int_eq(list_length(elems), 2) then {
-              let pname_cst = list_get(elems, 0);
-              let pty_cst = list_get(elems, 1);
+            if int_eq(elems.length(), 2) then {
+              let pname_cst = elems.get(0);
+              let pty_cst = elems.get(1);
               match pname_cst {
                 case Symbol(pname, sp2) => {
                   let tyAst_res = elaborate(env, pty_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
@@ -408,8 +408,8 @@ def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
   }
 };
 def elab_check_targs(env: List(Pair), as_: List(CST)): List(AST) = {
-  if int_eq(list_length(as_), 0) then list_empty[AST]() else {
-    let a = list_get(as_, 0);
+  if int_eq(as_.length(), 0) then list_empty[AST]() else {
+    let a = as_.get(0);
     let rest = elab_check_targs(env, advance(as_));
     let aAst_res = elaborate(env, a, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
     match aAst_res {
@@ -423,8 +423,8 @@ def elab_variant(v: CST): Pair = {
       match f {
         case Symbol(op, sp2) => {
           if string_eq(op, ":") then {
-            let lhs = list_get(args, 0);
-            let rhs = list_get(args, 1);
+            let lhs = args.get(0);
+            let rhs = args.get(1);
             let rhs_res = elaborate(list_empty[Pair](), rhs, OptionAST.NoneAST());
             let ret_ty = match rhs_res {
               case MkPair(ast, ty) => ast
@@ -434,8 +434,8 @@ def elab_variant(v: CST): Pair = {
                 match inner_f {
                   case Symbol(vname, sp4) => {
                     let fix elab_fields(fs: List(CST)): List(AST) = {
-                      if int_eq(list_length(fs), 0) then list_empty[AST]() else {
-                        let f0 = list_get(fs, 0);
+                      if int_eq(fs.length(), 0) then list_empty[AST]() else {
+                        let f0 = fs.get(0);
                         let rest = elab_fields(advance(fs));
                         let f0_res = elaborate(list_empty[Pair](), f0, OptionAST.NoneAST());
                         match f0_res {
@@ -460,20 +460,20 @@ def elab_variant(v: CST): Pair = {
   };
 };
 def elab_variants(vs: List(CST)): List(Pair) = {
-  if int_eq(list_length(vs), 0) then list_empty[Pair]() else {
-    let v = list_get(vs, 0);
+  if int_eq(vs.length(), 0) then list_empty[Pair]() else {
+    let v = vs.get(0);
     list_insert_first(elab_variants(advance(vs)), elab_variant(v))
   };
 };
 def elab_cases(env: List(Pair), expected: OptionAST, cs: List(CST), expr_ty: AST): Pair = {
-  if int_eq(list_length(cs), 0) then Pair.MkPair(list_empty[Pair](), AST.AstRef("Any")) else {
-    let c = list_get(cs, 0);
+  if int_eq(cs.length(), 0) then Pair.MkPair(list_empty[Pair](), AST.AstRef("Any")) else {
+    let c = cs.get(0);
     let rest_res = elab_cases(env, expected, advance(cs), expr_ty);
     match c {
       case SeqOf(elems, sp) => {
-        if int_eq(list_length(elems), 2) then {
-          let pat_cst = list_get(elems, 0);
-          let body_cst = list_get(elems, 1);
+        if int_eq(elems.length(), 2) then {
+          let pat_cst = elems.get(0);
+          let body_cst = elems.get(1);
           let pat_ast_res = match pat_cst {
             case Symbol(pname, sp2) => {
               if string_eq(pname, "_") then PatternAST.PatWildcard() else PatternAST.PatVar(pname)
@@ -530,8 +530,8 @@ def elab_cases(env: List(Pair), expected: OptionAST, cs: List(CST), expr_ty: AST
   }
 };
 def elab_tuple_elems(env: List(Pair), es: List(CST)): Pair = {
-  if int_eq(list_length(es), 0) then Pair.MkPair(list_empty[AST](), AST.AstRef("Unit")) else {
-    let e = list_get(es, 0);
+  if int_eq(es.length(), 0) then Pair.MkPair(list_empty[AST](), AST.AstRef("Unit")) else {
+    let e = es.get(0);
     let eAst_res = elaborate(env, e, OptionAST.NoneAST());
     match eAst_res {
       case MkPair(eAst, eTy) => {
@@ -566,8 +566,8 @@ def check_type_match(target: AST, actual: AST): Bool = {
   };
 };
 def lookup_ext_method(field: String, meths: List(ExtMethod)): String = {
-  if int_eq(list_length(meths), 0) then "" else {
-    let m = list_get(meths, 0);
+  if int_eq(meths.length(), 0) then "" else {
+    let m = meths.get(0);
     match m {
       case MkExtMethod(n, full) => {
         if string_eq(n, field) then full else lookup_ext_method(field, advance(meths))
@@ -576,8 +576,8 @@ def lookup_ext_method(field: String, meths: List(ExtMethod)): String = {
   };
 };
 def find_ext_method(ty: AST, field: String, exts: List(ExtDecl)): String = {
-  if int_eq(list_length(exts), 0) then "" else {
-    let ext = list_get(exts, 0);
+  if int_eq(exts.length(), 0) then "" else {
+    let ext = exts.get(0);
     match ext {
       case MkExtDecl(ext_name, target_ty, meths) => {
         if check_type_match(target_ty, ty) then {
@@ -591,8 +591,8 @@ def find_ext_method(ty: AST, field: String, exts: List(ExtDecl)): String = {
   }
 };
 def extract_ext_methods(meths: List(CST), ext_name: String): List(ExtMethod) = {
-  if int_eq(list_length(meths), 0) then list_empty[ExtMethod]() else {
-    let m = list_get(meths, 0);
+  if int_eq(meths.length(), 0) then list_empty[ExtMethod]() else {
+    let m = meths.get(0);
     let rest = extract_ext_methods(advance(meths), ext_name);
     match m {
       case DefCST(n, tps, ps, rt, b, sp) => {
@@ -604,8 +604,8 @@ def extract_ext_methods(meths: List(CST), ext_name: String): List(ExtMethod) = {
   }
 };
 def elab_ext_methods(env: List(Pair), meths: List(CST), ext_name: String): List(AST) = {
-  if int_eq(list_length(meths), 0) then list_empty[AST]() else {
-    let m = list_get(meths, 0);
+  if int_eq(meths.length(), 0) then list_empty[AST]() else {
+    let m = meths.get(0);
     let rest = elab_ext_methods(env, advance(meths), ext_name);
     match m {
       case DefCST(n, tps, ps, rt, b, sp) => {
@@ -621,8 +621,8 @@ def elab_ext_methods(env: List(Pair), meths: List(CST), ext_name: String): List(
   }
 };
 def zonk_list(fuel: Integer, l: List(AST)): List(AST) = {
-  if int_eq(list_length(l), 0) then list_empty[AST]() else {
-    let hd = zonk(fuel, list_get(l, 0));
+  if int_eq(l.length(), 0) then list_empty[AST]() else {
+    let hd = zonk(fuel, l.get(0));
     let tl = zonk_list(fuel, advance(l));
     list_insert_first(tl, hd)
   };
@@ -691,8 +691,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       Pair.MkPair(AST.AstIntLit(42), int_ty)
     };
     case SeqOf(elems, span) => {
-      if int_eq(list_length(elems), 0) then Pair.MkPair(AST.AstError("Empty SeqOf"), AST.AstRef("Any")) else {
-        let func = list_get(elems, 0);
+      if int_eq(elems.length(), 0) then Pair.MkPair(AST.AstError("Empty SeqOf"), AST.AstRef("Any")) else {
+        let func = elems.get(0);
         let args = advance(elems);
         let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
         match funcAst_res {
@@ -937,8 +937,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       match op_elab {
         case MkPair(op_ast, op_ty) => {
           let fix elab_args(fs: List(CST)): List(AST) = {
-            if int_eq(list_length(fs), 0) then list_empty[AST]() else {
-              let f0 = list_get(fs, 0);
+            if int_eq(fs.length(), 0) then list_empty[AST]() else {
+              let f0 = fs.get(0);
               let rest = elab_args(advance(fs));
               let f0_res = elaborate(env, f0, OptionAST.NoneAST());
               match f0_res {

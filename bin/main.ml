@@ -36,7 +36,7 @@ let preamble =
    const Span = (start, end) => ({start, end});\n\
    const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \"let\"}];\n"
 
-let process_file filename oc =
+let process_file filename oc state =
   let ch = open_in filename in
   let len = in_channel_length ch in
   let buf = Bytes.create len in
@@ -53,16 +53,17 @@ let process_file filename oc =
 
   print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
   print_endline ("\n[Elaborating & TypeChecking " ^ filename ^ "]");
-  match elaborate_top [] expanded_cst None init_elab_state with
+  match elaborate_top [] expanded_cst None state with
   | Inr (msg, _) ->
       print_endline ("Type Error: " ^ string_of_char_list msg);
       print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
       exit 1
-  | Inl ((ast, _), _) ->
+  | Inl ((ast, _), state') ->
       print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
       let ts_ast = emit_ts ast in
       let ts_code = string_of_char_list (stringify_ts_stmt ts_ast) in
-      output_string oc ts_code
+      output_string oc ts_code;
+      state'
 
 let () =
   print_endline "Chester Bootstrapper";
@@ -72,8 +73,9 @@ let () =
     let out_file = Filename.concat out_dir "compiler.ts" in
     let oc = open_out out_file in
     output_string oc preamble;
+    let state = ref init_elab_state in
     for i = 1 to Array.length Sys.argv - 1 do
-      process_file Sys.argv.(i) oc
+      state := process_file Sys.argv.(i) oc !state
     done;
     close_out oc;
     print_endline ("\nSuccessfully emitted to " ^ out_file)

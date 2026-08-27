@@ -1,14 +1,14 @@
 def string_eqb(left: String, right: String): Bool = string_eq(left, right);
 
 def string_in(s: String, l: List(String)): Bool = {
-  if int_eq(list_length(l), 0) then false else {
-    if string_eq(s, list_get(l, 0)) then true else string_in(s, advance(l))
+  if int_eq(l.length(), 0) then false else {
+    if string_eq(s, l.get(0)) then true else string_in(s, advance(l))
   }
 };
 
 def last_elem(ls: List(CST)): OptionCST = {
-  let len = list_length(ls);
-  if int_eq(len, 0) then OptionCST.NoneCST() else OptionCST.SomeCST(list_get(ls, len - 1))
+  let len = ls.length();
+  if int_eq(len, 0) then OptionCST.NoneCST() else OptionCST.SomeCST(ls.get(len - 1))
 };
 
 def ends_with_block(stmt: CST): Bool = {
@@ -28,8 +28,8 @@ def ends_with_block(stmt: CST): Bool = {
 def starts_with_let(stmt: CST): Bool = {
   match stmt {
     case SeqOf(elems, sp) => {
-      if int_eq(list_length(elems), 0) then false else {
-        match list_get(elems, 0) {
+      if int_eq(elems.length(), 0) then false else {
+        match elems.get(0) {
           case Symbol(s, sp2) => string_eq(s, "let");
           case _ => false
         }
@@ -50,7 +50,7 @@ def is_unit_tail(expr: CST): Bool = {
   match expr {
     case Symbol(n, sp) => {
       let is_unit = string_eq(n, "Unit");
-      let sp_len = list_length(sp.context);
+      let sp_len = sp.context.length();
       let is_empty = bool_and(int_eq(sp.start, 0), bool_and(int_eq(sp.end, 0), int_eq(sp_len, 0)));
       bool_and(is_unit, is_empty)
     };
@@ -59,14 +59,14 @@ def is_unit_tail(expr: CST): Bool = {
 };
 
 def stmt_from_seq(elements: List(CST)): CST = {
-  let len = list_length(elements);
+  let len = elements.length();
   if int_eq(len, 0) then Symbol("Empty", Span(0,0,list_empty[Integer]()))
-  else if int_eq(len, 1) then list_get(elements, 0)
+  else if int_eq(len, 1) then elements.get(0)
   else SeqOf(elements, Span(0,0,list_empty[Integer]()))
 };
 
 def format_comment(text: String): String = {
-  if int_lt(string_length(text), 2) then string_concat("// ", text) else {
+  if int_lt(text.length(), 2) then string_concat("// ", text) else {
     let prefix = string_substring(text, 0, 2);
     if string_eq(prefix, "//") then text else string_concat("// ", text)
   }
@@ -80,12 +80,12 @@ def format_comment_cst(expr: CST): String = {
 };
 
 def split_trailing_comments(elements: List(CST)): Pair = {
-  if int_eq(list_length(elements), 0) then Pair.MkPair(list_empty[CST](), list_empty[CST]()) else {
-    let elem = list_get(elements, 0);
+  if int_eq(elements.length(), 0) then Pair.MkPair(list_empty[CST](), list_empty[CST]()) else {
+    let elem = elements.get(0);
     let res = split_trailing_comments(advance(elements));
     match res {
       case MkPair(body, comments) => {
-        if int_eq(list_length(body), 0) then {
+        if int_eq(body.length(), 0) then {
           match elem {
             case Comment(t, sp) => Pair.MkPair(list_empty[CST](), list_insert_first(comments, elem));
             case _ => Pair.MkPair(list_insert_first(list_empty[CST](), elem), comments)
@@ -224,10 +224,10 @@ def gen_spaces(n: Integer): String = {
 };
 
 def join_strings(sep: String, ls: List(String)): String = {
-  let len = list_length(ls);
+  let len = ls.length();
   if int_eq(len, 0) then ""
-  else if int_eq(len, 1) then list_get(ls, 0)
-  else string_concat(list_get(ls, 0), string_concat(sep, join_strings(sep, advance(ls))))
+  else if int_eq(len, 1) then ls.get(0)
+  else string_concat(ls.get(0), string_concat(sep, join_strings(sep, advance(ls))))
 };
 
 def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
@@ -241,8 +241,8 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
       
       case Tuple(elements, sp) => {
         let fix map_format(ls: List(CST)): List(String) = {
-          if int_eq(list_length(ls), 0) then list_empty[String]() else {
-            let fst = format_cst(next_fuel, indent, list_get(ls, 0));
+          if int_eq(ls.length(), 0) then list_empty[String]() else {
+            let fst = format_cst(next_fuel, indent, ls.get(0));
             list_insert_first(map_format(advance(ls)), fst)
           }
         };
@@ -251,8 +251,8 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
       
       case ListLiteral(elements, sp) => {
         let fix map_format(ls: List(CST)): List(String) = {
-          if int_eq(list_length(ls), 0) then list_empty[String]() else {
-            let fst = format_cst(next_fuel, indent, list_get(ls, 0));
+          if int_eq(ls.length(), 0) then list_empty[String]() else {
+            let fst = format_cst(next_fuel, indent, ls.get(0));
             list_insert_first(map_format(advance(ls)), fst)
           }
         };
@@ -264,8 +264,8 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
         let line_prefix = string_concat("\n", gen_spaces(next_indent));
         
         let fix map_stmt_line(ls: List(CST)): List(String) = {
-          if int_eq(list_length(ls), 0) then list_empty[String]() else {
-            let stmt = list_get(ls, 0);
+          if int_eq(ls.length(), 0) then list_empty[String]() else {
+            let stmt = ls.get(0);
             let rest_lines = map_stmt_line(advance(ls));
             let curr_lines = match stmt {
               case Comment(text, csp) => list_insert_first(list_empty[String](), format_comment(text));
@@ -275,18 +275,18 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
                   case MkPair(body, comments) => {
                     let body_cst = stmt_from_seq(body);
                     let semi = if needs_semicolon(body_cst) then ";" else "";
-                    let body_lines = if int_eq(list_length(body), 0) then list_empty[String]() else {
+                    let body_lines = if int_eq(body.length(), 0) then list_empty[String]() else {
                       list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, next_indent, body_cst), semi))
                     };
                     let fix map_comments(cs: List(CST)): List(String) = {
-                      if int_eq(list_length(cs), 0) then list_empty[String]() else {
-                        list_insert_first(map_comments(advance(cs)), format_comment_cst(list_get(cs, 0)))
+                      if int_eq(cs.length(), 0) then list_empty[String]() else {
+                        list_insert_first(map_comments(advance(cs)), format_comment_cst(cs.get(0)))
                       }
                     };
                     let c_lines = map_comments(comments);
                     // Append c_lines to body_lines
                     let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
-                      if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+                      if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
                     };
                     append_lists(body_lines, c_lines)
                   }
@@ -298,7 +298,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
               }
             };
             let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
-              if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+              if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
             };
             append_lists(curr_lines, rest_lines)
           }
@@ -307,25 +307,25 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
         let stmt_lines = map_stmt_line(elements);
         let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, next_indent, tail));
         let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
-          if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+          if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
         };
         let lines = append_lists(stmt_lines, tail_lines);
         
-        if int_eq(list_length(lines), 0) then "{}" else {
+        if int_eq(lines.length(), 0) then "{}" else {
           string_concat("{", string_concat(line_prefix, string_concat(join_strings(line_prefix, lines), string_concat("\n", string_concat(gen_spaces(indent), "}")))))
         }
       };
 
       case SeqOf(elements, sp) => {
         let fix format_seq(prev: OptionCST, rest: List(CST)): String = {
-          if int_eq(list_length(rest), 0) then "" else {
-            let current = list_get(rest, 0);
+          if int_eq(rest.length(), 0) then "" else {
+            let current = rest.get(0);
             let tail = advance(rest);
             let separator = if needs_space(prev, current) then " " else "";
             let formatted = string_concat(separator, format_cst(next_fuel, indent, current));
             match current {
               case Comment(ctext, csp) => {
-                if int_eq(list_length(tail), 0) then string_concat(formatted, format_seq(OptionCST.SomeCST(current), tail)) else {
+                if int_eq(tail.length(), 0) then string_concat(formatted, format_seq(OptionCST.SomeCST(current), tail)) else {
                   let suffix = string_concat("\n", string_concat(gen_spaces(indent), format_seq(OptionCST.NoneCST(), tail)));
                   string_concat(formatted, suffix)
                 }
@@ -346,8 +346,8 @@ def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: 
   if int_eq(fuel, 0) then "/* ERROR: formatter out of fuel */" else {
     let next_fuel = fuel - 1;
     let fix map_stmt_line(ls: List(CST)): List(String) = {
-      if int_eq(list_length(ls), 0) then list_empty[String]() else {
-        let stmt = list_get(ls, 0);
+      if int_eq(ls.length(), 0) then list_empty[String]() else {
+        let stmt = ls.get(0);
         let rest_lines = map_stmt_line(advance(ls));
         let curr_lines = match stmt {
           case Comment(text, csp) => list_insert_first(list_empty[String](), format_comment(text));
@@ -357,17 +357,17 @@ def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: 
               case MkPair(body, comments) => {
                 let body_cst = stmt_from_seq(body);
                 let semi = if needs_semicolon(body_cst) then ";" else "";
-                let body_lines = if int_eq(list_length(body), 0) then list_empty[String]() else {
+                let body_lines = if int_eq(body.length(), 0) then list_empty[String]() else {
                   list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, indent, body_cst), semi))
                 };
                 let fix map_comments(cs: List(CST)): List(String) = {
-                  if int_eq(list_length(cs), 0) then list_empty[String]() else {
-                    list_insert_first(map_comments(advance(cs)), format_comment_cst(list_get(cs, 0)))
+                  if int_eq(cs.length(), 0) then list_empty[String]() else {
+                    list_insert_first(map_comments(advance(cs)), format_comment_cst(cs.get(0)))
                   }
                 };
                 let c_lines = map_comments(comments);
                 let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
-                  if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+                  if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
                 };
                 append_lists(body_lines, c_lines)
               }
@@ -379,7 +379,7 @@ def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: 
           }
         };
         let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
-          if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+          if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
         };
         append_lists(curr_lines, rest_lines)
       }
@@ -388,7 +388,7 @@ def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: 
     let stmt_lines = map_stmt_line(stmts);
     let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, indent, tail));
     let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
-      if int_eq(list_length(l1), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), list_get(l1, 0))
+      if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
     };
     let lines = append_lists(stmt_lines, tail_lines);
     let line_prefix = string_concat("\n", gen_spaces(indent));

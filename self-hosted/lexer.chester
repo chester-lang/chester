@@ -62,25 +62,25 @@ def is_alpha(c: String): Bool = {
 };
 def lex_whitespace(source: String, idx: Integer, len: Integer): Integer = {
   if int_eq(idx, len) then idx else {
-    let c = string_char_at(source, idx);
+    let c = source.get(idx);
     if is_whitespace(c) then lex_whitespace(source, idx + 1, len) else idx
   };
 };
 def lex_number(source: String, idx: Integer, len: Integer): Integer = {
   if int_eq(idx, len) then idx else {
-    let c = string_char_at(source, idx);
+    let c = source.get(idx);
     if is_digit(c) then lex_number(source, idx + 1, len) else idx
   };
 };
 def lex_identifier(source: String, idx: Integer, len: Integer): Integer = {
   if int_eq(idx, len) then idx else {
-    let c = string_char_at(source, idx);
+    let c = source.get(idx);
     if is_alpha(c) then lex_identifier(source, idx + 1, len) else idx
   };
 };
 def lex_string(source: String, idx: Integer, len: Integer): Integer = {
   if int_eq(idx, len) then idx else {
-    let c = string_char_at(source, idx);
+    let c = source.get(idx);
     if string_eq(c, "\" ") then idx + 1  // End of string
     else if string_eq(c, " \\") then lex_string(source, idx + 2, len)  // Skip escaped char
     else lex_string(source, idx + 1, len)
@@ -97,7 +97,7 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
   if int_eq(idx, len)
   then list_append(acc, Token(TokenKind.EOF, " ", Span(idx, idx, list_empty[Integer]())))
   else {
-    let c = string_char_at(source, idx);
+    let c = source.get(idx);
     if is_whitespace(c)
     then {
       let end_idx = lex_whitespace(source, idx, len);
@@ -116,7 +116,7 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
       let tok = Token(TokenKind.StringLit, text, Span(idx, end_idx, list_empty[Integer]()));
       lex_helper(source, end_idx, len, list_append(acc, tok));
     } else if is_symbol(c) then {
-      let next_c = string_char_at(source, idx + 1);
+      let next_c = source.get(idx + 1);
       if bool_and(string_eq(c, "="), string_eq(next_c, "=")) then {
         let tok = Token(TokenKind.Symbol("=="), "==", Span(idx, idx + 2, list_empty[Integer]()));
         lex_helper(source, idx + 2, len, list_append(acc, tok));
@@ -134,9 +134,9 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
   }
 };
 def lex(source: String): List(Token) = {
-  lex_helper(source, 0, string_length(source), list_empty[Token]())
+  lex_helper(source, 0, source.length(), list_empty[Token]())
 };
 def lexer_main(): Integer = {
   let tokens = lex("def foo(x: Integer): String = {\n  let y = \" hello \\\"world\\\" \";\n  if (x == 5) { y } else { \" no \" }\n}");
-  list_length(tokens)
+  tokens.length()
 }
