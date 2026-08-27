@@ -1,0 +1,22 @@
+effect State {
+  def get(): Integer;
+  def put(s: Integer): Unit;
+}
+
+// Box under a handler captures evidence; unbox outside still has State.
+def main() = {
+  var st = 7;
+  let f = handle {
+    let b = box {
+      perform get()
+    };
+    b
+  } with State {
+    case get() => resume(st);
+    case put(s) => {
+      st = s;
+      resume(Unit)
+    }
+  };
+  unbox f
+}

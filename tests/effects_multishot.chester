@@ -1,22 +1,23 @@
-effect Choose {
-  def choose(): Integer;
+effect Flip {
+  def flip(): Boolean;
 }
 
-// Multi-shot resume: handler may call resume more than once.
-// Full continuation-forking CPS is follow-up; here each resume updates a shared var.
+// True multi-shot: each resume re-enters the continuation after perform
+// with a fresh answer (answer-stream replay / forking).
 def main() = {
-  var hits = 0;
   handle {
-    perform choose();
-    hits
-  } with Choose {
-    case choose() => {
-      hits = int_add(hits, 1);
-      resume(Unit);
-      hits = int_add(hits, 1);
-      resume(Unit);
-      hits = int_add(hits, 1);
-      resume(Unit)
+    let x = perform flip();
+    let r = if x then {
+      10
+    } else {
+      1
+    };
+    r
+  } with Flip {
+    case flip() => {
+      let a = resume(true);
+      let b = resume(false);
+      int_add(a, b)
     }
   }
 }

@@ -28,18 +28,61 @@ Arguments Solved {A} {Partial}.
 (* An effect reference in the Chester language *)
 Inductive EffectRef :=
   | BuiltinEffect : string -> EffectRef
-  | UserEffect : string -> EffectRef.
+  | UserEffect : string -> EffectRef
+  (* Koka-lite open row variable μ — stands for an unknown effect tail. *)
+  | EffectRowVar : string -> EffectRef.
 
 (*
-  EffectSet on AstPi / AstFunTy = capabilities required from context (Effekt reading).
+  EffectSet on AstPi / AstFunTy = capabilities / effect row (Effekt ∩ Koka reading).
   Lexical handlers install capabilities; perform uses the nearest matching capability.
-  Blocks are second-class by default; `box`/`unbox` make a delayed thunk (capture set
-  recorded on AstBox; deeper capture checking is still lite).
-  Multi-shot today: handlers may call `resume` more than once (side-effecting).
-  True continuation-forking CPS, Koka open rows / evidence vectors, and full Go
-  effect emission remain deferred.
+  Multi-shot resume forks by replaying the handle body with an answer stream
+  (runtime in the TS/Go preamble) — each resume(v) re-enters after perform.
+  EffectRowVar enables open-row subsumption: a row ⟨ℓ₁,…|μ⟩ accepts extra labels.
+  Evidence vectors (`__chester_evidence` / `__chester_with_evidence`) snapshot
+  handlers for labels when emitting effectful first-class calls / box under a row.
+  Blocks are second-class by default; `box`/`unbox` delay a thunk (capture set on AstBox).
 *)
 Definition EffectSet := list EffectRef.
+
+(* Concrete labels only (ignore open-row vars). *)
+Fixpoint effect_labels (es : EffectSet) : list EffectRef :=
+  match es with
+  | [] => []
+  | EffectRowVar _ :: xs => effect_labels xs
+  | x :: xs => x :: effect_labels xs
+  end.
+
+Definition effect_row_is_open (es : EffectSet) : bool :=
+  let fix go (xs : EffectSet) : bool :=
+    match xs with
+    | [] => false
+    | EffectRowVar _ :: _ => true
+    | _ :: rest => go rest
+    end
+  in go es.
+
+(* Koka-style row subsumption: every concrete label in `needed` appears in `provided`,
+   or `provided` is open (has a row variable) and may accept further labels. *)
+Definition effect_row_subsumes (needed provided : EffectSet) : bool :=
+  let fix all_in (ns : EffectSet) : bool :=
+    match ns with
+    | [] => true
+    | EffectRowVar _ :: rest => all_in rest
+    | n :: rest =>
+        let fix has (ps : EffectSet) : bool :=
+          match ps with
+          | [] => false
+          | EffectRowVar _ :: _ => true
+          | p :: ps' =>
+              match n, p with
+              | UserEffect a, UserEffect b => if string_dec a b then true else has ps'
+              | BuiltinEffect a, BuiltinEffect b => if string_dec a b then true else has ps'
+              | _, _ => has ps'
+              end
+          end
+        in if has provided then all_in rest else false
+    end
+  in all_in needed.
 
 Inductive PatternAST : Type :=
   | PatWildcard : PatternAST

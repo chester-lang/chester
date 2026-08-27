@@ -1,0 +1,25 @@
+effect Choose {
+  def choose(): Boolean;
+}
+
+// Nested multi-shot: two chooses × two resumes → 8+4+2+1 = 15
+def main() = {
+  handle {
+    let a = perform choose();
+    let b = perform choose();
+    let r = if a then {
+      let x = if b then { 8 } else { 4 };
+      x
+    } else {
+      let y = if b then { 2 } else { 1 };
+      y
+    };
+    r
+  } with Choose {
+    case choose() => {
+      let x = resume(true);
+      let y = resume(false);
+      int_add(x, y)
+    }
+  }
+}

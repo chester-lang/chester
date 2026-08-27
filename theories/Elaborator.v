@@ -102,6 +102,7 @@ Definition effect_eqb (e1 e2 : EffectRef) : bool :=
   match e1, e2 with
   | UserEffect a, UserEffect b => if string_dec a b then true else false
   | BuiltinEffect a, BuiltinEffect b => if string_dec a b then true else false
+  | EffectRowVar a, EffectRowVar b => if string_dec a b then true else false
   | _, _ => false
   end.
 
@@ -496,7 +497,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           match snd argsRes with
           | (ret_ty, call_effs) =>
               pending <- get_pending ;
-              set_pending (merge_effects pending call_effs) ;;
+              set_pending (merge_effects pending (effect_labels call_effs)) ;;
               match expected with
               | Some exp => unify 100 ret_ty exp
               | None => ret tt
@@ -565,13 +566,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
 
   | UnboxCST e span =>
       eAst <- elaborate fuel' env e None ;
-      pending <- get_pending ;
-      let caps := match snd eAst with
-                  | AstPi _ _ _ effs => effs
-                  | AstFunTy _ _ _ effs => effs
-                  | _ => []
-                  end in
-      set_pending (merge_effects pending caps) ;;
+      (* Caps are sealed into AstBox evidence at runtime (__chester_box);
+         unbox does not re-require them in the pending set (Koka evidence /
+         Effekt box under a handler may escape). Lexical handlers still apply. *)
       ret (AstUnbox (fst eAst), match snd eAst with
                                 | AstPi _ _ ret _ => ret
                                 | AstFunTy _ _ ret _ => ret
@@ -1020,8 +1017,11 @@ Eval compute in test_zonk_run test_unify_env.
 Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : ElabM (AST * AST) :=
   res <- elaborate 1000 env expr expected ;
   pending <- get_pending ;
-  match pending with
-  | [] => ret res
-  | UserEffect e :: _ => throw (append "Unhandled effect: " e)
-  | BuiltinEffect e :: _ => throw (append "Unhandled effect: " e)
-  end.
+  let fix check_pending (ps : EffectSet) : ElabM (AST * AST) :=
+    match ps with
+    | [] => ret res
+    | EffectRowVar _ :: rest => check_pending rest
+    | UserEffect e :: _ => throw (append "Unhandled effect: " e)
+    | BuiltinEffect e :: _ => throw (append "Unhandled effect: " e)
+    end
+  in check_pending pending.
