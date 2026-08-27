@@ -30,7 +30,12 @@ Inductive EffectRef :=
   | BuiltinEffect : string -> EffectRef
   | UserEffect : string -> EffectRef.
 
-(* A set/list of effects *)
+(*
+  EffectSet on AstPi / AstFunTy = capabilities required from context (Effekt reading).
+  Lexical handlers install capabilities; perform uses the nearest matching capability.
+  Blocks are second-class by default; first-class box/capture sets are a follow-up.
+  Koka-style open rows / multi-shot resume / evidence vectors are deferred.
+*)
 Definition EffectSet := list EffectRef.
 
 Inductive PatternAST : Type :=

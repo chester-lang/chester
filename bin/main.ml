@@ -29,6 +29,24 @@ let preamble =
    const prim__int_le = (a, b) => a <= b;\n\
    const prim__int_neg = (a) => -a;\n\
    const prim__int_to_string = (n) => String(n);\n\
+   let __chester_caps = [];\n\
+   const __chester_handle = (label, bodyFn, handlers) => {\n\
+     __chester_caps.push({label, handlers});\n\
+     try { return bodyFn(); }\n\
+     finally { __chester_caps.pop(); }\n\
+   };\n\
+   const __chester_perform = (op, args) => {\n\
+     for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
+       const h = __chester_caps[i].handlers[op];\n\
+       if (h) {\n\
+         let result;\n\
+         const resume = (v) => { result = v; };\n\
+         h(...args, resume);\n\
+         return result;\n\
+       }\n\
+     }\n\
+     throw new Error(\"Unhandled effect operation: \" + op);\n\
+   };\n\
    let _elab_state = null;\n\
    const prim__get_elab_state = () => _elab_state;\n\
    const prim__put_elab_state = (s) => { _elab_state = s; return Unit; };\n\

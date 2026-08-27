@@ -21,6 +21,12 @@ Definition nat_to_string (n : nat) : string :=
   if Nat.eqb tens 0 then digit_char ones
   else digit_char tens ++ digit_char ones.
 
+Definition effect_label (eff : EffectRef) : string :=
+  match eff with
+  | UserEffect n => n
+  | BuiltinEffect n => n
+  end.
+
 (* 
   TypeScript Backend
 *)
@@ -48,8 +54,20 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   | AstLam argName argTy body => TsArrow [argName] (emit_ts_block body)
   | AstPi argName argTy retTy effs => TsIdentifier "any"
   | AstFunTy _tparams _params _ret_ty _effs => TsIdentifier "any"  (* non-curried fun type — erased *)
-  | AstDo op args => TsCall (emit_ts_expr op) (map_ts_expr args)
-  | AstHandle action eff handlers => emit_ts_expr action
+  | AstDo op args =>
+      let op_name := match op with AstRef n => n | _ => "unknown" end in
+      TsCall (TsIdentifier "__chester_perform") [TsStringLiteral op_name; TsArray (map_ts_expr args)]
+  | AstHandle action eff handlers =>
+      let fix emit_hs (hs : list (string * AST)) : list (string * TypeScriptExpr) :=
+        match hs with
+        | [] => []
+        | (op, fn) :: rest => (op, emit_ts_expr fn) :: emit_hs rest
+        end
+      in
+      TsCall (TsIdentifier "__chester_handle")
+        [TsStringLiteral (effect_label eff);
+         TsArrow [] (emit_ts_block action);
+         TsObjectLiteral (emit_hs handlers)]
   | AstBoolLit b => TsBooleanLiteral b
   | AstLet name value => TsIIFE [TsLet name (emit_ts_expr value)]
   | AstIf cond true_br false_br => TsIIFE [TsIfStmt (emit_ts_expr cond) (emit_ts_block true_br) (emit_ts_block false_br)]
@@ -154,14 +172,27 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstLam argName argTy body => TsExprStmt (TsArrow [argName] (emit_ts_block body))
   | AstPi argName argTy retTy effs => TsExprStmt (TsIdentifier "any")
   | AstFunTy _tparams _params _ret_ty _effs => TsExprStmt (TsIdentifier "any")
-  | AstDo op args => 
+  | AstDo op args =>
+      let op_name := match op with AstRef n => n | _ => "unknown" end in
       let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
         match ls with
         | [] => []
         | x :: xs => emit_ts_expr x :: map_ts_expr xs
         end
-      in TsExprStmt (TsCall (emit_ts_expr op) (map_ts_expr args))
-  | AstHandle action eff handlers => TsExprStmt (TsIdentifier "any")
+      in
+      TsExprStmt (TsCall (TsIdentifier "__chester_perform")
+        [TsStringLiteral op_name; TsArray (map_ts_expr args)])
+  | AstHandle action eff handlers =>
+      let fix emit_hs (hs : list (string * AST)) : list (string * TypeScriptExpr) :=
+        match hs with
+        | [] => []
+        | (op, fn) :: rest => (op, emit_ts_expr fn) :: emit_hs rest
+        end
+      in
+      TsExprStmt (TsCall (TsIdentifier "__chester_handle")
+        [TsStringLiteral (effect_label eff);
+         TsArrow [] (emit_ts_block action);
+         TsObjectLiteral (emit_hs handlers)])
   | AstBoolLit b => TsExprStmt (TsBooleanLiteral b)
   | AstIf cond true_br false_br => TsExprStmt (TsIIFE [TsIfStmt (emit_ts_expr cond) (emit_ts_block true_br) (emit_ts_block false_br)])
   | AstMatch expr cases => TsExprStmt (TsIIFE (let fix emit_cases (cs : list (PatternAST * AST)) : list TypeScriptStmt :=
@@ -245,14 +276,27 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
   | AstLam argName argTy body => [TsReturn (TsArrow [argName] (emit_ts_block body))]
   | AstPi argName argTy retTy effs => [TsReturn (TsIdentifier "any")]
   | AstFunTy _tparams _params _ret_ty _effs => [TsReturn (TsIdentifier "any")]
-  | AstDo op args => 
+  | AstDo op args =>
+      let op_name := match op with AstRef n => n | _ => "unknown" end in
       let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
         match ls with
         | [] => []
         | x :: xs => emit_ts_expr x :: map_ts_expr xs
         end
-      in [TsReturn (TsCall (emit_ts_expr op) (map_ts_expr args))]
-  | AstHandle action eff handlers => [TsReturn (TsIdentifier "any")]
+      in
+      [TsReturn (TsCall (TsIdentifier "__chester_perform")
+        [TsStringLiteral op_name; TsArray (map_ts_expr args)])]
+  | AstHandle action eff handlers =>
+      let fix emit_hs (hs : list (string * AST)) : list (string * TypeScriptExpr) :=
+        match hs with
+        | [] => []
+        | (op, fn) :: rest => (op, emit_ts_expr fn) :: emit_hs rest
+        end
+      in
+      [TsReturn (TsCall (TsIdentifier "__chester_handle")
+        [TsStringLiteral (effect_label eff);
+         TsArrow [] (emit_ts_block action);
+         TsObjectLiteral (emit_hs handlers)])]
   | AstBoolLit b => [TsReturn (TsBooleanLiteral b)]
   | AstLet name value => [TsReturn (TsIIFE [TsLet name (emit_ts_expr value)])]
   | AstDef name _ params _ body => [TsReturn (TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)])]

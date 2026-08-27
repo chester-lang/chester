@@ -126,6 +126,16 @@ Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
             end
           in
           MatchCST expr (extract_cases cases) span
+      | Symbol "perform" _ :: AppCST op args _ :: [] => DoCST op args span
+      | Symbol "handle" _ :: Block body_stmts body_tail body_sp :: Symbol "with" _ :: Symbol eff _ :: Block h_stmts h_tail h_sp :: [] =>
+          let methods_of_block (b_stmts : list CST) (b_tail : CST) : list CST :=
+            match b_tail with
+            | Symbol u _ => if eqb u "Unit" then b_stmts else app b_stmts [b_tail]
+            | _ => app b_stmts [b_tail]
+            end
+          in
+          HandleCST (Block body_stmts body_tail body_sp) eff
+            (methods_of_block h_stmts h_tail) span
       | _ => SeqOf collapsed span
       end
   end.
@@ -386,14 +396,49 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                     | _ => stmt
                     end
                 else if eqb kwd "effect" then
+                    let methods_of_block (b : CST) : list CST :=
+                      match b with
+                      | Block meths tail _ =>
+                          match tail with
+                          | Symbol u _ =>
+                              if eqb u "Unit" then meths else app meths [tail]
+                          | _ => app meths [tail]
+                          end
+                      | _ => []
+                      end in
+                    let extract_tparams (ts : list CST) : list string :=
+                      let fix go (vs : list CST) : list string :=
+                        match vs with
+                        | [] => []
+                        | Symbol v _ :: rest => v :: go rest
+                        | _ :: rest => go rest
+                        end
+                      in go ts in
                     match rest_seq with
+                    | [e1; e2] =>
+                        match e1 with
+                        | Symbol name _ =>
+                            match e2 with
+                            | Block _ _ _ =>
+                                EffectCST name [] (process_stmts f2' (methods_of_block e2)) s
+                            | _ => stmt
+                            end
+                        | ImplicitAppCST (Symbol name _) targs _ =>
+                            match e2 with
+                            | Block _ _ _ =>
+                                EffectCST name (extract_tparams targs) (process_stmts f2' (methods_of_block e2)) s
+                            | _ => stmt
+                            end
+                        | _ => stmt
+                        end
                     | [e1; e2; e3] =>
                         match e1 with
                         | Symbol name _ =>
                             match e2 with
                             | ListLiteral targs _ =>
                                 match e3 with
-                                | Block decls _ _ => EffectCST name [] [] s
+                                | Block _ _ _ =>
+                                    EffectCST name (extract_tparams targs) (process_stmts f2' (methods_of_block e3)) s
                                 | _ => stmt
                                 end
                             | _ => stmt
@@ -412,18 +457,29 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                     | _ => stmt
                     end
                 else if eqb kwd "handle" then
+                    let methods_of_block (b : CST) : list CST :=
+                      match b with
+                      | Block meths tail _ =>
+                          match tail with
+                          | Symbol u _ =>
+                              if eqb u "Unit" then meths else app meths [tail]
+                          | _ => app meths [tail]
+                          end
+                      | _ => []
+                      end in
                     match rest_seq with
                     | [e1; e2; e3; e4] =>
                         match e1 with
-                        | Block body _ _ =>
+                        | Block body_stmts body_tail body_sp =>
                             match e2 with
                             | Symbol kwd2 _ =>
                                 match e3 with
                                 | Symbol eff _ =>
                                     match e4 with
-                                    | Block handlers _ _ =>
+                                    | Block _ _ _ =>
                                         if eqb kwd2 "with" then
-                                            HandleCST (Block body (Symbol "Unit" empty_span) empty_span) eff [] s
+                                            HandleCST (Block body_stmts body_tail body_sp) eff
+                                              (process_stmts f2' (methods_of_block e4)) s
                                         else stmt
                                     | _ => stmt
                                     end
@@ -465,7 +521,24 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                             | [] => Tuple [] span
                             | t :: _ => t
                             end in
-          Block final_stmts final_tail span
+          (* Bare `handle`/`perform` as the last block form should be the block value,
+             matching the usual `def main() = { handle { ... } with Eff { ... } }` surface. *)
+          let promote_tail (stmts : list CST) (tail : CST) : (list CST * CST) :=
+            match tail with
+            | Symbol u _ =>
+                if eqb u "Unit" then
+                  match rev stmts with
+                  | (HandleCST _ _ _ _ as h) :: prefix_rev => (rev prefix_rev, h)
+                  | (DoCST _ _ _ as d) :: prefix_rev => (rev prefix_rev, d)
+                  | _ => (stmts, tail)
+                  end
+                else (stmts, tail)
+            | _ => (stmts, tail)
+            end
+          in
+          match promote_tail final_stmts final_tail with
+          | (stmts', tail') => Block stmts' tail' span
+          end
 
   | Tuple elems span => Tuple (map (expand_cst fuel') elems) span
   | ListLiteral elems span => ListLiteral (map (expand_cst fuel') elems) span
@@ -476,6 +549,12 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
       
   | FieldAccessCST expr field span => FieldAccessCST (expand_cst fuel' expr) field span
   | MatchCST expr cases span => MatchCST (expand_cst fuel' expr) cases span
+  | EffectCST name tps decls span =>
+      EffectCST name tps (map (expand_cst fuel') decls) span
+  | DoCST op args span =>
+      DoCST (expand_cst fuel' op) (map (expand_cst fuel') args) span
+  | HandleCST body eff handlers span =>
+      HandleCST (expand_cst fuel' body) eff (map (expand_cst fuel') handlers) span
   | _ => c
     end
   end.

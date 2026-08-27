@@ -470,6 +470,51 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
               case _ => Error("Expected block for match cases", span)
             }
           }
+        } else if string_eq(s, "perform") then {
+          if int_eq(len, 2) then {
+            match collapsed.get(1) {
+              case AppCST(op, args, asp) => CST.DoCST(op, args, span);
+              case _ => SeqOf(collapsed, span)
+            }
+          } else SeqOf(collapsed, span)
+        } else if string_eq(s, "handle") then {
+          if int_eq(len, 5) then {
+            let body_block = collapsed.get(1);
+            let with_tok = collapsed.get(2);
+            let eff_tok = collapsed.get(3);
+            let handler_block = collapsed.get(4);
+            match with_tok {
+              case Symbol(w, _) => {
+                if string_eq(w, "with") then {
+                  match eff_tok {
+                    case Symbol(eff_name, _) => {
+                      match body_block {
+                        case Block(bs, bt, bsp) => {
+                          match handler_block {
+                            case Block(hs, ht, hsp) => {
+                              let fix methods_of_block(meths: List(CST), tail: CST): List(CST) = {
+                                match tail {
+                                  case Symbol(u, _) => {
+                                    if string_eq(u, "Unit") then meths else list_append(meths, tail)
+                                  };
+                                  case _ => list_append(meths, tail)
+                                }
+                              };
+                              CST.HandleCST(CST.Block(bs, bt, bsp), eff_name, methods_of_block(hs, ht), span)
+                            };
+                            case _ => SeqOf(collapsed, span)
+                          }
+                        };
+                        case _ => SeqOf(collapsed, span)
+                      }
+                    };
+                    case _ => SeqOf(collapsed, span)
+                  }
+                } else SeqOf(collapsed, span)
+              };
+              case _ => SeqOf(collapsed, span)
+            }
+          } else SeqOf(collapsed, span)
         } else {
           let pr = pratt_parse(1000, collapsed, "", op_env);
           match pr {
@@ -910,6 +955,27 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                 };
               } else if string_eq(sym, "effect") then {
                 let name_node = elems.get(1);
+                let fix methods_of_block(b: CST): List(CST) = {
+                  match b {
+                    case Block(meths, tail, spb) => {
+                      match tail {
+                        case Symbol(u, spu) => {
+                          if string_eq(u, "Unit") then meths else list_append(meths, tail)
+                        };
+                        case _ => list_append(meths, tail)
+                      }
+                    };
+                    case _ => list_empty[CST]()
+                  }
+                };
+                let fix extract_tparams(ts: List(CST)): List(String) = {
+                  if int_eq(ts.length(), 0) then list_empty[String]() else {
+                    match ts.get(0) {
+                      case Symbol(v, spv) => list_insert_first(extract_tparams(advance(ts)), v);
+                      case _ => extract_tparams(advance(ts))
+                    }
+                  }
+                };
                 match name_node {
                   case Symbol(eff_name, sp3) => {
                     let has_targs = match elems.get(2) {
@@ -917,13 +983,49 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                       case _ => false
                     };
                     let block_idx = if has_targs then 3 else 2;
+                    let tparams = if has_targs then {
+                      match elems.get(2) {
+                        case ListLiteral(targs, sp_targs) => extract_tparams(targs);
+                        case _ => list_empty[String]()
+                      }
+                    } else list_empty[String]();
                     let block_node = elems.get(block_idx);
                     match block_node {
                       case Block(decls, t, sp4) => {
-                        let eff_cst = CST.EffectCST(eff_name, list_empty[String](), decls, sp);
-                        let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
-                        match res_rest {
-                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, eff_cst), final_m)
+                        let meths = methods_of_block(block_node);
+                        let processed = process_stmts(fuel, env, op_env, m, meths);
+                        match processed {
+                          case ResList(decl_csts, m2) => {
+                            let eff_cst = CST.EffectCST(eff_name, tparams, decl_csts, sp);
+                            let res_rest = process_stmts(fuel, env, op_env, m2, rest_ss);
+                            match res_rest {
+                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, eff_cst), final_m)
+                            };
+                          }
+                        };
+                      };
+                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                    };
+                  };
+                  case ImplicitAppCST(inner, targs, spi) => {
+                    match inner {
+                      case Symbol(eff_name, sp3) => {
+                        let block_node = elems.get(2);
+                        match block_node {
+                          case Block(decls, t, sp4) => {
+                            let meths = methods_of_block(block_node);
+                            let processed = process_stmts(fuel, env, op_env, m, meths);
+                            match processed {
+                              case ResList(decl_csts, m2) => {
+                                let eff_cst = CST.EffectCST(eff_name, extract_tparams(targs), decl_csts, sp);
+                                let res_rest = process_stmts(fuel, env, op_env, m2, rest_ss);
+                                match res_rest {
+                                  case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, eff_cst), final_m)
+                                };
+                              }
+                            };
+                          };
+                          case _ => ExpandResultList.ResList(list_empty[CST](), m)
                         };
                       };
                       case _ => ExpandResultList.ResList(list_empty[CST](), m)
@@ -944,6 +1046,19 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                   case _ => ExpandResultList.ResList(list_empty[CST](), m)
                 };
               } else if string_eq(sym, "handle") then {
+                let fix methods_of_block(b: CST): List(CST) = {
+                  match b {
+                    case Block(meths, tail, spb) => {
+                      match tail {
+                        case Symbol(u, spu) => {
+                          if string_eq(u, "Unit") then meths else list_append(meths, tail)
+                        };
+                        case _ => list_append(meths, tail)
+                      }
+                    };
+                    case _ => list_empty[CST]()
+                  }
+                };
                 let body_block = elems.get(1);
                 match body_block {
                   case Block(body_stmts, tail, sp3) => {
@@ -953,10 +1068,16 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         let handler_block = elems.get(4);
                         match handler_block {
                           case Block(handlers, ht, sp5) => {
-                            let handle_cst = CST.HandleCST(CST.Block(body_stmts, CST.Symbol("Unit", Span(0,0,list_empty[Integer]())), sp3), eff_name, list_empty[CST](), sp);
-                            let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
-                            match res_rest {
-                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, handle_cst), final_m)
+                            let hcases = methods_of_block(handler_block);
+                            let processed = process_stmts(fuel, env, op_env, m, hcases);
+                            match processed {
+                              case ResList(handler_csts, m2) => {
+                                let handle_cst = CST.HandleCST(CST.Block(body_stmts, tail, sp3), eff_name, handler_csts, sp);
+                                let res_rest = process_stmts(fuel, env, op_env, m2, rest_ss);
+                                match res_rest {
+                                  case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, handle_cst), final_m)
+                                };
+                              }
                             };
                           };
                           case _ => ExpandResultList.ResList(list_empty[CST](), m)
@@ -1152,7 +1273,26 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
           case ResList(new_stmts, next_m) => {
             let res_tail = expand_cst(next_fuel, env, op_env, next_m, tail);
             match res_tail {
-              case Res(new_tail, final_m) => ExpandResult.Res(Block(new_stmts, new_tail, sp), final_m)
+              case Res(new_tail, final_m) => {
+                let promoted = match new_tail {
+                  case Symbol(u, _) => {
+                    if string_eq(u, "Unit") then {
+                      if int_eq(new_stmts.length(), 0) then Pair.MkPair(new_stmts, new_tail) else {
+                        let last = new_stmts.get(int_sub(new_stmts.length(), 1));
+                        match last {
+                          case HandleCST(_, _, _, _) => Pair.MkPair(list_drop_last(new_stmts), last);
+                          case DoCST(_, _, _) => Pair.MkPair(list_drop_last(new_stmts), last);
+                          case _ => Pair.MkPair(new_stmts, new_tail)
+                        }
+                      }
+                    } else Pair.MkPair(new_stmts, new_tail)
+                  };
+                  case _ => Pair.MkPair(new_stmts, new_tail)
+                };
+                match promoted {
+                  case MkPair(stmts2, tail2) => ExpandResult.Res(Block(stmts2, tail2, sp), final_m)
+                }
+              }
             };
           }
         };

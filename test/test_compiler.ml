@@ -119,3 +119,11 @@ let%expect_test "fixture operators" =
 let%expect_test "fixture extension method" =
   check_fixture "tests/test_ext.chester";
   [%expect {| tests/test_ext.chester ok |}]
+
+let%expect_test "fixture effects" =
+  check_fixture "tests/effects.chester";
+  [%expect {| tests/effects.chester ok |}]
+
+let%expect_test "fixture effects state" =
+  check_fixture "tests/effects_state.chester";
+  [%expect {| tests/effects_state.chester ok |}]

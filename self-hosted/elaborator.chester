@@ -40,8 +40,14 @@ def whnf(expr: AST): AST = {
     case _ => expr
   };
 };
+enum EffectOp {
+  case MkEffectOp(name: String, arg_tys: List(AST), ret_ty: AST)
+};
+enum EffectDecl {
+  case MkEffectDecl(name: String, ops: List(EffectOp))
+};
 enum ElabState {
-  case MkElabState(env: List(Pair), next_var: Integer, subst: List(Pair), exts: List(ExtDecl))
+  case MkElabState(env: List(Pair), next_var: Integer, subst: List(Pair), exts: List(ExtDecl), effects: List(EffectDecl), active: List(String), pending: List(String))
 };
 def get_elab_state(): ElabState = prim__get_elab_state();
 def put_elab_state(s: ElabState): Unit = prim__put_elab_state(s);
@@ -86,9 +92,9 @@ enum OptionAST {
 def fresh_meta(): AST = {
   let s = get_elab_state();
   match s {
-    case MkElabState(env, next_var, subst, exts) => {
+    case MkElabState(env, next_var, subst, exts, effects, active, pending) => {
       let m = AST.AstMeta(next_var);
-      put_elab_state(ElabState.MkElabState(env, int_add(next_var, 1), subst, exts));
+      put_elab_state(ElabState.MkElabState(env, int_add(next_var, 1), subst, exts, effects, active, pending));
       m
     };
   }
@@ -112,7 +118,7 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
             if int_eq(m1, m2) then () else {
               let s = get_elab_state();
               match s {
-                case MkElabState(env, next_var, subst, exts) => {
+                case MkElabState(env, next_var, subst, exts, effects, active, pending) => {
                   let v1_opt = lookup_meta(m1, subst);
                   match v1_opt {
                     case SomeAST(v1) => unify(int_sub(fuel, 1), v1, t2_whnf);
@@ -122,7 +128,7 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
                         case SomeAST(v2) => unify(int_sub(fuel, 1), t1_whnf, v2);
                         case NoneAST => {
                           let new_subst = list_insert_first(subst, Pair.MkPair(m1, t2_whnf));
-                          put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts))
+                          put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts, effects, active, pending))
                         };
                       }
                     };
@@ -134,13 +140,13 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
           case _ => {
             let s = get_elab_state();
             match s {
-              case MkElabState(env, next_var, subst, exts) => {
+              case MkElabState(env, next_var, subst, exts, effects, active, pending) => {
                 let v1_opt = lookup_meta(m1, subst);
                 match v1_opt {
                   case SomeAST(v1) => unify(int_sub(fuel, 1), v1, t2_whnf);
                   case NoneAST => {
                     let new_subst = list_insert_first(subst, Pair.MkPair(m1, t2_whnf));
-                    put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts))
+                    put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts, effects, active, pending))
                   };
                 }
               };
@@ -157,13 +163,13 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
           case AstMeta(m2) => {
             let s = get_elab_state();
             match s {
-              case MkElabState(env, next_var, subst, exts) => {
+              case MkElabState(env, next_var, subst, exts, effects, active, pending) => {
                 let v2_opt = lookup_meta(m2, subst);
                 match v2_opt {
                   case SomeAST(v2) => unify(int_sub(fuel, 1), t1_whnf, v2);
                   case NoneAST => {
                     let new_subst = list_insert_first(subst, Pair.MkPair(m2, t1_whnf));
-                    put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts))
+                    put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts, effects, active, pending))
                   };
                 }
               };
@@ -506,10 +512,10 @@ def elab_cases(env: List(Pair), expected: OptionAST, cs: List(CST), expr_ty: AST
           // Restore the solver state (but keep next_var so we don't reuse meta IDs)
           let new_state = get_elab_state();
           match old_state {
-            case MkElabState(old_e, old_nv, old_subst, old_exts) => {
+            case MkElabState(old_e, old_nv, old_subst, old_exts, old_effects, old_active, old_pending) => {
               match new_state {
-                case MkElabState(new_e, new_nv, new_subst, new_exts) => {
-                  put_elab_state(ElabState.MkElabState(new_e, new_nv, old_subst, new_exts))
+                case MkElabState(new_e, new_nv, new_subst, new_exts, new_effects, new_active, new_pending) => {
+                  put_elab_state(ElabState.MkElabState(new_e, new_nv, old_subst, new_exts, new_effects, new_active, new_pending))
                 };
               }
             };
@@ -633,7 +639,7 @@ def zonk(fuel: Integer, expr: AST): AST = {
       case AstMeta(m) => {
         let s = get_elab_state();
         match s {
-          case MkElabState(env, next_var, subst, exts) => {
+          case MkElabState(env, next_var, subst, exts, effects, active, pending) => {
             let v_opt = lookup_meta(m, subst);
             match v_opt {
               case SomeAST(v) => zonk(int_sub(fuel, 1), v);
@@ -806,7 +812,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
             case MkPair(eAst, eTy) => {
               let state = get_elab_state();
               let full_name = match state {
-                case MkElabState(e, next_var, subst, exts) => find_ext_method(eTy, field, exts)
+                case MkElabState(e, next_var, subst, exts, effects, active, pending) => find_ext_method(eTy, field, exts)
               };
               if string_eq(full_name, "") then {
                 let funcAst = AST.AstFieldAccess(eAst, field);
@@ -917,10 +923,10 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
         case MkPair(tAst, tTy) => {
           let state = get_elab_state();
           match state {
-            case MkElabState(e, next_var, subst, exts) => {
+            case MkElabState(e, next_var, subst, exts, effects, active, pending) => {
               let ext_meths = extract_ext_methods(meths, ext_name);
               let new_ext = ExtDecl.MkExtDecl(ext_name, tAst, ext_meths);
-              put_elab_state(ElabState.MkElabState(e, next_var, subst, list_insert_first(exts, new_ext)));
+              put_elab_state(ElabState.MkElabState(e, next_var, subst, list_insert_first(exts, new_ext), effects, active, pending));
               let meths_res = elab_ext_methods(env, meths, ext_name);
               Pair.MkPair(AST.AstExtension(ext_name, tparams, tAst, meths_res), AST.AstRef("Unit"))
             };
@@ -931,29 +937,197 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
     case Error(msg, span) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
     case Comment(msg, span) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
     case MacroDefCST(name, cases, span) => Pair.MkPair(AST.AstError("Macro in elab"), AST.AstRef("Any"));
-    case EffectCST(name, type_params, decls, span) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
+    case EffectCST(name, type_params, decls, span) => {
+      let fix elab_ops(ds: List(CST)): List(EffectOp) = {
+        if int_eq(ds.length(), 0) then list_empty[EffectOp]() else {
+          let d = ds.get(0);
+          let rest = elab_ops(advance(ds));
+          match d {
+            case DefCST(op, tps, params, ret_ty, body, sp) => {
+              let ret_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("Type")));
+              match ret_res {
+                case MkPair(r_ast, _) => list_insert_first(rest, EffectOp.MkEffectOp(op, list_empty[AST](), r_ast))
+              }
+            };
+            case SeqOf(elems, sp) => {
+              if int_lt(elems.length(), 2) then rest else {
+                match elems.get(0) {
+                  case Symbol(kw, _) => {
+                    if string_eq(kw, "def") then {
+                      match elems.get(1) {
+                        case Symbol(op, _) => {
+                          let ret_ty = if int_lt(elems.length(), 4) then CST.Symbol("Any", Span(0,0,list_empty[Integer]())) else elems.get(int_sub(elems.length(), 1));
+                          let ret_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("Type")));
+                          match ret_res {
+                            case MkPair(r_ast, _) => list_insert_first(rest, EffectOp.MkEffectOp(op, list_empty[AST](), r_ast))
+                          }
+                        };
+                        case AppCST(f, args, _) => {
+                          match f {
+                            case Symbol(op, _) => {
+                              let ret_ty = if int_lt(elems.length(), 3) then CST.Symbol("Any", Span(0,0,list_empty[Integer]())) else elems.get(int_sub(elems.length(), 1));
+                              let ret_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("Type")));
+                              match ret_res {
+                                case MkPair(r_ast, _) => list_insert_first(rest, EffectOp.MkEffectOp(op, list_empty[AST](), r_ast))
+                              }
+                            };
+                            case _ => rest
+                          }
+                        };
+                        case _ => rest
+                      }
+                    } else rest
+                  };
+                  case _ => rest
+                }
+              }
+            };
+            case _ => rest
+          }
+        }
+      };
+      let ops = elab_ops(decls);
+      let s = get_elab_state();
+      match s {
+        case MkElabState(e, next_var, subst, exts, effects, active, pending) => {
+          put_elab_state(ElabState.MkElabState(e, next_var, subst, exts, list_insert_first(effects, EffectDecl.MkEffectDecl(name, ops)), active, pending));
+          Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"))
+        }
+      }
+    };
     case DoCST(op, args, span) => {
-      let op_elab = elaborate(env, op, OptionAST.NoneAST());
-      match op_elab {
-        case MkPair(op_ast, op_ty) => {
-          let fix elab_args(fs: List(CST)): List(AST) = {
-            if int_eq(fs.length(), 0) then list_empty[AST]() else {
-              let f0 = fs.get(0);
-              let rest = elab_args(advance(fs));
-              let f0_res = elaborate(env, f0, OptionAST.NoneAST());
-              match f0_res {
-                case MkPair(f_ast, f_ty) => list_insert_first(rest, f_ast)
-              };
+      let op_name = match op {
+        case Symbol(n, _) => n;
+        case _ => ""
+      };
+      let fix elab_args(fs: List(CST)): List(AST) = {
+        if int_eq(fs.length(), 0) then list_empty[AST]() else {
+          let f0_res = elaborate(env, fs.get(0), OptionAST.NoneAST());
+          match f0_res {
+            case MkPair(f_ast, _) => list_insert_first(elab_args(advance(fs)), f_ast)
+          }
+        }
+      };
+      let s = get_elab_state();
+      match s {
+        case MkElabState(e, next_var, subst, exts, effects, active, pending) => {
+          let fix find_op(reg: List(EffectDecl)): Pair = {
+            if int_eq(reg.length(), 0) then Pair.MkPair("", AST.AstRef("Unknown")) else {
+              match reg.get(0) {
+                case MkEffectDecl(eff, ops) => {
+                  let fix find_in_ops(os: List(EffectOp)): Pair = {
+                    if int_eq(os.length(), 0) then find_op(advance(reg)) else {
+                      match os.get(0) {
+                        case MkEffectOp(n, arg_tys, ret_ty) => {
+                          if string_eq(n, op_name) then Pair.MkPair(eff, ret_ty) else find_in_ops(advance(os))
+                        }
+                      }
+                    }
+                  };
+                  find_in_ops(ops)
+                }
+              }
             }
           };
-          Pair.MkPair(AST.AstDo(op_ast, elab_args(args)), AST.AstRef("Unknown"))
+          match find_op(effects) {
+            case MkPair(eff, ret_ty) => {
+              if string_eq(eff, "") then Pair.MkPair(AST.AstError(string_concat("Unknown effect operation: ", op_name)), AST.AstRef("Any")) else {
+                put_elab_state(ElabState.MkElabState(e, next_var, subst, exts, effects, active, list_insert_first(pending, eff)));
+                Pair.MkPair(AST.AstDo(AST.AstRef(op_name), elab_args(args)), ret_ty)
+              }
+            }
+          }
         }
       }
     };
     case HandleCST(body, eff, handlers, span) => {
-      let body_elab = elaborate(env, body, OptionAST.NoneAST());
-      match body_elab {
-        case MkPair(body_ast, body_ty) => Pair.MkPair(AST.AstHandle(body_ast, eff, list_empty[Pair]()), body_ty)
+      let s0 = get_elab_state();
+      match s0 {
+        case MkElabState(e0, nv0, sub0, ex0, ef0, act0, pend0) => {
+          put_elab_state(ElabState.MkElabState(e0, nv0, sub0, ex0, ef0, list_insert_first(act0, eff), list_empty[String]()));
+          let body_elab = elaborate(env, body, OptionAST.NoneAST());
+          let s1 = get_elab_state();
+          match s1 {
+            case MkElabState(e1, nv1, sub1, ex1, ef1, act1, pend1) => {
+              let fix filter_pending(ps: List(String)): List(String) = {
+                if int_eq(ps.length(), 0) then list_empty[String]() else {
+                  let p = ps.get(0);
+                  let rest = filter_pending(advance(ps));
+                  if string_eq(p, eff) then rest else list_insert_first(rest, p)
+                }
+              };
+              let fix merge_pending(a: List(String), b: List(String)): List(String) = {
+                if int_eq(a.length(), 0) then b else merge_pending(advance(a), list_insert_first(b, a.get(0)))
+              };
+              put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act0, merge_pending(pend0, filter_pending(pend1))));
+              let fix parse_hcase(h: CST): Pair = {
+                match h {
+                  case SeqOf(elems, sp) => {
+                    if int_lt(elems.length(), 4) then Pair.MkPair("", AST.AstRef("Unit")) else {
+                      match elems.get(1) {
+                        case AppCST(f, args, _) => {
+                          match f {
+                            case Symbol(op, _) => {
+                              let body_c = elems.get(int_sub(elems.length(), 1));
+                              let henv = list_insert_first(env, Pair.MkPair(Pair.MkPair("resume", list_empty[Integer]()), AST.AstPi("v", AST.AstRef("Any"), AST.AstRef("Any"), list_empty[String]())));
+                              let fix add_binders(as_: List(CST), e0: List(Pair)): List(Pair) = {
+                                if int_eq(as_.length(), 0) then e0 else {
+                                  match as_.get(0) {
+                                    case Symbol(bn, _) => add_binders(advance(as_), list_insert_first(e0, Pair.MkPair(Pair.MkPair(bn, list_empty[Integer]()), AST.AstRef("Any"))));
+                                    case _ => add_binders(advance(as_), e0)
+                                  }
+                                }
+                              };
+                              let henv2 = add_binders(args, henv);
+                              let h_elab = elaborate(henv2, body_c, OptionAST.NoneAST());
+                              match h_elab {
+                                case MkPair(h_ast, _) => {
+                                  let fix wrap(bs: List(CST), body_ast: AST): AST = {
+                                    if int_eq(bs.length(), 0) then AST.AstLam("resume", AST.AstRef("Any"), body_ast) else {
+                                      match bs.get(0) {
+                                        case Symbol(bn, _) => AST.AstLam(bn, AST.AstRef("Any"), wrap(advance(bs), body_ast));
+                                        case _ => wrap(advance(bs), body_ast)
+                                      }
+                                    }
+                                  };
+                                  Pair.MkPair(op, wrap(args, h_ast))
+                                }
+                              }
+                            };
+                            case _ => Pair.MkPair("", AST.AstRef("Unit"))
+                          }
+                        };
+                        case Symbol(op, _) => {
+                          let body_c = elems.get(int_sub(elems.length(), 1));
+                          let henv = list_insert_first(env, Pair.MkPair(Pair.MkPair("resume", list_empty[Integer]()), AST.AstPi("v", AST.AstRef("Any"), AST.AstRef("Any"), list_empty[String]())));
+                          let h_elab = elaborate(henv, body_c, OptionAST.NoneAST());
+                          match h_elab {
+                            case MkPair(h_ast, _) => Pair.MkPair(op, AST.AstLam("resume", AST.AstRef("Any"), h_ast))
+                          }
+                        };
+                        case _ => Pair.MkPair("", AST.AstRef("Unit"))
+                      }
+                    }
+                  };
+                  case _ => Pair.MkPair("", AST.AstRef("Unit"))
+                }
+              };
+              let fix elab_hs(hs: List(CST)): List(Pair) = {
+                if int_eq(hs.length(), 0) then list_empty[Pair]() else {
+                  match parse_hcase(hs.get(0)) {
+                    case MkPair(op, fn) => {
+                      let rest = elab_hs(advance(hs));
+                      if string_eq(op, "") then rest else list_insert_first(rest, Pair.MkPair(op, fn))
+                    }
+                  }
+                }
+              };
+              match body_elab {
+                case MkPair(body_ast, body_ty) => Pair.MkPair(AST.AstHandle(body_ast, eff, elab_hs(handlers)), body_ty)
+              }
+            }
+          }
+        }
       }
     };
 

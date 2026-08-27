@@ -9,7 +9,7 @@ def main() = {
     perform put(x);
     x
   } with State {
-    case get() => 42;
-    case put(s) => Unit
+    case get() => resume(42);
+    case put(s) => resume(Unit)
   }
 }

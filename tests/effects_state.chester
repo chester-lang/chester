@@ -1,0 +1,21 @@
+effect State[T] {
+  def get(): T;
+  def put(s: T): Unit;
+}
+
+// Single-shot resume wiring for State: put binds its argument; get resumes a value.
+// Handler-local mutable cells (Effekt `var`) are a follow-up; this checks the pipeline.
+def main() = {
+  handle {
+    perform put(7);
+    let a = perform get();
+    perform put(a);
+    perform get()
+  } with State {
+    case get() => resume(7);
+    case put(s) => {
+      let _kept = s;
+      resume(Unit)
+    }
+  }
+}
