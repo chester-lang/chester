@@ -63,7 +63,9 @@ Inductive AST : Type :=
   | AstHandle : AST -> EffectRef -> list (string * AST) -> AST
   
   (* New nodes for stdlib/bootstrap *)
-  | AstLet : string -> AST -> AST (* name, value *)
+  | AstLet : string -> AST -> AST (* name, value — immutable *)
+  | AstVar : string -> AST -> AST (* name, value — mutable cell *)
+  | AstAssign : string -> AST -> AST (* name := value *)
   | AstIf : AST -> AST -> AST -> AST (* cond, then, else *)
   | AstDef : string -> list string -> list (string * AST) -> AST -> AST -> AST (* name, type_params, params, ret_ty, body *)
   | AstFunTy : list string -> list (string * AST) -> AST -> EffectSet -> AST (* type_params, params, ret_ty, effects — non-curried *)
@@ -72,6 +74,8 @@ Inductive AST : Type :=
   | AstRecord : string -> list string -> list (string * AST) -> AST (* name, type_params, fields *)
   | AstFieldAccess : AST -> string -> AST (* expr, field_name *)
   | AstExtension : string -> list string -> AST -> list AST -> AST (* name, type_params, target_ty, methods *)
+  | AstBox : AST -> EffectSet -> AST (* first-class value capturing required capabilities *)
+  | AstUnbox : AST -> AST
   
   (* A meta variable or hole, indexed by its unique ID *)
   | AstMeta : MetaId -> AST

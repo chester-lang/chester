@@ -70,10 +70,14 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
          TsObjectLiteral (emit_hs handlers)]
   | AstBoolLit b => TsBooleanLiteral b
   | AstLet name value => TsIIFE [TsLet name (emit_ts_expr value)]
+  | AstVar name value => TsIIFE [TsVar name (emit_ts_expr value)]
+  | AstAssign name value => TsIIFE [TsAssign name (emit_ts_expr value)]
   | AstIf cond true_br false_br => TsIIFE [TsIfStmt (emit_ts_expr cond) (emit_ts_block true_br) (emit_ts_block false_br)]
   | AstDef name _ params _ body => TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)]
   | AstEnum _ _ _ => TsIdentifier "null"
   | AstExtension _ _ _ _ => TsIdentifier "null"
+  | AstBox e _ => TsArrow [] [TsReturn (emit_ts_expr e)]
+  | AstUnbox e => TsCall (emit_ts_expr e) []
   | AstMatch expr cases => TsIIFE (let fix emit_cases (cs : list (PatternAST * AST)) : list TypeScriptStmt :=
         match cs with
         | [] => [TsThrow "Non-exhaustive match"]
@@ -105,6 +109,8 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
 with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   match ast with
   | AstLet name value => TsLet name (emit_ts_expr value)
+  | AstVar name value => TsVar name (emit_ts_expr value)
+  | AstAssign name value => TsAssign name (emit_ts_expr value)
   | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
   | AstExtension _ _ _ meths =>
@@ -216,6 +222,8 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
         end
       in TsLet "_match_val" (emit_ts_expr expr) :: emit_cases cases))
   | AstFieldAccess expr field => TsExprStmt (TsPropertyAccess (emit_ts_expr expr) field)
+  | AstBox e _ => TsExprStmt (TsArrow [] [TsReturn (emit_ts_expr e)])
+  | AstUnbox e => TsExprStmt (TsCall (emit_ts_expr e) [])
   | AstMeta id => TsExprStmt (TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))
   | AstUniverse _ => TsExprStmt (TsIIFE [TsThrow "Universe in term"])
   | AstError e => TsExprStmt (TsIIFE [TsThrow e])
@@ -299,6 +307,10 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
          TsObjectLiteral (emit_hs handlers)])]
   | AstBoolLit b => [TsReturn (TsBooleanLiteral b)]
   | AstLet name value => [TsReturn (TsIIFE [TsLet name (emit_ts_expr value)])]
+  | AstVar name value => [TsReturn (TsIIFE [TsVar name (emit_ts_expr value)])]
+  | AstAssign name value => [TsAssign name (emit_ts_expr value)]
+  | AstBox e _ => [TsReturn (TsArrow [] [TsReturn (emit_ts_expr e)])]
+  | AstUnbox e => [TsReturn (TsCall (emit_ts_expr e) [])]
   | AstDef name _ params _ body => [TsReturn (TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)])]
   | AstEnum _ _ _ => [TsReturn (TsIdentifier "null")]
   | AstExtension _ _ _ _ => [TsReturn (TsIdentifier "null")]
@@ -354,6 +366,10 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
   | AstHandle action eff handlers => emit_go_expr action
   | AstBoolLit b => GoBoolLiteral b
   | AstLet name value => GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) []
+  | AstVar name value => GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) []
+  | AstAssign name value => GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) []
+  | AstBox e _ => emit_go_expr e
+  | AstUnbox e => emit_go_expr e
   | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) []
   | AstDef name _ params _ body => GoCall (GoFuncLiteral [] [GoFuncDecl name (map fst params) (emit_go_block body)]) []
   | AstEnum _ _ _ => GoIdentifier "nil"
@@ -437,6 +453,10 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       in GoExprStmt (GoCall (emit_go_expr op) (map_go_expr args))
   | AstHandle action eff handlers => GoExprStmt (GoIdentifier "interface{}")
   | AstBoolLit b => GoExprStmt (GoBoolLiteral b)
+  | AstVar name value => GoLet name (emit_go_expr value)
+  | AstAssign name value => GoLet name (emit_go_expr value)
+  | AstBox e _ => GoExprStmt (emit_go_expr e)
+  | AstUnbox e => GoExprStmt (emit_go_expr e)
   | AstIf cond true_br false_br => GoExprStmt (GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) [])
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
@@ -531,6 +551,10 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
   | AstHandle action eff handlers => [GoReturn (GoIdentifier "interface{}")]
   | AstBoolLit b => [GoReturn (GoBoolLiteral b)]
   | AstLet name value => [GoReturn (GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) [])]
+  | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) [])]
+  | AstAssign name value => [GoLet name (emit_go_expr value)]
+  | AstBox e _ => [GoReturn (emit_go_expr e)]
+  | AstUnbox e => [GoReturn (emit_go_expr e)]
   | AstDef name _ params _ body => [GoReturn (GoCall (GoFuncLiteral [] [GoFuncDecl name (map fst params) (emit_go_block body)]) [])]
   | AstEnum _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]

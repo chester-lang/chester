@@ -127,6 +127,16 @@ Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
           in
           MatchCST expr (extract_cases cases) span
       | Symbol "perform" _ :: AppCST op args _ :: [] => DoCST op args span
+      | Symbol "box" _ :: rest =>
+          match rest with
+          | [e] => BoxCST e span
+          | _ => BoxCST (SeqOf rest span) span
+          end
+      | Symbol "unbox" _ :: rest =>
+          match rest with
+          | [e] => UnboxCST e span
+          | _ => UnboxCST (SeqOf rest span) span
+          end
       | Symbol "handle" _ :: Block body_stmts body_tail body_sp :: Symbol "with" _ :: Symbol eff _ :: Block h_stmts h_tail h_sp :: [] =>
           let methods_of_block (b_stmts : list CST) (b_tail : CST) : list CST :=
             match b_tail with
@@ -166,6 +176,33 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                             LetCST name val_cst (Symbol "Unit" empty_span) s
                         else stmt
                     | _ => stmt
+                    end
+                else if eqb kwd "var" then
+                    match rest_seq with
+                    | Symbol name _ :: Symbol kwd2 _ :: val_exprs =>
+                        if eqb kwd2 "=" then
+                            let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr val_exprs s end in
+                            VarCST name val_cst (Symbol "Unit" empty_span) s
+                        else stmt
+                    | _ => stmt
+                    end
+                else if eqb kwd "box" then
+                    match rest_seq with
+                    | [e1] => BoxCST e1 s
+                    | _ =>
+                        match rest_seq with
+                        | [] => stmt
+                        | _ => BoxCST (expand_seq_expr rest_seq s) s
+                        end
+                    end
+                else if eqb kwd "unbox" then
+                    match rest_seq with
+                    | [e1] => UnboxCST e1 s
+                    | _ =>
+                        match rest_seq with
+                        | [] => stmt
+                        | _ => UnboxCST (expand_seq_expr rest_seq s) s
+                        end
                     end
                 else if eqb kwd "def" then
                     match rest_seq with
@@ -507,7 +544,22 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                         end
                     | _ => stmt
                     end
-                else stmt
+                else
+                    (* Assignment: name = expr (not a reserved keyword). *)
+                    let is_kw := orb (eqb kwd "let") (orb (eqb kwd "var") (orb (eqb kwd "def")
+                      (orb (eqb kwd "if") (orb (eqb kwd "match") (orb (eqb kwd "effect")
+                      (orb (eqb kwd "handle") (orb (eqb kwd "perform") (orb (eqb kwd "extension")
+                      (orb (eqb kwd "enum") (orb (eqb kwd "record") (orb (eqb kwd "case")
+                      (orb (eqb kwd "return") (orb (eqb kwd "box") (orb (eqb kwd "unbox")
+                      (orb (eqb kwd "infixl") (eqb kwd "infixr")))))))))))))))) in
+                    match rest_seq with
+                    | Symbol eqtok _ :: val_exprs =>
+                        if andb (eqb eqtok "=") (negb is_kw) then
+                          let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr val_exprs s end in
+                          AssignCST kwd val_cst s
+                        else stmt
+                    | _ => stmt
+                    end
             | ExtensionCST name tparams target_ty meths span => ExtensionCST name tparams target_ty (process_stmts f2' meths) span
             | Error msg span => Error msg span
             | _ => stmt
@@ -530,6 +582,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                   match rev stmts with
                   | (HandleCST _ _ _ _ as h) :: prefix_rev => (rev prefix_rev, h)
                   | (DoCST _ _ _ as d) :: prefix_rev => (rev prefix_rev, d)
+                  | (AssignCST _ _ _ as a) :: prefix_rev => (rev prefix_rev, a)
                   | _ => (stmts, tail)
                   end
                 else (stmts, tail)
@@ -555,6 +608,12 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
       DoCST (expand_cst fuel' op) (map (expand_cst fuel') args) span
   | HandleCST body eff handlers span =>
       HandleCST (expand_cst fuel' body) eff (map (expand_cst fuel') handlers) span
+  | VarCST name value next span =>
+      VarCST name (expand_cst fuel' value) (expand_cst fuel' next) span
+  | AssignCST name value span =>
+      AssignCST name (expand_cst fuel' value) span
+  | BoxCST e span => BoxCST (expand_cst fuel' e) span
+  | UnboxCST e span => UnboxCST (expand_cst fuel' e) span
   | _ => c
     end
   end.

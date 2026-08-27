@@ -35,18 +35,23 @@ let preamble =
      try { return bodyFn(); }\n\
      finally { __chester_caps.pop(); }\n\
    };\n\
-   const __chester_perform = (op, args) => {\n\
+   const __chester_perform = (op, args, kont) => {\n\
+     const k = (typeof kont === \"function\") ? kont : ((v) => v);\n\
      for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
        const h = __chester_caps[i].handlers[op];\n\
        if (h) {\n\
-         let result;\n\
-         const resume = (v) => { result = v; };\n\
-         h(...args, resume);\n\
-         return result;\n\
+         let last;\n\
+         const resume = (v) => { last = k(v); return last; };\n\
+         let fn = h;\n\
+         for (let j = 0; j < args.length; j++) fn = fn(args[j]);\n\
+         fn(resume);\n\
+         return last;\n\
        }\n\
      }\n\
      throw new Error(\"Unhandled effect operation: \" + op);\n\
    };\n\
+   const int_add = prim__int_add;\n\
+   const int_eq = prim__int_eq;\n\
    let _elab_state = null;\n\
    const prim__get_elab_state = () => _elab_state;\n\
    const prim__put_elab_state = (s) => { _elab_state = s; return Unit; };\n\

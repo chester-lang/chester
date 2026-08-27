@@ -348,6 +348,35 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
           };
         }
       };
+      case VarCST(name, value, next, span) => {
+        let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
+        match valueAst_res {
+          case MkPair(vAst, vTy) => {
+            let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(name, span.context), vTy));
+            let rest_res = map_elabs(new_env, xs);
+            match rest_res {
+              case MkPair(restAst, final_env) => {
+                let var_node = AST.AstVar(mangle_name(name, span.context), vAst);
+                Pair.MkPair(list_insert_first(restAst, var_node), final_env)
+              };
+            }
+          };
+        }
+      };
+      case AssignCST(name, value, span) => {
+        let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
+        match valueAst_res {
+          case MkPair(vAst, vTy) => {
+            let rest_res = map_elabs(env, xs);
+            match rest_res {
+              case MkPair(restAst, final_env) => {
+                let asg = AST.AstAssign(mangle_name(name, span.context), vAst);
+                Pair.MkPair(list_insert_first(restAst, asg), final_env)
+              };
+            }
+          };
+        }
+      };
       case DefCST(name, tps, params, ret_ty, body, span) => {
         let tyAst_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
         match tyAst_res {
@@ -743,6 +772,39 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
             };
           }
         };
+      }
+    };
+    case VarCST(name, value, next, span) => {
+      let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
+      match valueAst_res {
+        case MkPair(vAst, vTy) => {
+          let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(name, span.context), vTy));
+          let bodyAst_res = elaborate(new_env, next, expected);
+          match bodyAst_res {
+            case MkPair(bAst, bTy) => {
+              let stmts = list_insert_first(list_empty[AST](), AST.AstVar(mangle_name(name, span.context), vAst));
+              Pair.MkPair(AST.AstBlock(stmts, bAst), bTy)
+            };
+          }
+        };
+      }
+    };
+    case AssignCST(name, value, span) => {
+      let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
+      match valueAst_res {
+        case MkPair(vAst, vTy) => Pair.MkPair(AST.AstAssign(mangle_name(name, span.context), vAst), AST.AstRef("Unit"))
+      }
+    };
+    case BoxCST(inner, span) => {
+      let inner_res = elaborate(env, inner, OptionAST.NoneAST());
+      match inner_res {
+        case MkPair(iAst, iTy) => Pair.MkPair(AST.AstBox(iAst, list_empty[String]()), iTy)
+      }
+    };
+    case UnboxCST(inner, span) => {
+      let inner_res = elaborate(env, inner, OptionAST.NoneAST());
+      match inner_res {
+        case MkPair(iAst, iTy) => Pair.MkPair(AST.AstUnbox(iAst), iTy)
       }
     };
     case IfCST(cond, thenB, elseB, span) => {

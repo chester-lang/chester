@@ -1,0 +1,21 @@
+effect State {
+  def get(): Integer;
+  def put(s: Integer): Unit;
+}
+
+def main() = {
+  var st = 0;
+  let f = box {
+    perform put(5);
+    perform get()
+  };
+  handle {
+    unbox f
+  } with State {
+    case get() => resume(st);
+    case put(s) => {
+      st = s;
+      resume(Unit)
+    }
+  }
+}

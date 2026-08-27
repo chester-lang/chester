@@ -127,3 +127,15 @@ let%expect_test "fixture effects" =
 let%expect_test "fixture effects state" =
   check_fixture "tests/effects_state.chester";
   [%expect {| tests/effects_state.chester ok |}]
+
+let%expect_test "fixture effects nested" =
+  check_fixture "tests/effects_nested.chester";
+  [%expect {| tests/effects_nested.chester ok |}]
+
+let%expect_test "fixture effects multishot" =
+  check_fixture "tests/effects_multishot.chester";
+  [%expect {| tests/effects_multishot.chester ok |}]
+
+let%expect_test "fixture effects box" =
+  check_fixture "tests/effects_box.chester";
+  [%expect {| tests/effects_box.chester ok |}]

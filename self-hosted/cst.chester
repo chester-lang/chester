@@ -12,6 +12,8 @@ enum CST {
   case Error(msg: String, span: Span);
   // Macro expanded nodes
   case LetCST(name: String, value: CST, next: CST, span: Span);
+  case VarCST(name: String, value: CST, next: CST, span: Span);
+  case AssignCST(name: String, value: CST, span: Span);
   case IfCST(cond: CST, then_branch: CST, else_branch: CST, span: Span);
   case DefCST(name: String, type_params: List(String), params: List(CST), ret_ty: CST, body: CST, span: Span);
   case LamCST(arg_name: String, opt_arg_ty: CST, body: CST, span: Span);
@@ -24,5 +26,7 @@ enum CST {
   case ExtensionCST(name: String, type_params: List(String), target_ty: CST, methods: List(CST), span: Span);
   case EffectCST(name: String, type_params: List(String), decls: List(CST), span: Span);
   case DoCST(op: CST, args: List(CST), span: Span);
-  case HandleCST(body: CST, eff: String, handlers: List(CST), span: Span)
+  case HandleCST(body: CST, eff: String, handlers: List(CST), span: Span);
+  case BoxCST(inner: CST, span: Span);
+  case UnboxCST(inner: CST, span: Span)
 }

@@ -514,6 +514,15 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 let new_env := ((name, context span), snd valueAst) :: current_env in
                 rest <- map_elabs new_env xs ;
                 ret (AstLet (mangle_name name (context span)) (fst valueAst) :: fst rest, snd rest)
+            | VarCST name value _ span =>
+                valueAst <- elaborate fuel' current_env value None ;
+                let new_env := ((name, context span), snd valueAst) :: current_env in
+                rest <- map_elabs new_env xs ;
+                ret (AstVar (mangle_name name (context span)) (fst valueAst) :: fst rest, snd rest)
+            | AssignCST name value span =>
+                valueAst <- elaborate fuel' current_env value None ;
+                rest <- map_elabs current_env xs ;
+                ret (AstAssign (mangle_name name (context span)) (fst valueAst) :: fst rest, snd rest)
             | DefCST name _ _ ret_ty _ span =>
                 res <- elaborate fuel' current_env x None ;
                 let new_env := ((name, context span), snd res) :: current_env in
@@ -536,6 +545,38 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       valueAst <- elaborate fuel' env value None ;
       bodyAst <- elaborate fuel' (((name, context span), snd valueAst) :: env) body expected ;
       ret (AstBlock [AstLet (mangle_name name (context span)) (fst valueAst)] (fst bodyAst), snd bodyAst)
+
+  | VarCST name value body span =>
+      valueAst <- elaborate fuel' env value None ;
+      bodyAst <- elaborate fuel' (((name, context span), snd valueAst) :: env) body expected ;
+      ret (AstBlock [AstVar (mangle_name name (context span)) (fst valueAst)] (fst bodyAst), snd bodyAst)
+
+  | AssignCST name value span =>
+      valueAst <- elaborate fuel' env value None ;
+      ret (AstAssign (mangle_name name (context span)) (fst valueAst), AstRef "Unit")
+
+  | BoxCST e span =>
+      old_pending <- get_pending ;
+      set_pending [] ;;
+      eAst <- elaborate fuel' env e None ;
+      caps <- get_pending ;
+      set_pending old_pending ;;
+      ret (AstBox (fst eAst) caps, AstPi "x" (AstRef "Unit") (snd eAst) caps)
+
+  | UnboxCST e span =>
+      eAst <- elaborate fuel' env e None ;
+      pending <- get_pending ;
+      let caps := match snd eAst with
+                  | AstPi _ _ _ effs => effs
+                  | AstFunTy _ _ _ effs => effs
+                  | _ => []
+                  end in
+      set_pending (merge_effects pending caps) ;;
+      ret (AstUnbox (fst eAst), match snd eAst with
+                                | AstPi _ _ ret _ => ret
+                                | AstFunTy _ _ ret _ => ret
+                                | ty => ty
+                                end)
       
   | IfCST cond thenB elseB _ =>
       condAst <- elaborate fuel' env cond None ;

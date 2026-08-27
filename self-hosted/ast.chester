@@ -16,6 +16,8 @@ enum AST {
   case AstLam(argName: String, argTy: AST, body: AST);
   case AstPi(argName: String, argTy: AST, retTy: AST, effs: List(String));
   case AstLet(name: String, value: AST);
+  case AstVar(name: String, value: AST);
+  case AstAssign(name: String, value: AST);
   case AstIf(cond: AST, then_branch: AST, else_branch: AST);
   case AstDef(name: String, type_params: List(String), params: List(Pair), ret_ty: AST, body: AST);
   case AstFunTy(type_params: List(String), params: List(Pair), ret_ty: AST, effs: List(String));
@@ -27,5 +29,7 @@ enum AST {
   case AstSpan(span: Span, inner: AST);
   case AstError(msg: String);
   case AstDo(op: AST, args: List(AST));
-  case AstHandle(body: AST, eff: String, handlers: List(Pair))
+  case AstHandle(body: AST, eff: String, handlers: List(Pair));
+  case AstBox(inner: AST, caps: List(String));
+  case AstUnbox(inner: AST)
 }

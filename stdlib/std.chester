@@ -2,6 +2,20 @@ effect State {
   def get(): Integer;
   def put(s: Integer): Unit
 };
+// run_state: var cell + handler closing over it (Effekt-style).
+def run_state(init: Integer): Integer = {
+  var st = init;
+  handle {
+    perform put(int_add(st, 1));
+    perform get()
+  } with State {
+    case get() => resume(st);
+    case put(s) => {
+      st = s;
+      resume(Unit)
+    }
+  }
+};
 enum Pair[A, B] {
   case MkPair(fst: A, snd: B)
 };

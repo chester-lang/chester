@@ -237,6 +237,8 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
           format_seq None elements
 
             | LetCST _ _ _ _
+      | VarCST _ _ _ _
+      | AssignCST _ _ _
       | IfCST _ _ _ _
       | DefCST _ _ _ _ _ _
       | LamCST _ _ _ _
@@ -250,6 +252,8 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | FieldAccessCST _ _ _
       | ExtensionCST _ _ _ _ _
       | MacroDefCST _ _ _
+      | BoxCST _ _
+      | UnboxCST _ _
       | HandleCST _ _ _ _ => "/* EXPANDED NODE */"
       | Error msg _ => "/* ERROR: " ++ msg ++ " */"
       end

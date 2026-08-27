@@ -1,0 +1,19 @@
+effect Outer {
+  def ask(): Integer;
+}
+effect Inner {
+  def bump(): Integer;
+}
+
+def main() = {
+  handle {
+    handle {
+      perform bump();
+      perform ask()
+    } with Inner {
+      case bump() => resume(1)
+    }
+  } with Outer {
+    case ask() => resume(10)
+  }
+}

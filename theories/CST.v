@@ -47,6 +47,8 @@ Inductive CST : Type :=
   | CommentCST : string -> Span -> CST
   (* New nodes for stdlib/bootstrap *)
   | LetCST : string -> CST -> CST -> Span -> CST (* name, value, body/next_stmt *)
+  | VarCST : string -> CST -> CST -> Span -> CST (* mutable name, value, body/next *)
+  | AssignCST : string -> CST -> Span -> CST (* name = value *)
   | IfCST : CST -> CST -> CST -> Span -> CST (* cond, then_branch, else_branch *)
   | DefCST : string -> list string -> list (string * CST) -> CST -> CST -> Span -> CST (* name, type_params, params, ret_ty, body *)
   | LamCST : string -> option CST -> CST -> Span -> CST (* arg_name, opt_arg_ty, body *)
@@ -61,6 +63,8 @@ Inductive CST : Type :=
   | FieldAccessCST : CST -> string -> Span -> CST (* expr, field_name *)
   | MacroDefCST : string -> list (PatternCST * CST) -> Span -> CST (* name, cases *)
   | ExtensionCST : string -> list string -> CST -> list CST -> Span -> CST (* name, type_params, target_ty, methods *)
+  | BoxCST : CST -> Span -> CST (* first-class box of a block/expr *)
+  | UnboxCST : CST -> Span -> CST
   | Error : string -> Span -> CST.
 
 Definition zero_utf16 := mkWithUTF16 0 0.
@@ -100,11 +104,15 @@ Definition get_span (c : CST) : Span :=
   | BoolLiteral _ span => span
   | SeqOf _ span => span
   | LetCST _ _ _ span => span
+  | VarCST _ _ _ span => span
+  | AssignCST _ _ span => span
   | IfCST _ _ _ span => span
   | DefCST _ _ _ _ _ span => span
   | EnumCST _ _ _ span => span
   | MatchCST _ _ span => span
   | ImplicitAppCST _ _ span => span
+  | BoxCST _ span => span
+  | UnboxCST _ span => span
   | RecordCST _ _ _ span => span
   | EffectCST _ _ _ span => span
   | DoCST _ _ span => span

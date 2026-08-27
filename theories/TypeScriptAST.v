@@ -10,6 +10,8 @@ Import ListNotations.
 Inductive TypeScriptStmt : Type :=
   | TsExprStmt : TypeScriptExpr -> TypeScriptStmt
   | TsLet : string -> TypeScriptExpr -> TypeScriptStmt
+  | TsVar : string -> TypeScriptExpr -> TypeScriptStmt (* mutable let *)
+  | TsAssign : string -> TypeScriptExpr -> TypeScriptStmt
   | TsConst : string -> TypeScriptExpr -> TypeScriptStmt
   | TsIfStmt : TypeScriptExpr -> list TypeScriptStmt -> list TypeScriptStmt -> TypeScriptStmt
   | TsReturn : TypeScriptExpr -> TypeScriptStmt
@@ -51,6 +53,8 @@ Fixpoint stringify_ts_stmt (stmt : TypeScriptStmt) {struct stmt} : string :=
   match stmt with
   | TsExprStmt expr => stringify_ts_expr expr ++ "; "
   | TsLet name val => "const " ++ name ++ " = " ++ stringify_ts_expr val ++ "; "
+  | TsVar name val => "let " ++ name ++ " = " ++ stringify_ts_expr val ++ "; "
+  | TsAssign name val => name ++ " = " ++ stringify_ts_expr val ++ "; "
   | TsConst name val => "const " ++ name ++ " = " ++ stringify_ts_expr val ++ "; "
   | TsIfStmt cond thenB elseB => 
       let thenStr := concat_strings "" (map_ts_stmt thenB) in
