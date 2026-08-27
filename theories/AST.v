@@ -33,8 +33,11 @@ Inductive EffectRef :=
 (*
   EffectSet on AstPi / AstFunTy = capabilities required from context (Effekt reading).
   Lexical handlers install capabilities; perform uses the nearest matching capability.
-  Blocks are second-class by default; first-class box/capture sets are a follow-up.
-  Koka-style open rows / multi-shot resume / evidence vectors are deferred.
+  Blocks are second-class by default; `box`/`unbox` make a delayed thunk (capture set
+  recorded on AstBox; deeper capture checking is still lite).
+  Multi-shot today: handlers may call `resume` more than once (side-effecting).
+  True continuation-forking CPS, Koka open rows / evidence vectors, and full Go
+  effect emission remain deferred.
 *)
 Definition EffectSet := list EffectRef.
 
