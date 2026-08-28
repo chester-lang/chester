@@ -1,0 +1,11 @@
+extern ts "react" {
+  def createElement(tag: String, props: Any, children: Any): Any;
+};
+
+def Counter(): Any = {
+  createElement("div", null, null)
+};
+
+def main(): Any = {
+  Counter()
+};

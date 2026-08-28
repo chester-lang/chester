@@ -40,6 +40,21 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
   end.
 Definition collapse_apps elems := collapse_apps_aux elems [].
 
+Fixpoint extract_import_syms_from_block (stmts : list CST) : list string :=
+  match stmts with
+  | [] => []
+  | Symbol n _ :: xs => n :: extract_import_syms_from_block xs
+  | _ :: xs => extract_import_syms_from_block xs
+  end.
+
+Definition extract_import_syms (rest : list CST) : list string :=
+  match rest with
+  | [] => []
+  | [Block syms _ _] => extract_import_syms_from_block syms
+  | Block syms _ _ :: _ => extract_import_syms_from_block syms
+  | _ => []
+  end.
+
 Fixpoint expand_if (elems : list CST) (span : Span) : option CST :=
   match elems with
   | Symbol "if" _ :: cond :: Symbol "then" _ :: thenB :: Symbol "else" _ :: rest =>
@@ -194,6 +209,20 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                         | [] => stmt
                         | _ => BoxCST (expand_seq_expr rest_seq s) s
                         end
+                    end
+                else if eqb kwd "import" then
+                    match rest_seq with
+                    | Symbol lang _ :: Symbol alias _ :: StringLiteral mod _ :: rest =>
+                        ImportCST lang alias mod (extract_import_syms rest) s
+                    | Symbol lang _ :: StringLiteral mod _ :: rest =>
+                        ImportCST lang lang mod (extract_import_syms rest) s
+                    | _ => stmt
+                    end
+                else if eqb kwd "extern" then
+                    match rest_seq with
+                    | Symbol lang _ :: StringLiteral mod _ :: Block decls _ _ :: [] =>
+                        ExternCST lang mod decls s
+                    | _ => stmt
                     end
                 else if eqb kwd "unbox" then
                     match rest_seq with
@@ -614,6 +643,8 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
       AssignCST name (expand_cst fuel' value) span
   | BoxCST e span => BoxCST (expand_cst fuel' e) span
   | UnboxCST e span => UnboxCST (expand_cst fuel' e) span
+  | ImportCST lang alias mod syms span => ImportCST lang alias mod syms span
+  | ExternCST lang mod decls span => ExternCST lang mod (map (expand_cst fuel') decls) span
   | _ => c
     end
   end.

@@ -1,7 +1,10 @@
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
+From Stdlib Require Import Ascii.
 Open Scope string_scope.
 Import ListNotations.
+
+Definition ts_quote : string := String (ascii_of_nat 34) "".
 
 (* 
   TypeScript AST Representation for the Backend 
@@ -17,6 +20,9 @@ Inductive TypeScriptStmt : Type :=
   | TsReturn : TypeScriptExpr -> TypeScriptStmt
   | TsThrow : string -> TypeScriptStmt
   | TsFunctionDecl : string -> list string -> list TypeScriptStmt -> TypeScriptStmt
+  | TsExportFunction : string -> list string -> list TypeScriptStmt -> TypeScriptStmt
+  | TsImportNamespace : string -> string -> TypeScriptStmt
+  | TsImportNamed : string -> list string -> TypeScriptStmt
   | TsInterface : string -> TypeScriptStmt
   | TsEmpty : TypeScriptStmt
   | TsBlock : list TypeScriptStmt -> TypeScriptStmt (* flat concatenation, no IIFE *)
@@ -64,6 +70,12 @@ Fixpoint stringify_ts_stmt (stmt : TypeScriptStmt) {struct stmt} : string :=
   | TsThrow msg => "throw new Error('" ++ msg ++ "'); "
   | TsFunctionDecl name params body => 
       "function " ++ name ++ "(" ++ concat_strings ", " params ++ ") { " ++ concat_strings "" (map_ts_stmt body) ++ "}"
+  | TsExportFunction name params body =>
+      "export function " ++ name ++ "(" ++ concat_strings ", " params ++ ") { " ++ concat_strings "" (map_ts_stmt body) ++ "}"
+  | TsImportNamespace alias mod =>
+      "import * as " ++ alias ++ " from " ++ ts_quote ++ mod ++ ts_quote ++ "; "
+  | TsImportNamed mod names =>
+      "import { " ++ concat_strings ", " names ++ " } from " ++ ts_quote ++ mod ++ ts_quote ++ "; "
   | TsInterface name => "interface " ++ name ++ " { [key: string]: any }; "
   | TsEmpty => ""
   | TsBlock stmts => concat_strings "" (map_ts_stmt stmts)

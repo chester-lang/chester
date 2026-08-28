@@ -24,6 +24,7 @@ Inductive GoStmt : Type :=
   | GoStruct : string -> GoStmt
   | GoEmpty : GoStmt
   | GoBlock : list GoStmt -> GoStmt
+  | GoImport : string -> GoStmt
 
 with GoExpr : Type :=
   | GoIntLiteral : string -> GoExpr
@@ -74,6 +75,7 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
   | GoStruct name => "type " ++ name ++ " struct{}; "
   | GoEmpty => ""
   | GoBlock stmts => concat_strings " " (map_go_stmt stmts)
+  | GoImport mod => "import " ++ go_quote ++ mod ++ go_quote ++ "; "
   end
 
 with stringify_go_expr (expr : GoExpr) {struct expr} : string :=

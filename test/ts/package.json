@@ -1,0 +1,7 @@
+{
+  "name": "chester-ts-smoke",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

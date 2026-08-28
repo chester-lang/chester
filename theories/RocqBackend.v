@@ -159,6 +159,7 @@ Fixpoint emit_rocq_expr (ast : AST) {struct ast} : RocqExpr :=
       emit_rocq_lam_params (map fst params) (emit_rocq_expr body)
   | AstEnum _ _ _ => RocqUnit
   | AstExtension _ _ _ _ => RocqUnit
+  | AstImport _ _ _ _ => RocqUnit
   | AstMatch expr cases =>
       RocqMatch (emit_rocq_expr expr) (emit_match_cases cases)
   | AstRecord _ _ _ => RocqUnit
@@ -188,6 +189,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
         | x :: xs => emit_rocq_stmt x :: map_meths xs
         end
       in RocqBlock (map_meths meths)
+  | AstImport _ _ _ _ => RocqEmpty
   | AstRef name => RocqDefinition ("_expr_" ++ name) [] (RocqIdentifier name)
   | AstTuple elems =>
       let fix map_exprs (ls : list AST) : list RocqExpr :=

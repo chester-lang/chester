@@ -65,6 +65,10 @@ Inductive CST : Type :=
   | ExtensionCST : string -> list string -> CST -> list CST -> Span -> CST (* name, type_params, target_ty, methods *)
   | BoxCST : CST -> Span -> CST (* first-class box of a block/expr *)
   | UnboxCST : CST -> Span -> CST
+  | ImportCST : string -> string -> string -> list string -> Span -> CST
+  (* lang, alias, module_path, named symbols (empty => namespace import) *)
+  | ExternCST : string -> string -> list CST -> Span -> CST
+  (* lang, module_path, declaration CST nodes *)
   | Error : string -> Span -> CST.
 
 Definition zero_utf16 := mkWithUTF16 0 0.
@@ -119,6 +123,8 @@ Definition get_span (c : CST) : Span :=
   | HandleCST _ _ _ span => span
   | FieldAccessCST _ _ span => span
   | ExtensionCST _ _ _ _ span => span
+  | ImportCST _ _ _ _ span => span
+  | ExternCST _ _ _ span => span
   | CommentCST _ span => span
   | Error _ span => span
   | _ => empty_span

@@ -56,6 +56,7 @@
               pkgs.nixfmt
               pkgs.bun
               pkgs.go
+              pkgs.nodejs
             ];
           };
         }

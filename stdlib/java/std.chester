@@ -1,15 +1,14 @@
-import go "fmt";
 def print_str(msg: String): Unit / [io] = {
-  go.fmt.Println(msg);
+  console.log(msg);
   ()
 };
 def print_int(val: Integer): Unit / [io] = {
-  go.fmt.Println(val);
+  console.log(val);
   ()
 };
 def concat_str(a: String, b: String): String = {
-  go.fmt.Sprintf("%s%s", a, b)
+  prim__string_concat(a, b)
 };
 def int_to_str(val: Integer): String = {
-  go.fmt.Sprintf("%d", val)
+  prim__int_to_string(val)
 }

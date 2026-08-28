@@ -83,6 +83,19 @@ Definition go_bool_cond (e : GoExpr) : GoExpr :=
 (* 
   TypeScript Backend
 *)
+Definition emit_ts_import (lang alias mod_path : string) (sym_list : list string) : TypeScriptStmt :=
+  if string_dec lang "ts" then
+    match sym_list with
+    | [] =>
+        if string_dec alias "" then TsEmpty
+        else TsImportNamespace alias mod_path
+    | _ => TsImportNamed mod_path sym_list
+    end
+  else TsEmpty.
+
+Definition emit_go_import (lang mod_path : string) : GoStmt :=
+  if string_dec lang "go" then GoImport mod_path else GoEmpty.
+
 Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
     match ls with
@@ -155,6 +168,7 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
       in TsLet "_match_val" (emit_ts_expr expr) :: emit_cases cases)
   | AstRecord name _ _ => TsIdentifier "null"
   | AstFieldAccess expr field => TsPropertyAccess (emit_ts_expr expr) field
+  | AstImport _ _ _ _ => TsIdentifier "undefined"
   | AstMeta id => TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstUniverse _ => TsIIFE [TsThrow "Universe in term"]
   | AstError e => TsIIFE [TsThrow e]
@@ -166,6 +180,7 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstLet name value => TsLet name (emit_ts_expr value)
   | AstVar name value => TsVar name (emit_ts_expr value)
   | AstAssign name value => TsAssign name (emit_ts_expr value)
+  | AstImport lang alias mod_path syms => emit_ts_import lang alias mod_path syms
   | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
   | AstExtension _ _ _ meths =>
@@ -375,6 +390,7 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
   | AstExtension _ _ _ _ => [TsReturn (TsIdentifier "null")]
   | AstRecord name _ _ => [TsReturn (TsIdentifier "null")]
   | AstFieldAccess expr field => [TsReturn (TsPropertyAccess (emit_ts_expr expr) field)]
+  | AstImport lang alias mod_path syms => [emit_ts_import lang alias mod_path syms]
   | AstMeta id => [TsReturn (TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
   end.
 
@@ -390,6 +406,41 @@ Definition emit_ts (ast : AST) : TypeScriptStmt :=
       (* Emit as flat top-level sequence so declarations are globally scoped *)
       TsBlock (map_ts_stmt stmts ++ [TsExprStmt (emit_ts_expr ret)])
   | _ => emit_ts_stmt ast
+  end.
+
+Fixpoint emit_ts_top_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
+  match ast with
+  | AstImport lang alias mod_path syms => emit_ts_import lang alias mod_path syms
+  | AstDef name _ params _ body => TsExportFunction name (map fst params) (emit_ts_block body)
+  | AstLet name value => TsConst name (emit_ts_expr value)
+  | AstRef "Unit" => TsEmpty
+  | AstSpan _ inner => emit_ts_top_stmt inner
+  | _ => emit_ts_stmt ast
+  end.
+
+Definition emit_ts_top (ast : AST) : TypeScriptStmt :=
+  match ast with
+  | AstBlock stmts ret =>
+      let fix map_top (ls : list AST) : list TypeScriptStmt :=
+        match ls with
+        | [] => []
+        | AstRef "Unit" :: xs => map_top xs
+        | x :: xs =>
+            let stmt := emit_ts_top_stmt x in
+            match stmt with
+            | TsEmpty => map_top xs
+            | _ => stmt :: map_top xs
+            end
+        end
+      in
+      let tail :=
+        match ret with
+        | AstRef "Unit" => []
+        | _ => [TsExprStmt (emit_ts_expr ret)]
+        end
+      in
+      TsBlock (map_top stmts ++ tail)
+  | _ => emit_ts_top_stmt ast
   end.
 
 
@@ -476,6 +527,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
       in GoCall (GoFuncLiteral [] (GoLet "_match_val" (emit_go_expr expr) :: emit_cases cases)) []
   | AstRecord name _ _ => GoIdentifier "nil"
   | AstFieldAccess expr field => GoSelector (emit_go_expr expr) field
+  | AstImport _ _ _ _ => GoIdentifier "nil"
   | AstMeta id => GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstUniverse _ => GoCall (GoFuncLiteral [] [GoPanic "Universe in term"]) []
   | AstError e => GoCall (GoFuncLiteral [] [GoPanic e]) []
@@ -484,6 +536,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
 
 with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
   match ast with
+  | AstImport lang _ mod_path _ => emit_go_import lang mod_path
   | AstLet name value =>
       GoBlock [GoLet name (emit_go_expr value); GoDiscardBinding name]
   | AstDef name _ params _ body => GoFuncDecl name (map fst params) (emit_go_block body)
@@ -677,6 +730,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
   | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstRecord name _ _ => [GoReturn (GoIdentifier "nil")]
   | AstFieldAccess expr field => [GoReturn (GoSelector (emit_go_expr expr) field)]
+  | AstImport lang _ mod_path _ => [emit_go_import lang mod_path]
   | AstMeta id => [GoReturn (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
   end.
 

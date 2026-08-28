@@ -479,7 +479,23 @@ Fixpoint extract_ext_methods (meths : list CST) (ext_name : string) : list (stri
   | _ :: rest => extract_ext_methods rest ext_name
   end.
 
-Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option AST) {struct fuel} : ElabM (AST * AST) :=
+Fixpoint elab_extern_decls (env : TypeEnv) (decls : list CST) : list string * TypeEnv :=
+  match decls with
+  | [] => ([], env)
+  | d :: rest =>
+      match parse_effect_sig d with
+      | Some (op, _params, _ret_ty_cst) =>
+          let fun_ty := AstRef "Any" in
+          let new_env := ((op, []), fun_ty) :: env in
+          let (syms, final_env) := elab_extern_decls new_env rest in
+          (op :: syms, final_env)
+      | None =>
+          elab_extern_decls env rest
+      end
+  end.
+
+Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option AST) {struct fuel}
+  : ElabM (AST * AST) :=
   match fuel with
   | 0 => throw "Out of fuel"
   | S fuel' =>
@@ -580,6 +596,13 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 let new_env := ((name, context span), snd res) :: current_env in
                 rest <- map_elabs new_env xs ;
                 ret (fst res :: fst rest, snd rest)
+            | ImportCST lang alias mod syms span =>
+                rest <- map_elabs current_env xs ;
+                ret (AstImport lang alias mod syms :: fst rest, snd rest)
+            | ExternCST lang mod decls span =>
+                let (syms, new_env) := elab_extern_decls current_env decls in
+                rest <- map_elabs new_env xs ;
+                ret (AstImport lang "" mod syms :: fst rest, snd rest)
             | _ =>
                 res <- elaborate fuel' current_env x None ;
                 rest <- map_elabs current_env xs ;
@@ -905,6 +928,11 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       ret (AstTuple (fst elemsRes), snd elemsRes)
 
   | CommentCST msg _ => ret (AstRef "Unit", AstRef "Unit")
+  | ImportCST lang alias mod syms _ =>
+      ret (AstImport lang alias mod syms, AstRef "Unit")
+  | ExternCST lang mod decls _ =>
+      let (syms, _) := elab_extern_decls env decls in
+      ret (AstImport lang "" mod syms, AstRef "Unit")
   | MacroDefCST _ _ _ => throw "MacroDefCST reached Elaborator"
   | Error msg _ => throw msg
 

@@ -123,6 +123,8 @@ Inductive AST : Type :=
   | AstExtension : string -> list string -> AST -> list AST -> AST (* name, type_params, target_ty, methods *)
   | AstBox : AST -> EffectSet -> AST (* first-class value capturing required capabilities *)
   | AstUnbox : AST -> AST
+  | AstImport : string -> string -> string -> list string -> AST
+  (* lang, alias, module_path, named symbols (empty => namespace import) *)
   
   (* A meta variable or hole, indexed by its unique ID *)
   | AstMeta : MetaId -> AST

@@ -272,7 +272,31 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
             end in
           format_seq None elements
 
-            | LetCST _ _ _ _
+      | ImportCST lang alias mod_path syms _ =>
+          let syms_str :=
+            match syms with
+            | [] => ""
+            | _ => " { " ++ join_strings ", " syms ++ " }"
+            end
+          in
+          let alias_part :=
+            if string_eqb alias "" || string_eqb alias lang then ""
+            else " " ++ alias
+          in
+          "import " ++ lang ++ alias_part ++ " " ++ quote ++ mod_path ++ quote ++ syms_str
+      | ExternCST lang mod_path decls _ =>
+          let fix format_decl (d : CST) : string :=
+            match d with
+            | DefCST name _ params ret_ty _ _ =>
+                "def " ++ name ++ "(...): ..."
+            | SeqOf (Symbol "def" _ :: Symbol name _ :: _) _ =>
+                "def " ++ name ++ "(...)"
+            | _ => "/* extern decl */"
+            end
+          in
+          "extern " ++ lang ++ " " ++ quote ++ mod_path ++ quote ++ " {" ++ newline ++
+          join_strings (";" ++ newline) (map format_decl decls) ++ newline ++ "}"
+      | LetCST _ _ _ _
       | VarCST _ _ _ _
       | AssignCST _ _ _
       | IfCST _ _ _ _

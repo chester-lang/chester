@@ -63,6 +63,7 @@ Fixpoint subst_ast (x : string) (v : AST) (body : AST) : AST :=
   | AstRecord n tp fields => AstRecord n tp fields
   | AstFieldAccess expr f => AstFieldAccess (subst_ast x v expr) f
   | AstExtension n tp tgt meths => AstExtension n tp (subst_ast x v tgt) meths
+  | AstImport lang alias mod syms => AstImport lang alias mod syms
   | AstMeta m => AstMeta m
   | AstSpan sp inner => AstSpan sp (subst_ast x v inner)
   | AstError msg => AstError msg
@@ -320,6 +321,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
   | AstEnum _ _ _ => TyOk (AstRef "Unit")
   | AstRecord _ _ _ => TyOk (AstRef "Unit")
   | AstExtension _ _ _ _ => TyOk (AstRef "Unit")
+  | AstImport _ _ _ _ => TyOk (AstRef "Unit")
   | AstFieldAccess expr field =>
       match infer_check env expr None with
       | TyOk expr_ty =>

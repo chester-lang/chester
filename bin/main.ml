@@ -94,7 +94,7 @@ let process_file ~target filename oc state =
           output_string oc rocq_code
       | EmitTS ->
           print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
-          let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
+          let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) in
           output_string oc ts_code);
       state'
 

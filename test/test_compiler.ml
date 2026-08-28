@@ -298,6 +298,10 @@ let%expect_test "fixture effects rows" =
   check_fixture "tests/effects_rows.chester";
   [%expect {| tests/effects_rows.chester ok |}]
 
+let%expect_test "fixture react mini" =
+  check_fixture "tests/react_mini.chester";
+  [%expect {| tests/react_mini.chester ok |}]
+
 let%expect_test "runtime effects rows" =
   run_fixture_main "tests/effects_rows.chester";
   [%expect {| 15 |}]
@@ -373,3 +377,38 @@ let%expect_test "self-hosted sources elaborate" =
     self-hosted/lexer.chester ok
     self-hosted/parser.chester ok
     |}]
+
+let%expect_test "react mini ts emit" =
+  let ast = compile_fixture_ast "tests/react_mini.chester" in
+  let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) in
+  print_endline
+    (if has_substr ts_code "import { createElement } from \"react\""
+        && has_substr ts_code "export function Counter"
+        && has_substr ts_code "export function main"
+     then "react mini ts ok"
+     else "react mini ts missing");
+  [%expect {| react mini ts ok |}]
+
+let check_ts_typecheck emitted_ts =
+  let ts_dir = fixture_path "test/ts" in
+  let out = Filename.temp_file "chester_tsc_out" ".txt" in
+  let gen = Filename.concat ts_dir "generated.ts" in
+  let oc = open_out gen in
+  output_string oc emitted_ts;
+  close_out oc;
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "cd %s && (test -d node_modules || npm install --silent) && npx tsc --noEmit > %s 2>&1"
+         (Filename.quote ts_dir) (Filename.quote out))
+  in
+  let msg = read_file out in
+  Sys.remove out;
+  if st <> 0 then failwith ("tsc failed:\n" ^ msg);
+  print_endline "tsc ok"
+
+let%expect_test "react mini tsc smoke" =
+  let ast = compile_fixture_ast "tests/react_mini.chester" in
+  let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) in
+  check_ts_typecheck ts_code;
+  [%expect {| tsc ok |}]
