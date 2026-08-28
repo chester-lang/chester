@@ -390,6 +390,23 @@ let%expect_test "example ts wordcount" =
   check_fixture "examples/ts/wordcount.chester";
   [%expect {| examples/ts/wordcount.chester ok |}]
 
+let%expect_test "example ts path" =
+  check_fixture "examples/ts/path.chester";
+  [%expect {| examples/ts/path.chester ok |}]
+
+let%expect_test "infix precedence" =
+  run_fixture_main "tests/infix_precedence.chester";
+  [%expect {| 10 |}]
+
+let%expect_test "go signatures json loads" =
+  let sigs = Go_signatures.load (fixture_path "data/go-signatures.json") in
+  if not (Go_signatures.has_function sigs "fmt" "Println") then
+    failwith "missing fmt.Println in go-signatures.json";
+  print_endline
+    (Printf.sprintf "go-sigs ok (%d functions)"
+       (Go_signatures.function_count sigs));
+  [%expect {| go-sigs ok (24 functions) |}]
+
 let%expect_test "example go wordcount" =
   check_fixture "examples/go/wordcount.chester";
   [%expect {| examples/go/wordcount.chester ok |}]

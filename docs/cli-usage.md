@@ -28,6 +28,8 @@ nix develop --command ./_build/default/bin/main.exe [options] file.chester
 | `-o PATH` / `--output PATH` | Output file (default: `out/compiler.{ts,go,v}`) |
 | `--module-path DIR` | Add a directory to the search path (repeatable) |
 | `--prelude FILE` | Elaborate a prelude file before inputs (repeatable, not emitted) |
+| `--go-sigs FILE` | Load Go package signatures JSON (Go emit; validates file) |
+| `--list-go-sigs` | Print loaded packages from `--go-sigs` (or default) and exit |
 
 ### Search paths
 

@@ -1,0 +1,14 @@
+// Ported from chester2026draft/examples/ts/ts-path.chester.
+// Draft used `import path "node:path"`; current Chester uses extern ts.
+
+extern ts "node:path" {
+  def join(base: String, name: String): String;
+};
+
+def joinPath(base: String, name: String): String = {
+  join(base, name)
+};
+
+def main(): String = {
+  joinPath("/tmp", "demo.txt")
+}

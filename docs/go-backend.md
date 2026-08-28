@@ -17,8 +17,9 @@ extracted to OCaml and invoked from `bin/main.exe --go`.
 ## Reference data
 
 `data/go-signatures.json` (ported from `chester2026draft`) lists pre-baked `fmt` and
-other package signatures for a future loader CLI. Module search paths (`--module-path`,
-`CHESTER_PATH`) are wired; automatic signature import is not yet.
+other package signatures. `main.exe --go` loads it automatically when present;
+use `--list-go-sigs` to inspect. Type-checking against signatures in the elaborator
+is not wired yet.
 
 ## Examples
 

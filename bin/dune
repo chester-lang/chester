@@ -1,7 +1,7 @@
 (library
  (name chester_frontend)
  (libraries compiler_lib)
- (modules lexer effects_runtime))
+ (modules lexer effects_runtime go_signatures))
 
 (executable
  (name main)

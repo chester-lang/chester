@@ -18,7 +18,9 @@ let repo_root_from_file filename =
       let parent = Filename.dirname dir in
       if parent = dir then None else walk parent
   in
-  walk (Filename.dirname filename)
+  walk (
+    if Sys.is_directory filename then filename
+    else Filename.dirname filename)
 
 let default_module_paths ~for_file extra =
   let cwd = Sys.getcwd () in

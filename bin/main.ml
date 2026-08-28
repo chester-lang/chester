@@ -20,13 +20,16 @@ type cli_options = {
   runtime_only : bool;
   module_paths : string list;
   prelude_paths : string list;
+  go_sigs_path : string option;
+  list_go_sigs : bool;
   files : string list;
 }
 
 let preamble =
   ts_primitives
   ^ ts_effects_runtime
-  ^ "const int_add = prim__int_add;\n\
+  ^ "   const int_add = prim__int_add;\n\
+   const int_mul = prim__int_mul;\n\
    const int_eq = prim__int_eq;\n\
    let _elab_state = null;\n\
    const prim__get_elab_state = () => _elab_state;\n\
@@ -112,6 +115,12 @@ let rec parse_opts acc = function
   | "--prelude" :: [] ->
       print_endline "Error: --prelude requires a file argument";
       exit 1
+  | "--go-sigs" :: path :: rest ->
+      parse_opts { acc with go_sigs_path = Some path } rest
+  | "--go-sigs" :: [] ->
+      print_endline "Error: --go-sigs requires a file argument";
+      exit 1
+  | "--list-go-sigs" :: rest -> parse_opts { acc with list_go_sigs = true } rest
   | "--emit-ts-runtime" :: path :: rest ->
       let dir = Filename.dirname path in
       if dir <> "" && not (Sys.file_exists dir) then Sys.mkdir dir 0o755;
@@ -131,6 +140,7 @@ let usage () =
   print_endline
     "Usage: main.exe [--go | --rocq | --ts-module | --emit-ts-runtime PATH] \\\n\
      \       [--module-path DIR]... [--prelude FILE]... \\\n\
+     \       [--go-sigs FILE] [--list-go-sigs] \\\n\
      \       [-o OUT] <file.chester> [file2.chester ...]"
 
 let default_options =
@@ -141,6 +151,8 @@ let default_options =
     runtime_only = false;
     module_paths = [];
     prelude_paths = [];
+    go_sigs_path = None;
+    list_go_sigs = false;
     files = [];
   }
 
@@ -158,6 +170,27 @@ let () =
     }
   in
   match opts.files with
+  | [] when opts.list_go_sigs ->
+      let anchor = Sys.getcwd () in
+      let search_paths =
+        Chester_paths.default_module_paths ~for_file:anchor opts.module_paths
+      in
+      let repo_root =
+        match Chester_paths.repo_root_from_file anchor with
+        | Some root -> root
+        | None -> anchor
+      in
+      let path =
+        match opts.go_sigs_path with
+        | Some p -> Chester_paths.resolve_input ~search_paths p
+        | None -> Go_signatures.default_path repo_root
+      in
+      let sigs = Go_signatures.load path in
+      print_endline
+        (Printf.sprintf "Loaded %d functions from %s: %s"
+           (Go_signatures.function_count sigs) path
+           (Go_signatures.summary sigs));
+      exit 0
   | [] when not opts.runtime_only ->
       usage ();
       exit 1
@@ -167,11 +200,36 @@ let () =
       let search_paths =
         Chester_paths.default_module_paths ~for_file:anchor opts.module_paths
       in
+      let repo_root =
+        match Chester_paths.repo_root_from_file anchor with
+        | Some root -> root
+        | None -> Sys.getcwd ()
+      in
       let resolve file = Chester_paths.resolve_input ~search_paths file in
       let resolved_files = List.map resolve files in
       let prelude_paths = List.map resolve opts.prelude_paths in
       List.iter (Chester_paths.ensure_exists "prelude file") prelude_paths;
       List.iter (Chester_paths.ensure_exists "input file") resolved_files;
+      (match opts.target with
+      | EmitGo ->
+          let go_sigs_path =
+            match opts.go_sigs_path with
+            | Some p -> Some (resolve p)
+            | None ->
+                let default = Go_signatures.default_path repo_root in
+                if Sys.file_exists default then Some default else None
+          in
+          (match go_sigs_path with
+          | Some path -> (
+              try
+                let sigs = Go_signatures.load path in
+                print_endline
+                  (Printf.sprintf "[go-sigs] %s (%s)"
+                     path (Go_signatures.summary sigs))
+              with Failure msg | Invalid_argument msg ->
+                print_endline ("Warning: go-sigs: " ^ msg))
+          | None -> ())
+      | _ -> ());
       let out_dir = "out" in
       if not (Sys.file_exists out_dir) then Sys.mkdir out_dir 0o755;
       let out_file =

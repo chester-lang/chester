@@ -64,18 +64,73 @@ Definition op_prec (op : string) : option nat :=
   else if string_dec op ">=" then Some 5
   else None.
 
-Fixpoint parse_infix_chain (elems : list CST) (span : Span) : option CST :=
+Definition parse_primary (elems : list CST) : option (CST * list CST) :=
   match elems with
+  | e :: rest => Some (e, rest)
   | [] => None
-  | [e] => Some e
-  | lhs :: Symbol op sp :: rest =>
-      match op_prec op, parse_infix_chain rest span with
-      | Some _, Some rhs =>
-          Some (AppCST (Symbol (op_to_fn op) sp) [lhs; rhs] span)
-      | _, _ => None
-      end
-  | _ => None
   end.
+
+Fixpoint parse_infix_loop (fuel : nat) (lhs : CST) (elems : list CST) (min_prec : nat)
+  (span : Span) : option (CST * list CST) :=
+  match fuel with
+  | 0 => Some (lhs, elems)
+  | S fuel' =>
+      match elems with
+      | Symbol op sp :: rest =>
+          match op_prec op with
+          | Some prec =>
+              if Nat.leb prec min_prec then Some (lhs, elems)
+              else
+                let rhs_min := Nat.add prec 1 in
+                match parse_infix_rhs fuel' rhs_min rest span with
+                | Some (rhs, rest2) =>
+                    let new_lhs :=
+                      AppCST (Symbol (op_to_fn op) sp) [lhs; rhs] span
+                    in
+                    parse_infix_loop fuel' new_lhs rest2 min_prec span
+                | None => Some (lhs, elems)
+                end
+          | None => Some (lhs, elems)
+          end
+      | _ => Some (lhs, elems)
+      end
+  end
+
+with parse_infix_rhs (fuel : nat) (min_prec : nat) (elems : list CST) (span : Span)
+  : option (CST * list CST) :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match parse_primary elems with
+      | Some (atom, rest) => parse_infix_loop fuel' atom rest min_prec span
+      | None => None
+      end
+  end.
+
+Definition infix_fuel (elems : list CST) : nat := Nat.add (length elems) 1.
+
+Definition parse_infix_chain (elems : list CST) (span : Span) : option CST :=
+  match parse_infix_rhs (infix_fuel elems) 0 elems span with
+  | Some (cst, _) => Some cst
+  | None => None
+  end.
+
+Definition has_infix_op (elems : list CST) : bool :=
+  existsb
+    (fun c =>
+       match c with
+       | Symbol op _ => match op_prec op with Some _ => true | None => false end
+       | _ => false
+       end)
+    elems.
+
+Definition try_parse_infix (elems : list CST) (span : Span) : option CST :=
+  if has_infix_op elems then
+    match parse_infix_chain elems span with
+    | Some cst => Some cst
+    | None => parse_infix_chain (collapse_apps elems) span
+    end
+  else None.
 
 Fixpoint extract_import_syms_from_block (stmts : list CST) : list string :=
   match stmts with
@@ -109,7 +164,7 @@ Fixpoint expand_if (elems : list CST) (span : Span) : option CST :=
   end.
 
 Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
-  match parse_infix_chain elems span with
+  match try_parse_infix elems span with
   | Some infix_cst => infix_cst
   | None =>
   let collapsed := collapse_apps elems in

@@ -94,7 +94,9 @@ let ts_runtime_file = ts_primitives ^ ts_effects_runtime
 
 let ts_test_preamble =
   ts_primitives
-  ^ "const int_add = prim__int_add;\n"
+  ^ "const int_add = prim__int_add;\n\
+   const int_mul = prim__int_mul;\n\
+   const int_sub = prim__int_sub;\n"
   ^ ts_effects_runtime
 
 let go_effects_preamble =
