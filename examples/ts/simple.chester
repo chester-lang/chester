@@ -1,7 +1,7 @@
 // Ported from chester2026draft/examples/ts/ts-simple.chester (add(40, 2)).
 
 def add(x: Integer, y: Integer): Integer = {
-  int_add(x, y)
+  x + y
 };
 
 def main(): Integer = {

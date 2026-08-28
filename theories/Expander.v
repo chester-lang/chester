@@ -40,6 +40,43 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
   end.
 Definition collapse_apps elems := collapse_apps_aux elems [].
 
+Definition op_to_fn (op : string) : string :=
+  if string_dec op "+" then "int_add"
+  else if string_dec op "-" then "int_sub"
+  else if string_dec op "*" then "int_mul"
+  else if string_dec op "/" then "int_div"
+  else if string_dec op "%" then "int_mod"
+  else if string_dec op "<" then "int_lt"
+  else if string_dec op ">" then "int_gt"
+  else if string_dec op "<=" then "int_le"
+  else if string_dec op ">=" then "int_ge"
+  else op.
+
+Definition op_prec (op : string) : option nat :=
+  if string_dec op "+" then Some 10
+  else if string_dec op "-" then Some 10
+  else if string_dec op "*" then Some 20
+  else if string_dec op "/" then Some 20
+  else if string_dec op "%" then Some 20
+  else if string_dec op "<" then Some 5
+  else if string_dec op ">" then Some 5
+  else if string_dec op "<=" then Some 5
+  else if string_dec op ">=" then Some 5
+  else None.
+
+Fixpoint parse_infix_chain (elems : list CST) (span : Span) : option CST :=
+  match elems with
+  | [] => None
+  | [e] => Some e
+  | lhs :: Symbol op sp :: rest =>
+      match op_prec op, parse_infix_chain rest span with
+      | Some _, Some rhs =>
+          Some (AppCST (Symbol (op_to_fn op) sp) [lhs; rhs] span)
+      | _, _ => None
+      end
+  | _ => None
+  end.
+
 Fixpoint extract_import_syms_from_block (stmts : list CST) : list string :=
   match stmts with
   | [] => []
@@ -72,6 +109,9 @@ Fixpoint expand_if (elems : list CST) (span : Span) : option CST :=
   end.
 
 Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
+  match parse_infix_chain elems span with
+  | Some infix_cst => infix_cst
+  | None =>
   let collapsed := collapse_apps elems in
   match expand_if collapsed span with
   | Some if_cst => if_cst
@@ -163,6 +203,7 @@ Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
             (methods_of_block h_stmts h_tail) span
       | _ => SeqOf collapsed span
       end
+  end
   end.
 
 Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=

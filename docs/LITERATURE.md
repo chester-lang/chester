@@ -54,4 +54,5 @@ Chester has basic dependent features (`Type` as a kind, indexed `enum`, `tests/d
 
 ## See also
 
+- [Getting Started](getting-started.md) — build, CLI, and first programs
 - [Universal Parsed Syntax](universal-syntax.md) — how UPS maps to `theories/CST.v` and `theories/Expander.v`
