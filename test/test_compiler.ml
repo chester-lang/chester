@@ -393,8 +393,8 @@ let%expect_test "example ts wordcount" =
 let%expect_test "cli prelude chains definitions" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
-  let prelude = Filename.concat root "test/fixtures/prelude_mini.chester" in
-  let src = Filename.concat root "test/fixtures/use_prelude_mini.chester" in
+  let prelude = Filename.concat root "tests/prelude_mini.chester" in
+  let src = Filename.concat root "tests/use_prelude_mini.chester" in
   let out = Filename.temp_file "chester_prelude_go" ".go" in
   let st =
     Sys.command

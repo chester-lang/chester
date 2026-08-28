@@ -170,12 +170,8 @@ let () =
       let resolve file = Chester_paths.resolve_input ~search_paths file in
       let resolved_files = List.map resolve files in
       let prelude_paths = List.map resolve opts.prelude_paths in
-      List.iter
-        (fun path ->
-          if not (Sys.file_exists path) then (
-            print_endline ("Error: prelude file not found: " ^ path);
-            exit 1))
-        prelude_paths;
+      List.iter (Chester_paths.ensure_exists "prelude file") prelude_paths;
+      List.iter (Chester_paths.ensure_exists "input file") resolved_files;
       let out_dir = "out" in
       if not (Sys.file_exists out_dir) then Sys.mkdir out_dir 0o755;
       let out_file =

@@ -40,16 +40,7 @@ let resolve_input ~search_paths filename =
     | None -> filename
   else filename
 
-let find_in_search_paths ~search_paths basename =
-  let rec find = function
-    | [] -> None
-    | dir :: rest ->
-        let path = Filename.concat dir basename in
-        if Sys.file_exists path then Some path else find rest
-  in
-  match find search_paths with
-  | Some path -> path
-  | None -> basename
-
-let default_prelude_path ~search_paths =
-  find_in_search_paths ~search_paths "stdlib/std.chester"
+let ensure_exists label path =
+  if not (Sys.file_exists path) then (
+    print_endline ("Error: " ^ label ^ " not found: " ^ path);
+    exit 1)

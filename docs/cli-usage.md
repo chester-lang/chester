@@ -39,9 +39,14 @@ current working directory.
 Example:
 
 ```bash
-export CHESTER_PATH="$PWD/stdlib:$PWD/examples"
-nix develop --command ./_build/default/bin/main.exe \
-  --module-path stdlib examples/go/simple.chester
+export CHESTER_PATH="$PWD/examples:$PWD/stdlib"
+nix develop --command ./_build/default/bin/main.exe go/simple.chester
+```
+
+Or pass an explicit path (repo root and cwd are searched automatically):
+
+```bash
+nix develop --command ./_build/default/bin/main.exe examples/go/simple.chester
 ```
 
 ### Prelude files
