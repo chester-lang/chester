@@ -444,10 +444,11 @@ let%expect_test "counter example vite build" =
   let st =
     Sys.command
       (Printf.sprintf
-         "cd %s && CHESTER_MAIN=%s bash examples/counter/build-chester.sh && \
+         "cd %s && CHESTER_MAIN=%s bash examples/counter/build-chester.sh > %s 2>&1 && \
           cd examples/counter && (test -d node_modules || npm install --silent) && \
-          npm run build:app > %s 2>&1"
-         (Filename.quote root) (Filename.quote main_bin) (Filename.quote out))
+          npm run build:app >> %s 2>&1"
+         (Filename.quote root) (Filename.quote main_bin) (Filename.quote out)
+         (Filename.quote out))
   in
   let msg = read_file out in
   Sys.remove out;
