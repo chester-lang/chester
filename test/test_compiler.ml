@@ -59,6 +59,20 @@ let compile_fixture_ast filename =
   | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
   | Inl ((ast, _), _) -> ast
 
+let list_selfhosted_sources () =
+  let dir = fixture_path "self-hosted" in
+  Sys.readdir dir |> Array.to_list
+  |> List.filter (fun f -> Filename.check_suffix f ".chester")
+  |> List.sort compare
+
+let check_selfhosted_sources () =
+  List.iter
+    (fun filename ->
+      let path = Filename.concat "self-hosted" filename in
+      compile_fixture_ast path |> ignore;
+      print_endline (path ^ " ok"))
+    (list_selfhosted_sources ())
+
 let run_fixture_main filename =
   let ast = compile_fixture_ast filename in
   let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
@@ -211,6 +225,28 @@ let%expect_test "format comments from parser cst" =
     };
     |}]
 
+let%expect_test "format nested match blocks without arm semicolons" =
+  check_format
+    "def f(x: Integer) = {\n\
+     match x {\n\
+     case A => {\n\
+     let y = 1;\n\
+     }\n\
+     case B => Unit\n\
+     }\n\
+     };\n";
+  [%expect
+    {|
+    def f(x: Integer) = {
+      match x {
+        case A => {
+          let y = 1;
+        }
+        case B => Unit
+      }
+    };
+    |}]
+
 let%expect_test "fixture macro hygiene" =
   check_fixture "tests/macro_hygiene.chester";
   [%expect {| tests/macro_hygiene.chester ok |}]
@@ -294,3 +330,15 @@ let%expect_test "runtime go effects evidence" =
 let%expect_test "runtime go effects rows" =
   run_fixture_go "tests/effects_rows.chester";
   [%expect {| 15 |}]
+
+let%expect_test "self-hosted sources elaborate" =
+  check_selfhosted_sources ();
+  [%expect {|
+    self-hosted/ast.chester ok
+    self-hosted/cst.chester ok
+    self-hosted/elaborator.chester ok
+    self-hosted/expander.chester ok
+    self-hosted/formatter.chester ok
+    self-hosted/lexer.chester ok
+    self-hosted/parser.chester ok
+    |}]

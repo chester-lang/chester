@@ -81,15 +81,44 @@ Definition starts_with_let (stmt : CST) : bool :=
 Definition needs_semicolon (stmt : CST) : bool :=
   match stmt with
   | CommentCST _ _ => false
-  | _ => 
-      true
+  | _ => true
   end.
+
+Definition block_looks_like_match_cases (elements : list CST) : bool :=
+  existsb
+    (fun stmt =>
+       match stmt with
+       | SeqOf (Symbol "case"%string _ :: _) _ => true
+       | _ => false
+       end)
+    elements.
 
 Definition is_unit_tail (expr : CST) : bool :=
   match expr with
   | Symbol name span => string_eqb name "Unit" && span_is_empty span
   | _ => false
   end.
+
+Definition stmt_ends_with_match_block (stmt : CST) : bool :=
+  match stmt with
+  | SeqOf elements _ =>
+      match elements with
+      | Symbol "match"%string _ :: rest =>
+          match last_elem rest with
+          | Some (Block els _ _) => block_looks_like_match_cases els
+          | _ => false
+          end
+      | _ => false
+      end
+  | _ => false
+  end.
+
+Definition trailing_semicolon (stmt : CST) (rest : list CST) (tail : CST)
+  (in_match_block : bool) : string :=
+  if negb (needs_semicolon stmt) then ""
+  else
+    if (in_match_block && ends_with_block stmt) || stmt_ends_with_match_block stmt then ""
+    else ";".
 
 Definition stmt_from_seq (elements : list CST) : CST :=
   match elements with
@@ -194,24 +223,31 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | Block elements tail _ =>
           let next_indent := indent + 2 in
           let line_prefix := newline ++ gen_spaces next_indent in
-          let format_stmt_line stmt :=
-            match stmt with
-            | CommentCST text _ => [format_comment text]
-            | SeqOf elements _ =>
-                let (body, comments) := split_trailing_comments elements in
-                let body_cst := stmt_from_seq body in
-                let semi := if needs_semicolon body_cst then ";" else "" in
-                let body_lines :=
-                  match body with
-                  | [] => []
-                  | _ => [format_cst f next_indent body_cst ++ semi]
+          let in_match_block := block_looks_like_match_cases elements in
+          let fix format_stmt_lines (rest : list CST) : list string :=
+            match rest with
+            | [] => []
+            | stmt :: rest' =>
+                let lines :=
+                  match stmt with
+                  | CommentCST text _ => [format_comment text]
+                  | SeqOf elements _ =>
+                      let (body, comments) := split_trailing_comments elements in
+                      let body_cst := stmt_from_seq body in
+                      let semi := trailing_semicolon body_cst rest' tail in_match_block in
+                      let body_lines :=
+                        match body with
+                        | [] => []
+                        | _ => [format_cst f next_indent body_cst ++ semi]
+                        end in
+                      List.app body_lines (map format_comment_cst comments)
+                  | _ =>
+                      let semi := trailing_semicolon stmt rest' tail in_match_block in
+                      [format_cst f next_indent stmt ++ semi]
                   end in
-                List.app body_lines (map format_comment_cst comments)
-            | _ => 
-                let semi := if needs_semicolon stmt then ";" else "" in
-                [format_cst f next_indent stmt ++ semi]
+                List.app lines (format_stmt_lines rest')
             end in
-          let stmt_lines := List.concat (map format_stmt_line elements) in
+          let stmt_lines := format_stmt_lines elements in
           let tail_lines := if is_unit_tail tail then [] else [format_cst f next_indent tail] in
           let lines := List.app stmt_lines tail_lines in
           match lines with
@@ -263,24 +299,31 @@ Fixpoint format_program_body (fuel : nat) (indent : nat) (stmts : list CST) (tai
   match fuel with
   | 0 => "/* ERROR: formatter out of fuel */"
   | S f =>
-      let format_stmt_line stmt :=
-        match stmt with
-        | CommentCST text _ => [format_comment text]
-        | SeqOf elements _ =>
-            let (body, comments) := split_trailing_comments elements in
-            let body_cst := stmt_from_seq body in
-            let semi := if needs_semicolon body_cst then ";" else "" in
-            let body_lines :=
-              match body with
-              | [] => []
-              | _ => [format_cst f indent body_cst ++ semi]
+      let in_match_block := block_looks_like_match_cases stmts in
+      let fix format_stmt_lines (rest : list CST) : list string :=
+        match rest with
+        | [] => []
+        | stmt :: rest' =>
+            let lines :=
+              match stmt with
+              | CommentCST text _ => [format_comment text]
+              | SeqOf elements _ =>
+                  let (body, comments) := split_trailing_comments elements in
+                  let body_cst := stmt_from_seq body in
+                  let semi := trailing_semicolon body_cst rest' tail in_match_block in
+                  let body_lines :=
+                    match body with
+                    | [] => []
+                    | _ => [format_cst f indent body_cst ++ semi]
+                    end in
+                  List.app body_lines (map format_comment_cst comments)
+              | _ =>
+                  let semi := trailing_semicolon stmt rest' tail in_match_block in
+                  [format_cst f indent stmt ++ semi]
               end in
-            List.app body_lines (map format_comment_cst comments)
-        | _ => 
-            let semi := if needs_semicolon stmt then ";" else "" in
-            [format_cst f indent stmt ++ semi]
+            List.app lines (format_stmt_lines rest')
         end in
-      let stmt_lines := List.concat (map format_stmt_line stmts) in
+      let stmt_lines := format_stmt_lines stmts in
       let tail_lines := if is_unit_tail tail then [] else [format_cst f indent tail] in
       join_strings (newline ++ gen_spaces indent) (List.app stmt_lines tail_lines)
   end.

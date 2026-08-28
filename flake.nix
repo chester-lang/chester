@@ -53,7 +53,7 @@
               pkgs.ocamlPackages.alcotest
               pkgs.ocamlPackages.ppx_expect
               pkgs.ocamlPackages.ocamlformat
-              pkgs.nixfmt-rfc-style
+              pkgs.nixfmt
               pkgs.bun
               pkgs.go
             ];
@@ -66,7 +66,7 @@
         let
           pkgs = import nixpkgs { inherit system; };
           formatterPath = pkgs.lib.makeBinPath [
-            pkgs.nixfmt-rfc-style
+            pkgs.nixfmt
             pkgs.ocamlformat
             pkgs.ocamlPackages.dune_3
             pkgs.ocamlPackages.ocaml
