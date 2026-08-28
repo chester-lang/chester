@@ -1,0 +1,7 @@
+extern ts "react" {
+  def createElement(tag: String, props: Any, children: Any): Any;
+};
+
+def renderCount(count: Integer): Any = {
+  createElement("div", null, createElement("p", null, prim__int_to_string(count)))
+};

@@ -436,3 +436,21 @@ let%expect_test "bindgen react mini d.ts" =
     failwith ("bindgen mismatch:\n" ^ got ^ "\nexpected:\n" ^ expected);
   print_endline "bindgen ok";
   [%expect {| bindgen ok |}]
+
+let%expect_test "counter example vite build" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let out = Filename.temp_file "chester_counter_build" ".txt" in
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "cd %s && CHESTER_MAIN=%s bash examples/counter/build-chester.sh && \
+          cd examples/counter && (test -d node_modules || npm install --silent) && \
+          npm run build:app > %s 2>&1"
+         (Filename.quote root) (Filename.quote main_bin) (Filename.quote out))
+  in
+  let msg = read_file out in
+  Sys.remove out;
+  if st <> 0 then failwith ("counter example build failed:\n" ^ msg);
+  print_endline "counter build ok";
+  [%expect {| counter build ok |}]

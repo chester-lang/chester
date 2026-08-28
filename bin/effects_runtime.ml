@@ -1,5 +1,29 @@
 (* Shared effect runtimes for TS and Go backends (used by main + tests). *)
 
+let ts_primitives =
+  "const Unit = {};\n\
+   const prim__string_eq = (a, b) => a === b;\n\
+   const prim__list_length = (l) => l.length;\n\
+   const prim__int_eq = (a, b) => a === b;\n\
+   const prim__list_make = (len, f) => Array.from({length: len}, (_, i) => \
+   f(i));\n\
+   const prim__int_sub = (a, b) => a - b;\n\
+   const prim__list_get = (l, i) => l[i];\n\
+   const prim__int_add = (a, b) => a + b;\n\
+   const prim__int_lt = (a, b) => a < b;\n\
+   const prim__string_length = (s) => s.length;\n\
+   const prim__string_substring = (s, start, end) => s.substring(start, end);\n\
+   const prim__string_concat = (s1, s2) => s1 + s2;\n\
+   const prim__list_empty = () => [];\n\
+   const prim__int_mul = (a, b) => a * b;\n\
+   const prim__int_div = (a, b) => Math.floor(a / b);\n\
+   const prim__int_mod = (a, b) => ((a % b) + b) % b;\n\
+   const prim__int_gt = (a, b) => a > b;\n\
+   const prim__int_ge = (a, b) => a >= b;\n\
+   const prim__int_le = (a, b) => a <= b;\n\
+   const prim__int_neg = (a) => -a;\n\
+   const prim__int_to_string = (n) => String(n);\n"
+
 let ts_effects_runtime =
   "let __chester_caps = [];\n\
    const __chester_handle = (label, bodyFn, handlers) => {\n\
@@ -66,11 +90,11 @@ let ts_effects_runtime =
      return () => __chester_with_evidence(ev, bodyFn);\n\
    };\n"
 
+let ts_runtime_file = ts_primitives ^ ts_effects_runtime
+
 let ts_test_preamble =
-  "const Unit = {};\n\
-   const prim__string_eq = (a, b) => a === b;\n\
-   const prim__int_add = (a, b) => a + b;\n\
-   const int_add = prim__int_add;\n"
+  ts_primitives
+  ^ "const int_add = prim__int_add;\n"
   ^ ts_effects_runtime
 
 let go_effects_preamble =

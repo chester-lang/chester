@@ -9,29 +9,12 @@ let string_of_char_list chars =
 
 type emit_target = EmitTS | EmitGo | EmitRocq
 
+type ts_emit_mode =
+  | TsEmitScript
+  | TsEmitModule
+
 let preamble =
-  "const Unit = {};\n\
-   const prim__string_eq = (a, b) => a === b;\n\
-   const prim__list_length = (l) => l.length;\n\
-   const prim__int_eq = (a, b) => a === b;\n\
-   const prim__list_make = (len, f) => Array.from({length: len}, (_, i) => \
-   f(i));\n\
-   const prim__int_sub = (a, b) => a - b;\n\
-   const prim__list_get = (l, i) => l[i];\n\
-   const prim__int_add = (a, b) => a + b;\n\
-   const prim__int_lt = (a, b) => a < b;\n\
-   const prim__string_length = (s) => s.length;\n\
-   const prim__string_substring = (s, start, end) => s.substring(start, end);\n\
-   const prim__string_concat = (s1, s2) => s1 + s2;\n\
-   const prim__list_empty = () => [];\n\
-   const prim__int_mul = (a, b) => a * b;\n\
-   const prim__int_div = (a, b) => Math.floor(a / b);\n\
-   const prim__int_mod = (a, b) => ((a % b) + b) % b;\n\
-   const prim__int_gt = (a, b) => a > b;\n\
-   const prim__int_ge = (a, b) => a >= b;\n\
-   const prim__int_le = (a, b) => a <= b;\n\
-   const prim__int_neg = (a) => -a;\n\
-   const prim__int_to_string = (n) => String(n);\n"
+  ts_primitives
   ^ ts_effects_runtime
   ^ "const int_add = prim__int_add;\n\
    const int_eq = prim__int_eq;\n\
@@ -100,30 +83,54 @@ let process_file ~target filename oc state =
 
 let () =
   print_endline "Chester Bootstrapper";
-  let args = List.tl (Array.to_list Sys.argv) in
-  let target, files =
-    let rec split tgt acc = function
-      | [] -> (tgt, List.rev acc)
-      | "--go" :: rest -> split EmitGo acc rest
-      | "--rocq" :: rest -> split EmitRocq acc rest
-      | f :: rest -> split tgt (f :: acc) rest
-    in
-    split EmitTS [] args
+  let args = Array.to_list Sys.argv |> fun lst ->
+    match lst with
+    | _ :: rest -> rest
+    | [] -> []
+  in
+  let rec parse_opts target ts_mode out_file runtime_only acc = function
+    | [] -> (target, ts_mode, out_file, runtime_only, List.rev acc)
+    | "--go" :: rest -> parse_opts EmitGo ts_mode out_file runtime_only acc rest
+    | "--rocq" :: rest -> parse_opts EmitRocq ts_mode out_file runtime_only acc rest
+    | "--ts-module" :: rest -> parse_opts target TsEmitModule out_file runtime_only acc rest
+    | "--emit-ts-runtime" :: path :: rest ->
+        let dir = Filename.dirname path in
+        if dir <> "" && not (Sys.file_exists dir) then Sys.mkdir dir 0o755;
+        let oc = open_out path in
+        output_string oc ts_runtime_file;
+        close_out oc;
+        print_endline ("Wrote TypeScript runtime to " ^ path);
+        parse_opts target ts_mode out_file true acc rest
+    | ("-o" | "--output") :: path :: rest ->
+        parse_opts target ts_mode (Some path) runtime_only acc rest
+    | f :: rest -> parse_opts target ts_mode out_file runtime_only (f :: acc) rest
+  in
+  let target, ts_mode, out_file, runtime_only, files =
+    parse_opts EmitTS TsEmitScript None false [] args
   in
   match files with
-  | [] ->
+  | [] when not runtime_only ->
       print_endline
-        "Usage: main.exe [--go | --rocq] <file.chester> [file2.chester ...]"
+        "Usage: main.exe [--go | --rocq | --ts-module | --emit-ts-runtime PATH] \
+         [-o OUT] <file.chester> [file2.chester ...]";
+      exit 1
+  | [] -> exit 0
   | _ ->
       let out_dir = "out" in
       if not (Sys.file_exists out_dir) then Sys.mkdir out_dir 0o755;
       let out_file =
-        Filename.concat out_dir
-          (match target with
-          | EmitGo -> "compiler.go"
-          | EmitRocq -> "compiler.v"
-          | EmitTS -> "compiler.ts")
+        match out_file with
+        | Some path -> path
+        | None ->
+            Filename.concat out_dir
+              (match target with
+              | EmitGo -> "compiler.go"
+              | EmitRocq -> "compiler.v"
+              | EmitTS -> "compiler.ts")
       in
+      let out_dirname = Filename.dirname out_file in
+      if out_dirname <> "" && not (Sys.file_exists out_dirname) then
+        Sys.mkdir out_dirname 0o755;
       let oc = open_out out_file in
       (match target with
       | EmitGo ->
@@ -132,7 +139,8 @@ let () =
       | EmitRocq ->
           output_string oc rocq_effects_preamble;
           output_string oc "\n"
-      | EmitTS -> output_string oc preamble);
+      | EmitTS ->
+          if ts_mode = TsEmitScript then output_string oc preamble);
       let state = ref init_elab_state in
       List.iter (fun f -> state := process_file ~target f oc !state) files;
       if target = EmitGo then
