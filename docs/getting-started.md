@@ -88,6 +88,8 @@ live in `data/go-signatures.json` (ported from `chester2026draft`).
 
 ## Learn more
 
+- [CLI Usage](cli-usage.md) — flags, module paths, prelude files
+- [Statements & scoping](statements.md) — `let` vs `def`
 - [Universal Parsed Syntax](universal-syntax.md) — CST / expander / elaborator pipeline
 - [Literature](LITERATURE.md) — foundational papers
 - [AGENTS.md](../AGENTS.md) — language rules for contributors

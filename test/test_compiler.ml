@@ -386,6 +386,29 @@ let%expect_test "example ts greet" =
   run_fixture_main "examples/ts/greet.chester";
   [%expect {| Chester |}]
 
+let%expect_test "example ts wordcount" =
+  check_fixture "examples/ts/wordcount.chester";
+  [%expect {| examples/ts/wordcount.chester ok |}]
+
+let%expect_test "cli prelude chains definitions" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let prelude = Filename.concat root "test/fixtures/prelude_mini.chester" in
+  let src = Filename.concat root "test/fixtures/use_prelude_mini.chester" in
+  let out = Filename.temp_file "chester_prelude_go" ".go" in
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
+         (Filename.quote main_bin) (Filename.quote prelude) (Filename.quote out)
+         (Filename.quote src))
+  in
+  let code = read_file out in
+  Sys.remove out;
+  if st <> 0 then failwith "prelude compile failed";
+  print_endline (if has_substr code "int_add(forty(), 2)" then "prelude ok" else "prelude missing");
+  [%expect {| prelude ok |}]
+
 let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
   [%expect {|

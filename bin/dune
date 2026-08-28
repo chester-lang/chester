@@ -6,7 +6,7 @@
 (executable
  (name main)
  (libraries compiler_lib chester_frontend)
- (modules main))
+ (modules main chester_paths))
 
 (executable
  (name chester_fmt)

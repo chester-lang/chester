@@ -1,0 +1,14 @@
+// Ported from chester2026draft/examples/ts/ts-wordcount.chester.
+// Pure Chester data-processing sketch (countWords is a stub).
+
+def countWords(text: String): Integer = {
+  42
+};
+
+def processFile(filename: String): Integer = {
+  countWords("sample text content")
+};
+
+def main(): Integer = {
+  processFile("test.txt")
+}
