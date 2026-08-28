@@ -366,6 +366,14 @@ let%expect_test "runtime go effects state" =
   run_fixture_go "tests/effects_state.chester";
   [%expect {| 2 |}]
 
+let%expect_test "example go simple" =
+  check_fixture "examples/go/simple.chester";
+  [%expect {| examples/go/simple.chester ok |}]
+
+let%expect_test "example go hello" =
+  check_fixture "examples/go/hello.chester";
+  [%expect {| examples/go/hello.chester ok |}]
+
 let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
   [%expect {|

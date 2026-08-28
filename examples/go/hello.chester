@@ -1,0 +1,11 @@
+// Ported from chester2026draft/examples/go/go-greet.chester.
+// Draft used `import go "fmt"` and `go.fmt.Printf`. Current Chester accepts bare
+// `fmt.Println` field access (see stdlib/go/std.chester) but Go statement emit is
+// still limited; this example is compile-checked only.
+
+def greet(name: String) = {
+  fmt.Println(name);
+  ()
+};
+
+greet("Chester from Go FFI")

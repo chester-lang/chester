@@ -51,3 +51,7 @@ Chester has basic dependent features (`Type` as a kind, indexed `enum`, `tests/d
 
 - **"Two-Level Type Theory"** (Annenkov, Capriotti, Kraus, Sattler, 2017)
   - Local PDF: `../chester-references/two-level-type-theory-annenkov-2017.pdf`
+
+## See also
+
+- [Universal Parsed Syntax](universal-syntax.md) — how UPS maps to `theories/CST.v` and `theories/Expander.v`
