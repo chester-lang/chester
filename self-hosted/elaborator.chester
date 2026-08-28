@@ -58,7 +58,7 @@ def lookup_meta(id: Integer, subst: List(Pair)): OptionAST = {
       case MkPair(k, v) => {
         if int_eq(k, id) then OptionAST.SomeAST(v) else lookup_meta(id, advance(subst))
       };
-    }
+    };
   };
 };
 def equiv_ast(t1: AST, t2: AST): Bool = {
@@ -97,7 +97,7 @@ def fresh_meta(): AST = {
       put_elab_state(ElabState.MkElabState(env, int_add(next_var, 1), subst, exts, effects, active, pending));
       m
     };
-  }
+  };
 };
 def unify_list(fuel: Integer, l1: List(AST), l2: List(AST)): Unit = {
   if int_eq(l1.length(), 0) then () else {
@@ -105,7 +105,7 @@ def unify_list(fuel: Integer, l1: List(AST), l2: List(AST)): Unit = {
       unify(fuel, l1.get(0), l2.get(0));
       unify_list(fuel, advance(l1), advance(l2))
     };
-  }
+  };
 };
 def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
   if int_eq(fuel, 0) then () else {
@@ -130,11 +130,11 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
                           let new_subst = list_insert_first(subst, Pair.MkPair(m1, t2_whnf));
                           put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts, effects, active, pending))
                         };
-                      }
+                      };
                     };
-                  }
+                  };
                 };
-              }
+              };
             };
           };
           case _ => {
@@ -148,11 +148,11 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
                     let new_subst = list_insert_first(subst, Pair.MkPair(m1, t2_whnf));
                     put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts, effects, active, pending))
                   };
-                }
+                };
               };
-            }
+            };
           };
-        }
+        };
       };
       case AstApp(f1, a1) => {
         match t2_whnf {
@@ -171,9 +171,9 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
                     let new_subst = list_insert_first(subst, Pair.MkPair(m2, t1_whnf));
                     put_elab_state(ElabState.MkElabState(env, next_var, new_subst, exts, effects, active, pending))
                   };
-                }
+                };
               };
-            }
+            };
           };
           case _ => ()
         };
@@ -193,9 +193,9 @@ def unify(fuel: Integer, t1: AST, t2: AST): Unit = {
           case AstMeta(m2) => unify(int_sub(fuel, 1), t2_whnf, t1_whnf);
           case _ => ()
         };
-      }
+      };
     };
-  }
+  };
 };
 def list_nat_eq(l1: List(Integer), l2: List(Integer)): Bool = {
   if int_eq(l1.length(), 0) then {
@@ -206,7 +206,7 @@ def list_nat_eq(l1: List(Integer), l2: List(Integer)): Bool = {
       let y = l2.get(0);
       if int_eq(x, y) then list_nat_eq(advance(l1), advance(l2)) else false
     };
-  }
+  };
 };
 def lookup_type(name: String, ctx: List(Integer), env: List(Pair)): OptionAST = {
   if int_eq(env.length(), 0) then OptionAST.NoneAST() else {
@@ -220,11 +220,11 @@ def lookup_type(name: String, ctx: List(Integer), env: List(Pair)): OptionAST = 
             } else {
               lookup_type(name, ctx, advance(env))
             };
-          }
+          };
         };
-      }
+      };
     };
-  }
+  };
 };
 def resolve_hygiene(env: List(Pair), name: String, ctx: List(Integer)): Pair = {
   let res = lookup_type(name, ctx, env);
@@ -233,7 +233,7 @@ def resolve_hygiene(env: List(Pair), name: String, ctx: List(Integer)): Pair = {
     case NoneAST => {
       if int_eq(ctx.length(), 0) then Pair.MkPair(AST.AstError("Not found"), ctx) else resolve_hygiene(env, name, advance(ctx))
     };
-  }
+  };
 };
 def join_ctx(ls: List(Integer)): String = {
   if int_eq(ls.length(), 0) then "" else string_append(string_append("_", int_to_string(ls.get(0))), join_ctx(advance(ls)))
@@ -244,6 +244,22 @@ def mangle_name(n: String, ctx: List(Integer)): String = {
 def append_env(e1: List(Pair), e2: List(Pair)): List(Pair) = {
   if int_eq(e1.length(), 0) then e2 else list_insert_first(append_env(advance(e1), e2), e1.get(0))
 };
+def string_in_list(s: String, xs: List(String)): Bool = {
+  if int_eq(xs.length(), 0) then false else {
+    if string_eq(s, xs.get(0)) then true else string_in_list(s, advance(xs))
+  };
+};
+def effects_covered_by(needed: List(String), active: List(String)): Bool = {
+  if int_eq(needed.length(), 0) then true else {
+    if string_in_list(needed.get(0), active) then effects_covered_by(advance(needed), active) else false
+  };
+};
+def add_effect(e: String, es: List(String)): List(String) = {
+  if string_in_list(e, es) then es else list_insert_first(es, e)
+};
+def merge_effects(a: List(String), b: List(String)): List(String) = {
+  if int_eq(a.length(), 0) then b else merge_effects(advance(a), add_effect(a.get(0), b))
+};
 def extract_vars(args: List(CST)): List(String) = {
   if int_eq(args.length(), 0) then list_empty[String]() else {
     let a = args.get(0);
@@ -252,7 +268,7 @@ def extract_vars(args: List(CST)): List(String) = {
       case Symbol(s, sp) => list_insert_first(rest, s);
       case _ => rest
     };
-  }
+  };
 };
 def add_vars_to_env(env: List(Pair), vars: List(String), ctx: List(Integer)): List(Pair) = {
   if int_eq(vars.length(), 0) then env else {
@@ -275,9 +291,9 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
               case MkPair(restAst_exprs, restAst_ty) => {
                 Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
               };
-            }
+            };
           };
-        }
+        };
       };
       case AstRef(name) => {
         if string_eq(name, "Any") then {
@@ -289,7 +305,7 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
                 case MkPair(restAst_exprs, restAst_ty) => {
                   Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), AST.AstRef("Any"))
                 };
-              }
+              };
             };
           };
         } else {
@@ -304,9 +320,9 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
                 case MkPair(restAst_exprs, restAst_ty) => {
                   Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
                 };
-              }
+              };
             };
-          }
+          };
         };
       };
       case _ => {
@@ -321,11 +337,11 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
               case MkPair(restAst_exprs, restAst_ty) => {
                 Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
               };
-            }
+            };
           };
-        }
+        };
       };
-    }
+    };
   };
 };
 def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
@@ -344,9 +360,9 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
                 let let_node = AST.AstLet(mangle_name(name, span.context), vAst);
                 Pair.MkPair(list_insert_first(restAst, let_node), final_env)
               };
-            }
+            };
           };
-        }
+        };
       };
       case VarCST(name, value, next, span) => {
         let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
@@ -359,9 +375,9 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
                 let var_node = AST.AstVar(mangle_name(name, span.context), vAst);
                 Pair.MkPair(list_insert_first(restAst, var_node), final_env)
               };
-            }
+            };
           };
-        }
+        };
       };
       case AssignCST(name, value, span) => {
         let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
@@ -373,9 +389,9 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
                 let asg = AST.AstAssign(mangle_name(name, span.context), vAst);
                 Pair.MkPair(list_insert_first(restAst, asg), final_env)
               };
-            }
+            };
           };
-        }
+        };
       };
       case DefCST(name, tps, params, ret_ty, body, span) => {
         let tyAst_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
@@ -390,11 +406,11 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
                   case MkPair(restAst, final_env) => {
                     Pair.MkPair(list_insert_first(restAst, rAst), final_env)
                   };
-                }
+                };
               };
-            }
+            };
           };
-        }
+        };
       };
       case _ => {
         let res = elaborate(env, x, OptionAST.NoneAST());
@@ -405,11 +421,11 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
               case MkPair(restAst, final_env) => {
                 Pair.MkPair(list_insert_first(restAst, rAst), final_env)
               };
-            }
+            };
           };
-        }
+        };
       };
-    }
+    };
   };
 };
 def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
@@ -430,7 +446,7 @@ def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
                     case MkPair(tAst, tTy) => {
                       Pair.MkPair(list_insert_first(restAst, Pair.MkPair(pname, tAst)), list_insert_first(restEnvItems, Pair.MkPair(Pair.MkPair(pname, sp.context), tAst)))
                     };
-                  }
+                  };
                 };
                 case _ => rest_res
               };
@@ -438,9 +454,9 @@ def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
           };
           case _ => rest_res
         };
-      }
+      };
     };
-  }
+  };
 };
 def elab_check_targs(env: List(Pair), as_: List(CST)): List(AST) = {
   if int_eq(as_.length(), 0) then list_empty[AST]() else {
@@ -450,7 +466,7 @@ def elab_check_targs(env: List(Pair), as_: List(CST)): List(AST) = {
     match aAst_res {
       case MkPair(aAst_expr, aTy) => list_insert_first(rest, aAst_expr)
     };
-  }
+  };
 };
 def elab_variant(v: CST): Pair = {
   match v {
@@ -477,7 +493,8 @@ def elab_variant(v: CST): Pair = {
                           case MkPair(f_ast, f_ty) => list_insert_first(rest, f_ast)
                         };
                       };
-                    } in Pair.MkPair(vname, Pair.MkPair(elab_fields(inner_args), ret_ty))
+                    };
+                    in Pair.MkPair(vname, Pair.MkPair(elab_fields(inner_args), ret_ty))
                   };
                   case _ => Pair.MkPair("unknown", Pair.MkPair(list_empty[AST](), ret_ty))
                 };
@@ -546,7 +563,7 @@ def elab_cases(env: List(Pair), expected: OptionAST, cs: List(CST), expr_ty: AST
                 case MkElabState(new_e, new_nv, new_subst, new_exts, new_effects, new_active, new_pending) => {
                   put_elab_state(ElabState.MkElabState(new_e, new_nv, old_subst, new_exts, new_effects, new_active, new_pending))
                 };
-              }
+              };
             };
           };
           match body_ast_res {
@@ -555,14 +572,14 @@ def elab_cases(env: List(Pair), expected: OptionAST, cs: List(CST), expr_ty: AST
                 case MkPair(restAst, rTy) => {
                   Pair.MkPair(list_insert_first(restAst, Pair.MkPair(pat_ast_res, bAst)), bTy)
                 };
-              }
+              };
             };
           };
         } else rest_res
       };
       case _ => rest_res
     };
-  }
+  };
 };
 def elab_tuple_elems(env: List(Pair), es: List(CST)): Pair = {
   if int_eq(es.length(), 0) then Pair.MkPair(list_empty[AST](), AST.AstRef("Unit")) else {
@@ -575,9 +592,9 @@ def elab_tuple_elems(env: List(Pair), es: List(CST)): Pair = {
           case MkPair(restAst, restTy) => {
             Pair.MkPair(list_insert_first(restAst, eAst), AST.AstRef("Tuple"))
           };
-        }
+        };
       };
-    }
+    };
   };
 };
 def get_base_type(t: AST): AST = {
@@ -607,7 +624,7 @@ def lookup_ext_method(field: String, meths: List(ExtMethod)): String = {
       case MkExtMethod(n, full) => {
         if string_eq(n, field) then full else lookup_ext_method(field, advance(meths))
       };
-    }
+    };
   };
 };
 def find_ext_method(ty: AST, field: String, exts: List(ExtDecl)): String = {
@@ -621,9 +638,9 @@ def find_ext_method(ty: AST, field: String, exts: List(ExtDecl)): String = {
         } else {
           find_ext_method(ty, field, advance(exts))
         };
-      }
+      };
     };
-  }
+  };
 };
 def extract_ext_methods(meths: List(CST), ext_name: String): List(ExtMethod) = {
   if int_eq(meths.length(), 0) then list_empty[ExtMethod]() else {
@@ -636,7 +653,7 @@ def extract_ext_methods(meths: List(CST), ext_name: String): List(ExtMethod) = {
       };
       case _ => rest
     };
-  }
+  };
 };
 def elab_ext_methods(env: List(Pair), meths: List(CST), ext_name: String): List(AST) = {
   if int_eq(meths.length(), 0) then list_empty[AST]() else {
@@ -653,7 +670,7 @@ def elab_ext_methods(env: List(Pair), meths: List(CST), ext_name: String): List(
       };
       case _ => rest
     };
-  }
+  };
 };
 def zonk_list(fuel: Integer, l: List(AST)): List(AST) = {
   if int_eq(l.length(), 0) then list_empty[AST]() else {
@@ -674,7 +691,7 @@ def zonk(fuel: Integer, expr: AST): AST = {
               case SomeAST(v) => zonk(int_sub(fuel, 1), v);
               case NoneAST => expr
             };
-          }
+          };
         };
       };
       case AstApp(f, args) => AST.AstApp(zonk(int_sub(fuel, 1), f), zonk_list(int_sub(fuel, 1), args));
@@ -686,7 +703,7 @@ def zonk(fuel: Integer, expr: AST): AST = {
       case AstIf(c, t, e) => AST.AstIf(zonk(int_sub(fuel, 1), c), zonk(int_sub(fuel, 1), t), zonk(int_sub(fuel, 1), e));
       case _ => expr
     };
-  }
+  };
 };
 def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
   match expr {
@@ -704,9 +721,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                 };
                 case NoneAST => Pair.MkPair(AST.AstRef(mangle_name(name, resolved_ctx)), ty)
               };
-            }
+            };
           };
-        }
+        };
       };
     };
     case StringLiteral(s, span) => {
@@ -741,9 +758,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                 };
                 Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
               };
-            }
+            };
           };
-        }
+        };
       };
     };
     case Block(stmts, tail, span) => {
@@ -755,9 +772,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
             case MkPair(rAst, rTy) => {
               Pair.MkPair(AST.AstBlock(stmtsAst, rAst), rTy)
             };
-          }
+          };
         };
-      }
+      };
     };
     case LetCST(name, value, next, span) => {
       let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
@@ -770,9 +787,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               let stmts = list_insert_first(list_empty[AST](), AST.AstLet(mangle_name(name, span.context), vAst));
               Pair.MkPair(AST.AstBlock(stmts, bAst), bTy)
             };
-          }
+          };
         };
-      }
+      };
     };
     case VarCST(name, value, next, span) => {
       let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
@@ -785,27 +802,61 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               let stmts = list_insert_first(list_empty[AST](), AST.AstVar(mangle_name(name, span.context), vAst));
               Pair.MkPair(AST.AstBlock(stmts, bAst), bTy)
             };
-          }
+          };
         };
-      }
+      };
     };
     case AssignCST(name, value, span) => {
       let valueAst_res = elaborate(env, value, OptionAST.NoneAST());
       match valueAst_res {
         case MkPair(vAst, vTy) => Pair.MkPair(AST.AstAssign(mangle_name(name, span.context), vAst), AST.AstRef("Unit"))
-      }
+      };
     };
     case BoxCST(inner, span) => {
-      let inner_res = elaborate(env, inner, OptionAST.NoneAST());
-      match inner_res {
-        case MkPair(iAst, iTy) => Pair.MkPair(AST.AstBox(iAst, list_empty[String]()), iTy)
-      }
+      let s0 = get_elab_state();
+      match s0 {
+        case MkElabState(e0, nv0, sub0, ex0, ef0, act0, pend0) => {
+          put_elab_state(ElabState.MkElabState(e0, nv0, sub0, ex0, ef0, act0, list_empty[String]()));
+          let inner_res = elaborate(env, inner, OptionAST.NoneAST());
+          match inner_res {
+            case MkPair(iAst, innerTy) => {
+              let s1 = get_elab_state();
+              match s1 {
+                case MkElabState(e1, nv1, sub1, ex1, ef1, act1, caps) => {
+                  put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act1, pend0));
+                  let ty_effs = if effects_covered_by(caps, act1) then list_empty[String]() else caps;
+                  let box_ty = AST.AstPi("x", AST.AstRef("Unit"), innerTy, ty_effs);
+                  Pair.MkPair(AST.AstBox(iAst, caps), box_ty)
+                };
+              };
+            };
+          };
+        };
+      };
     };
     case UnboxCST(inner, span) => {
       let inner_res = elaborate(env, inner, OptionAST.NoneAST());
       match inner_res {
-        case MkPair(iAst, iTy) => Pair.MkPair(AST.AstUnbox(iAst), iTy)
-      }
+        case MkPair(iAst, iTy) => {
+          let caps = match iTy {
+            case AstPi(_, _, _, effs) => effs;
+            case AstFunTy(_, _, _, effs) => effs;
+            case _ => list_empty[String]()
+          };
+          let s = get_elab_state();
+          match s {
+            case MkElabState(e, nv, sub, ex, ef, act, pending) => {
+              put_elab_state(ElabState.MkElabState(e, nv, sub, ex, ef, act, merge_effects(pending, caps)));
+              let ret_ty = match iTy {
+                case AstPi(_, _, ret_ty, _) => ret_ty;
+                case AstFunTy(_, _, ret_ty, _) => ret_ty;
+                case _ => iTy
+              };
+              Pair.MkPair(AST.AstUnbox(iAst), ret_ty)
+            };
+          };
+        };
+      };
     };
     case IfCST(cond, thenB, elseB, span) => {
       let condAst_res = elaborate(env, cond, OptionAST.NoneAST());
@@ -819,11 +870,11 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                 case MkPair(eAst, eTy) => {
                   Pair.MkPair(AST.AstIf(cAst, tAst, eAst), tTy)
                 };
-              }
+              };
             };
-          }
+          };
         };
-      }
+      };
     };
     case DefCST(name, type_params, params, ret_ty, body, span) => {
       let params_res = elab_map_params(env, params);
@@ -839,11 +890,11 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                   let fun_ty = AST.AstFunTy(type_params, paramsAst, rAst, list_empty[String]());
                   Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst), fun_ty)
                 };
-              }
+              };
             };
-          }
+          };
         };
-      }
+      };
     };
     case LamCST(arg_name, opt_arg_ty, body, span) => {
       let argTyAst_res = match opt_arg_ty {
@@ -862,9 +913,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               let arrTy = AST.AstPi(arg_name, argTyAst, bTy, list_empty[String]());
               Pair.MkPair(AST.AstLam(mangle_name(arg_name, span.context), argTyAst, bAst), arrTy)
             };
-          }
+          };
         };
-      }
+      };
     };
     case AppCST(func, args, span) => {
       match func {
@@ -886,7 +937,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                 let new_cst = AppCST(Symbol(full_name, fsp), list_insert_first(args, expr), span);
                 elaborate(env, new_cst, expected)
               };
-            }
+            };
           };
         };
         case ImplicitAppCST(inner_func, targs, tspan) => {
@@ -908,9 +959,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                   };
                   Pair.MkPair(AST.AstApp(typed_fAst, argsAst), argsTy)
                 };
-              }
+              };
             };
-          }
+          };
         };
         case _ => {
           let funcAst_res = elaborate(env, func, OptionAST.NoneAST());
@@ -925,11 +976,11 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                   };
                   Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
                 };
-              }
+              };
             };
-          }
+          };
         };
-      }
+      };
     };
     case ImplicitAppCST(func, targs, span) => {
       // Standalone implicit application f[A,B] — used in type position only
@@ -939,7 +990,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
           let targsAst_res = elab_check_targs(env, targs);
           Pair.MkPair(AST.AstImplicitApp(fAst, targsAst_res), AST.AstRef("TypeUniverse"))
         };
-      }
+      };
     };
     case EnumCST(name, type_params, variants, span) => {
       let vs = elab_variants(variants);
@@ -954,9 +1005,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
             case MkPair(cAsts, cTy) => {
               Pair.MkPair(AST.AstMatch(eAst, cAsts), cTy)
             };
-          }
+          };
         };
-      }
+      };
     };
     case Tuple(elems, span) => {
       let res = elab_tuple_elems(env, elems);
@@ -992,9 +1043,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               let meths_res = elab_ext_methods(env, meths, ext_name);
               Pair.MkPair(AST.AstExtension(ext_name, tparams, tAst, meths_res), AST.AstRef("Unit"))
             };
-          }
+          };
         };
-      }
+      };
     };
     case Error(msg, span) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
     case Comment(msg, span) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
@@ -1009,7 +1060,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               let ret_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("Type")));
               match ret_res {
                 case MkPair(r_ast, _) => list_insert_first(rest, EffectOp.MkEffectOp(op, list_empty[AST](), r_ast))
-              }
+              };
             };
             case SeqOf(elems, sp) => {
               if int_lt(elems.length(), 2) then rest else {
@@ -1018,35 +1069,35 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                     if string_eq(kw, "def") then {
                       match elems.get(1) {
                         case Symbol(op, _) => {
-                          let ret_ty = if int_lt(elems.length(), 4) then CST.Symbol("Any", Span(0,0,list_empty[Integer]())) else elems.get(int_sub(elems.length(), 1));
+                          let ret_ty = if int_lt(elems.length(), 4) then CST.Symbol("Any", Span(0, 0, list_empty[Integer]())) else elems.get(int_sub(elems.length(), 1));
                           let ret_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("Type")));
                           match ret_res {
                             case MkPair(r_ast, _) => list_insert_first(rest, EffectOp.MkEffectOp(op, list_empty[AST](), r_ast))
-                          }
+                          };
                         };
                         case AppCST(f, args, _) => {
                           match f {
                             case Symbol(op, _) => {
-                              let ret_ty = if int_lt(elems.length(), 3) then CST.Symbol("Any", Span(0,0,list_empty[Integer]())) else elems.get(int_sub(elems.length(), 1));
+                              let ret_ty = if int_lt(elems.length(), 3) then CST.Symbol("Any", Span(0, 0, list_empty[Integer]())) else elems.get(int_sub(elems.length(), 1));
                               let ret_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("Type")));
                               match ret_res {
                                 case MkPair(r_ast, _) => list_insert_first(rest, EffectOp.MkEffectOp(op, list_empty[AST](), r_ast))
-                              }
+                              };
                             };
                             case _ => rest
-                          }
+                          };
                         };
                         case _ => rest
-                      }
+                      };
                     } else rest
                   };
                   case _ => rest
-                }
-              }
+                };
+              };
             };
             case _ => rest
-          }
-        }
+          };
+        };
       };
       let ops = elab_ops(decls);
       let s = get_elab_state();
@@ -1054,8 +1105,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
         case MkElabState(e, next_var, subst, exts, effects, active, pending) => {
           put_elab_state(ElabState.MkElabState(e, next_var, subst, exts, list_insert_first(effects, EffectDecl.MkEffectDecl(name, ops)), active, pending));
           Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"))
-        }
-      }
+        };
+      };
     };
     case DoCST(op, args, span) => {
       let op_name = match op {
@@ -1067,8 +1118,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
           let f0_res = elaborate(env, fs.get(0), OptionAST.NoneAST());
           match f0_res {
             case MkPair(f_ast, _) => list_insert_first(elab_args(advance(fs)), f_ast)
-          }
-        }
+          };
+        };
       };
       let s = get_elab_state();
       match s {
@@ -1082,25 +1133,25 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                       match os.get(0) {
                         case MkEffectOp(n, arg_tys, ret_ty) => {
                           if string_eq(n, op_name) then Pair.MkPair(eff, ret_ty) else find_in_ops(advance(os))
-                        }
-                      }
-                    }
+                        };
+                      };
+                    };
                   };
                   find_in_ops(ops)
-                }
-              }
-            }
+                };
+              };
+            };
           };
           match find_op(effects) {
             case MkPair(eff, ret_ty) => {
               if string_eq(eff, "") then Pair.MkPair(AST.AstError(string_concat("Unknown effect operation: ", op_name)), AST.AstRef("Any")) else {
                 put_elab_state(ElabState.MkElabState(e, next_var, subst, exts, effects, active, list_insert_first(pending, eff)));
                 Pair.MkPair(AST.AstDo(AST.AstRef(op_name), elab_args(args)), ret_ty)
-              }
-            }
-          }
-        }
-      }
+              };
+            };
+          };
+        };
+      };
     };
     case HandleCST(body, eff, handlers, span) => {
       let s0 = get_elab_state();
@@ -1116,7 +1167,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                   let p = ps.get(0);
                   let rest = filter_pending(advance(ps));
                   if string_eq(p, eff) then rest else list_insert_first(rest, p)
-                }
+                };
               };
               let fix merge_pending(a: List(String), b: List(String)): List(String) = {
                 if int_eq(a.length(), 0) then b else merge_pending(advance(a), list_insert_first(b, a.get(0)))
@@ -1137,8 +1188,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                                   match as_.get(0) {
                                     case Symbol(bn, _) => add_binders(advance(as_), list_insert_first(e0, Pair.MkPair(Pair.MkPair(bn, list_empty[Integer]()), AST.AstRef("Any"))));
                                     case _ => add_binders(advance(as_), e0)
-                                  }
-                                }
+                                  };
+                                };
                               };
                               let henv2 = add_binders(args, henv);
                               let h_elab = elaborate(henv2, body_c, OptionAST.NoneAST());
@@ -1149,15 +1200,15 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                                       match bs.get(0) {
                                         case Symbol(bn, _) => AST.AstLam(bn, AST.AstRef("Any"), wrap(advance(bs), body_ast));
                                         case _ => wrap(advance(bs), body_ast)
-                                      }
-                                    }
+                                      };
+                                    };
                                   };
                                   Pair.MkPair(op, wrap(args, h_ast))
-                                }
-                              }
+                                };
+                              };
                             };
                             case _ => Pair.MkPair("", AST.AstRef("Unit"))
-                          }
+                          };
                         };
                         case Symbol(op, _) => {
                           let body_c = elems.get(int_sub(elems.length(), 1));
@@ -1165,14 +1216,14 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                           let h_elab = elaborate(henv, body_c, OptionAST.NoneAST());
                           match h_elab {
                             case MkPair(h_ast, _) => Pair.MkPair(op, AST.AstLam("resume", AST.AstRef("Any"), h_ast))
-                          }
+                          };
                         };
                         case _ => Pair.MkPair("", AST.AstRef("Unit"))
-                      }
-                    }
+                      };
+                    };
                   };
                   case _ => Pair.MkPair("", AST.AstRef("Unit"))
-                }
+                };
               };
               let fix elab_hs(hs: List(CST)): List(Pair) = {
                 if int_eq(hs.length(), 0) then list_empty[Pair]() else {
@@ -1180,19 +1231,30 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                     case MkPair(op, fn) => {
                       let rest = elab_hs(advance(hs));
                       if string_eq(op, "") then rest else list_insert_first(rest, Pair.MkPair(op, fn))
-                    }
-                  }
-                }
+                    };
+                  };
+                };
               };
               match body_elab {
                 case MkPair(body_ast, body_ty) => Pair.MkPair(AST.AstHandle(body_ast, eff, elab_hs(handlers)), body_ty)
-              }
-            }
-          }
-        }
-      }
+              };
+            };
+          };
+        };
+      };
     };
-
     case _ => Pair.MkPair(AST.AstError("Unsupported CST in self-hosted elaborator"), AST.AstRef("Any"))
   };
-}
+};
+def check_pending(ps: List(String), res: Pair): Pair = {
+  if int_eq(ps.length(), 0) then res else {
+    Pair.MkPair(AST.AstError(string_concat("Unhandled effect: ", ps.get(0))), AST.AstRef("Any"))
+  };
+};
+def elaborate_top(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
+  let res = elaborate(env, expr, expected);
+  let s = get_elab_state();
+  match s {
+    case MkElabState(e, nv, sub, ex, ef, act, pending) => check_pending(pending, res)
+  };
+};
