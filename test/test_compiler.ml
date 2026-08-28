@@ -390,6 +390,14 @@ let%expect_test "example ts wordcount" =
   check_fixture "examples/ts/wordcount.chester";
   [%expect {| examples/ts/wordcount.chester ok |}]
 
+let%expect_test "example go wordcount" =
+  check_fixture "examples/go/wordcount.chester";
+  [%expect {| examples/go/wordcount.chester ok |}]
+
+let%expect_test "stdlib elaborates" =
+  check_fixture "stdlib/std.chester";
+  [%expect {| stdlib/std.chester ok |}]
+
 let%expect_test "cli prelude chains definitions" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in

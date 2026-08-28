@@ -614,6 +614,9 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                         end
                     | _ => stmt
                     end
+                else if orb (eqb kwd "infixl") (eqb kwd "infixr") then
+                    (* Builtin operators are handled in parse_infix_chain; drop decls. *)
+                    CommentCST "__skip_infix__" s
                 else
                     (* Assignment: name = expr (not a reserved keyword). *)
                     let is_kw := orb (eqb kwd "let") (orb (eqb kwd "var") (orb (eqb kwd "def")
@@ -634,7 +637,11 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
             | Error msg span => Error msg span
             | _ => stmt
             end in
-            processed_stmt :: process_stmts f2' rest
+            let rest_processed := process_stmts f2' rest in
+            match processed_stmt with
+            | CommentCST "__skip_infix__" _ => rest_processed
+            | _ => processed_stmt :: rest_processed
+            end
         end
         end
       in
