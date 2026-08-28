@@ -1,0 +1,13 @@
+// Ported from chester2026draft/examples/ts/ts-greet.chester.
+
+extern ts "node:console" {
+  def log(msg: String): Any;
+};
+
+def greet(name: String): Any = {
+  log(name)
+};
+
+def main(): Any = {
+  greet("Chester")
+}

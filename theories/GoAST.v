@@ -74,7 +74,7 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
       end
   | GoStruct name => "type " ++ name ++ " struct{}; "
   | GoEmpty => ""
-  | GoBlock stmts => concat_strings " " (map_go_stmt stmts)
+  | GoBlock stmts => concat_strings (String (ascii_of_nat 10) "") (map_go_stmt stmts)
   | GoImport mod => "import " ++ go_quote ++ mod ++ go_quote ++ "; "
   end
 

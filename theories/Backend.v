@@ -58,6 +58,14 @@ Definition go_direct_call (name : string) : bool :=
   else if starts_with "__chester_" name then true
   else false.
 
+(* Package selectors (fmt.Println) and direct builtins call without interface{} asserts. *)
+Definition go_app_direct (func : AST) : bool :=
+  match func with
+  | AstRef name => if string_dec name "resume" then false else true
+  | AstFieldAccess _ _ => true
+  | _ => false
+  end.
+
 (* Interface{} values (e.g. resume) need a type assert before calling. *)
 Definition go_call_emitted (direct : bool) (callee : GoExpr) (args : list GoExpr) : GoExpr :=
   if direct then GoCall callee args
@@ -468,7 +476,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
         end
       in GoCall (GoFuncLiteral [] (map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)])) []
   | AstApp func args =>
-      let direct := match func with AstRef n => go_direct_call n | _ => false end in
+      let direct := go_app_direct func in
       go_call_emitted direct (emit_go_expr func) (map_go_expr args)
   | AstImplicitApp func _args => emit_go_expr func  (* type args erased *)
   | AstFunTy _tparams _params _ret_ty _effs => GoIdentifier "interface{}"
@@ -567,7 +575,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] (map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)])) [])
   | AstApp func args =>
-      let direct := match func with AstRef n => go_direct_call n | _ => false end in
+      let direct := go_app_direct func in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
@@ -682,7 +690,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
   | AstStringLit s => [GoReturn (GoStringLiteral s)]
   | AstIntLit n => [GoReturn (GoIntLiteral (nat_to_string n))]
   | AstApp func args =>
-      let direct := match func with AstRef n => go_direct_call n | _ => false end in
+      let direct := go_app_direct func in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []

@@ -1,9 +1,8 @@
 // Ported from chester2026draft/examples/go/go-simple.chester (add(40, 2)).
-// Exercises def, application, and infix + through the full compiler pipeline.
-// For a working Go runtime test, see tests/effects.chester (run_fixture_go).
+// Uses int_add because infix + desugaring lives in self-hosted expander only.
 
 def add(x: Integer, y: Integer): Integer = {
-  x + y
+  int_add(x, y)
 };
 
 def main(): Integer = {

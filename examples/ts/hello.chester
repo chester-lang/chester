@@ -1,0 +1,10 @@
+// Ported from chester2026draft/examples/ts/ts-hello.chester.
+// Draft used `import console "node:console"`; current Chester uses extern ts.
+
+extern ts "node:console" {
+  def log(msg: String): Any;
+};
+
+def main(): Any = {
+  log("Hello from Chester on Node!")
+}

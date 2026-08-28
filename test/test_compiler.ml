@@ -367,12 +367,24 @@ let%expect_test "runtime go effects state" =
   [%expect {| 2 |}]
 
 let%expect_test "example go simple" =
-  check_fixture "examples/go/simple.chester";
-  [%expect {| examples/go/simple.chester ok |}]
+  run_fixture_go "examples/go/simple.chester";
+  [%expect {| 42 |}]
 
 let%expect_test "example go hello" =
-  check_fixture "examples/go/hello.chester";
-  [%expect {| examples/go/hello.chester ok |}]
+  run_fixture_go "examples/go/hello.chester";
+  [%expect {| Hello from Chester with Go FFI |}]
+
+let%expect_test "example ts simple" =
+  run_fixture_main "examples/ts/simple.chester";
+  [%expect {| 42 |}]
+
+let%expect_test "example ts hello" =
+  run_fixture_main "examples/ts/hello.chester";
+  [%expect {| Hello from Chester on Node! |}]
+
+let%expect_test "example ts greet" =
+  run_fixture_main "examples/ts/greet.chester";
+  [%expect {| Chester |}]
 
 let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
