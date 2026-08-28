@@ -412,3 +412,27 @@ let%expect_test "react mini tsc smoke" =
   let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) in
   check_ts_typecheck ts_code;
   [%expect {| tsc ok |}]
+
+let%expect_test "bindgen react mini d.ts" =
+  let root = repo_root (Sys.getcwd ()) in
+  let scripts_dir = Filename.concat root "scripts" in
+  let fixture = Filename.concat root "test/bindgen/fixtures/react_mini.d.ts" in
+  let expected_path = Filename.concat root "test/bindgen/expected/react_mini.chester" in
+  let out = Filename.temp_file "chester_bg" ".chester" in
+  let script = Filename.concat root "scripts/dts2chester.mjs" in
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "cd %s && (test -d node_modules || npm install --silent) && node %s \
+          --package react --input %s --output %s --filter 'createElement|cloneElement'"
+         (Filename.quote scripts_dir) (Filename.quote script) (Filename.quote fixture)
+         (Filename.quote out))
+  in
+  if st <> 0 then failwith "bindgen failed";
+  let got = read_file out in
+  let expected = read_file expected_path in
+  Sys.remove out;
+  if got <> expected then
+    failwith ("bindgen mismatch:\n" ^ got ^ "\nexpected:\n" ^ expected);
+  print_endline "bindgen ok";
+  [%expect {| bindgen ok |}]

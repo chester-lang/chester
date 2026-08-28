@@ -1,0 +1,4 @@
+extern ts "react" {
+  def createElement(type: String, props: Any, children: List(Any)): Any;
+  def cloneElement(element: Any, props: Any, children: List(Any)): Any;
+};

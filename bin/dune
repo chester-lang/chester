@@ -12,3 +12,7 @@
  (name chester_fmt)
  (libraries compiler_lib chester_frontend)
  (modules chester_fmt))
+
+(executable
+ (name chester_bindgen)
+ (modules chester_bindgen))

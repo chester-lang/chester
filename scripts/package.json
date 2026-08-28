@@ -1,0 +1,8 @@
+{
+  "name": "chester-bindgen-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "typescript": "^5.7.0"
+  }
+}
