@@ -50,35 +50,38 @@ let expect_type_error filename =
   | Inr (msg, _) -> print_endline (string_of_char_list msg)
   | Inl _ -> failwith ("expected type error for " ^ filename)
 
-let run_fixture_main filename =
+let compile_fixture_ast filename =
   let source = read_file (fixture_path filename) in
   let tokens = Lexer.tokenize filename source in
   let cst = parse tokens in
   let expanded_cst = expand_cst_top cst in
   match elaborate_top [] expanded_cst None init_elab_state with
   | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
-  | Inl ((ast, _), _) ->
-      let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
-      let js = ts_test_preamble ^ ts_code ^ "\n;console.log(main());" in
-      let tmp = Filename.temp_file "chester_fx" ".mjs" in
-      let out = Filename.temp_file "chester_fx_out" ".txt" in
-      let oc = open_out tmp in
-      output_string oc js;
-      close_out oc;
-      let st =
-        Sys.command
-          (Printf.sprintf "node %s > %s 2>&1" (Filename.quote tmp) (Filename.quote out))
-      in
-      let line =
-        let ic = open_in out in
-        let l = try input_line ic with End_of_file -> "" in
-        close_in ic;
-        l
-      in
-      Sys.remove tmp;
-      Sys.remove out;
-      if st <> 0 then failwith ("node failed: " ^ line);
-      print_endline line
+  | Inl ((ast, _), _) -> ast
+
+let run_fixture_main filename =
+  let ast = compile_fixture_ast filename in
+  let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
+  let js = ts_test_preamble ^ ts_code ^ "\n;console.log(main());" in
+  let tmp = Filename.temp_file "chester_fx" ".mjs" in
+  let out = Filename.temp_file "chester_fx_out" ".txt" in
+  let oc = open_out tmp in
+  output_string oc js;
+  close_out oc;
+  let st =
+    Sys.command
+      (Printf.sprintf "node %s > %s 2>&1" (Filename.quote tmp) (Filename.quote out))
+  in
+  let line =
+    let ic = open_in out in
+    let l = try input_line ic with End_of_file -> "" in
+    close_in ic;
+    l
+  in
+  Sys.remove tmp;
+  Sys.remove out;
+  if st <> 0 then failwith ("node failed: " ^ line);
+  print_endline line
 
 let has_substr hay needle =
   let n = String.length needle in
@@ -109,6 +112,33 @@ let assemble_go_program ast =
     rename_chester_main (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
   in
   go_effects_preamble ^ "\n" ^ body ^ "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n"
+
+let run_fixture_go filename =
+  let ast = compile_fixture_ast filename in
+  let dir = Filename.temp_file "chester_go" "" in
+  Sys.remove dir;
+  Sys.mkdir dir 0o755;
+  let path = Filename.concat dir "main.go" in
+  let oc = open_out path in
+  output_string oc (assemble_go_program ast);
+  close_out oc;
+  let out = Filename.temp_file "chester_go_out" ".txt" in
+  let st =
+    Sys.command
+      (Printf.sprintf "cd %s && go run main.go > %s 2>&1" (Filename.quote dir)
+         (Filename.quote out))
+  in
+  let output = read_file out in
+  Sys.remove out;
+  let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+  if st <> 0 then failwith ("go failed:\n" ^ output);
+  let line =
+    try
+      let idx = String.index output '\n' in
+      String.sub output 0 idx
+    with Not_found -> output
+  in
+  print_endline line
 
 let format_source source =
   let tokens = Lexer.tokenize "test.chester" source in
@@ -238,59 +268,29 @@ let%expect_test "unbox without handler is rejected" =
   [%expect {| Unhandled effect: State |}]
 
 let%expect_test "go emit effects handle" =
-  let source = read_file (fixture_path "tests/effects.chester") in
-  let tokens = Lexer.tokenize "tests/effects.chester" source in
-  let cst = parse tokens in
-  let expanded_cst = expand_cst_top cst in
-  match elaborate_top [] expanded_cst None init_elab_state with
-  | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
-  | Inl ((ast, _), _) ->
-      let prog = assemble_go_program ast in
-      print_endline
-        (if has_substr prog "__chester_handle"
-            && has_substr prog "__chester_perform"
-            && has_substr prog "chester_main"
-            && has_substr prog "package main"
-            && has_substr prog "func main()"
-         then "go effects ok"
-         else "go effects missing");
-      [%expect {| go effects ok |}]
+  let prog = assemble_go_program (compile_fixture_ast "tests/effects.chester") in
+  print_endline
+    (if has_substr prog "__chester_handle"
+        && has_substr prog "__chester_perform"
+        && has_substr prog "chester_main"
+        && has_substr prog "package main"
+        && has_substr prog "func main()"
+     then "go effects ok"
+     else "go effects missing");
+  [%expect {| go effects ok |}]
 
-let%expect_test "go run effects when go available" =
-  let source = read_file (fixture_path "tests/effects.chester") in
-  let tokens = Lexer.tokenize "tests/effects.chester" source in
-  let cst = parse tokens in
-  let expanded_cst = expand_cst_top cst in
-  match elaborate_top [] expanded_cst None init_elab_state with
-  | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
-  | Inl ((ast, _), _) ->
-      if Sys.command "command -v go >/dev/null 2>&1" <> 0 then
-        print_endline "go skip"
-      else begin
-        let dir = Filename.temp_file "chester_go" "" in
-        Sys.remove dir;
-        Sys.mkdir dir 0o755;
-        let path = Filename.concat dir "main.go" in
-        let oc = open_out path in
-        output_string oc (assemble_go_program ast);
-        close_out oc;
-        let out = Filename.temp_file "chester_go_out" ".txt" in
-        let st =
-          Sys.command
-            (Printf.sprintf "cd %s && go run . > %s 2>&1"
-               (Filename.quote dir) (Filename.quote out))
-        in
-        let line =
-          let ic = open_in out in
-          let l = try input_line ic with End_of_file -> "" in
-          close_in ic;
-          l
-        in
-        Sys.remove out;
-        let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
-        if st <> 0 then print_endline ("go fail: " ^ line)
-        else print_endline line
-      end;
-      [%expect {|
-        go skip
-      |}]
+let%expect_test "runtime go effects" =
+  run_fixture_go "tests/effects.chester";
+  [%expect {| 42 |}]
+
+let%expect_test "runtime go effects multishot fork" =
+  run_fixture_go "tests/effects_multishot.chester";
+  [%expect {| 11 |}]
+
+let%expect_test "runtime go effects evidence" =
+  run_fixture_go "tests/effects_evidence.chester";
+  [%expect {| 7 |}]
+
+let%expect_test "runtime go effects rows" =
+  run_fixture_go "tests/effects_rows.chester";
+  [%expect {| 15 |}]

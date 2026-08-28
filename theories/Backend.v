@@ -74,6 +74,12 @@ Definition go_call_emitted (direct : bool) (callee : GoExpr) (args : list GoExpr
         in go (GoCall (GoTypeAssert callee "func(interface{}) interface{}") [a]) rest
     end.
 
+Definition go_bool_cond (e : GoExpr) : GoExpr :=
+  match e with
+  | GoBoolLiteral _ => e
+  | _ => GoTypeAssert e "bool"
+  end.
+
 (* 
   TypeScript Backend
 *)
@@ -442,7 +448,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
          GoFuncLiteral [] [GoReturn (emit_go_expr e)]]
   | AstUnbox e =>
       go_call_emitted false (emit_go_expr e) []
-  | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) []
+  | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] [GoIfStmt (go_bool_cond (emit_go_expr cond)) (emit_go_block true_br) (emit_go_block false_br)]) []
   | AstDef name _ params _ body => GoCall (GoFuncLiteral [] [GoFuncDecl name (map fst params) (emit_go_block body)]) []
   | AstEnum _ _ _ => GoIdentifier "nil"
   | AstExtension _ _ _ _ => GoIdentifier "nil"
@@ -547,7 +553,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
         [GoArray (effect_label_go_lits caps);
          GoFuncLiteral [] [GoReturn (emit_go_expr e)]])
   | AstUnbox e => GoExprStmt (go_call_emitted false (emit_go_expr e) [])
-  | AstIf cond true_br false_br => GoExprStmt (GoCall (GoFuncLiteral [] [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]) [])
+  | AstIf cond true_br false_br => GoExprStmt (GoCall (GoFuncLiteral [] [GoIfStmt (go_bool_cond (emit_go_expr cond)) (emit_go_block true_br) (emit_go_block false_br)]) [])
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
         match cs with
@@ -585,7 +591,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
         | x :: xs => emit_go_stmt x :: map_go_stmt xs
         end
       in map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)]
-  | AstIf cond true_br false_br => [GoIfStmt (emit_go_expr cond) (emit_go_block true_br) (emit_go_block false_br)]
+  | AstIf cond true_br false_br => [GoIfStmt (go_bool_cond (emit_go_expr cond)) (emit_go_block true_br) (emit_go_block false_br)]
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
         match cs with

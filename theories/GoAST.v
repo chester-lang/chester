@@ -54,7 +54,7 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
   in
   match stmt with
   | GoExprStmt expr => stringify_go_expr expr ++ "; "
-  | GoLet name val => name ++ " := " ++ stringify_go_expr val ++ "; "
+  | GoLet name val => "var " ++ name ++ " interface{} = " ++ stringify_go_expr val ++ "; "
   | GoAssign name val => name ++ " = " ++ stringify_go_expr val ++ "; "
   | GoIfStmt cond thenB elseB =>
       let thenStr := concat_strings " " (map_go_stmt thenB) in
