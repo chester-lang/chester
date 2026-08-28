@@ -5,6 +5,8 @@ Require Import Chester.Parser.
 Require Import Chester.CoreChecker.
 Require Import Chester.Elaborator.
 Require Import Chester.Backend.
+Require Import Chester.RocqBackend.
+Require Import Chester.RocqAST.
 Require Import Chester.TypeScriptAST.
 Require Import Chester.GoAST.
 Require Import Chester.Formatter.
@@ -36,9 +38,12 @@ Extraction "Compiler.ml"
   Chester.Formatter.format_cst
   Chester.Formatter.format_program
   Chester.Backend.emit_ts 
-  Chester.Backend.emit_go
+  Chester.Backend.emit_go 
   Chester.Backend.emit_go_top
+  Chester.RocqBackend.emit_rocq
+  Chester.RocqBackend.emit_rocq_top
   Chester.TypeScriptInterop.ts_to_chester
   Chester.GoInterop.go_to_chester
   Chester.TypeScriptAST.stringify_ts_stmt
-  Chester.GoAST.stringify_go_stmt.
+  Chester.GoAST.stringify_go_stmt
+  Chester.RocqAST.stringify_rocq_stmt.

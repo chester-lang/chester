@@ -39,6 +39,9 @@ let check_fixture filename =
       let go_ast = emit_go ast in
       let go_code = string_of_char_list (stringify_go_stmt go_ast) in
       if go_code = "" then failwith "empty Go output";
+      let rocq_ast = emit_rocq_top ast in
+      let rocq_code = string_of_char_list (stringify_rocq_stmt rocq_ast) in
+      if rocq_code = "" then failwith "empty Rocq output";
       print_endline (filename ^ " ok")
 
 let expect_type_error filename =
@@ -314,6 +317,22 @@ let%expect_test "go emit effects handle" =
      then "go effects ok"
      else "go effects missing");
   [%expect {| go effects ok |}]
+
+let assemble_rocq_program ast =
+  rocq_effects_preamble ^ "\n"
+  ^ string_of_char_list (stringify_rocq_stmt (emit_rocq_top ast))
+  ^ "\nDefinition chester_run := chester_main.\n"
+
+let%expect_test "rocq emit effects handle" =
+  let prog = assemble_rocq_program (compile_fixture_ast "tests/effects.chester") in
+  print_endline
+    (if has_substr prog "__chester_handle"
+        && has_substr prog "__chester_perform"
+        && has_substr prog "chester_main"
+        && has_substr prog "chester_dyn"
+     then "rocq effects ok"
+     else "rocq effects missing");
+  [%expect {| rocq effects ok |}]
 
 let%expect_test "runtime go effects" =
   run_fixture_go "tests/effects.chester";

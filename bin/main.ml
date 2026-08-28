@@ -7,6 +7,8 @@ let string_of_char_list chars =
   List.iter (Buffer.add_char buf) chars;
   Buffer.contents buf
 
+type emit_target = EmitTS | EmitGo | EmitRocq
+
 let preamble =
   "const Unit = {};\n\
    const prim__string_eq = (a, b) => a === b;\n\
@@ -55,7 +57,7 @@ let rename_chester_main go_code =
       String.sub go_code 0 i ^ repl
       ^ String.sub go_code (i + n) (String.length go_code - i - n)
 
-let process_file ~target_go filename oc state =
+let process_file ~target filename oc state =
   let ch = open_in filename in
   let len = in_channel_length ch in
   let buf = Bytes.create len in
@@ -78,50 +80,65 @@ let process_file ~target_go filename oc state =
       print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
       exit 1
   | Inl ((ast, _), state') ->
-      if target_go then begin
-        print_endline ("\n[Emitting Go for " ^ filename ^ "]");
-        let go_code =
-          rename_chester_main (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
-        in
-        output_string oc go_code
-      end
-      else begin
-        print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
-        let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
-        output_string oc ts_code
-      end;
+      (match target with
+      | EmitGo ->
+          print_endline ("\n[Emitting Go for " ^ filename ^ "]");
+          let go_code =
+            rename_chester_main
+              (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
+          in
+          output_string oc go_code
+      | EmitRocq ->
+          print_endline ("\n[Emitting Rocq for " ^ filename ^ "]");
+          let rocq_code = string_of_char_list (stringify_rocq_stmt (emit_rocq_top ast)) in
+          output_string oc rocq_code
+      | EmitTS ->
+          print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
+          let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
+          output_string oc ts_code);
       state'
 
 let () =
   print_endline "Chester Bootstrapper";
   let args = List.tl (Array.to_list Sys.argv) in
-  let target_go, files =
-    let rec split go acc = function
-      | [] -> (go, List.rev acc)
-      | "--go" :: rest -> split true acc rest
-      | f :: rest -> split go (f :: acc) rest
+  let target, files =
+    let rec split tgt acc = function
+      | [] -> (tgt, List.rev acc)
+      | "--go" :: rest -> split EmitGo acc rest
+      | "--rocq" :: rest -> split EmitRocq acc rest
+      | f :: rest -> split tgt (f :: acc) rest
     in
-    split false [] args
+    split EmitTS [] args
   in
   match files with
   | [] ->
-      print_endline "Usage: main.exe [--go] <file.chester> [file2.chester ...]"
+      print_endline
+        "Usage: main.exe [--go | --rocq] <file.chester> [file2.chester ...]"
   | _ ->
       let out_dir = "out" in
       if not (Sys.file_exists out_dir) then Sys.mkdir out_dir 0o755;
       let out_file =
-        Filename.concat out_dir (if target_go then "compiler.go" else "compiler.ts")
+        Filename.concat out_dir
+          (match target with
+          | EmitGo -> "compiler.go"
+          | EmitRocq -> "compiler.v"
+          | EmitTS -> "compiler.ts")
       in
       let oc = open_out out_file in
-      if target_go then begin
-        output_string oc go_effects_preamble;
-        output_string oc "\n"
-      end
-      else output_string oc preamble;
+      (match target with
+      | EmitGo ->
+          output_string oc go_effects_preamble;
+          output_string oc "\n"
+      | EmitRocq ->
+          output_string oc rocq_effects_preamble;
+          output_string oc "\n"
+      | EmitTS -> output_string oc preamble);
       let state = ref init_elab_state in
-      List.iter (fun f -> state := process_file ~target_go f oc !state) files;
-      if target_go then
+      List.iter (fun f -> state := process_file ~target f oc !state) files;
+      if target = EmitGo then
         output_string oc
           "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";
+      if target = EmitRocq then
+        output_string oc "\nDefinition chester_run := chester_main.\n";
       close_out oc;
       print_endline ("\nSuccessfully emitted to " ^ out_file)

@@ -189,3 +189,26 @@ func prim__int_add(a interface{}, b interface{}) interface{} {
 var int_add = prim__int_add
 var Unit = struct{}{}
 |}
+
+let rocq_effects_preamble =
+  "From Stdlib Require Import Strings.String.\n\
+   Open Scope string_scope.\n\
+   \n\
+   Inductive chester_dyn : Type :=\n\
+     | chester_unit : chester_dyn\n\
+     | chester_nat : nat -> chester_dyn\n\
+     | chester_bool : bool -> chester_dyn\n\
+     | chester_str : string -> chester_dyn\n\
+     | chester_fun : (chester_dyn -> chester_dyn) -> chester_dyn.\n\
+   \n\
+   Definition chester_var (v : chester_dyn) : chester_dyn := v.\n\
+   Definition chester_set (_ : string) (_ : chester_dyn) : chester_dyn := chester_unit.\n\
+   Definition chester_expr_stmt (v : chester_dyn) : chester_dyn := v.\n\
+   Definition prim__int_add (a b : nat) : chester_dyn := chester_nat (a + b)%nat.\n\
+   Definition int_add (a b : chester_dyn) : chester_dyn := a.\n\
+   Definition Unit : chester_dyn := chester_unit.\n\
+   \n\
+   Parameter __chester_perform : string -> list chester_dyn -> chester_dyn.\n\
+   Parameter __chester_handle : string -> (unit -> chester_dyn) -> list (string * chester_dyn) -> chester_dyn.\n\
+   Parameter __chester_box : list string -> (unit -> chester_dyn) -> chester_dyn.\n\
+   \n"
