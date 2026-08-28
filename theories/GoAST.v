@@ -15,6 +15,7 @@ Definition go_colon_space : string :=
 Inductive GoStmt : Type :=
   | GoExprStmt : GoExpr -> GoStmt
   | GoLet : string -> GoExpr -> GoStmt
+  | GoDiscardBinding : string -> GoStmt
   | GoAssign : string -> GoExpr -> GoStmt
   | GoIfStmt : GoExpr -> list GoStmt -> list GoStmt -> GoStmt
   | GoReturn : GoExpr -> GoStmt
@@ -55,6 +56,7 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
   match stmt with
   | GoExprStmt expr => stringify_go_expr expr ++ "; "
   | GoLet name val => "var " ++ name ++ " interface{} = " ++ stringify_go_expr val ++ "; "
+  | GoDiscardBinding name => "_ = " ++ name ++ "; "
   | GoAssign name val => name ++ " = " ++ stringify_go_expr val ++ "; "
   | GoIfStmt cond thenB elseB =>
       let thenStr := concat_strings " " (map_go_stmt thenB) in

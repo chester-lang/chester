@@ -331,6 +331,18 @@ let%expect_test "runtime go effects rows" =
   run_fixture_go "tests/effects_rows.chester";
   [%expect {| 15 |}]
 
+let%expect_test "runtime go effects box" =
+  run_fixture_go "tests/effects_box.chester";
+  [%expect {| 5 |}]
+
+let%expect_test "runtime go effects nested" =
+  run_fixture_go "tests/effects_nested.chester";
+  [%expect {| 10 |}]
+
+let%expect_test "runtime go effects state" =
+  run_fixture_go "tests/effects_state.chester";
+  [%expect {| 2 |}]
+
 let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
   [%expect {|

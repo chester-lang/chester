@@ -439,7 +439,8 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
          GoFuncLiteral [] (emit_go_block action);
          GoMapLiteral (emit_hs handlers)]
   | AstBoolLit b => GoBoolLiteral b
-  | AstLet name value => GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) []
+  | AstLet name value =>
+      GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value); GoDiscardBinding name]) []
   | AstVar name value => GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) []
   | AstAssign name value => GoCall (GoFuncLiteral [] [GoAssign name (emit_go_expr value)]) []
   | AstBox e caps =>
@@ -483,7 +484,8 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
 
 with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
   match ast with
-  | AstLet name value => GoLet name (emit_go_expr value)
+  | AstLet name value =>
+      GoBlock [GoLet name (emit_go_expr value); GoDiscardBinding name]
   | AstDef name _ params _ body => GoFuncDecl name (map fst params) (emit_go_block body)
   | AstRecord name _ _ => GoStruct name
   | AstEnum _ _ _ => GoEmpty
@@ -661,7 +663,8 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
          GoFuncLiteral [] (emit_go_block action);
          GoMapLiteral (emit_hs handlers)])]
   | AstBoolLit b => [GoReturn (GoBoolLiteral b)]
-  | AstLet name value => [GoReturn (GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) [])]
+  | AstLet name value =>
+      [GoReturn (GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value); GoDiscardBinding name]) [])]
   | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] [GoLet name (emit_go_expr value)]) [])]
   | AstAssign name value => [GoAssign name (emit_go_expr value)]
   | AstBox e caps =>
