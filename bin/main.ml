@@ -63,13 +63,14 @@ let read_file filename =
       really_input ch buf 0 len;
       Bytes.to_string buf)
 
-let compile_file ~verbose filename state =
+let compile_file ~verbose filename state op_env =
   let source = read_file filename in
   if verbose then print_endline ("\n[Parsing " ^ filename ^ "]");
   let tokens = Lexer.tokenize filename source in
   let cst = parse tokens in
   if verbose then print_endline ("\n[Expanding " ^ filename ^ "]");
-  let expanded_cst = expand_cst_top cst in
+  let expanded_cst, op_env' = expand_cst_top_env !op_env cst in
+  op_env := op_env';
   if verbose then (
     print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
     print_endline ("\n[Elaborating & TypeChecking " ^ filename ^ "]"));
@@ -95,8 +96,8 @@ let emit_ast ~target ~verbose filename oc ast =
       if verbose then print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
       output_string oc (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)))
 
-let process_file ~target ~verbose ~emit oc filename state =
-  let ast, state' = compile_file ~verbose filename state in
+let process_file ~target ~verbose ~emit oc filename state op_env =
+  let ast, state' = compile_file ~verbose filename state op_env in
   if emit then emit_ast ~target ~verbose filename oc ast;
   state'
 
@@ -230,6 +231,22 @@ let () =
                 print_endline ("Warning: go-sigs: " ^ msg))
           | None -> ())
       | _ -> ());
+      let go_sigs =
+        match opts.target with
+        | EmitGo -> (
+            let go_sigs_path =
+              match opts.go_sigs_path with
+              | Some p -> Some (resolve p)
+              | None ->
+                  let default = Go_signatures.default_path repo_root in
+                  if Sys.file_exists default then Some default else None
+            in
+            match go_sigs_path with
+            | Some path -> (
+                try Some (Go_signatures.load path) with _ -> None)
+            | None -> None)
+        | _ -> None
+      in
       let out_dir = "out" in
       if not (Sys.file_exists out_dir) then Sys.mkdir out_dir 0o755;
       let out_file =
@@ -255,17 +272,24 @@ let () =
           output_string oc "\n"
       | EmitTS ->
           if opts.ts_mode = TsEmitScript then output_string oc preamble);
-      let state = ref init_elab_state in
+      let state =
+        match go_sigs with
+        | Some sigs -> init_elab_with_go (Go_signatures.to_elab_go_input sigs)
+        | None -> init_elab_state
+      in
+      let state = ref state in
+      let op_env = ref [] in
       List.iter
         (fun f ->
           state :=
             process_file ~target:opts.target ~verbose:false ~emit:false oc f
-              !state)
+              !state op_env)
         prelude_paths;
       List.iter
         (fun f ->
           state :=
-            process_file ~target:opts.target ~verbose:true ~emit:true oc f !state)
+            process_file ~target:opts.target ~verbose:true ~emit:true oc f !state
+              op_env)
         resolved_files;
       if opts.target = EmitGo then
         output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";

@@ -1,0 +1,7 @@
+// Ported from chester2026draft/examples/go/go-test-field.chester.
+// Draft used `import go "fmt"` and bare `go.fmt`; current Chester uses fmt selectors.
+
+def main(): Integer = {
+  fmt.Println("field access smoke");
+  42
+}

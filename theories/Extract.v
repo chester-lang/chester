@@ -29,12 +29,14 @@ Extraction "Compiler.ml"
   Chester.Tokenizer.tokenize 
   Chester.Parser.parse
   Chester.Expander.expand_cst_top 
+  Chester.Expander.expand_cst_top_env
   Chester.CoreChecker.infer_check 
   Chester.Elaborator.elaborate
   Chester.Elaborator.elaborate_top 
   Chester.Elaborator.zonk
   Chester.Elaborator.unify
   Chester.Elaborator.init_elab_state
+  Chester.Elaborator.init_elab_with_go
   Chester.Formatter.format_cst
   Chester.Formatter.format_program
   Chester.Backend.emit_ts 

@@ -458,6 +458,38 @@ let%expect_test "cli stdlib prelude provides int_add" =
     (if has_substr code "int_add(40, 2)" then "stdlib prelude ok" else "stdlib prelude missing");
   [%expect {| stdlib prelude ok |}]
 
+let%expect_test "infix same_as left assoc" =
+  run_fixture_main "tests/infix_same_as.chester";
+  [%expect {| 5 |}]
+
+let%expect_test "minimal prelude elaborates" =
+  check_fixture "stdlib/minimal.chester";
+  [%expect {| stdlib/minimal.chester ok |}]
+
+let%expect_test "example go field access" =
+  run_fixture_go "examples/go/field_access.chester";
+  [%expect {| field access smoke |}]
+
+let%expect_test "cli minimal prelude provides int_add" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let prelude = Filename.concat root "stdlib/minimal.chester" in
+  let src = Filename.concat root "tests/use_stdlib_prelude.chester" in
+  let out = Filename.temp_file "chester_minimal_prelude_go" ".go" in
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
+         (Filename.quote main_bin) (Filename.quote prelude) (Filename.quote out)
+         (Filename.quote src))
+  in
+  let code = read_file out in
+  Sys.remove out;
+  if st <> 0 then failwith "minimal prelude compile failed";
+  print_endline
+    (if has_substr code "int_add(40, 2)" then "minimal prelude ok" else "minimal prelude missing");
+  [%expect {| minimal prelude ok |}]
+
 let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
   [%expect {|

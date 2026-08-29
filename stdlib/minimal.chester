@@ -1,0 +1,34 @@
+// Lightweight prelude: operators, core enums, and integer primitives.
+// Use: main.exe --prelude stdlib/minimal.chester ...
+
+enum Pair[A, B] {
+  case MkPair(fst: A, snd: B)
+};
+enum Option[T] {
+  case None;
+  case Some(value: T)
+};
+enum Result[T, E] {
+  case Ok(value: T);
+  case Err(err: E)
+};
+infixl "+";
+infixl "-" same_as "+";
+infixl "*" tighter_than "+";
+infixl "/" same_as "*";
+infixl "%" same_as "*";
+infixl "<";
+infixl ">" same_as "<";
+infixl "<=" same_as "<";
+infixl ">=" same_as "<";
+def int_eq(a: Integer, b: Integer): Bool = prim__int_eq(a, b);
+def int_lt(a: Integer, b: Integer): Bool = prim__int_lt(a, b);
+def int_add(a: Integer, b: Integer): Integer = prim__int_add(a, b);
+def int_sub(a: Integer, b: Integer): Integer = prim__int_sub(a, b);
+def int_mul(a: Integer, b: Integer): Integer = prim__int_mul(a, b);
+def int_div(a: Integer, b: Integer): Integer = prim__int_div(a, b);
+def int_mod(a: Integer, b: Integer): Integer = prim__int_mod(a, b);
+def int_gt(a: Integer, b: Integer): Bool = prim__int_gt(a, b);
+def int_ge(a: Integer, b: Integer): Bool = prim__int_ge(a, b);
+def int_le(a: Integer, b: Integer): Bool = prim__int_le(a, b);
+def int_neg(a: Integer): Integer = prim__int_neg(a);

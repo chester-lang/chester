@@ -64,30 +64,60 @@ Definition op_prec (op : string) : option nat :=
   else if string_dec op ">=" then Some 5
   else None.
 
+Definition OpEnv := list (string * nat).
+
+Fixpoint lookup_op_prec_env (op : string) (env : OpEnv) : option nat :=
+  match env with
+  | [] => op_prec op
+  | (o, p) :: rest =>
+      if string_dec o op then Some p else lookup_op_prec_env op rest
+  end.
+
+Fixpoint upsert_op (op : string) (prec : nat) (env : OpEnv) : OpEnv :=
+  (op, prec) ::
+    filter (fun e => if string_dec (fst e) op then false else true) env.
+
+Definition default_op_prec : nat := 10.
+
+Definition parse_infix_rel (rest : list CST) : option (string * string * string) :=
+  match rest with
+  | Symbol op _ :: Symbol rel _ :: Symbol ref_op _ :: _ =>
+      Some (op, rel, ref_op)
+  | Symbol op _ :: _ => Some (op, "default", "")
+  | _ => None
+  end.
+
+Definition infix_prec_from_rel (rel ref_op : string) (op_env : OpEnv) : nat :=
+  if string_dec rel "same_as" then
+    match lookup_op_prec_env ref_op op_env with Some p => p | None => default_op_prec end
+  else if string_dec rel "tighter_than" then
+    match lookup_op_prec_env ref_op op_env with Some p => S p | None => default_op_prec end
+  else default_op_prec.
+
 Definition parse_primary (elems : list CST) : option (CST * list CST) :=
   match elems with
   | e :: rest => Some (e, rest)
   | [] => None
   end.
 
-Fixpoint parse_infix_loop (fuel : nat) (lhs : CST) (elems : list CST) (min_prec : nat)
+Fixpoint parse_infix_loop (fuel : nat) (op_env : OpEnv) (lhs : CST) (elems : list CST) (min_prec : nat)
   (span : Span) : option (CST * list CST) :=
   match fuel with
   | 0 => Some (lhs, elems)
   | S fuel' =>
       match elems with
       | Symbol op sp :: rest =>
-          match op_prec op with
+          match lookup_op_prec_env op op_env with
           | Some prec =>
               if Nat.leb prec min_prec then Some (lhs, elems)
               else
                 let rhs_min := Nat.add prec 1 in
-                match parse_infix_rhs fuel' rhs_min rest span with
+                match parse_infix_rhs fuel' op_env rhs_min rest span with
                 | Some (rhs, rest2) =>
                     let new_lhs :=
                       AppCST (Symbol (op_to_fn op) sp) [lhs; rhs] span
                     in
-                    parse_infix_loop fuel' new_lhs rest2 min_prec span
+                    parse_infix_loop fuel' op_env new_lhs rest2 min_prec span
                 | None => Some (lhs, elems)
                 end
           | None => Some (lhs, elems)
@@ -96,39 +126,39 @@ Fixpoint parse_infix_loop (fuel : nat) (lhs : CST) (elems : list CST) (min_prec 
       end
   end
 
-with parse_infix_rhs (fuel : nat) (min_prec : nat) (elems : list CST) (span : Span)
+with parse_infix_rhs (fuel : nat) (op_env : OpEnv) (min_prec : nat) (elems : list CST) (span : Span)
   : option (CST * list CST) :=
   match fuel with
   | 0 => None
   | S fuel' =>
       match parse_primary elems with
-      | Some (atom, rest) => parse_infix_loop fuel' atom rest min_prec span
+      | Some (atom, rest) => parse_infix_loop fuel' op_env atom rest min_prec span
       | None => None
       end
   end.
 
 Definition infix_fuel (elems : list CST) : nat := Nat.add (length elems) 1.
 
-Definition parse_infix_chain (elems : list CST) (span : Span) : option CST :=
-  match parse_infix_rhs (infix_fuel elems) 0 elems span with
+Definition parse_infix_chain (op_env : OpEnv) (elems : list CST) (span : Span) : option CST :=
+  match parse_infix_rhs (infix_fuel elems) op_env 0 elems span with
   | Some (cst, _) => Some cst
   | None => None
   end.
 
-Definition has_infix_op (elems : list CST) : bool :=
+Definition has_infix_op (op_env : OpEnv) (elems : list CST) : bool :=
   existsb
     (fun c =>
        match c with
-       | Symbol op _ => match op_prec op with Some _ => true | None => false end
+       | Symbol op _ => match lookup_op_prec_env op op_env with Some _ => true | None => false end
        | _ => false
        end)
     elems.
 
-Definition try_parse_infix (elems : list CST) (span : Span) : option CST :=
-  if has_infix_op elems then
-    match parse_infix_chain elems span with
+Definition try_parse_infix (op_env : OpEnv) (elems : list CST) (span : Span) : option CST :=
+  if has_infix_op op_env elems then
+    match parse_infix_chain op_env elems span with
     | Some cst => Some cst
-    | None => parse_infix_chain (collapse_apps elems) span
+    | None => parse_infix_chain op_env (collapse_apps elems) span
     end
   else None.
 
@@ -163,8 +193,8 @@ Fixpoint expand_if (elems : list CST) (span : Span) : option CST :=
   | _ => None
   end.
 
-Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
-  match try_parse_infix elems span with
+Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST :=
+  match try_parse_infix op_env elems span with
   | Some infix_cst => infix_cst
   | None =>
   let collapsed := collapse_apps elems in
@@ -180,7 +210,7 @@ Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
       | Symbol "match" _ :: expr :: Block cases _ _ :: [] =>
           (* Extract case branches into PatternCST * CST pairs.
              Bodies are left as SeqOf so expand_cst can recurse into them later.
-             We CANNOT call expand_seq_expr here (same fixpoint) — Coq forbids it. *)
+             We CANNOT call expand_seq_expr env here (same fixpoint) — Coq forbids it. *)
           let fix extract_vars (args : list CST) : list string :=
             match args with
             | [] => []
@@ -261,29 +291,54 @@ Fixpoint expand_seq_expr (elems : list CST) (span : Span) : CST :=
   end
   end.
 
-Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
+Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST * OpEnv) :=
   match fuel with
-  | 0 => c
+  | 0 => (c, op_env)
   | S fuel' =>
   match c with
   | Block stmts tail span =>
-      let expanded_stmts := map (expand_cst fuel') stmts in
-      let expanded_tail := expand_cst fuel' tail in
+      let fix map_expand (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: rest =>
+            let (x', env') := expand_cst fuel' env x in
+            let (rest', env'') := map_expand env' rest in
+            (x' :: rest', env'')
+        end
+      in
+      let (expanded_stmts, env1) := map_expand op_env stmts in
+      let (expanded_tail, env2) := expand_cst fuel' env1 tail in
       
-      let fix process_stmts (f2 : nat) (ss : list CST) {struct f2} : list CST :=
+      let fix process_stmts (f2 : nat) (env : OpEnv) (ss : list CST) {struct f2} : (list CST * OpEnv) :=
         match f2 with
-        | 0 => ss
+        | 0 => (ss, env)
         | S f2' =>
         match ss with
-        | [] => []
+        | [] => ([], env)
         | stmt :: rest =>
+            let infix_decl :=
+              match stmt with
+              | SeqOf (Symbol kwd _ :: rest_seq) _ =>
+                  if orb (eqb kwd "infixl") (eqb kwd "infixr") then Some rest_seq else None
+              | _ => None
+              end
+            in
+            match infix_decl with
+            | Some rest_seq =>
+                match parse_infix_rel rest_seq with
+                | Some (op, rel, ref_op) =>
+                    let prec := infix_prec_from_rel rel ref_op env in
+                    process_stmts f2' (upsert_op op prec env) rest
+                | None => process_stmts f2' env rest
+                end
+            | None =>
             let processed_stmt := match stmt with
             | SeqOf (Symbol kwd _ :: rest_seq) s =>
                 if eqb kwd "let" then
                     match rest_seq with
                     | Symbol name _ :: Symbol kwd2 _ :: val_exprs =>
                         if eqb kwd2 "=" then
-                            let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr val_exprs s end in
+                            let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr env val_exprs s end in
                             LetCST name val_cst (Symbol "Unit" empty_span) s
                         else stmt
                     | _ => stmt
@@ -292,7 +347,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                     match rest_seq with
                     | Symbol name _ :: Symbol kwd2 _ :: val_exprs =>
                         if eqb kwd2 "=" then
-                            let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr val_exprs s end in
+                            let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr env val_exprs s end in
                             VarCST name val_cst (Symbol "Unit" empty_span) s
                         else stmt
                     | _ => stmt
@@ -303,7 +358,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                     | _ =>
                         match rest_seq with
                         | [] => stmt
-                        | _ => BoxCST (expand_seq_expr rest_seq s) s
+                        | _ => BoxCST (expand_seq_expr env rest_seq s) s
                         end
                     end
                 else if eqb kwd "import" then
@@ -326,7 +381,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                     | _ =>
                         match rest_seq with
                         | [] => stmt
-                        | _ => UnboxCST (expand_seq_expr rest_seq s) s
+                        | _ => UnboxCST (expand_seq_expr env rest_seq s) s
                         end
                     end
                 else if eqb kwd "def" then
@@ -336,10 +391,10 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                         | Some (ty_exprs, body_exprs) =>
                             let ret_ty := match ty_exprs with 
                                           | Symbol kwd2 _ :: tys => 
-                                              if eqb kwd2 ":" then expand_seq_expr tys s else Symbol "Unknown" empty_span
+                                              if eqb kwd2 ":" then expand_seq_expr env tys s else Symbol "Unknown" empty_span
                                           | _ => Symbol "Unknown" empty_span 
                                           end in
-                            let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr body_exprs s end in
+                            let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr env body_exprs s end in
                             let extract_arg (a: CST) : (string * CST) := 
                                match a with
                                | Symbol n _ => (n, Symbol "Unknown" empty_span)
@@ -357,10 +412,10 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                         | Some (ty_exprs, body_exprs) =>
                             let ret_ty := match ty_exprs with 
                                           | Symbol kwd2 _ :: tys => 
-                                              if eqb kwd2 ":" then expand_seq_expr tys s else Symbol "Unknown" empty_span
+                                              if eqb kwd2 ":" then expand_seq_expr env tys s else Symbol "Unknown" empty_span
                                           | _ => Symbol "Unknown" empty_span 
                                           end in
-                            let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr body_exprs s end in
+                            let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr env body_exprs s end in
                             let extract_arg (a: CST) : (string * CST) := 
                                match a with
                                | Symbol n _ => (n, Symbol "Unknown" empty_span)
@@ -399,7 +454,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                                 if orb (eqb kwd2 "for") (eqb kwd2 "on") then
                                   match e4 with
                                   | Block _ _ _ =>
-                                      ExtensionCST name [] e3 (process_stmts f2' (methods_of_block e4)) s
+                                      ExtensionCST name [] e3 (fst (process_stmts f2' env (methods_of_block e4))) s
                                   | _ => stmt
                                   end
                                 else stmt
@@ -417,7 +472,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                                         | Symbol v _ :: vrest => v :: extract_vars vrest
                                         | _ :: vrest => extract_vars vrest
                                         end in
-                                      ExtensionCST name (extract_vars targs) e3 (process_stmts f2' (methods_of_block e4)) s
+                                      ExtensionCST name (extract_vars targs) e3 (fst (process_stmts f2' env (methods_of_block e4))) s
                                   | _ => stmt
                                   end
                                 else stmt
@@ -441,7 +496,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                                             | Symbol v _ :: vrest => v :: extract_vars vrest
                                             | _ :: vrest => extract_vars vrest
                                             end in
-                                          ExtensionCST name (extract_vars targs) e4 (process_stmts f2' (methods_of_block e5)) s
+                                          ExtensionCST name (extract_vars targs) e4 (fst (process_stmts f2' env (methods_of_block e5))) s
                                       | _ => stmt
                                       end
                                     else stmt
@@ -582,13 +637,13 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                         | Symbol name _ =>
                             match e2 with
                             | Block _ _ _ =>
-                                EffectCST name [] (process_stmts f2' (methods_of_block e2)) s
+                                EffectCST name [] (fst (process_stmts f2' env (methods_of_block e2))) s
                             | _ => stmt
                             end
                         | ImplicitAppCST (Symbol name _) targs _ =>
                             match e2 with
                             | Block _ _ _ =>
-                                EffectCST name (extract_tparams targs) (process_stmts f2' (methods_of_block e2)) s
+                                EffectCST name (extract_tparams targs) (fst (process_stmts f2' env (methods_of_block e2))) s
                             | _ => stmt
                             end
                         | _ => stmt
@@ -600,7 +655,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                             | ListLiteral targs _ =>
                                 match e3 with
                                 | Block _ _ _ =>
-                                    EffectCST name (extract_tparams targs) (process_stmts f2' (methods_of_block e3)) s
+                                    EffectCST name (extract_tparams targs) (fst (process_stmts f2' env (methods_of_block e3))) s
                                 | _ => stmt
                                 end
                             | _ => stmt
@@ -641,7 +696,7 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                                     | Block _ _ _ =>
                                         if eqb kwd2 "with" then
                                             HandleCST (Block body_stmts body_tail body_sp) eff
-                                              (process_stmts f2' (methods_of_block e4)) s
+                                              (fst (process_stmts f2' env (methods_of_block e4))) s
                                         else stmt
                                     | _ => stmt
                                     end
@@ -669,9 +724,6 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                         end
                     | _ => stmt
                     end
-                else if orb (eqb kwd "infixl") (eqb kwd "infixr") then
-                    (* Builtin operators are handled in parse_infix_chain; drop decls. *)
-                    CommentCST "__skip_infix__" s
                 else
                     (* Assignment: name = expr (not a reserved keyword). *)
                     let is_kw := orb (eqb kwd "let") (orb (eqb kwd "var") (orb (eqb kwd "def")
@@ -683,28 +735,29 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
                     match rest_seq with
                     | Symbol eqtok _ :: val_exprs =>
                         if andb (eqb eqtok "=") (negb is_kw) then
-                          let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr val_exprs s end in
+                          let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr env val_exprs s end in
                           AssignCST kwd val_cst s
                         else stmt
                     | _ => stmt
                     end
-            | ExtensionCST name tparams target_ty meths span => ExtensionCST name tparams target_ty (process_stmts f2' meths) span
+            | ExtensionCST name tparams target_ty meths span =>
+                let (meths', _) := process_stmts f2' env meths in
+                ExtensionCST name tparams target_ty meths' span
             | Error msg span => Error msg span
             | _ => stmt
             end in
-            let rest_processed := process_stmts f2' rest in
-            match processed_stmt with
-            | CommentCST "__skip_infix__" _ => rest_processed
-            | _ => processed_stmt :: rest_processed
+            let (rest_processed, env_rest) := process_stmts f2' env rest in
+            (processed_stmt :: rest_processed, env_rest)
             end
         end
         end
       in
-                let final_stmts := process_stmts fuel' expanded_stmts in
-          let final_tail := match process_stmts fuel' [expanded_tail] with
-                            | [] => Tuple [] span
-                            | t :: _ => t
-                            end in
+      let (final_stmts, env3) := process_stmts fuel' env2 expanded_stmts in
+      let (final_tail_list, env4) := process_stmts fuel' env3 [expanded_tail] in
+      let final_tail := match final_tail_list with
+                        | [] => Tuple [] span
+                        | t :: _ => t
+                        end in
           (* Bare `handle`/`perform` as the last block form should be the block value,
              matching the usual `def main() = { handle { ... } with Eff { ... } }` surface. *)
           let promote_tail (stmts : list CST) (tail : CST) : (list CST * CST) :=
@@ -722,35 +775,123 @@ Fixpoint expand_cst (fuel: nat) (c : CST) {struct fuel} : CST :=
             end
           in
           match promote_tail final_stmts final_tail with
-          | (stmts', tail') => Block stmts' tail' span
+          | (stmts', tail') => (Block stmts' tail' span, env4)
           end
 
-  | Tuple elems span => Tuple (map (expand_cst fuel') elems) span
-  | ListLiteral elems span => ListLiteral (map (expand_cst fuel') elems) span
+  | Tuple elems span =>
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (elems', env') := map_elems op_env elems in
+      (Tuple elems' span, env')
+  | ListLiteral elems span =>
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (elems', env') := map_elems op_env elems in
+      (ListLiteral elems' span, env')
   
   | SeqOf elems span => 
-      let expanded_elems := map (expand_cst fuel') elems in
-      expand_seq_expr expanded_elems span
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (expanded_elems, env') := map_elems op_env elems in
+      (expand_seq_expr env' expanded_elems span, env')
       
-  | FieldAccessCST expr field span => FieldAccessCST (expand_cst fuel' expr) field span
-  | MatchCST expr cases span => MatchCST (expand_cst fuel' expr) cases span
+  | FieldAccessCST expr field span =>
+      let (expr', env') := expand_cst fuel' op_env expr in
+      (FieldAccessCST expr' field span, env')
+  | MatchCST expr cases span =>
+      let (expr', env') := expand_cst fuel' op_env expr in
+      (MatchCST expr' cases span, env')
   | EffectCST name tps decls span =>
-      EffectCST name tps (map (expand_cst fuel') decls) span
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (decls', env') := map_elems op_env decls in
+      (EffectCST name tps decls' span, env')
   | DoCST op args span =>
-      DoCST (expand_cst fuel' op) (map (expand_cst fuel') args) span
+      let (op', env1) := expand_cst fuel' op_env op in
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (args', env2) := map_elems env1 args in
+      (DoCST op' args' span, env2)
   | HandleCST body eff handlers span =>
-      HandleCST (expand_cst fuel' body) eff (map (expand_cst fuel') handlers) span
+      let (body', env1) := expand_cst fuel' op_env body in
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (handlers', env2) := map_elems env1 handlers in
+      (HandleCST body' eff handlers' span, env2)
   | VarCST name value next span =>
-      VarCST name (expand_cst fuel' value) (expand_cst fuel' next) span
+      let (value', env1) := expand_cst fuel' op_env value in
+      let (next', env2) := expand_cst fuel' env1 next in
+      (VarCST name value' next' span, env2)
   | AssignCST name value span =>
-      AssignCST name (expand_cst fuel' value) span
-  | BoxCST e span => BoxCST (expand_cst fuel' e) span
-  | UnboxCST e span => UnboxCST (expand_cst fuel' e) span
-  | ImportCST lang alias mod syms span => ImportCST lang alias mod syms span
-  | ExternCST lang mod decls span => ExternCST lang mod (map (expand_cst fuel') decls) span
-  | _ => c
+      let (value', env') := expand_cst fuel' op_env value in
+      (AssignCST name value' span, env')
+  | BoxCST e span =>
+      let (e', env') := expand_cst fuel' op_env e in
+      (BoxCST e' span, env')
+  | UnboxCST e span =>
+      let (e', env') := expand_cst fuel' op_env e in
+      (UnboxCST e' span, env')
+  | ImportCST lang alias mod syms span => (ImportCST lang alias mod syms span, op_env)
+  | ExternCST lang mod decls span =>
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (decls', env') := map_elems op_env decls in
+      (ExternCST lang mod decls' span, env')
+  | _ => (c, op_env)
     end
   end.
 
 
-Definition expand_cst_top (expr : CST) : CST := expand_cst 1000 expr.
+Definition expand_cst_top (expr : CST) : CST := fst (expand_cst 1000 [] expr).
+
+Definition expand_cst_top_env (op_env : OpEnv) (expr : CST) : (CST * OpEnv) :=
+  expand_cst 1000 op_env expr.

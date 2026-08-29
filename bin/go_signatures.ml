@@ -138,6 +138,16 @@ let summary t =
            (List.length pkg.functions))
   |> String.concat ", "
 
+let char_list_of_string s =
+  let len = String.length s in
+  List.init len (String.get s)
+
+let to_elab_go_input (t : t) : (char list * char list list) list =
+  List.map
+    (fun pkg ->
+      (char_list_of_string pkg.name, List.map char_list_of_string pkg.functions))
+    t
+
 let default_path repo_root = Filename.concat repo_root "data/go-signatures.json"
 
 let has_function t pkg fn =

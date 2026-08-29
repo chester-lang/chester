@@ -55,6 +55,7 @@ Inductive ElabState :=
     -> list (string * list (string * list AST * AST))
     -> list string
     -> EffectSet
+    -> list (string * list (string * AST))
     -> ElabState.
 
 Definition ElabM (A : Type) := ElabState -> (A * ElabState) + (list ascii * ElabState).
@@ -90,13 +91,50 @@ Definition set_state (s : ElabState) : ElabM unit :=
 Definition fresh_meta : ElabM AST :=
   s <- get_state ;
   match s with
-  | mkElabState n sol exts effs caps pending =>
-      set_state (mkElabState (S n) sol exts effs caps pending) ;;
+  | mkElabState n sol exts effs caps pending go_pkgs =>
+      set_state (mkElabState (S n) sol exts effs caps pending go_pkgs) ;;
       ret (AstMeta n)
   end.
 
 Definition TypeEnv := list ((string * list nat) * AST).
-Definition init_elab_state := mkElabState 0 empty_state [] [] [] [].
+Definition init_elab_state := mkElabState 0 empty_state [] [] [] [] [].
+
+Definition go_variadic_fun_ty : AST :=
+  AstFunTy [] [("a", AstRef "Any")] (AstTuple [AstRef "Any"; AstRef "Any"]) [].
+
+Fixpoint go_funcs_to_meths (funcs : list string) : list (string * AST) :=
+  match funcs with
+  | [] => []
+  | f :: rest => (f, go_variadic_fun_ty) :: go_funcs_to_meths rest
+  end.
+
+Fixpoint build_go_pkgs (entries : list (string * list string)) : list (string * list (string * AST)) :=
+  match entries with
+  | [] => []
+  | (pkg, funcs) :: rest => (pkg, go_funcs_to_meths funcs) :: build_go_pkgs rest
+  end.
+
+Fixpoint lookup_in_go_meths (meth : string) (meths : list (string * AST)) : option AST :=
+  match meths with
+  | [] => None
+  | (n, ty) :: rest =>
+      if string_dec n meth then Some ty else lookup_in_go_meths meth rest
+  end.
+
+Fixpoint lookup_go_method (pkg meth : string) (pkgs : list (string * list (string * AST))) : option AST :=
+  match pkgs with
+  | [] => None
+  | (p, meths) :: rest =>
+      if string_dec p pkg then
+        match lookup_in_go_meths meth meths with
+        | Some ty => Some ty
+        | None => lookup_go_method pkg meth rest
+        end
+      else lookup_go_method pkg meth rest
+  end.
+
+Definition init_elab_with_go (entries : list (string * list string)) : ElabState :=
+  mkElabState 0 empty_state [] [] [] [] (build_go_pkgs entries).
 
 Definition effect_eqb (e1 e2 : EffectRef) : bool :=
   match e1, e2 with
@@ -146,13 +184,13 @@ Fixpoint effects_covered_by (needed : EffectSet) (active : list string) : bool :
 
 Definition get_active_caps : ElabM (list string) :=
   s <- get_state ;
-  match s with mkElabState _ _ _ _ caps _ => ret caps end.
+  match s with mkElabState _ _ _ _ caps _ _ => ret caps end.
 
 Definition fresh_row_var : ElabM EffectRef :=
   s <- get_state ;
   match s with
-  | mkElabState n sol exts effs caps pending =>
-      set_state (mkElabState (S n) sol exts effs caps pending) ;;
+  | mkElabState n sol exts effs caps pending go_pkgs =>
+      set_state (mkElabState (S n) sol exts effs caps pending go_pkgs) ;;
       ret (EffectRowVar ("μ" ++ string_of_nat n))
   end.
 
@@ -162,36 +200,36 @@ Definition with_open_row (effs : EffectSet) : ElabM EffectSet :=
 
 Definition get_pending : ElabM EffectSet :=
   s <- get_state ;
-  match s with mkElabState _ _ _ _ _ pending => ret pending end.
+  match s with mkElabState _ _ _ _ _ pending _ => ret pending end.
 
 Definition set_pending (pending : EffectSet) : ElabM unit :=
   s <- get_state ;
   match s with
-  | mkElabState n sol exts effs caps _ =>
-      set_state (mkElabState n sol exts effs caps pending)
+  | mkElabState n sol exts effs caps _ go_pkgs =>
+      set_state (mkElabState n sol exts effs caps pending go_pkgs)
   end.
 
 Definition push_capability (eff : string) : ElabM unit :=
   s <- get_state ;
   match s with
-  | mkElabState n sol exts effs caps pending =>
-      set_state (mkElabState n sol exts effs (eff :: caps) pending)
+  | mkElabState n sol exts effs caps pending go_pkgs =>
+      set_state (mkElabState n sol exts effs (eff :: caps) pending go_pkgs)
   end.
 
 Definition pop_capability : ElabM unit :=
   s <- get_state ;
   match s with
-  | mkElabState n sol exts effs (_ :: caps) pending =>
-      set_state (mkElabState n sol exts effs caps pending)
-  | mkElabState n sol exts effs [] pending =>
-      set_state (mkElabState n sol exts effs [] pending)
+  | mkElabState n sol exts effs (_ :: caps) pending go_pkgs =>
+      set_state (mkElabState n sol exts effs caps pending go_pkgs)
+  | mkElabState n sol exts effs [] pending go_pkgs =>
+      set_state (mkElabState n sol exts effs [] pending go_pkgs)
   end.
 
 Definition register_effect (name : string) (ops : list (string * list AST * AST)) : ElabM unit :=
   s <- get_state ;
   match s with
-  | mkElabState n sol exts effs caps pending =>
-      set_state (mkElabState n sol exts ((name, ops) :: effs) caps pending)
+  | mkElabState n sol exts effs caps pending go_pkgs =>
+      set_state (mkElabState n sol exts ((name, ops) :: effs) caps pending go_pkgs)
   end.
 
 Fixpoint lookup_effect_ops (name : string) (reg : list (string * list (string * list AST * AST)))
@@ -351,31 +389,31 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
           if Nat.eqb m1 m2 then ret tt else
           s <- get_state ;
           match s with
-          | mkElabState n sol exts effs caps pending =>
+          | mkElabState n sol exts effs caps pending go_pkgs =>
               match type_metas sol m1 with
               | Solved v1 => unify fuel' v1 t2'
               | _ => match type_metas sol m2 with
                      | Solved v2 => unify fuel' t1' v2
-                     | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts effs caps pending)
+                     | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts effs caps pending go_pkgs)
                      end
               end
           end
       | AstMeta m1, _ =>
           s <- get_state ;
           match s with
-          | mkElabState n sol exts effs caps pending =>
+          | mkElabState n sol exts effs caps pending go_pkgs =>
               match type_metas sol m1 with
               | Solved v1 => unify fuel' v1 t2'
-              | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts effs caps pending)
+              | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts effs caps pending go_pkgs)
               end
           end
       | _, AstMeta m2 =>
           s <- get_state ;
           match s with
-          | mkElabState n sol exts effs caps pending =>
+          | mkElabState n sol exts effs caps pending go_pkgs =>
               match type_metas sol m2 with
               | Solved v2 => unify fuel' t1' v2
-              | _ => set_state (mkElabState n (update_type_state m2 (Solved t1') sol) exts effs caps pending)
+              | _ => set_state (mkElabState n (update_type_state m2 (Solved t1') sol) exts effs caps pending go_pkgs)
               end
           end
       | AstApp f1 a1, AstApp f2 a2 =>
@@ -412,7 +450,7 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
       | AstMeta m =>
           s <- get_state ;
           match s with
-          | mkElabState n sol exts effs caps pending =>
+          | mkElabState n sol exts effs caps pending _ =>
               match type_metas sol m with
               | Solved v => zonk fuel' v
               | _ => ret (AstMeta m)
@@ -711,22 +749,41 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       | FieldAccessCST expr field fsp =>
           exprAst <- elaborate fuel' env expr None ;
           s <- get_state ;
-          let full_name := match s with mkElabState _ _ exts _ _ _ => find_ext_method (snd exprAst) field exts end in
-          if string_dec full_name EmptyString then
-            let fix elab_args (as_ : list CST) : ElabM (list AST) :=
-              match as_ with
-              | [] => ret []
-              | a :: rest =>
-                  aAst <- elaborate fuel' env a None ;
-                  restAst <- elab_args rest ;
-                  ret (fst aAst :: restAst)
+          match s with mkElabState _ _ exts _ _ _ go_pkgs =>
+          let fix elab_args (as_ : list CST) : ElabM (list AST) :=
+            match as_ with
+            | [] => ret []
+            | a :: rest =>
+                aAst <- elaborate fuel' env a None ;
+                restAst <- elab_args rest ;
+                ret (fst aAst :: restAst)
+            end
+          in
+          match expr with
+          | Symbol pkg_name _ =>
+              match lookup_go_method pkg_name field go_pkgs with
+              | Some _ =>
+                  argsAst <- elab_args args ;
+                  ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Any")
+              | None =>
+                  let full_name := find_ext_method (snd exprAst) field exts in
+                  if string_dec full_name EmptyString then
+                    argsAst <- elab_args args ;
+                    ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
+                  else
+                    let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
+                    elaborate fuel' env new_cst expected
               end
-            in
-            argsAst <- elab_args args ;
-            ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
-          else
-            let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
-            elaborate fuel' env new_cst expected
+          | _ =>
+              let full_name := find_ext_method (snd exprAst) field exts in
+              if string_dec full_name EmptyString then
+                argsAst <- elab_args args ;
+                ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
+              else
+                let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
+                elaborate fuel' env new_cst expected
+          end
+          end
       | ImplicitAppCST inner_func _targs _tspan =>
           (* Erase the implicit [A,B] telescope; elaborate fuel' only the inner function and explicit args *)
           funcAst <- elaborate fuel' env inner_func None ;
@@ -967,7 +1024,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       let op_name := match op with Symbol n _ => n | _ => "" end in
       s <- get_state ;
       match s with
-      | mkElabState _ _ _ reg active pending =>
+      | mkElabState _ _ _ reg active pending _ =>
           match find_active_op op_name active reg with
           | Some (eff, argTys, retTy) =>
               let fix check_do_args (as_ : list CST) (tys : list AST) : ElabM (list AST) :=
@@ -1023,7 +1080,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       set_pending (merge_effects old_pending (remove_effect (UserEffect eff) body_effs)) ;;
       s <- get_state ;
       match s with
-      | mkElabState _ _ _ reg _ _ =>
+      | mkElabState _ _ _ reg _ _ _ =>
           let ops := match lookup_effect_ops eff reg with Some o => o | None => [] end in
           let fix elab_handlers (hs : list CST) : ElabM (list (string * AST)) :=
             match hs with
@@ -1064,10 +1121,10 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       targetTy_res <- elaborate fuel' env target_ty (Some (AstUniverse 0)) ;
       s <- get_state ;
       match s with
-      | mkElabState n sol exts effs caps pending =>
+      | mkElabState n sol exts effs caps pending go_pkgs =>
           let ext_meths := extract_ext_methods meths ext_name in
           let new_ext := (ext_name, fst targetTy_res, ext_meths) in
-          set_state (mkElabState n sol (new_ext :: exts) effs caps pending) ;;
+          set_state (mkElabState n sol (new_ext :: exts) effs caps pending go_pkgs) ;;
           let fix elab_meths (ms : list CST) : ElabM (list AST) :=
             match ms with
             | [] => ret []
@@ -1091,7 +1148,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
 (* 
   --- Unification Tests ---
 *)
-Definition test_unify_env := mkElabState 0 empty_state [] [] [] [].
+Definition test_unify_env := mkElabState 0 empty_state [] [] [] [] [].
 
 Definition meta1 := AstMeta 1.
 Definition int_ty := AstRef "Int"%string.
