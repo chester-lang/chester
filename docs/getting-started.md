@@ -49,6 +49,14 @@ Compile to Go:
 nix develop --command ./_build/default/bin/main.exe --go -o hello.go hello.chester
 ```
 
+Use the standard library as a prelude (definitions are elaborated but not emitted):
+
+```bash
+nix develop --command ./_build/default/bin/main.exe \
+  --prelude stdlib/std.chester \
+  -o app.go my-app.chester
+```
+
 Format a file:
 
 ```bash

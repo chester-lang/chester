@@ -1,0 +1,11 @@
+// Ported from chester2026draft/examples/go/go-greet.chester.
+// Draft used `import go "fmt"` and effect rows; simplified for current Go FFI.
+
+def greet(name: String): Integer = {
+  fmt.Println(name);
+  42
+};
+
+def main(): Integer = {
+  greet("Chester from Go FFI")
+}

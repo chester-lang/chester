@@ -374,6 +374,10 @@ let%expect_test "example go hello" =
   run_fixture_go "examples/go/hello.chester";
   [%expect {| Hello from Chester with Go FFI |}]
 
+let%expect_test "example go greet" =
+  run_fixture_go "examples/go/greet.chester";
+  [%expect {| Chester from Go FFI |}]
+
 let%expect_test "example ts simple" =
   run_fixture_main "examples/ts/simple.chester";
   [%expect {| 42 |}]
@@ -391,8 +395,8 @@ let%expect_test "example ts wordcount" =
   [%expect {| examples/ts/wordcount.chester ok |}]
 
 let%expect_test "example ts path" =
-  check_fixture "examples/ts/path.chester";
-  [%expect {| examples/ts/path.chester ok |}]
+  run_fixture_main "examples/ts/path.chester";
+  [%expect {| /tmp/demo.txt |}]
 
 let%expect_test "infix precedence" =
   run_fixture_main "tests/infix_precedence.chester";
@@ -433,6 +437,26 @@ let%expect_test "cli prelude chains definitions" =
   if st <> 0 then failwith "prelude compile failed";
   print_endline (if has_substr code "int_add(forty(), 2)" then "prelude ok" else "prelude missing");
   [%expect {| prelude ok |}]
+
+let%expect_test "cli stdlib prelude provides int_add" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let prelude = Filename.concat root "stdlib/std.chester" in
+  let src = Filename.concat root "tests/use_stdlib_prelude.chester" in
+  let out = Filename.temp_file "chester_stdlib_prelude_go" ".go" in
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
+         (Filename.quote main_bin) (Filename.quote prelude) (Filename.quote out)
+         (Filename.quote src))
+  in
+  let code = read_file out in
+  Sys.remove out;
+  if st <> 0 then failwith "stdlib prelude compile failed";
+  print_endline
+    (if has_substr code "int_add(40, 2)" then "stdlib prelude ok" else "stdlib prelude missing");
+  [%expect {| stdlib prelude ok |}]
 
 let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();

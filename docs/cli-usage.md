@@ -90,6 +90,10 @@ nix develop --command ./_build/default/bin/main.exe \
 nix develop --command ./_build/default/bin/main.exe --go \
   -o /tmp/hello.go examples/go/hello.chester
 
+# Go with stdlib prelude
+nix develop --command ./_build/default/bin/main.exe --go \
+  --prelude stdlib/std.chester -o /tmp/app.go tests/use_stdlib_prelude.chester
+
 # Counter example pipeline
 nix develop --command bash examples/counter/build-chester.sh
 ```
