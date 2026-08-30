@@ -2,193 +2,2019 @@
   "packages": {
     "fmt": {
       "functions": {
-      "Sprintln": {
-        "params": [
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "string",
-        "effects": ["io"]
-      },
-      "Fprint": {
-        "params": [
-        { "name": "w", "type": "any" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Sscanf": {
-        "params": [
-        { "name": "str", "type": "string" },
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Scanln": {
-        "params": [
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Sscanln": {
-        "params": [
-        { "name": "str", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Println": {
-        "params": [
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Printf": {
-        "params": [
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Sscan": {
-        "params": [
-        { "name": "str", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Sprint": {
-        "params": [
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "string",
-        "effects": ["io"]
-      },
-      "Fscanf": {
-        "params": [
-        { "name": "r", "type": "any" },
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Sprintf": {
-        "params": [
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "string",
-        "effects": ["io"]
-      },
-      "Append": {
-        "params": [
-        { "name": "b", "type": "[]any" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "[]any",
-        "effects": ["io"]
-      },
-      "Fscanln": {
-        "params": [
-        { "name": "r", "type": "any" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Errorf": {
-        "params": [
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "any",
-        "effects": ["io"]
-      },
-      "Fprintf": {
-        "params": [
-        { "name": "w", "type": "any" },
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Print": {
-        "params": [
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Fprintln": {
-        "params": [
-        { "name": "w", "type": "any" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Scanf": {
-        "params": [
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "FormatString": {
-        "params": [
-        { "name": "state", "type": "any" },
-        { "name": "verb", "type": "any" }
-        ],
-        "returns": "string",
-        "effects": ["io"]
-      },
-      "Fscan": {
-        "params": [
-        { "name": "r", "type": "any" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Scan": {
-        "params": [
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "(any, any)",
-        "effects": ["io"]
-      },
-      "Appendf": {
-        "params": [
-        { "name": "b", "type": "[]any" },
-        { "name": "format", "type": "string" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "[]any",
-        "effects": ["io"]
-      },
-      "String": {
-        "params": [],
-        "returns": "any",
-        "effects": ["io"]
-      },
-      "Appendln": {
-        "params": [
-        { "name": "b", "type": "[]any" },
-        { "name": "a", "type": "...any" }
-        ],
-        "returns": "[]any",
-        "effects": ["io"]
+        "Append": {
+          "params": [
+            {
+              "name": "b",
+              "type": "[]byte"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "[]byte",
+          "effects": [
+            "io"
+          ]
+        },
+        "Appendf": {
+          "params": [
+            {
+              "name": "b",
+              "type": "[]byte"
+            },
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "[]byte",
+          "effects": [
+            "io"
+          ]
+        },
+        "Appendln": {
+          "params": [
+            {
+              "name": "b",
+              "type": "[]byte"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "[]byte",
+          "effects": [
+            "io"
+          ]
+        },
+        "Errorf": {
+          "params": [
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "FormatString": {
+          "params": [
+            {
+              "name": "state",
+              "type": "fmt.State"
+            },
+            {
+              "name": "verb",
+              "type": "rune"
+            }
+          ],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "Fprint": {
+          "params": [
+            {
+              "name": "w",
+              "type": "io.Writer"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Fprintf": {
+          "params": [
+            {
+              "name": "w",
+              "type": "io.Writer"
+            },
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Fprintln": {
+          "params": [
+            {
+              "name": "w",
+              "type": "io.Writer"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Fscan": {
+          "params": [
+            {
+              "name": "r",
+              "type": "io.Reader"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Fscanf": {
+          "params": [
+            {
+              "name": "r",
+              "type": "io.Reader"
+            },
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Fscanln": {
+          "params": [
+            {
+              "name": "r",
+              "type": "io.Reader"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Print": {
+          "params": [
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Printf": {
+          "params": [
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Println": {
+          "params": [
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Scan": {
+          "params": [
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Scanf": {
+          "params": [
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Scanln": {
+          "params": [
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sprint": {
+          "params": [
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sprintf": {
+          "params": [
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sprintln": {
+          "params": [
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sscan": {
+          "params": [
+            {
+              "name": "str",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sscanf": {
+          "params": [
+            {
+              "name": "str",
+              "type": "string"
+            },
+            {
+              "name": "format",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sscanln": {
+          "params": [
+            {
+              "name": "str",
+              "type": "string"
+            },
+            {
+              "name": "a",
+              "type": "...any"
+            }
+          ],
+          "returns": "(int, error)",
+          "effects": [
+            "io"
+          ]
+        }
       }
+    },
+    "math": {
+      "functions": {
+        "Abs": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Acos": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Acosh": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Asin": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Asinh": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Atan": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Atan2": {
+          "params": [
+            {
+              "name": "y",
+              "type": "float64"
+            },
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Atanh": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Cbrt": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Ceil": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Copysign": {
+          "params": [
+            {
+              "name": "f",
+              "type": "float64"
+            },
+            {
+              "name": "sign",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Cos": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Cosh": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Dim": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Erf": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Erfc": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Erfcinv": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Erfinv": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Exp": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Exp2": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Expm1": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "FMA": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            },
+            {
+              "name": "z",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Float32bits": {
+          "params": [
+            {
+              "name": "f",
+              "type": "float32"
+            }
+          ],
+          "returns": "uint32",
+          "effects": [
+            "io"
+          ]
+        },
+        "Float32frombits": {
+          "params": [
+            {
+              "name": "b",
+              "type": "uint32"
+            }
+          ],
+          "returns": "float32",
+          "effects": [
+            "io"
+          ]
+        },
+        "Float64bits": {
+          "params": [
+            {
+              "name": "f",
+              "type": "float64"
+            }
+          ],
+          "returns": "uint64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Float64frombits": {
+          "params": [
+            {
+              "name": "b",
+              "type": "uint64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Floor": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Frexp": {
+          "params": [
+            {
+              "name": "f",
+              "type": "float64"
+            }
+          ],
+          "returns": "(float64, int)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Gamma": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Hypot": {
+          "params": [
+            {
+              "name": "p",
+              "type": "float64"
+            },
+            {
+              "name": "q",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Ilogb": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Inf": {
+          "params": [
+            {
+              "name": "sign",
+              "type": "int"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "IsInf": {
+          "params": [
+            {
+              "name": "f",
+              "type": "float64"
+            },
+            {
+              "name": "sign",
+              "type": "int"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "IsNaN": {
+          "params": [
+            {
+              "name": "f",
+              "type": "float64"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "J0": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "J1": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Jn": {
+          "params": [
+            {
+              "name": "n",
+              "type": "int"
+            },
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Ldexp": {
+          "params": [
+            {
+              "name": "frac",
+              "type": "float64"
+            },
+            {
+              "name": "exp",
+              "type": "int"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Lgamma": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "(float64, int)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Log": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Log10": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Log1p": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Log2": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Logb": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Max": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Min": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Mod": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Modf": {
+          "params": [
+            {
+              "name": "f",
+              "type": "float64"
+            }
+          ],
+          "returns": "(float64, float64)",
+          "effects": [
+            "io"
+          ]
+        },
+        "NaN": {
+          "params": [],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Nextafter": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Nextafter32": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float32"
+            },
+            {
+              "name": "y",
+              "type": "float32"
+            }
+          ],
+          "returns": "float32",
+          "effects": [
+            "io"
+          ]
+        },
+        "Pow": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Pow10": {
+          "params": [
+            {
+              "name": "n",
+              "type": "int"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Remainder": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            },
+            {
+              "name": "y",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Round": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "RoundToEven": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Signbit": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sin": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sincos": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "(float64, float64)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sinh": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Sqrt": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Tan": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Tanh": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Trunc": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Y0": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Y1": {
+          "params": [
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        },
+        "Yn": {
+          "params": [
+            {
+              "name": "n",
+              "type": "int"
+            },
+            {
+              "name": "x",
+              "type": "float64"
+            }
+          ],
+          "returns": "float64",
+          "effects": [
+            "io"
+          ]
+        }
+      }
+    },
+    "os": {
+      "functions": {
+        "Chdir": {
+          "params": [
+            {
+              "name": "dir",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Chmod": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "mode",
+              "type": "os.FileMode"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Chown": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "uid",
+              "type": "int"
+            },
+            {
+              "name": "gid",
+              "type": "int"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Chtimes": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "atime",
+              "type": "time.Time"
+            },
+            {
+              "name": "mtime",
+              "type": "time.Time"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Clearenv": {
+          "params": [],
+          "returns": "Unit",
+          "effects": [
+            "io"
+          ]
+        },
+        "CopyFS": {
+          "params": [
+            {
+              "name": "dir",
+              "type": "string"
+            },
+            {
+              "name": "fsys",
+              "type": "io/fs.FS"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Create": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "(*os.File, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "CreateTemp": {
+          "params": [
+            {
+              "name": "dir",
+              "type": "string"
+            },
+            {
+              "name": "pattern",
+              "type": "string"
+            }
+          ],
+          "returns": "(*os.File, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "DirFS": {
+          "params": [
+            {
+              "name": "dir",
+              "type": "string"
+            }
+          ],
+          "returns": "io/fs.FS",
+          "effects": [
+            "io"
+          ]
+        },
+        "Environ": {
+          "params": [],
+          "returns": "[]string",
+          "effects": [
+            "io"
+          ]
+        },
+        "Executable": {
+          "params": [],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Exit": {
+          "params": [
+            {
+              "name": "code",
+              "type": "int"
+            }
+          ],
+          "returns": "Unit",
+          "effects": [
+            "io"
+          ]
+        },
+        "Expand": {
+          "params": [
+            {
+              "name": "s",
+              "type": "string"
+            },
+            {
+              "name": "mapping",
+              "type": "func(string) string"
+            }
+          ],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "ExpandEnv": {
+          "params": [
+            {
+              "name": "s",
+              "type": "string"
+            }
+          ],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "FindProcess": {
+          "params": [
+            {
+              "name": "pid",
+              "type": "int"
+            }
+          ],
+          "returns": "(*os.Process, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getegid": {
+          "params": [],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getenv": {
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "Geteuid": {
+          "params": [],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getgid": {
+          "params": [],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getgroups": {
+          "params": [],
+          "returns": "([]int, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getpagesize": {
+          "params": [],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getpid": {
+          "params": [],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getppid": {
+          "params": [],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getuid": {
+          "params": [],
+          "returns": "int",
+          "effects": [
+            "io"
+          ]
+        },
+        "Getwd": {
+          "params": [],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Hostname": {
+          "params": [],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "IsExist": {
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "IsNotExist": {
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "IsPathSeparator": {
+          "params": [
+            {
+              "name": "c",
+              "type": "uint8"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "IsPermission": {
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "IsTimeout": {
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "Lchown": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "uid",
+              "type": "int"
+            },
+            {
+              "name": "gid",
+              "type": "int"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Link": {
+          "params": [
+            {
+              "name": "oldname",
+              "type": "string"
+            },
+            {
+              "name": "newname",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "LookupEnv": {
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "returns": "(string, bool)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Lstat": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "(os.FileInfo, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Mkdir": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "perm",
+              "type": "os.FileMode"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "MkdirAll": {
+          "params": [
+            {
+              "name": "path",
+              "type": "string"
+            },
+            {
+              "name": "perm",
+              "type": "os.FileMode"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "MkdirTemp": {
+          "params": [
+            {
+              "name": "dir",
+              "type": "string"
+            },
+            {
+              "name": "pattern",
+              "type": "string"
+            }
+          ],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "NewFile": {
+          "params": [
+            {
+              "name": "fd",
+              "type": "uintptr"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "*os.File",
+          "effects": [
+            "io"
+          ]
+        },
+        "NewSyscallError": {
+          "params": [
+            {
+              "name": "syscall",
+              "type": "string"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Open": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "(*os.File, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "OpenFile": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "flag",
+              "type": "int"
+            },
+            {
+              "name": "perm",
+              "type": "os.FileMode"
+            }
+          ],
+          "returns": "(*os.File, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "OpenInRoot": {
+          "params": [
+            {
+              "name": "dir",
+              "type": "string"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "(*os.File, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "OpenRoot": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "(*os.Root, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Pipe": {
+          "params": [],
+          "returns": "(*os.File, *os.File, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "ReadDir": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "([]os.DirEntry, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "ReadFile": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "([]byte, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Readlink": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Remove": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "RemoveAll": {
+          "params": [
+            {
+              "name": "path",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Rename": {
+          "params": [
+            {
+              "name": "oldpath",
+              "type": "string"
+            },
+            {
+              "name": "newpath",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "SameFile": {
+          "params": [
+            {
+              "name": "fi1",
+              "type": "os.FileInfo"
+            },
+            {
+              "name": "fi2",
+              "type": "os.FileInfo"
+            }
+          ],
+          "returns": "bool",
+          "effects": [
+            "io"
+          ]
+        },
+        "Setenv": {
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            },
+            {
+              "name": "value",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "StartProcess": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "argv",
+              "type": "[]string"
+            },
+            {
+              "name": "attr",
+              "type": "*os.ProcAttr"
+            }
+          ],
+          "returns": "(*os.Process, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Stat": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            }
+          ],
+          "returns": "(os.FileInfo, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "Symlink": {
+          "params": [
+            {
+              "name": "oldname",
+              "type": "string"
+            },
+            {
+              "name": "newname",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "TempDir": {
+          "params": [],
+          "returns": "string",
+          "effects": [
+            "io"
+          ]
+        },
+        "Truncate": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "size",
+              "type": "int64"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "Unsetenv": {
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        },
+        "UserCacheDir": {
+          "params": [],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "UserConfigDir": {
+          "params": [],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "UserHomeDir": {
+          "params": [],
+          "returns": "(string, error)",
+          "effects": [
+            "io"
+          ]
+        },
+        "WriteFile": {
+          "params": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "data",
+              "type": "[]byte"
+            },
+            {
+              "name": "perm",
+              "type": "os.FileMode"
+            }
+          ],
+          "returns": "error",
+          "effects": [
+            "io"
+          ]
+        }
       }
     }
   }

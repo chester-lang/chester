@@ -409,7 +409,7 @@ let%expect_test "go signatures json loads" =
   print_endline
     (Printf.sprintf "go-sigs ok (%d functions)"
        (Go_signatures.function_count sigs));
-  [%expect {| go-sigs ok (24 functions) |}]
+  [%expect {| go-sigs ok (153 functions) |}]
 
 let%expect_test "example go wordcount" =
   check_fixture "examples/go/wordcount.chester";

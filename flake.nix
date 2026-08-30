@@ -52,6 +52,7 @@
               pkgs.ocamlPackages.findlib
               pkgs.ocamlPackages.alcotest
               pkgs.ocamlPackages.ppx_expect
+              pkgs.ocamlPackages.yojson
               pkgs.ocamlPackages.ocamlformat
               pkgs.nixfmt
               pkgs.bun

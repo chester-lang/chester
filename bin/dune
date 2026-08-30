@@ -1,16 +1,16 @@
 (library
  (name chester_frontend)
- (libraries compiler_lib)
+ (libraries compiler_lib str)
  (modules lexer effects_runtime go_signatures))
 
 (executable
  (name main)
- (libraries compiler_lib chester_frontend)
+ (libraries compiler_lib str chester_frontend)
  (modules main chester_paths))
 
 (executable
  (name chester_fmt)
- (libraries compiler_lib chester_frontend)
+ (libraries compiler_lib str chester_frontend)
  (modules chester_fmt))
 
 (executable
