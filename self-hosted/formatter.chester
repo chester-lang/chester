@@ -203,14 +203,14 @@ def needs_space(prev: OptionCST, current: CST): Bool = {
         case Symbol(n, s) => {
           if string_in(n, tight_before_symbols()) then false else {
             match p {
-              case Symbol(pn, ps) => if string_in(pn, tight_after_symbols()) then false else true;
+              case Symbol(pn, ps) => { if string_in(pn, tight_after_symbols()) then false else true };
               case _ => true
             }
           }
         };
         case _ => {
           match p {
-            case Symbol(pn, ps) => if string_in(pn, tight_after_symbols()) then false else true;
+            case Symbol(pn, ps) => { if string_in(pn, tight_after_symbols()) then false else true };
             case _ => true
           }
         }
@@ -240,7 +240,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
       case Comment(text, sp) => format_comment(text);
       
       case Tuple(elements, sp) => {
-        let fix map_format(ls: List(CST)): List(String) = {
+        def map_format(ls: List(CST)): List(String) = {
           if int_eq(ls.length(), 0) then list_empty[String]() else {
             let fst = format_cst(next_fuel, indent, ls.get(0));
             list_insert_first(map_format(advance(ls)), fst)
@@ -250,7 +250,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
       };
       
       case ListLiteral(elements, sp) => {
-        let fix map_format(ls: List(CST)): List(String) = {
+        def map_format(ls: List(CST)): List(String) = {
           if int_eq(ls.length(), 0) then list_empty[String]() else {
             let fst = format_cst(next_fuel, indent, ls.get(0));
             list_insert_first(map_format(advance(ls)), fst)
@@ -263,7 +263,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
         let next_indent = indent + 2;
         let line_prefix = string_concat("\n", gen_spaces(next_indent));
         
-        let fix map_stmt_line(ls: List(CST)): List(String) = {
+        def map_stmt_line(ls: List(CST)): List(String) = {
           if int_eq(ls.length(), 0) then list_empty[String]() else {
             let stmt = ls.get(0);
             let rest_lines = map_stmt_line(advance(ls));
@@ -278,14 +278,14 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
                     let body_lines = if int_eq(body.length(), 0) then list_empty[String]() else {
                       list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, next_indent, body_cst), semi))
                     };
-                    let fix map_comments(cs: List(CST)): List(String) = {
+                    def map_comments(cs: List(CST)): List(String) = {
                       if int_eq(cs.length(), 0) then list_empty[String]() else {
                         list_insert_first(map_comments(advance(cs)), format_comment_cst(cs.get(0)))
                       }
                     };
                     let c_lines = map_comments(comments);
                     // Append c_lines to body_lines
-                    let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+                    def append_lists(l1: List(String), l2: List(String)): List(String) = {
                       if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
                     };
                     append_lists(body_lines, c_lines)
@@ -297,7 +297,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
                 list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, next_indent, stmt), semi))
               }
             };
-            let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+            def append_lists(l1: List(String), l2: List(String)): List(String) = {
               if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
             };
             append_lists(curr_lines, rest_lines)
@@ -306,7 +306,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
         
         let stmt_lines = map_stmt_line(elements);
         let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, next_indent, tail));
-        let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+        def append_lists(l1: List(String), l2: List(String)): List(String) = {
           if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
         };
         let lines = append_lists(stmt_lines, tail_lines);
@@ -317,7 +317,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
       };
 
       case SeqOf(elements, sp) => {
-        let fix format_seq(prev: OptionCST, rest: List(CST)): String = {
+        def format_seq(prev: OptionCST, rest: List(CST)): String = {
           if int_eq(rest.length(), 0) then "" else {
             let current = rest.get(0);
             let tail = advance(rest);
@@ -345,7 +345,7 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
 def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: CST): String = {
   if int_eq(fuel, 0) then "/* ERROR: formatter out of fuel */" else {
     let next_fuel = fuel - 1;
-    let fix map_stmt_line(ls: List(CST)): List(String) = {
+    def map_stmt_line(ls: List(CST)): List(String) = {
       if int_eq(ls.length(), 0) then list_empty[String]() else {
         let stmt = ls.get(0);
         let rest_lines = map_stmt_line(advance(ls));
@@ -360,13 +360,13 @@ def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: 
                 let body_lines = if int_eq(body.length(), 0) then list_empty[String]() else {
                   list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, indent, body_cst), semi))
                 };
-                let fix map_comments(cs: List(CST)): List(String) = {
+                def map_comments(cs: List(CST)): List(String) = {
                   if int_eq(cs.length(), 0) then list_empty[String]() else {
                     list_insert_first(map_comments(advance(cs)), format_comment_cst(cs.get(0)))
                   }
                 };
                 let c_lines = map_comments(comments);
-                let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+                def append_lists(l1: List(String), l2: List(String)): List(String) = {
                   if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
                 };
                 append_lists(body_lines, c_lines)
@@ -378,7 +378,7 @@ def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: 
             list_insert_first(list_empty[String](), string_concat(format_cst(next_fuel, indent, stmt), semi))
           }
         };
-        let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+        def append_lists(l1: List(String), l2: List(String)): List(String) = {
           if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
         };
         append_lists(curr_lines, rest_lines)
@@ -387,7 +387,7 @@ def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: 
     
     let stmt_lines = map_stmt_line(stmts);
     let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, indent, tail));
-    let fix append_lists(l1: List(String), l2: List(String)): List(String) = {
+    def append_lists(l1: List(String), l2: List(String)): List(String) = {
       if int_eq(l1.length(), 0) then l2 else list_insert_first(append_lists(advance(l1), l2), l1.get(0))
     };
     let lines = append_lists(stmt_lines, tail_lines);

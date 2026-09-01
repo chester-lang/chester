@@ -109,6 +109,48 @@ import (
     "os"
 )
 
+func string_eq(a, b interface{}) interface{} { return a.(string) == b.(string) }
+func string_concat(a, b interface{}) interface{} { return a.(string) + b.(string) }
+func string_length(a interface{}) interface{} { return len(a.(string)) }
+func string_substring(s, start, end interface{}) interface{} { return s.(string)[start.(int):end.(int)] }
+
+func int_eq(a, b interface{}) interface{} { return a.(int) == b.(int) }
+func int_add(a, b interface{}) interface{} { return a.(int) + b.(int) }
+func int_sub(a, b interface{}) interface{} { return a.(int) - b.(int) }
+func int_mul(a, b interface{}) interface{} { return a.(int) * b.(int) }
+func int_div(a, b interface{}) interface{} { return a.(int) / b.(int) }
+func int_lt(a, b interface{}) interface{} { return a.(int) < b.(int) }
+func int_gt(a, b interface{}) interface{} { return a.(int) > b.(int) }
+func int_le(a, b interface{}) interface{} { return a.(int) <= b.(int) }
+func int_ge(a, b interface{}) interface{} { return a.(int) >= b.(int) }
+func int_to_string(a interface{}) interface{} { return fmt.Sprintf("%d", a.(int)) }
+
+func bool_or(a, b interface{}) interface{} { return a.(bool) || b.(bool) }
+func bool_and(a, b interface{}) interface{} { return a.(bool) && b.(bool) }
+func bool_not(a interface{}) interface{} { return !a.(bool) }
+
+func list_empty() interface{} { return []interface{}{} }
+func list_length(l interface{}) interface{} { return len(l.([]interface{})) }
+func list_get(l, i interface{}) interface{} { return l.([]interface{})[i.(int)] }
+func list_make(l, f interface{}) interface{} {
+	res := make([]interface{}, l.(int))
+	fn := f.(func(interface{}) interface{})
+	for i := 0; i < l.(int); i++ {
+		res[i] = fn(i)
+	}
+	return res
+}
+func list_insert_first(l, e interface{}) interface{} {
+	return append([]interface{}{e}, l.([]interface{})...)
+}
+func list_append(l1, l2 interface{}) interface{} {
+	return append(l1.([]interface{}), l2.([]interface{})...)
+}
+func list_drop_last(l interface{}) interface{} {
+	ls := l.([]interface{})
+	return ls[:len(ls)-1]
+}
+
 func __chester_read_stdin() interface{} {
     bytes, _ := io.ReadAll(os.Stdin)
     return string(bytes)
