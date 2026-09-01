@@ -1,0 +1,71 @@
+def string_eqb(left: String, right: String): Bool = string_eq(left, right);
+
+def join_strings(sep: String, ls: List(String)): String = {
+  let len = ls.length();
+  if int_eq(len, 0) then "" else {
+    if int_eq(len, 1) then ls.get(0)
+    else string_concat(ls.get(0), string_concat(sep, join_strings(sep, advance(ls))))
+  }
+};
+
+def join_stmts(ls: List(String)): String = join_strings("\n", ls);
+
+def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
+  if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
+    let next_fuel = fuel - 1;
+    match ast {
+      case AstIntLit(val) => int_to_string(val);
+      case AstStringLit(val) => string_concat("\"", string_concat(val, "\""));
+      case AstBoolLit(b) => if b then "true" else "false";
+      case AstRef(name) => if string_eq(name, "Unit") then "nil" else name;
+      case AstTuple(elems) => "/* tuple */";
+      case AstApp(func, args) => {
+        let func_str = emit_go_expr(next_fuel, func);
+        let args_strs = map_go_expr(next_fuel, args);
+        string_concat(func_str, string_concat("(", string_concat(join_strings(", ", args_strs), ")")))
+      };
+      case AstImplicitApp(func, args) => emit_go_expr(next_fuel, func);
+      case AstFieldAccess(expr, field) => string_concat(emit_go_expr(next_fuel, expr), string_concat(".", field));
+      case AstError(msg) => string_concat("panic(\"", string_concat(msg, "\")"));
+      case AstSpan(span, inner) => emit_go_expr(next_fuel, inner);
+      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val))));
+      case _ => "/* unsupported go expr */"
+    }
+  }
+};
+
+def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
+  if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
+    let next_fuel = fuel - 1;
+    match ast {
+      case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val)));
+      case AstVar(name, val) => string_concat(name, string_concat(" := ", emit_go_expr(next_fuel, val)));
+      case AstRef(name) => string_concat("return ", name);
+      case AstSpan(span, inner) => emit_go_stmt(next_fuel, inner);
+      case AstBlock(stmts, tail) => {
+        let stmts_strs = map_go_stmt(next_fuel, stmts);
+        let tail_str = emit_go_stmt(next_fuel, tail);
+        string_concat("{\n", string_concat(join_stmts(stmts_strs), string_concat("\n", string_concat(tail_str, "\n}"))))
+      };
+      case _ => emit_go_expr(next_fuel, ast)
+    }
+  }
+};
+
+def map_go_expr(fuel: Integer, ls: List(AST.AST)): List(String) = {
+  if int_eq(fuel, 0) then list_empty[String]() else {
+    if int_eq(ls.length(), 0) then list_empty[String]() else {
+      let head_str = emit_go_expr(fuel - 1, ls.get(0));
+      list_insert_first(map_go_expr(fuel - 1, advance(ls)), head_str)
+    }
+  }
+};
+
+def map_go_stmt(fuel: Integer, ls: List(AST.AST)): List(String) = {
+  if int_eq(fuel, 0) then list_empty[String]() else {
+    if int_eq(ls.length(), 0) then list_empty[String]() else {
+      let head_str = emit_go_stmt(fuel - 1, ls.get(0));
+      list_insert_first(map_go_stmt(fuel - 1, advance(ls)), head_str)
+    }
+  }
+};

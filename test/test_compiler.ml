@@ -494,6 +494,7 @@ let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
   [%expect {|
     self-hosted/ast.chester ok
+    self-hosted/codegen_go.chester ok
     self-hosted/cst.chester ok
     self-hosted/elaborator.chester ok
     self-hosted/expander.chester ok
