@@ -103,7 +103,21 @@ let go_effects_preamble =
   {|
 package main
 
-import "fmt"
+import (
+    "fmt"
+    "io"
+    "os"
+)
+
+func __chester_read_stdin() interface{} {
+    bytes, _ := io.ReadAll(os.Stdin)
+    return string(bytes)
+}
+
+func __chester_write_stdout(s interface{}) interface{} {
+    fmt.Print(s.(string))
+    return nil
+}
 
 var __chester_caps []map[string]interface{}
 var __chester_frame_id int

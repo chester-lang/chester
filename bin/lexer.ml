@@ -66,6 +66,7 @@ let tokenize filename source =
         let start_idx = i in
         let rec consume_str j =
           if j >= len then j
+          else if source.[j] = '\\' && j + 1 < len then consume_str (j + 2)
           else if source.[j] = '"' then j + 1
           else consume_str (j + 1)
         in
