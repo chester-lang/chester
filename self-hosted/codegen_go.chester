@@ -1,6 +1,7 @@
 
 // Real newline char (Chester text "\n" is stored as backslash+n by the Go backend).
 def go_nl(): String = get_newline_char();
+def go_iface(): String = "interface{}";
 def check_char(c: String, uppers: String, idx: Integer): Bool = {
   if int_eq(idx, 26) then false else {
     if string_eq(c, string_char_at(uppers, idx)) then true else check_char(c, uppers, int_add(idx, 1))
@@ -11,6 +12,53 @@ def is_upper(s: String): Bool = {
     let c = string_char_at(s, 0);
     let uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     check_char(c, uppers, 0)
+  }
+};
+
+def chester_to_go_type(ty: AST.AST): String = {
+  match ty {
+    case AstRef(name) => {
+      if string_eq(name, "Int") then "int"
+      else if string_eq(name, "Integer") then "int"
+      else if string_eq(name, "String") then "string"
+      else if string_eq(name, "Bool") then "bool"
+      else if string_eq(name, "Unit") then go_iface()
+      else if string_eq(name, "Any") then go_iface()
+      else if string_eq(name, "Type") then go_iface()
+      else if string_eq(name, "Unknown") then go_iface()
+      else if is_upper(name) then name
+      else go_iface()
+    };
+    case AstMeta(_) => go_iface();
+    case AstApp(AstRef(n), _) => {
+      if string_eq(n, "List") then string_concat("[]", go_iface()) else go_iface()
+    };
+    case AstSpan(_, inner) => chester_to_go_type(inner);
+    case _ => go_iface()
+  }
+};
+
+def go_type_of_ast_value(e: AST.AST): String = {
+  match e {
+    case AstIntLit(_) => "int";
+    case AstStringLit(_) => "string";
+    case AstBoolLit(_) => "bool";
+    case AstApp(AstRef(name), _) => {
+      if string_eq(name, "int_add") then "int"
+      else if string_eq(name, "int_sub") then "int"
+      else if string_eq(name, "int_mul") then "int"
+      else if string_eq(name, "int_div") then "int"
+      else if string_eq(name, "int_mod") then "int"
+      else if string_eq(name, "int_neg") then "int"
+      else if string_eq(name, "string_concat") then "string"
+      else if string_eq(name, "string_length") then "string"
+      else if string_eq(name, "int_to_string") then "string"
+      else if string_eq(name, "int_eq") then "bool"
+      else if string_eq(name, "string_eq") then "bool"
+      else go_iface()
+    };
+    case AstSpan(_, inner) => go_type_of_ast_value(inner);
+    case _ => go_iface()
   }
 };
 
@@ -34,12 +82,13 @@ def map_go_stmt(fuel: Integer, ls: List(AST.AST)): List(String) = {
 };
 
 def map_params(fuel: Integer, ls: List(Pair)): List(String) = {
+  // Keep def params as interface{} until call-site coercion matches Rocq Backend.
   if int_eq(fuel, 0) then list_empty[String]() else {
     if int_eq(list_length(ls), 0) then list_empty[String]() else {
       let head = list_get(ls, 0);
       match head {
         case MkPair(name, _) => {
-          let head_str = string_concat(name, " interface{}");
+          let head_str = string_concat(name, string_concat(" ", go_iface()));
           list_insert_first(map_params(int_sub(fuel, 1), advance(ls)), head_str)
         };
         case _ => list_insert_first(map_params(int_sub(fuel, 1), advance(ls)), "/* bad param */")
@@ -289,9 +338,10 @@ def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
       };
       case AstError(msg) => string_concat("panic(", string_concat(go_q(), string_concat(escape_go_string(msg, 0, ""), string_concat(go_q(), ")"))));
       case AstSpan(_, inner) => emit_go_expr(next_fuel, inner);
-      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val))));
+      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" ", string_concat(go_iface(), string_concat(" = ", emit_go_expr(next_fuel, val))))));
       case AstLet(name, val) => {
-        let bind = string_concat("var ", string_concat(name, string_concat(" interface{} = ", string_concat(emit_go_expr(next_fuel, val), string_concat(";", go_nl())))));
+        let ty = go_type_of_ast_value(val);
+        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, val), string_concat(";", go_nl())))))));
         let discard = string_concat("_ = ", string_concat(name, string_concat(";", go_nl())));
         string_concat("func() interface{} {", string_concat(go_nl(), string_concat(bind, string_concat(discard, string_concat("return nil;", string_concat(go_nl(), "}()"))))))
       };
@@ -379,9 +429,9 @@ def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
         let fix field_decls(fs: List(Pair)): String = {
           if int_eq(list_length(fs), 0) then "" else {
             match list_get(fs, 0) {
-              case MkPair(fname, _) => {
+              case MkPair(fname, fty) => {
                 let rest = advance(fs);
-                let decl = string_concat(fname, " interface{}");
+                let decl = string_concat(fname, string_concat(" ", chester_to_go_type(fty)));
                 if int_eq(list_length(rest), 0) then decl
                 else string_concat(decl, string_concat("; ", field_decls(rest)))
               };
@@ -397,7 +447,8 @@ def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
       case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val)));
       case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, val))));
       case AstLet(name, val) => {
-        let bind = string_concat("var ", string_concat(name, string_concat(" interface{} = ", string_concat(emit_go_expr(next_fuel, val), ";"))));
+        let ty = go_type_of_ast_value(val);
+        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, val), ";"))))));
         string_concat(bind, string_concat(go_nl(), string_concat("_ = ", string_concat(name, ";"))))
       };
       case AstIf(cond, then_b, else_b) => {
@@ -433,7 +484,7 @@ def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
       case AstDef(name, _, params, _, body) => {
         let params_strs = map_params(next_fuel, params);
         let body_str = emit_go_stmt(next_fuel, body);
-        string_concat("func ", string_concat(name, string_concat("(", string_concat(join_strings(", ", params_strs), string_concat(string_concat(") interface{} {", go_nl()), string_concat(body_str, string_concat(go_nl(), "}")))))))
+        string_concat("func ", string_concat(name, string_concat("(", string_concat(join_strings(", ", params_strs), string_concat(string_concat(") ", string_concat(go_iface(), string_concat(" {", go_nl()))), string_concat(body_str, string_concat(go_nl(), "}")))))))
       };
       
       case AstEnum(_, _, variants) => emit_enum_variants(variants);
@@ -457,7 +508,8 @@ def emit_go_expr_stmt(fuel: Integer, ast: AST.AST): String = {
       case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val)));
       case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, val))));
       case AstLet(name, val) => {
-        let bind = string_concat("var ", string_concat(name, string_concat(" interface{} = ", string_concat(emit_go_expr(next_fuel, val), ";"))));
+        let ty = go_type_of_ast_value(val);
+        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, val), ";"))))));
         string_concat(bind, string_concat(go_nl(), string_concat("_ = ", string_concat(name, ";"))))
       };
       case AstIf(cond, then_b, else_b) => {

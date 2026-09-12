@@ -17,13 +17,13 @@ Fixpoint go_to_chester (go_ast : GoExpr) {struct go_ast} : AST :=
       else if String.eqb name "string" then AstRef "String"
       else if String.eqb name "bool" then AstRef "Bool"
       else AstRef name
-  | GoFuncLiteral params ret =>
-      (* Mock: assume all Go params are typed as 'Any' *)
+  | GoFuncLiteral params _ret body =>
+      (* Mock: assume all Go params are typed as 'Any'; body unused for FFI shapes. *)
       let ret_ty := AstRef "Any" in
-      let fix build_pi (args : list string) : AST :=
+      let fix build_pi (args : list (string * string)) : AST :=
         match args with
         | [] => ret_ty
-        | arg :: rest => AstPi arg (AstRef "Any") (build_pi rest) []
+        | (arg, _) :: rest => AstPi arg (AstRef "Any") (build_pi rest) []
         end
       in build_pi params
   | _ => AstRef "Any"

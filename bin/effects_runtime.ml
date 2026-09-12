@@ -115,28 +115,32 @@ import (
     "os"
 )
 
-func prim__string_eq(a, b interface{}) interface{} { return a.(string) == b.(string) }
-func prim__string_concat(a, b interface{}) interface{} { return a.(string) + b.(string) }
-func prim__string_length(a interface{}) interface{} { return len(a.(string)) }
-func prim__string_substring(s, start, end interface{}) interface{} { return s.(string)[start.(int):end.(int)] }
+func prim__string_eq(a, b string) bool { return a == b }
+func prim__string_concat(a, b string) string { return a + b }
+func prim__string_length(a string) int { return len(a) }
+func prim__string_substring(s string, start, end int) string { return s[start:end] }
 
-func prim__int_eq(a, b interface{}) interface{} { return a.(int) == b.(int) }
-func prim__int_add(a, b interface{}) interface{} { return a.(int) + b.(int) }
-func prim__int_sub(a, b interface{}) interface{} { return a.(int) - b.(int) }
-func prim__int_mul(a, b interface{}) interface{} { return a.(int) * b.(int) }
-func prim__int_div(a, b interface{}) interface{} { return a.(int) / b.(int) }
-func prim__int_mod(a, b interface{}) interface{} { return a.(int) % b.(int) }
-func prim__int_lt(a, b interface{}) interface{} { return a.(int) < b.(int) }
-func prim__int_gt(a, b interface{}) interface{} { return a.(int) > b.(int) }
-func prim__int_le(a, b interface{}) interface{} { return a.(int) <= b.(int) }
-func prim__int_ge(a, b interface{}) interface{} { return a.(int) >= b.(int) }
-func prim__int_neg(a interface{}) interface{} { return -a.(int) }
+func prim__int_eq(a, b int) bool { return a == b }
+func prim__int_add(a, b int) int { return a + b }
+func prim__int_sub(a, b int) int { return a - b }
+func prim__int_mul(a, b int) int { return a * b }
+func prim__int_div(a, b int) int { return a / b }
+func prim__int_mod(a, b int) int { return a % b }
+func prim__int_lt(a, b int) bool { return a < b }
+func prim__int_gt(a, b int) bool { return a > b }
+func prim__int_le(a, b int) bool { return a <= b }
+func prim__int_ge(a, b int) bool { return a >= b }
+func prim__int_neg(a int) int { return -a }
 
-func prim__bool_or(a, b interface{}) interface{} { return a.(bool) || b.(bool) }
-func prim__bool_and(a, b interface{}) interface{} { return a.(bool) && b.(bool) }
-func prim__bool_not(a interface{}) interface{} { return !a.(bool) }
+func prim__bool_or(a, b bool) bool { return a || b }
+func prim__bool_and(a, b bool) bool { return a && b }
+func prim__bool_not(a bool) bool { return !a }
 
-func prim__int_to_string(a interface{}) interface{} { return fmt.Sprintf("%d", a.(int)) }
+func prim__int_to_string(a int) string { return fmt.Sprintf("%d", a) }
+
+func __chester_as_int(v interface{}) int { return v.(int) }
+func __chester_as_string(v interface{}) string { return v.(string) }
+func __chester_as_bool(v interface{}) bool { return v.(bool) }
 
 func prim__list_empty() interface{} { return []interface{}{} }
 func prim__list_length(l interface{}) interface{} { return len(l.([]interface{})) }
