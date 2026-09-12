@@ -194,6 +194,66 @@ def elab_hs(env: List(Pair), hs: List(CST)): List(Pair) = {
     }
   }
 };
+def free_in(name: String, t: AST): Bool = {
+  match t {
+    case AstRef(n) => string_eq(n, name);
+    case AstTuple(elems) => {
+      if int_eq(list_length(elems), 0) then false
+      else bool_or(free_in(name, list_get(elems, 0)), free_in(name, AST.AstTuple(advance(elems))))
+    };
+    case AstBlock(stmts, tail) =>
+      bool_or(free_in(name, AST.AstTuple(stmts)), free_in(name, tail));
+    case AstApp(f, args) =>
+      bool_or(free_in(name, f), free_in(name, AST.AstTuple(args)));
+    case AstLam(argName, argTy, argBody) => {
+      let in_ty = free_in(name, argTy);
+      let shadowed = string_eq(argName, name);
+      let in_body = if shadowed then false else free_in(name, argBody);
+      bool_or(in_ty, in_body)
+    };
+    case AstPi(argName, argTy, retTy, _) => {
+      let in_ty = free_in(name, argTy);
+      let shadowed = string_eq(argName, name);
+      let in_ret = if shadowed then false else free_in(name, retTy);
+      bool_or(in_ty, in_ret)
+    };
+    case AstLet(_, val) => free_in(name, val);
+    case AstIf(c, th, el) => bool_or(free_in(name, c), bool_or(free_in(name, th), free_in(name, el)));
+    case AstSpan(_, inner) => free_in(name, inner);
+    case _ => false
+  }
+};
+def rename_free(old: String, new_name: String, t: AST): AST = {
+  match t {
+    case AstRef(n) => {
+      if string_eq(n, old) then AST.AstRef(new_name) else t
+    };
+    case AstTuple(elems) => AST.AstTuple(list_map(elems, \e => rename_free(old, new_name, e)));
+    case AstBlock(stmts, tail) =>
+      AST.AstBlock(list_map(stmts, \s => rename_free(old, new_name, s)), rename_free(old, new_name, tail));
+    case AstApp(f, args) =>
+      AST.AstApp(rename_free(old, new_name, f), list_map(args, \a => rename_free(old, new_name, a)));
+    case AstLam(argName, argTy, argBody) => {
+      let ty2 = rename_free(old, new_name, argTy);
+      if string_eq(argName, old) then AST.AstLam(argName, ty2, argBody)
+      else AST.AstLam(argName, ty2, rename_free(old, new_name, argBody))
+    };
+    case AstPi(argName, argTy, retTy, effs) => {
+      let ty2 = rename_free(old, new_name, argTy);
+      if string_eq(argName, old) then AST.AstPi(argName, ty2, retTy, effs)
+      else AST.AstPi(argName, ty2, rename_free(old, new_name, retTy), effs)
+    };
+    case AstLet(n, val) => AST.AstLet(n, rename_free(old, new_name, val));
+    case AstIf(c, th, el) =>
+      AST.AstIf(rename_free(old, new_name, c), rename_free(old, new_name, th), rename_free(old, new_name, el));
+    case AstSpan(sp, inner) => AST.AstSpan(sp, rename_free(old, new_name, inner));
+    case _ => t
+  }
+};
+def fresh_name(base: String, avoid1: String, avoid2: String): String = {
+  let cand = string_concat(base, "'");
+  if bool_or(string_eq(cand, avoid1), string_eq(cand, avoid2)) then string_concat(cand, "'") else cand
+};
 def subst_ast(x: String, v: AST, body: AST): AST = {
   match body {
     case AstRef(name) => {
@@ -208,11 +268,21 @@ def subst_ast(x: String, v: AST, body: AST): AST = {
     case AstApp(f, args) => AST.AstApp(subst_ast(x, v, f), list_map(args, \a => subst_ast(x, v, a)));
     case AstLam(argName, argTy, argBody) => {
       let newTy = subst_ast(x, v, argTy);
-      if string_eq(argName, x) then AST.AstLam(argName, newTy, argBody) else AST.AstLam(argName, newTy, subst_ast(x, v, argBody))
+      if string_eq(argName, x) then AST.AstLam(argName, newTy, argBody)
+      else if free_in(argName, v) then {
+        let z = fresh_name(argName, x, argName);
+        let body2 = rename_free(argName, z, argBody);
+        AST.AstLam(z, newTy, subst_ast(x, v, body2))
+      } else AST.AstLam(argName, newTy, subst_ast(x, v, argBody))
     };
     case AstPi(argName, argTy, retTy, effs) => {
       let newTy = subst_ast(x, v, argTy);
-      if string_eq(argName, x) then AST.AstPi(argName, newTy, retTy, effs) else AST.AstPi(argName, newTy, subst_ast(x, v, retTy), effs)
+      if string_eq(argName, x) then AST.AstPi(argName, newTy, retTy, effs)
+      else if free_in(argName, v) then {
+        let z = fresh_name(argName, x, argName);
+        let ret2 = rename_free(argName, z, retTy);
+        AST.AstPi(z, newTy, subst_ast(x, v, ret2), effs)
+      } else AST.AstPi(argName, newTy, subst_ast(x, v, retTy), effs)
     };
     case AstLet(n, val) => AST.AstLet(n, subst_ast(x, v, val));
     case _ => body
