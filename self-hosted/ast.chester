@@ -32,5 +32,6 @@ enum AST {
   case AstDo(op: AST, args: List(AST));
   case AstHandle(body: AST, eff: String, handlers: List(Pair));
   case AstBox(inner: AST, caps: List(String));
-  case AstUnbox(inner: AST)
+  case AstUnbox(inner: AST);
+  case AstImport(lang: String, alias: String, mod_path: String, syms: List(String))
 };

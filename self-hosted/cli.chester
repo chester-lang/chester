@@ -5,7 +5,7 @@ def chester_main(): String = {
   match parse(tokens) {
     case MkParseResult(cst, _) => {
       let expanded_cst = expand_cst_top(cst);
-      let init_state = MkElabState(list_empty[Pair](), 1, list_empty[Pair](), list_empty[String](), list_empty[String](), list_empty[String](), list_empty[Pair]());
+      let init_state = MkElabState(list_empty[Pair](), 1, list_empty[Pair](), list_empty[String](), list_empty[String](), list_empty[String](), list_empty[String]());
       put_elab_state(init_state);
       match elaborate_top(list_empty[Pair](), expanded_cst, OptionAST.NoneAST) {
         case MkPair(ast, _) => {

@@ -10,6 +10,6 @@ def main() = {
     x
   } with State {
     case get() => resume(42);
-    case put(s) => resume(Unit)
+    case put(s) => resume(())
   }
 }

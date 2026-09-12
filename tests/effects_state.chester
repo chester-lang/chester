@@ -15,7 +15,7 @@ def main() = {
     case get() => resume(st);
     case put(s) => {
       st = s;
-      resume(Unit)
+      resume(())
     }
   }
 }

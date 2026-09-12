@@ -13,6 +13,7 @@ enum CST {
   case Block(elements: List(CST), tail: CST, span: Span);
   case StringLiteral(value: String, span: Span);
   case IntegerLiteral(value: String, span: Span);
+  case BoolLiteral(value: Bool, span: Span);
   case SeqOf(elements: List(CST), span: Span);
   case FieldAccess(expr: CST, field: String, span: Span);
   case Comment(text: String, span: Span);
@@ -35,5 +36,7 @@ enum CST {
   case DoCST(op: CST, args: List(CST), span: Span);
   case HandleCST(body: CST, eff: String, handlers: List(CST), span: Span);
   case BoxCST(inner: CST, span: Span);
-  case UnboxCST(inner: CST, span: Span)
+  case UnboxCST(inner: CST, span: Span);
+  case ImportCST(lang: String, alias: String, mod_path: String, syms: List(String), span: Span);
+  case ExternCST(lang: String, mod_path: String, decls: List(CST), span: Span)
 };

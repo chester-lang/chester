@@ -150,11 +150,14 @@ def get_span(c: CST): Span = {
     case Block(_, _, s) => s;
     case StringLiteral(_, s) => s;
     case IntegerLiteral(_, s) => s;
+    case BoolLiteral(_, s) => s;
     case SeqOf(_, s) => s;
     case FieldAccess(_, _, s) => s;
     case Comment(_, s) => s;
     case Error(_, s) => s;
     case LetCST(_, _, _, s) => s;
+    case VarCST(_, _, _, s) => s;
+    case AssignCST(_, _, s) => s;
     case IfCST(_, _, _, s) => s;
     case DefCST(_, _, _, _, _, s) => s;
     case LamCST(_, _, _, s) => s;
@@ -167,7 +170,11 @@ def get_span(c: CST): Span = {
     case ExtensionCST(_, _, _, _, s) => s;
     case EffectCST(_, _, _, s) => s;
     case DoCST(_, _, s) => s;
-    case HandleCST(_, _, _, s) => s
+    case HandleCST(_, _, _, s) => s;
+    case BoxCST(_, s) => s;
+    case UnboxCST(_, s) => s;
+    case ImportCST(_, _, _, _, s) => s;
+    case ExternCST(_, _, _, s) => s
   }
 };
 

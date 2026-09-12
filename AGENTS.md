@@ -13,10 +13,9 @@ sources (`stdlib/`, `tests/`, `self-hosted/`, `examples/`).
 
 ### `Unit` as an expression (legacy, still accepted)
 
-Effect handlers and several tests currently use bare `Unit` as a value (`resume(Unit)`). The
-elaborator represents this as `AstRef "Unit"` and backends treat it like void. This is
-accepted today but inconsistent with the `()`-as-value rule above. Prefer `()` for new
-code; do not introduce new `Unit`-as-value sites unless matching surrounding style.
+Bare `Unit` as a value (`resume(Unit)`) is still accepted for compatibility: the
+elaborator represents it as `AstRef "Unit"` and backends treat it like void. Prefer
+`resume(())` / `()` for the unit value in new and updated code.
 
 ## Surface syntax (current compiler)
 

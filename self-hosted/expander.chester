@@ -140,6 +140,50 @@ def methods_of_block_1(b: CST, op_env: List(OpEnvEntry)): List(CST) = {
                     case _ => list_empty[CST]()
                   }
                 };
+def extract_import_syms_from_block(stmts: List(CST)): List(String) = {
+  if int_eq(list_length(stmts), 0) then list_empty[String]() else {
+    let s = list_get(stmts, 0);
+    let rest = extract_import_syms_from_block(advance(stmts));
+    match s {
+      case Symbol(n, _) => list_insert_first(rest, n);
+      case _ => rest
+    }
+  }
+};
+def extract_import_syms(rest: List(CST)): List(String) = {
+  if int_eq(list_length(rest), 0) then list_empty[String]() else {
+    match list_get(rest, 0) {
+      case Block(syms, _, _) => extract_import_syms_from_block(syms);
+      case _ => list_empty[String]()
+    }
+  }
+};
+// Drop the first n elements of a list (for leftover SeqOf elems after a form).
+def list_drop_n(n: Integer, ls: List(CST)): List(CST) = {
+  if int_eq(n, 0) then ls else {
+    if int_eq(list_length(ls), 0) then list_empty[CST]() else list_drop_n(int_sub(n, 1), advance(ls))
+  }
+};
+// When a keyword form is glued into one SeqOf with following stmts (no ';'),
+// re-queue leftover elems as the next statement — mirrors Rocq keeping `stmt`.
+def cont_with_leftover(elems: List(CST), consumed: Integer, sp: Span, rest_ss: List(CST)): List(CST) = {
+  let leftover = list_drop_n(consumed, elems);
+  if int_eq(list_length(leftover), 0) then rest_ss else {
+    let node = if int_eq(list_length(leftover), 1) then list_get(leftover, 0) else SeqOf(leftover, sp);
+    list_insert_first(rest_ss, node)
+  }
+};
+def process_stmt_keep(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, s: CST, rest_ss: List(CST)): ExpandResultList = {
+  let res_s = expand_cst(fuel, env, op_env, m, s);
+  match res_s {
+    case Res(fst_cst, next_m) => {
+      let res_rest = process_stmts(fuel, env, op_env, next_m, rest_ss);
+      match res_rest {
+        case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, fst_cst), final_m)
+      }
+    }
+  }
+};
 def extract_tparams(ts: List(CST)): List(String) = {
                   if int_eq(list_length(ts), 0) then list_empty[String]() else {
                     match list_get(ts, 0) {
@@ -604,6 +648,14 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
               case _ => SeqOf(collapsed, span)
             }
           } else SeqOf(collapsed, span)
+        } else if string_eq(s, "box") then {
+          let rest = advance(collapsed);
+          if int_eq(list_length(rest), 1) then CST.BoxCST(list_get(rest, 0), span)
+          else CST.BoxCST(SeqOf(rest, span), span)
+        } else if string_eq(s, "unbox") then {
+          let rest = advance(collapsed);
+          if int_eq(list_length(rest), 1) then CST.UnboxCST(list_get(rest, 0), span)
+          else CST.UnboxCST(SeqOf(rest, span), span)
         } else if string_eq(s, "handle") then {
           if int_eq(len, 5) then {
             let body_block = list_get(collapsed, 1);
@@ -1072,12 +1124,13 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         };
                         let extracted = extract_variants(all_variants);
                         let enum_cst = CST.EnumCST(enum_name, list_empty[String](), extracted, sp);
-                        let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                        let cont = cont_with_leftover(elems, 3, sp, rest_ss);
+                        let res_rest = process_stmts(fuel, env, op_env, m, cont);
                         match res_rest {
                           case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m)
                         }
 };
-                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                     }
 };
                   case ImplicitAppCST(inner_sym, targs, _) => {
@@ -1096,15 +1149,16 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         };
                         let extracted = extract_variants(all_variants);
                         let enum_cst = CST.EnumCST(enum_name, targs, extracted, sp);
-                        let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+                        let cont = cont_with_leftover(elems, 3, sp, rest_ss);
+                        let res_rest = process_stmts(fuel, env, op_env, m, cont);
                         match res_rest {
                           case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, enum_cst), final_m)
                         }
 };
-                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                     }
 };
-                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                  case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                 }
 } else if string_eq(sym, "macro") then {
                 let name_node = list_get(elems, 1);
@@ -1112,8 +1166,8 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                 match name_node {
                   case Symbol(mac_name, _) => {
                     match block_node {
-                      case Block(cases, _, _) => {
-                        let extracted = extract_macro_cases(cases);
+                      case Block(_, _, _) => {
+                        let extracted = extract_macro_cases(methods_of_block_1(block_node, op_env));
                         let new_env_entry = MacroEnvEntry.Entry(mac_name, extracted);
                         let new_env = list_insert_first(env, new_env_entry);
                         process_stmts(fuel, new_env, op_env, m, rest_ss)
@@ -1166,14 +1220,15 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                         match processed {
                           case ResList(decl_csts, m2) => {
                             let eff_cst = CST.EffectCST(eff_name, tparams, decl_csts, sp);
-                            let res_rest = process_stmts(fuel, env, op_env, m2, rest_ss);
+                            let cont = cont_with_leftover(elems, int_add(block_idx, 1), sp, rest_ss);
+                            let res_rest = process_stmts(fuel, env, op_env, m2, cont);
                             match res_rest {
                               case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, eff_cst), final_m)
                             }
 }
                         }
 };
-                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                     }
 };
                   case ImplicitAppCST(inner, targs, _) => {
@@ -1187,20 +1242,21 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                             match processed {
                               case ResList(decl_csts, m2) => {
                                 let eff_cst = CST.EffectCST(eff_name, extract_tparams(targs), decl_csts, sp);
-                                let res_rest = process_stmts(fuel, env, op_env, m2, rest_ss);
+                                let cont = cont_with_leftover(elems, 3, sp, rest_ss);
+                                let res_rest = process_stmts(fuel, env, op_env, m2, cont);
                                 match res_rest {
                                   case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, eff_cst), final_m)
                                 }
 }
                             }
 };
-                          case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                          case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                         }
 };
-                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                     }
 };
-                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                  case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                 }
 } else if string_eq(sym, "perform") then {
                 let app_node = list_get(elems, 1);
@@ -1212,7 +1268,7 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                       case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, do_cst), final_m)
                     }
 };
-                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                  case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                 }
 } else if string_eq(sym, "handle") then {
                 let body_block = list_get(elems, 1);
@@ -1229,20 +1285,21 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                             match processed {
                               case ResList(handler_csts, m2) => {
                                 let handle_cst = CST.HandleCST(CST.Block(body_stmts, tail, sp3), eff_name, handler_csts, sp);
-                                let res_rest = process_stmts(fuel, env, op_env, m2, rest_ss);
+                                let cont = cont_with_leftover(elems, 5, sp, rest_ss);
+                                let res_rest = process_stmts(fuel, env, op_env, m2, cont);
                                 match res_rest {
                                   case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, handle_cst), final_m)
                                 }
 }
                             }
 };
-                          case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                          case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                         }
 };
-                      case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                     }
 };
-                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                  case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                 }
 } else if string_eq(sym, "def") then {
                 let app_node = list_get(elems, 1);
@@ -1401,6 +1458,86 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                     match res_rest {
                       case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
                     }
+                  }
+                }
+} else if string_eq(sym, "import") then {
+                let rest = advance(elems);
+                if int_lt(list_length(rest), 2) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                  match list_get(rest, 0) {
+                    case Symbol(lang, _) => {
+                      let rest1 = advance(rest);
+                      match list_get(rest1, 0) {
+                        case Symbol(alias, _) => {
+                          let rest2 = advance(rest1);
+                          if int_eq(list_length(rest2), 0) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                            match list_get(rest2, 0) {
+                              case StringLiteral(mod_path, _) => {
+                                let after_mod = advance(rest2);
+                                let syms = extract_import_syms(after_mod);
+                                let after = match list_get(after_mod, 0) {
+                                  case Block(_, _, _) => advance(after_mod);
+                                  case _ => after_mod
+                                };
+                                let node = ImportCST(lang, alias, mod_path, syms, sp);
+                                let cont = cont_with_leftover(elems, int_sub(list_length(elems), list_length(after)), sp, rest_ss);
+                                let res_rest = process_stmts(fuel, env, op_env, m, cont);
+                                match res_rest {
+                                  case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
+                                }
+                              };
+                              case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                            }
+                          }
+                        };
+                        case StringLiteral(mod_path, _) => {
+                          let after_mod = advance(rest1);
+                          let syms = extract_import_syms(after_mod);
+                          let after = match list_get(after_mod, 0) {
+                            case Block(_, _, _) => advance(after_mod);
+                            case _ => after_mod
+                          };
+                          let node = ImportCST(lang, lang, mod_path, syms, sp);
+                          let cont = cont_with_leftover(elems, int_sub(list_length(elems), list_length(after)), sp, rest_ss);
+                          let res_rest = process_stmts(fuel, env, op_env, m, cont);
+                          match res_rest {
+                            case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
+                          }
+                        };
+                        case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                      }
+                    };
+                    case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                  }
+                }
+} else if string_eq(sym, "extern") then {
+                let rest = advance(elems);
+                if int_lt(list_length(rest), 3) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                  match list_get(rest, 0) {
+                    case Symbol(lang, _) => {
+                      match list_get(rest, 1) {
+                        case StringLiteral(mod_path, _) => {
+                          match list_get(rest, 2) {
+                            case Block(decls, dtail, _) => {
+                              let all_decls = methods_of_block_2(decls, dtail, op_env);
+                              let res_decls = map_expand(all_decls, fuel, env, op_env, m);
+                              match res_decls {
+                                case ResList(decls2, next_m) => {
+                                  let node = ExternCST(lang, mod_path, decls2, sp);
+                                  let cont = cont_with_leftover(elems, 4, sp, rest_ss);
+                                  let res_rest = process_stmts(fuel, env, op_env, next_m, cont);
+                                  match res_rest {
+                                    case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
+                                  }
+                                }
+                              }
+                            };
+                            case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                          }
+                        };
+                        case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                      }
+                    };
+                    case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                   }
                 }
 } else if int_eq(list_length(elems), 3) then {
@@ -1600,6 +1737,42 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
           }
         }
       };
+      case VarCST(n, v, next, sp) => {
+        let res_v = expand_cst(next_fuel, env, op_env, mark, v);
+        match res_v {
+          case Res(new_v, m1) => {
+            let res_n = expand_cst(next_fuel, env, op_env, m1, next);
+            match res_n {
+              case Res(new_n, m2) => ExpandResult.Res(VarCST(n, new_v, new_n, sp), m2)
+            }
+          }
+        }
+      };
+      case AssignCST(n, v, sp) => {
+        let res_v = expand_cst(next_fuel, env, op_env, mark, v);
+        match res_v {
+          case Res(new_v, m1) => ExpandResult.Res(AssignCST(n, new_v, sp), m1)
+        }
+      };
+      case BoxCST(inner, sp) => {
+        let res_i = expand_cst(next_fuel, env, op_env, mark, inner);
+        match res_i {
+          case Res(new_i, m1) => ExpandResult.Res(BoxCST(new_i, sp), m1)
+        }
+      };
+      case UnboxCST(inner, sp) => {
+        let res_i = expand_cst(next_fuel, env, op_env, mark, inner);
+        match res_i {
+          case Res(new_i, m1) => ExpandResult.Res(UnboxCST(new_i, sp), m1)
+        }
+      };
+      case ExternCST(lang, mod_path, decls, sp) => {
+        let res_decls = map_expand(decls, next_fuel, env, op_env, mark);
+        match res_decls {
+          case ResList(new_decls, m1) => ExpandResult.Res(ExternCST(lang, mod_path, new_decls, sp), m1)
+        }
+      };
+      case ImportCST(_, _, _, _, _) => ExpandResult.Res(c, mark);
       case MatchCST(expr, cases, sp) => {
         let res_expr = expand_cst(next_fuel, env, op_env, mark, expr);
         match res_expr {

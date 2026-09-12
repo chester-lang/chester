@@ -562,6 +562,55 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
     }
   }
 };
+def elab_extern_decls(env: List(Pair), decls: List(CST)): Pair = {
+  if int_eq(list_length(decls), 0) then Pair.MkPair(list_empty[String](), env) else {
+    let d = list_get(decls, 0);
+    let rest = advance(decls);
+    match d {
+      case DefCST(op, _, _, _, _, span) => {
+        let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(op, span_context(span)), AST.AstRef("Any")));
+        let rest_res = elab_extern_decls(new_env, rest);
+        match rest_res {
+          case MkPair(syms, final_env) => Pair.MkPair(list_insert_first(syms, op), final_env)
+        }
+      };
+      case SeqOf(elems, span) => {
+        if int_lt(list_length(elems), 2) then elab_extern_decls(env, rest) else {
+          match list_get(elems, 0) {
+            case Symbol(kw, _) => {
+              if string_eq(kw, "def") then {
+                match list_get(elems, 1) {
+                  case Symbol(op, _) => {
+                    let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(op, span_context(span)), AST.AstRef("Any")));
+                    let rest_res = elab_extern_decls(new_env, rest);
+                    match rest_res {
+                      case MkPair(syms, final_env) => Pair.MkPair(list_insert_first(syms, op), final_env)
+                    }
+                  };
+                  case AppCST(f, _, _) => {
+                    match f {
+                      case Symbol(op, _) => {
+                        let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(op, span_context(span)), AST.AstRef("Any")));
+                        let rest_res = elab_extern_decls(new_env, rest);
+                        match rest_res {
+                          case MkPair(syms, final_env) => Pair.MkPair(list_insert_first(syms, op), final_env)
+                        }
+                      };
+                      case _ => elab_extern_decls(env, rest)
+                    }
+                  };
+                  case _ => elab_extern_decls(env, rest)
+                }
+              } else elab_extern_decls(env, rest)
+            };
+            case _ => elab_extern_decls(env, rest)
+          }
+        }
+      };
+      case _ => elab_extern_decls(env, rest)
+    }
+  }
+};
 def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
   if int_eq(list_length(ls), 0) then Pair.MkPair(list_empty[AST](), env) else {
     let x = list_get(ls, 0);
@@ -625,6 +674,27 @@ def map_elabs(env: List(Pair), ls: List(CST)): Pair = {
                     Pair.MkPair(list_insert_first(restAst, rAst), final_env)
                   }
                 }
+              }
+            }
+          }
+        }
+      };
+      case ImportCST(lang, alias, mod_path, syms, _) => {
+        let rest_res = map_elabs(env, xs);
+        match rest_res {
+          case MkPair(restAst, final_env) => {
+            Pair.MkPair(list_insert_first(restAst, AST.AstImport(lang, alias, mod_path, syms)), final_env)
+          }
+        }
+      };
+      case ExternCST(lang, mod_path, decls, _) => {
+        let ext_res = elab_extern_decls(env, decls);
+        match ext_res {
+          case MkPair(syms, new_env) => {
+            let rest_res = map_elabs(new_env, xs);
+            match rest_res {
+              case MkPair(restAst, final_env) => {
+                Pair.MkPair(list_insert_first(restAst, AST.AstImport(lang, "", mod_path, syms)), final_env)
               }
             }
           }
@@ -994,6 +1064,14 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       };
       Pair.MkPair(AST.AstIntLit(string_to_int(s)), int_ty)
     };
+    case BoolLiteral(b, _) => {
+      let bool_ty = AST.AstRef("Bool");
+      match expected {
+        case SomeAST(exp) => unify(100, bool_ty, exp);
+        case OptionAST.NoneAST => ()
+      };
+      Pair.MkPair(AST.AstBoolLit(b), bool_ty)
+    };
     case SeqOf(elems, _) => {
       if int_eq(list_length(elems), 0) then Pair.MkPair(AST.AstError("Empty SeqOf"), AST.AstRef("Any")) else {
         let f = list_get(elems, 0);
@@ -1323,7 +1401,16 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
     };
     case Error(msg, _) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
     case Comment(_, _) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
-    case MacroDefCST(_, _, _) => Pair.MkPair(AST.AstError("Macro in elab"), AST.AstRef("Any"));
+    case MacroDefCST(_, _, _) => Pair.MkPair(AST.AstRef("Unit"), AST.AstRef("Unit"));
+    case ImportCST(lang, alias, mod_path, syms, _) => {
+      Pair.MkPair(AST.AstImport(lang, alias, mod_path, syms), AST.AstRef("Unit"))
+    };
+    case ExternCST(lang, mod_path, decls, _) => {
+      let ext_res = elab_extern_decls(env, decls);
+      match ext_res {
+        case MkPair(syms, _) => Pair.MkPair(AST.AstImport(lang, "", mod_path, syms), AST.AstRef("Unit"))
+      }
+    };
     case EffectCST(name, _, decls, _) => {
 
       let ops = elab_ops(env, decls);

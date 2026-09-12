@@ -231,6 +231,17 @@ def go_call_emitted(direct: Bool, callee: String, args_strs: List(String)): Stri
   }
 };
 
+def emit_cap_lits(caps: List(String)): String = {
+  if int_eq(list_length(caps), 0) then "" else {
+    let q = go_q();
+    let c = list_get(caps, 0);
+    let lit = string_concat(q, string_concat(c, q));
+    let rest = advance(caps);
+    if int_eq(list_length(rest), 0) then lit
+    else string_concat(lit, string_concat(", ", emit_cap_lits(rest)))
+  }
+};
+
 def emit_handle_handlers(fuel: Integer, hs: List(Pair)): String = {
   if int_eq(list_length(hs), 0) then ""
   else {
@@ -257,8 +268,10 @@ def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
       case AstBoolLit(b) => { if b then "true" else "false" };
       case AstRef(name) => { if string_eq(name, "Unit") then "nil" else name };
       case AstTuple(elems) => {
-        let args_strs = map_go_expr(next_fuel, elems);
-        string_concat("[]interface{}{", string_concat(join_strings(", ", args_strs), "}"))
+        if int_eq(list_length(elems), 0) then "nil" else {
+          let args_strs = map_go_expr(next_fuel, elems);
+          string_concat("[]interface{}{", string_concat(join_strings(", ", args_strs), "}"))
+        }
       };
       case AstApp(fn_expr, args) => {
         let func_str = emit_go_expr(next_fuel, fn_expr);
@@ -318,6 +331,34 @@ def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
         let hs = emit_handle_handlers(next_fuel, handlers);
         string_concat("__chester_handle(", string_concat(q, string_concat(eff, string_concat(q, string_concat(", func() interface{} { ", string_concat(body_str, string_concat(" }, map[string]interface{}{", string_concat(hs, "})"))))))))
       };
+      case AstBox(inner, caps) => {
+        let body = emit_go_expr(next_fuel, inner);
+        let p1 = string_concat("__chester_box([]interface{}{", emit_cap_lits(caps));
+        let p2 = string_concat(p1, "}, func() interface{} { return ");
+        let p3 = string_concat(p2, body);
+        string_concat(p3, " })")
+      };
+      case AstUnbox(inner) => {
+        let callee = emit_go_expr(next_fuel, inner);
+        string_concat(callee, ".(func() interface{})()")
+      };
+      case AstPi(_, _, _, _) => "interface{}";
+      case AstFunTy(_, _, _, _) => "interface{}";
+      case AstRecord(_, _, _) => "nil";
+      case AstImport(_, _, _, _) => "nil";
+      case AstMeta(id) => string_concat("/* ?meta_", string_concat(int_to_string(id), " */"));
+      case AstUniverse(_) => string_concat("panic(", string_concat(go_q(), string_concat("Universe in term", string_concat(go_q(), ")"))));
+      case AstAssign(name, val) => {
+        let a1 = string_concat("func() interface{} {", go_nl());
+        let a2 = string_concat(a1, name);
+        let a3 = string_concat(a2, " = ");
+        let a4 = string_concat(a3, emit_go_expr(next_fuel, val));
+        let a5 = string_concat(a4, ";");
+        let a6 = string_concat(a5, go_nl());
+        let a7 = string_concat(a6, "return nil;");
+        let a8 = string_concat(a7, go_nl());
+        string_concat(a8, "}()")
+      };
       
       case _ => "/* unsupported go expr */"
     }
@@ -328,6 +369,15 @@ def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
   if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
     let next_fuel = int_sub(fuel, 1);
     match ast {
+      case AstImport(lang, _, mod_path, _) => {
+        if string_eq(lang, "go") then {
+          let q = go_q();
+          string_concat("import ", string_concat(q, string_concat(mod_path, string_concat(q, ";"))))
+        } else ""
+      };
+      case AstRecord(name, _, _) => string_concat("type ", string_concat(name, " struct{};"));
+      case AstBox(_, _) => string_concat("return ", emit_go_expr(next_fuel, ast));
+      case AstUnbox(_) => string_concat("return ", emit_go_expr(next_fuel, ast));
       case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val)));
       case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, val))));
       case AstLet(name, val) => {
@@ -408,6 +458,10 @@ def emit_go_expr_stmt(fuel: Integer, ast: AST.AST): String = {
       case AstDef(_, _, _, _, _) => emit_go_stmt(next_fuel, ast);
       case AstEnum(_, _, _) => emit_go_stmt(next_fuel, ast);
       case AstExtension(_, _, _, _) => emit_go_stmt(next_fuel, ast);
+      case AstImport(_, _, _, _) => emit_go_stmt(next_fuel, ast);
+      case AstRecord(_, _, _) => emit_go_stmt(next_fuel, ast);
+      case AstBox(_, _) => emit_go_expr(next_fuel, ast);
+      case AstUnbox(_) => emit_go_expr(next_fuel, ast);
       case AstDo(_, _) => emit_go_expr(next_fuel, ast);
       case AstHandle(_, _, _) => emit_go_expr(next_fuel, ast);
       case AstMatch(_, _) => emit_go_expr(next_fuel, ast);
