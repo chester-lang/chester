@@ -1,5 +1,6 @@
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
+From Stdlib Require Import Arith.PeanoNat.
 Import ListNotations.
 
 (* Keeps track of both Unicode scalar characters and UTF-16 code units.
@@ -129,6 +130,55 @@ Definition get_span (c : CST) : Span :=
   | Error _ span => span
   | _ => empty_span
   end.
+
+(* Structural size for measure-derived fuel (expand / elaborate tops). *)
+Fixpoint cst_size (c : CST) {struct c} : nat :=
+  let fix sizes (cs : list CST) : nat :=
+    match cs with
+    | [] => 0
+    | x :: xs => cst_size x + sizes xs
+    end
+  in
+  let fix size_params (ps : list (string * CST)) : nat :=
+    match ps with
+    | [] => 0
+    | (_, ty) :: xs => cst_size ty + size_params xs
+    end
+  in
+  let fix size_cases (cs : list (PatternCST * CST)) : nat :=
+    match cs with
+    | [] => 0
+    | (_, body) :: xs => cst_size body + size_cases xs
+    end
+  in
+  match c with
+  | Symbol _ _ | StringLiteral _ _ | IntegerLiteral _ _ | BoolLiteral _ _
+  | CommentCST _ _ | Error _ _ => 1
+  | Tuple es _ | ListLiteral es _ | SeqOf es _ => S (sizes es)
+  | Block stmts tail _ => S (sizes stmts + cst_size tail)
+  | LetCST _ v b _ | VarCST _ v b _ => S (cst_size v + cst_size b)
+  | AssignCST _ v _ => S (cst_size v)
+  | IfCST c0 t e _ => S (cst_size c0 + cst_size t + cst_size e)
+  | DefCST _ _ params ret body _ =>
+      S (size_params params + cst_size ret + cst_size body)
+  | LamCST _ (Some ty) body _ => S (cst_size ty + cst_size body)
+  | LamCST _ None body _ => S (cst_size body)
+  | AppCST f args _ | ImplicitAppCST f args _ | DoCST f args _ =>
+      S (cst_size f + sizes args)
+  | EnumCST _ _ vs _ => S (sizes vs)
+  | MatchCST e cases _ => S (cst_size e + size_cases cases)
+  | RecordCST _ _ fs _ => S (sizes fs)
+  | EffectCST _ _ ops _ => S (sizes ops)
+  | HandleCST body _ hs _ => S (cst_size body + sizes hs)
+  | FieldAccessCST e _ _ | BoxCST e _ | UnboxCST e _ => S (cst_size e)
+  | MacroDefCST _ cases _ => S (size_cases cases)
+  | ExtensionCST _ _ target meths _ => S (cst_size target + sizes meths)
+  | ImportCST _ _ _ _ _ => 1
+  | ExternCST _ _ decls _ => S (sizes decls)
+  end.
+
+(** Fuel large enough for a full walk plus modest expansion/elaboration overhead. *)
+Definition cst_fuel (c : CST) : nat := Nat.mul (S (cst_size c)) 8.
 
 
 Inductive ParserCST : CST -> Prop :=

@@ -910,7 +910,7 @@ def elab_cases(env: List(Pair), expected: OptionAST, cs: List(CST), expr_ty: AST
                 }
               }
             }
-          }
+          };
           match body_ast_res {
             case MkPair(bAst, bTy) => {
               match rest_res {

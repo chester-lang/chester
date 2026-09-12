@@ -29,9 +29,11 @@ Applied today (Rocq / `main.exe --go` and self-hosted `codegen_go.chester`):
 - **Lambdas / handlers** — stay `interface{}` (effects runtime)
 - **Lists, enums, effects maps** — still dynamic (`list_length` returns `int`)
 - **Call / return boundaries** — top-level def and extension-method signatures are
-  collected; args and returns are coerced with `__chester_as_*` when the value may
-  still be `interface{}` (so `let a = id(1); id(a)`, `var x = 1; x`, and
-  `ListOps_get(list, i)` all compile). Known-typed locals skip redundant coerces.
+  collected structurally (no fuel) and **accumulated across multi-file `--go`
+  inputs** so later units coerce calls into earlier ones (stdlib → self-hosted).
+  Args and returns use `__chester_as_*` when the value may still be `interface{}`.
+  Known-typed locals skip redundant coerces. `AstImplicitApp` / `AstSpan` callees
+  are unwrapped for sig lookup.
 - **Bool conditions** — skip `__chester_as_bool` when the cond is already `bool`
 
 Scalar primitives in the Go preamble take/return concrete types

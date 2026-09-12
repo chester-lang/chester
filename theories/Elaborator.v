@@ -542,19 +542,19 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       match resolve_hygiene env name (context span) with
       | Some (ty, resolved_ctx) => 
           match expected with
-          | Some exp => unify 100 ty exp ;; ret (AstRef (mangle_name name resolved_ctx), ty)
+          | Some exp => unify fuel' ty exp ;; ret (AstRef (mangle_name name resolved_ctx), ty)
           | None => ret (AstRef (mangle_name name resolved_ctx), ty)
           end
       | None => ret (AstRef name, AstRef "Any")
       end
   | StringLiteral s _ => 
-      match expected with Some exp => unify 100 StringType exp | None => ret tt end ;;
+      match expected with Some exp => unify fuel' StringType exp | None => ret tt end ;;
       ret (AstStringLit s, StringType)
   | IntegerLiteral s _ => 
-      match expected with Some exp => unify 100 IntType exp | None => ret tt end ;;
+      match expected with Some exp => unify fuel' IntType exp | None => ret tt end ;;
       ret (AstIntLit (string_to_nat s), IntType)
   | BoolLiteral b _ => 
-      match expected with Some exp => unify 100 BoolType exp | None => ret tt end ;;
+      match expected with Some exp => unify fuel' BoolType exp | None => ret tt end ;;
       ret (AstBoolLit b, BoolType)
   | SeqOf exprs span =>
       match exprs with
@@ -587,7 +587,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               | a :: rest, AstMeta _ =>
                   argTyM <- fresh_meta;
                   retTyM <- fresh_meta;
-                  unify 100 fs (AstPi "x" argTyM retTyM []);;
+                  unify fuel' fs (AstPi "x" argTyM retTyM []);;
                   aAst <- elaborate fuel' env a (Some argTyM);
                   restAst <- check_args retTyM rest;
                   ret (fst aAst :: fst restAst, snd restAst)
@@ -603,7 +603,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               pending <- get_pending ;
               set_pending (merge_effects pending (effect_labels call_effs)) ;;
               match expected with
-              | Some exp => unify 100 ret_ty exp
+              | Some exp => unify fuel' ret_ty exp
               | None => ret tt
               end;; ret (AstApp (fst funcAst) (fst argsRes), ret_ty)
           end
@@ -820,7 +820,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           in
           argsRes <- check_args (snd funcAst) args ;
           match expected with
-          | Some exp => unify 100 (snd argsRes) exp
+          | Some exp => unify fuel' (snd argsRes) exp
           | None => ret tt
           end ;;
           ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
@@ -849,7 +849,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 | AstMeta _ =>
                     argTyM <- fresh_meta ;
                     retTyM <- fresh_meta ;
-                    unify 100 fs (AstPi "x" argTyM retTyM []) ;;
+                    unify fuel' fs (AstPi "x" argTyM retTyM []) ;;
                     aAst <- elaborate fuel' env a (Some argTyM) ;
                     restAst <- check_args retTyM rest ;
                     ret (fst aAst :: fst restAst, snd restAst)
@@ -866,7 +866,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           in
           argsRes <- check_args (snd funcAst) args ;
           match expected with
-          | Some exp => unify 100 (snd argsRes) exp
+          | Some exp => unify fuel' (snd argsRes) exp
           | None => ret tt
           end ;;
           ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
@@ -953,7 +953,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         | (pat, body) as single :: (_ :: _) as rest =>
             res_first <- elab_cases [(pat, body)] ;
             res_rest <- process_cases rest ;
-            unify 100 (snd res_first) (snd res_rest) ;;
+            unify fuel' (snd res_first) (snd res_rest) ;;
             ret (app (fst res_first) (fst res_rest), snd res_first)
         end
       in
@@ -1175,7 +1175,7 @@ Eval compute in test_zonk_run test_unify_env.
 
 
 Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : ElabM (AST * AST) :=
-  res <- elaborate 1000 env expr expected ;
+  res <- elaborate (cst_fuel expr) env expr expected ;
   pending <- get_pending ;
   let fix check_pending (ps : EffectSet) : ElabM (AST * AST) :=
     match ps with

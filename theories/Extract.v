@@ -42,6 +42,8 @@ Extraction "Compiler.ml"
   Chester.Backend.emit_ts 
   Chester.Backend.emit_go 
   Chester.Backend.emit_go_top
+  Chester.Backend.emit_go_top_with
+  Chester.Backend.collect_go_sigs_ast
   Chester.Backend.emit_ts_top
   Chester.RocqBackend.emit_rocq
   Chester.RocqBackend.emit_rocq_top

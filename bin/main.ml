@@ -81,13 +81,16 @@ let compile_file ~verbose filename state op_env =
       exit 1
   | Inl ((ast, _), state') -> (ast, state')
 
-let emit_ast ~target ~verbose filename oc ast =
+let emit_ast ~target ~verbose ~go_prior filename oc ast =
   match target with
   | EmitGo ->
       if verbose then print_endline ("\n[Emitting Go for " ^ filename ^ "]");
       let go_code =
-        rename_chester_main (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
+        rename_chester_main
+          (string_of_char_list
+             (stringify_go_stmt (emit_go_top_with !go_prior ast)))
       in
+      go_prior := collect_go_sigs_ast ast @ !go_prior;
       output_string oc (go_code ^ "\n")
   | EmitRocq ->
       if verbose then print_endline ("\n[Emitting Rocq for " ^ filename ^ "]");
@@ -96,9 +99,9 @@ let emit_ast ~target ~verbose filename oc ast =
       if verbose then print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
       output_string oc (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) ^ "\n")
 
-let process_file ~target ~verbose ~emit oc filename state op_env =
+let process_file ~target ~verbose ~emit ~go_prior oc filename state op_env =
   let ast, state' = compile_file ~verbose filename state op_env in
-  if emit then emit_ast ~target ~verbose filename oc ast;
+  if emit then emit_ast ~target ~verbose ~go_prior filename oc ast;
   state'
 
 let rec parse_opts acc = function
@@ -279,19 +282,20 @@ let () =
       in
       let state = ref state in
       let op_env = ref [] in
+      let go_prior = ref [] in
       List.iter
         (fun f ->
           (* Go needs prelude defs in the package; TS/Rocq keep elaborate-only. *)
           let emit_prelude = opts.target = EmitGo in
           state :=
             process_file ~target:opts.target ~verbose:false ~emit:emit_prelude
-              oc f !state op_env)
+              ~go_prior oc f !state op_env)
         prelude_paths;
       List.iter
         (fun f ->
           state :=
-            process_file ~target:opts.target ~verbose:true ~emit:true oc f !state
-              op_env)
+            process_file ~target:opts.target ~verbose:true ~emit:true ~go_prior
+              oc f !state op_env)
         resolved_files;
       if opts.target = EmitGo then
         output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";

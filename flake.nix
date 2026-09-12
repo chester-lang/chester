@@ -79,10 +79,16 @@
               go build -o stage2 stage2.go
 
               # 6. Smoke-test Stage 2 on fixtures the bootstrap must keep working
-              ./stage2 < tests/effects.chester > smoke_effects.go
-              go run smoke_effects.go | grep -qx '42'
-              ./stage2 < tests/effects_box.chester > smoke_box.go
-              go run smoke_box.go | grep -qx '5'
+              smoke() {
+                local src="$1" expect="$2" out="$3"
+                ./stage2 < "$src" > "$out"
+                go run "$out" | grep -qx "$expect"
+              }
+              smoke tests/effects.chester 42 smoke_effects.go
+              smoke tests/effects_box.chester 5 smoke_box.go
+              smoke tests/effects_state.chester 2 smoke_state.go
+              smoke tests/go_typed_emit.chester 2 smoke_typed.go
+              smoke examples/go/simple.chester 42 smoke_simple.go
               printf '%s\n' 'def main(): Integer = 42' | ./stage2 > smoke_main.go
               go run smoke_main.go | grep -qx '42'
             '';

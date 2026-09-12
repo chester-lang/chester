@@ -950,7 +950,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
   end.
 
 
-Definition expand_cst_top (expr : CST) : CST := fst (expand_cst 1000 [] expr).
+Definition expand_cst_top (expr : CST) : CST := fst (expand_cst (cst_fuel expr) [] expr).
 
 Definition expand_cst_top_env (op_env : OpEnv) (expr : CST) : (CST * OpEnv) :=
-  expand_cst 1000 op_env expr.
+  expand_cst (cst_fuel expr) op_env expr.

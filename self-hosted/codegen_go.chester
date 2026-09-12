@@ -57,6 +57,9 @@ def go_preamble_surface(name: String): Bool = {
   else if string_eq(name, "list_length") then true
   else false
 };
+
+// Builtin / prim scalar return types ("" = unknown). Mirrors Rocq go_scalar_ret_ty.
+def go_scalar_ret_ty(name: String): String = {
   if string_eq(name, "int_add") then "int"
   else if string_eq(name, "int_sub") then "int"
   else if string_eq(name, "int_mul") then "int"
@@ -131,36 +134,31 @@ def go_lookup_sig(env: List(Pair), name: String): List(Pair) = {
   }
 };
 
-def map_param_go_tys(fuel: Integer, ls: List(Pair)): List(String) = {
-  if int_eq(fuel, 0) then list_empty[String]() else {
-    if int_eq(list_length(ls), 0) then list_empty[String]() else {
-      match list_get(ls, 0) {
-        case MkPair(_, ty) => list_insert_first(map_param_go_tys(int_sub(fuel, 1), advance(ls)), chester_to_go_type(ty));
-        case _ => list_insert_first(map_param_go_tys(int_sub(fuel, 1), advance(ls)), go_iface())
-      }
+def map_param_go_tys(ls: List(Pair)): List(String) = {
+  if int_eq(list_length(ls), 0) then list_empty[String]() else {
+    match list_get(ls, 0) {
+      case MkPair(_, ty) => list_insert_first(map_param_go_tys(advance(ls)), chester_to_go_type(ty));
+      case _ => list_insert_first(map_param_go_tys(advance(ls)), go_iface())
     }
   }
 };
 
-def collect_go_sigs(fuel: Integer, asts: List(AST.AST)): List(Pair) = {
-  if int_eq(fuel, 0) then list_empty[Pair]() else {
-    if int_eq(list_length(asts), 0) then list_empty[Pair]() else {
-      let head = list_get(asts, 0);
-      let rest = advance(asts);
-      let next = int_sub(fuel, 1);
-      match head {
-        case AstDef(name, _, params, ret_ty, _) => {
-          let info = MkPair(map_param_go_tys(next, params), chester_to_go_type(ret_ty));
-          list_insert_first(collect_go_sigs(next, rest), MkPair(name, info))
-        };
-        case AstExtension(_, _, _, meths) => {
-          go_list_concat_pair(collect_go_sigs(next, meths), collect_go_sigs(next, rest))
-        };
-        case AstSpan(_, inner) => {
-          collect_go_sigs(next, list_insert_first(rest, inner))
-        };
-        case _ => collect_go_sigs(next, rest)
-      }
+def collect_go_sigs(asts: List(AST.AST)): List(Pair) = {
+  if int_eq(list_length(asts), 0) then list_empty[Pair]() else {
+    let head = list_get(asts, 0);
+    let rest = advance(asts);
+    match head {
+      case AstDef(name, _, params, ret_ty, _) => {
+        let info = MkPair(map_param_go_tys(params), chester_to_go_type(ret_ty));
+        list_insert_first(collect_go_sigs(rest), MkPair(name, info))
+      };
+      case AstExtension(_, _, _, meths) => {
+        go_list_concat_pair(collect_go_sigs(meths), collect_go_sigs(rest))
+      };
+      case AstSpan(_, inner) => {
+        collect_go_sigs(list_insert_first(rest, inner))
+      };
+      case _ => collect_go_sigs(rest)
     }
   }
 };
@@ -328,9 +326,9 @@ def go_builtin_param_tys(name: String, nargs: Integer): List(String) = {
   else list_empty[String]()
 };
 
-def go_call_args(sigs: List(Pair), locals: List(Pair), func: AST.AST, arg_asts: List(AST.AST), arg_strs: List(String)): List(String) = {
+def go_call_args(sigs: List(Pair), locals: List(Pair), fn_ast: AST.AST, arg_asts: List(AST.AST), arg_strs: List(String)): List(String) = {
   let nargs = list_length(arg_strs);
-  match func {
+  match fn_ast {
     case AstImplicitApp(inner, _) => go_call_args(sigs, locals, inner, arg_asts, arg_strs);
     case AstSpan(_, inner) => go_call_args(sigs, locals, inner, arg_asts, arg_strs);
     case AstRef(name) => {
@@ -714,6 +712,20 @@ def emit_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.A
   }
 };
 
+def go_record_field_decls(fs: List(Pair)): String = {
+  if int_eq(list_length(fs), 0) then "" else {
+    match list_get(fs, 0) {
+      case MkPair(fname, fty) => {
+        let rest = advance(fs);
+        let decl = string_concat(fname, string_concat(" ", chester_to_go_type(fty)));
+        if int_eq(list_length(rest), 0) then decl
+        else string_concat(decl, string_concat("; ", go_record_field_decls(rest)))
+      };
+      case _ => go_record_field_decls(advance(fs))
+    }
+  }
+};
+
 def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: String, ast: AST.AST): String = {
   if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
     let next_fuel = int_sub(fuel, 1);
@@ -725,21 +737,8 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
         } else ""
       };
       case AstRecord(name, _, fields) => {
-        let fix field_decls(fs: List(Pair)): String = {
-          if int_eq(list_length(fs), 0) then "" else {
-            match list_get(fs, 0) {
-              case MkPair(fname, fty) => {
-                let rest = advance(fs);
-                let decl = string_concat(fname, string_concat(" ", chester_to_go_type(fty)));
-                if int_eq(list_length(rest), 0) then decl
-                else string_concat(decl, string_concat("; ", field_decls(rest)))
-              };
-              case _ => field_decls(advance(fs))
-            }
-          }
-        };
         if int_eq(list_length(fields), 0) then string_concat("type ", string_concat(name, " struct{};"))
-        else string_concat("type ", string_concat(name, string_concat(" struct{ ", string_concat(field_decls(fields), " };"))))
+        else string_concat("type ", string_concat(name, string_concat(" struct{ ", string_concat(go_record_field_decls(fields), " };"))))
       };
       case AstBox(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstUnbox(_) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
@@ -870,13 +869,15 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
 };
 
 // Top-level: collect GoSigEnv from AstBlock stmts, then emit.
-def emit_go_top(fuel: Integer, ast: AST.AST): String = {
+// Emit fuel scales with top-level stmt count (mirrors Rocq measure-derived fuel).
+def emit_go_top(ast: AST.AST): String = {
   match ast {
     case AstBlock(stmts, _) => {
-      let sigs = collect_go_sigs(256, stmts);
+      let sigs = collect_go_sigs(stmts);
+      let fuel = int_mul(256, int_add(1, list_length(stmts)));
       emit_go_stmt(fuel, sigs, list_empty[Pair](), go_iface(), ast)
     };
-    case AstSpan(_, inner) => emit_go_top(fuel, inner);
-    case _ => emit_go_stmt(fuel, list_empty[Pair](), list_empty[Pair](), go_iface(), ast)
+    case AstSpan(_, inner) => emit_go_top(inner);
+    case _ => emit_go_stmt(256, list_empty[Pair](), list_empty[Pair](), go_iface(), ast)
   }
 };

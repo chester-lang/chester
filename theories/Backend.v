@@ -92,23 +92,41 @@ Fixpoint go_lookup_sig (env : GoSigEnv) (name : string) : option (list string * 
       if go_str_eq n name then Some info else go_lookup_sig rest name
   end.
 
-Fixpoint collect_go_sigs (fuel : nat) (asts : list AST) {struct fuel} : GoSigEnv :=
-  match fuel with
-  | 0 => []
-  | S fuel' =>
-      match asts with
-      | [] => []
-      | AstDef name _ params ret_ty _ :: rest =>
-          (name, (map (fun p => chester_to_go_type (snd p)) params, chester_to_go_type ret_ty))
-            :: collect_go_sigs fuel' rest
-      | AstExtension _ _ _ meths :: rest =>
-          app (collect_go_sigs fuel' meths) (collect_go_sigs fuel' rest)
-      | _ :: rest => collect_go_sigs fuel' rest
-      end
+(* Structural nested recursion: walk ASTs and nested extension method lists. *)
+Fixpoint collect_go_sigs_one (a : AST) {struct a} : GoSigEnv :=
+  let fix on_list (asts : list AST) : GoSigEnv :=
+    match asts with
+    | [] => []
+    | x :: xs => app (collect_go_sigs_one x) (on_list xs)
+    end
+  in
+  match a with
+  | AstDef name _ params ret_ty _ =>
+      [(name, (map (fun p => chester_to_go_type (snd p)) params, chester_to_go_type ret_ty))]
+  | AstExtension _ _ _ meths => on_list meths
+  | AstBlock stmts _ => on_list stmts
+  | AstSpan _ inner => collect_go_sigs_one inner
+  | _ => []
   end.
 
+Definition collect_go_sigs (asts : list AST) : GoSigEnv :=
+  let fix on_list (xs : list AST) : GoSigEnv :=
+    match xs with
+    | [] => []
+    | x :: rest => app (collect_go_sigs_one x) (on_list rest)
+    end
+  in on_list asts.
+
 Definition collect_go_sigs_top (asts : list AST) : GoSigEnv :=
-  collect_go_sigs 256 asts.
+  collect_go_sigs asts.
+
+(* Sig env for one elaborated file AST (driver accumulates across --go inputs). *)
+Fixpoint collect_go_sigs_ast (ast : AST) {struct ast} : GoSigEnv :=
+  match ast with
+  | AstBlock stmts _ => collect_go_sigs_top stmts
+  | AstSpan _ inner => collect_go_sigs_ast inner
+  | _ => collect_go_sigs_one ast
+  end.
 
 (* Local let/var/param bindings → Go type strings (for skipping redundant coerces). *)
 Definition GoLocalEnv := list (string * string).
@@ -202,24 +220,31 @@ Definition go_wrap_ret (sigs : GoSigEnv) (locals : GoLocalEnv) (ret_ty : string)
     | None => go_coerce_to ret_ty e
     end.
 
-Fixpoint go_map_returns (fuel : nat) (sigs : GoSigEnv) (locals : GoLocalEnv) (ret_ty : string) (ss : list GoStmt) {struct fuel} : list GoStmt :=
-  match fuel with
-  | 0 => ss
-  | S fuel' =>
-      match ss with
-      | [] => []
-      | GoReturn e :: rest => GoReturn (go_wrap_ret sigs locals ret_ty e) :: go_map_returns fuel' sigs locals ret_ty rest
-      | GoIfStmt c t e :: rest =>
-          GoIfStmt c (go_map_returns fuel' sigs locals ret_ty t) (go_map_returns fuel' sigs locals ret_ty e)
-            :: go_map_returns fuel' sigs locals ret_ty rest
-      | GoBlock b :: rest =>
-          GoBlock (go_map_returns fuel' sigs locals ret_ty b) :: go_map_returns fuel' sigs locals ret_ty rest
-      | s :: rest => s :: go_map_returns fuel' sigs locals ret_ty rest
-      end
+(* Structural nested recursion over GoStmt trees (if/block bodies). *)
+Fixpoint go_map_return_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ret_ty : string) (s : GoStmt) {struct s} : GoStmt :=
+  let fix on_list (ss : list GoStmt) : list GoStmt :=
+    match ss with
+    | [] => []
+    | x :: xs => go_map_return_stmt sigs locals ret_ty x :: on_list xs
+    end
+  in
+  match s with
+  | GoReturn e => GoReturn (go_wrap_ret sigs locals ret_ty e)
+  | GoIfStmt c t e => GoIfStmt c (on_list t) (on_list e)
+  | GoBlock b => GoBlock (on_list b)
+  | _ => s
   end.
 
+Definition go_map_returns (sigs : GoSigEnv) (locals : GoLocalEnv) (ret_ty : string) (ss : list GoStmt) : list GoStmt :=
+  let fix on_list (xs : list GoStmt) : list GoStmt :=
+    match xs with
+    | [] => []
+    | x :: rest => go_map_return_stmt sigs locals ret_ty x :: on_list rest
+    end
+  in on_list ss.
+
 Definition go_map_returns_top (sigs : GoSigEnv) (locals : GoLocalEnv) (ret_ty : string) (ss : list GoStmt) : list GoStmt :=
-  go_map_returns 64 sigs locals ret_ty ss.
+  go_map_returns sigs locals ret_ty ss.
 
 Definition go_coerce_arg (sigs : GoSigEnv) (locals : GoLocalEnv) (param_ty : string) (arg : GoExpr) : GoExpr :=
   if go_str_eq param_ty go_iface then arg
@@ -269,7 +294,7 @@ Definition go_builtin_param_tys (name : string) (nargs : nat) : option (list str
     then Some (reps "bool" nargs)
   else None.
 
-Definition go_call_args (sigs : GoSigEnv) (locals : GoLocalEnv) (func : AST) (args : list GoExpr) : list GoExpr :=
+Fixpoint go_call_args (sigs : GoSigEnv) (locals : GoLocalEnv) (func : AST) (args : list GoExpr) {struct func} : list GoExpr :=
   let nargs := length args in
   match func with
   | AstRef name =>
@@ -281,6 +306,8 @@ Definition go_call_args (sigs : GoSigEnv) (locals : GoLocalEnv) (func : AST) (ar
           | None => args
           end
       end
+  | AstImplicitApp inner _ => go_call_args sigs locals inner args
+  | AstSpan _ inner => go_call_args sigs locals inner args
   | _ => args
   end.
 
@@ -348,7 +375,7 @@ Definition is_upper (s : string) : bool :=
       (PeanoNat.Nat.leb 65 n) && (PeanoNat.Nat.leb n 90)
   end.
 
-Definition go_app_direct (func : AST) : bool :=
+Fixpoint go_app_direct (func : AST) {struct func} : bool :=
   match func with
   | AstRef name => 
       if string_dec name "resume" then false else
@@ -356,6 +383,8 @@ Definition go_app_direct (func : AST) : bool :=
       if string_dec name "predicate" then false else
       true
   | AstFieldAccess _ _ => true
+  | AstImplicitApp inner _ => go_app_direct inner
+  | AstSpan _ inner => go_app_direct inner
   | _ => false
   end.
 
@@ -1179,10 +1208,11 @@ Fixpoint go_is_top_decl (ast : AST) {struct ast} : bool :=
   | _ => false
   end.
 
-Definition emit_go_top (ast : AST) : GoStmt :=
+(* [prior] = signatures from earlier --go inputs (stdlib / previous units). *)
+Definition emit_go_top_with (prior : GoSigEnv) (ast : AST) : GoStmt :=
   match ast with
   | AstBlock stmts ret =>
-      let sigs := collect_go_sigs_top stmts in
+      let sigs := app (collect_go_sigs_top stmts) prior in
       let locals := [] in
       let fix map_go_stmt (ls : list AST) (loc : GoLocalEnv) : list GoStmt :=
         match ls with
@@ -1209,6 +1239,9 @@ Definition emit_go_top (ast : AST) : GoStmt :=
           else
             GoBlock (map_go_stmt stmts locals ++ [GoExprStmt (emit_go_expr sigs locs' ret)])
       end
-  | _ => emit_go_stmt [] [] ast
+  | _ => emit_go_stmt prior [] ast
   end.
+
+Definition emit_go_top (ast : AST) : GoStmt :=
+  emit_go_top_with [] ast.
 
