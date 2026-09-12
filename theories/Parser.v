@@ -289,7 +289,7 @@ with parse_body_fuel (fuel : nat) (term : string) (toks : list Token)
                     (item :: fst body, snd body)
                   else if ends_with_block item then
                     if string_dec sep term then
-                      (item :: [], (unit_cst, rest1))
+                      ([], (item, rest1))
                     else
                       let body := parse_body_fuel fuel' term rest1 in
                       (item :: fst body, snd body)

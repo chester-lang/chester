@@ -31,7 +31,9 @@
               pkgs.rocqPackages.stdlib
               pkgs.ocamlPackages.ocaml
               pkgs.ocamlPackages.dune_3
-              pkgs.ocamlPackages.findlib pkgs.ocamlPackages.alcotest pkgs.ocamlPackages.ppx_expect
+              pkgs.ocamlPackages.findlib
+              pkgs.ocamlPackages.alcotest
+              pkgs.ocamlPackages.ppx_expect
               pkgs.go
             ];
             buildPhase = ''
@@ -39,9 +41,10 @@
               coq_makefile -f _CoqProject -o Makefile
               make -j$NIX_BUILD_CORES
               dune build
-              
+
               # 1. Compile self-hosted sources using Rocq compiler
-              ./_build/default/bin/main.exe --go -o stage1.go \
+              dune exec bin/main.exe -- --go -o stage1.go \
+                stdlib/std.chester \
                 self-hosted/ast.chester \
                 self-hosted/cst.chester \
                 self-hosted/lexer.chester \
@@ -51,13 +54,14 @@
                 self-hosted/formatter.chester \
                 self-hosted/codegen_go.chester \
                 self-hosted/cli.chester
-              
+
               # 2. Build Stage 1 Go binary
               export GOCACHE=$(mktemp -d)
               go build -o stage1 stage1.go
-              
+
               # 3. Concatenate self-hosted sources
               cat \
+                stdlib/std.chester \
                 self-hosted/ast.chester \
                 self-hosted/cst.chester \
                 self-hosted/lexer.chester \
@@ -67,10 +71,10 @@
                 self-hosted/formatter.chester \
                 self-hosted/codegen_go.chester \
                 self-hosted/cli.chester > self-hosted-all.chester
-              
+
               # 4. Use Stage 1 to compile self-hosted sources again (Stage 2)
               cat self-hosted-all.chester | ./stage1 > stage2.go
-              
+
               # 5. Build Stage 2 Go binary
               go build -o stage2 stage2.go
             '';
@@ -94,7 +98,9 @@
               pkgs.rocqPackages.stdlib
               pkgs.ocamlPackages.ocaml
               pkgs.ocamlPackages.dune_3
-              pkgs.ocamlPackages.findlib pkgs.ocamlPackages.alcotest pkgs.ocamlPackages.ppx_expect
+              pkgs.ocamlPackages.findlib
+              pkgs.ocamlPackages.alcotest
+              pkgs.ocamlPackages.ppx_expect
               pkgs.ocamlPackages.alcotest
               pkgs.ocamlPackages.ppx_expect
               pkgs.ocamlPackages.yojson
@@ -117,7 +123,9 @@
             pkgs.ocamlformat
             pkgs.ocamlPackages.dune_3
             pkgs.ocamlPackages.ocaml
-            pkgs.ocamlPackages.findlib pkgs.ocamlPackages.alcotest pkgs.ocamlPackages.ppx_expect
+            pkgs.ocamlPackages.findlib
+            pkgs.ocamlPackages.alcotest
+            pkgs.ocamlPackages.ppx_expect
           ];
         in
         pkgs.writeShellScriptBin "formatter" ''

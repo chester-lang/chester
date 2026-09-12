@@ -5,14 +5,15 @@ enum PatternAST {
 };
 enum AST {
   case AstRef(name: String);
+  case AstMeta(id: Integer);
   case AstUniverse(level: Integer);
   case AstTuple(elems: List(AST));
   case AstStringLit(val: String);
   case AstIntLit(val: Integer);
   case AstBoolLit(val: Bool);
   case AstBlock(stmts: List(AST), tail: AST);
-  case AstApp(func: AST, args: List(AST));
-  case AstImplicitApp(func: AST, args: List(AST));
+  case AstApp(fn_expr: AST, args: List(AST));
+  case AstImplicitApp(fn_expr: AST, args: List(AST));
   case AstLam(argName: String, argTy: AST, body: AST);
   case AstPi(argName: String, argTy: AST, retTy: AST, effs: List(String));
   case AstLet(name: String, value: AST);
@@ -32,4 +33,4 @@ enum AST {
   case AstHandle(body: AST, eff: String, handlers: List(Pair));
   case AstBox(inner: AST, caps: List(String));
   case AstUnbox(inner: AST)
-}
+};

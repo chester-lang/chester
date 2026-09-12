@@ -1,5 +1,5 @@
 extern ts "react" {
-  def createElement(tag: String, props: Any, children: Any): Any;
+  def createElement(tag: String, props: Any, children: Any): Any
 };
 
 def Counter(): Any = {

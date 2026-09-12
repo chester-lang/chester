@@ -1,5 +1,5 @@
 effect State {
-  def get(): Integer;
+  def get(): Integer
 }
 
 // Unsealed box (no handler at box site): unbox must require State.

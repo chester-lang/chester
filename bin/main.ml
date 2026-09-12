@@ -88,13 +88,13 @@ let emit_ast ~target ~verbose filename oc ast =
       let go_code =
         rename_chester_main (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
       in
-      output_string oc go_code
+      output_string oc (go_code ^ "\n")
   | EmitRocq ->
       if verbose then print_endline ("\n[Emitting Rocq for " ^ filename ^ "]");
       output_string oc (string_of_char_list (stringify_rocq_stmt (emit_rocq_top ast)))
   | EmitTS ->
       if verbose then print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
-      output_string oc (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)))
+      output_string oc (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) ^ "\n")
 
 let process_file ~target ~verbose ~emit oc filename state op_env =
   let ast, state' = compile_file ~verbose filename state op_env in

@@ -591,11 +591,10 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   aAst <- elaborate fuel' env a (Some argTyM);
                   restAst <- check_args retTyM rest;
                   ret (fst aAst :: fst restAst, snd restAst)
-              | a :: rest, AstRef _ =>
+              | a :: rest, _ =>
                   aAst <- elaborate fuel' env a None;
                   restAst <- check_args (AstRef "Any") rest;
                   ret (fst aAst :: fst restAst, (AstRef "Any", snd (snd restAst)))
-              | _, _ => ret ([], (AstRef "Any", []))
               end
           in
           argsRes <- check_args (snd funcAst) args;
@@ -858,7 +857,10 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                     aAst <- elaborate fuel' env a None ;
                     restAst <- check_args (AstRef "Any") rest ;
                     ret (fst aAst :: fst restAst, AstRef "Any")
-                | _ => ret ([], AstRef "Any")
+                | _ =>
+                    aAst <- elaborate fuel' env a None ;
+                    restAst <- check_args (AstRef "Any") rest ;
+                    ret (fst aAst :: fst restAst, AstRef "Any")
                 end
             end
           in

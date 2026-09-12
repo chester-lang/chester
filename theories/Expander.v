@@ -21,6 +21,11 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
       end
   | Tuple args span :: rest =>
       match acc with
+      | Symbol kw _ :: acc_rest =>
+          if orb (eqb kw "then") (orb (eqb kw "else") (orb (eqb kw "case") (orb (eqb kw "if") (orb (eqb kw "match") (orb (eqb kw "=>") (eqb kw "=")))))) then
+            collapse_apps_aux rest (Tuple args span :: acc)
+          else
+            collapse_apps_aux rest (AppCST (Symbol kw empty_span) args span :: acc_rest)
       | func :: acc_rest => collapse_apps_aux rest (AppCST func args span :: acc_rest)
       | [] => collapse_apps_aux rest (Tuple args span :: [])
       end
@@ -207,10 +212,14 @@ Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST
       | Symbol "\" _ :: Symbol arg _ :: Symbol "=>" _ :: body =>
           let body_cst := match body with | [] => Tuple [] span | [x] => x | _ => SeqOf body span end in
           LamCST arg None body_cst span
-      | Symbol "match" _ :: expr :: Block cases _ _ :: [] =>
+      | Symbol "match" _ :: expr :: Block cases tail _ :: [] =>
           (* Extract case branches into PatternCST * CST pairs.
              Bodies are left as SeqOf so expand_cst can recurse into them later.
              We CANNOT call expand_seq_expr env here (same fixpoint) — Coq forbids it. *)
+          let all_cases := match tail with
+                           | Symbol u _ => if string_dec u "Unit" then cases else app cases [tail]
+                           | _ => app cases [tail]
+                           end in
           let fix extract_vars (args : list CST) : list string :=
             match args with
             | [] => []
@@ -229,6 +238,14 @@ Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST
                   | _ => SeqOf body sp
                   end in
                 (PatWildcardCST sp, body_cst) :: extract_cases rest
+            (* case Ctor.Variant => body *)
+            | SeqOf (Symbol "case" _ :: FieldAccessCST (Symbol _ _) vname _ :: Symbol "=>" _ :: body) sp :: rest =>
+                let body_cst := match body with
+                  | [] => Tuple [] sp
+                  | [b] => b
+                  | _ => SeqOf body sp
+                  end in
+                (PatConstructorCST vname [] sp, body_cst) :: extract_cases rest
             (* case Constructor(vars...) => body  -- field-access form: Ctor.Variant(vars) *)
             | SeqOf (Symbol "case" _ ::
                      FieldAccessCST (Symbol _ _) vname _ ::
@@ -265,7 +282,7 @@ Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST
             | _ :: rest => extract_cases rest
             end
           in
-          MatchCST expr (extract_cases cases) span
+          MatchCST expr (extract_cases all_cases) span
       | Symbol "perform" _ :: AppCST op args _ :: [] => DoCST op args span
       | Symbol "box" _ :: rest =>
           match rest with
@@ -398,9 +415,24 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                             let extract_arg (a: CST) : (string * CST) := 
                                match a with
                                | Symbol n _ => (n, Symbol "Unknown" empty_span)
-                               | SeqOf (Symbol n _ :: Symbol kwd2 _ :: ty :: _) _ => 
-                                   if eqb kwd2 ":" then (n, ty) else ("unknown", Symbol "Unknown" empty_span)
-                               | _ => ("unknown", Symbol "Unknown" empty_span)
+                               | SeqOf (Symbol n _ :: AppCST (Symbol kwd2 _) ty_args _ :: rest_ty) sp => 
+                                   if eqb kwd2 ":" then 
+                                      let ty_cst := match rest_ty with
+                                                    | [] => Tuple ty_args empty_span
+                                                    | _ => SeqOf (Tuple ty_args empty_span :: rest_ty) sp
+                                                    end in
+                                      (n, ty_cst)
+                                   else ("unknown", a)
+                               | SeqOf (Symbol n _ :: Symbol kwd2 _ :: rest_ty) sp => 
+                                   if eqb kwd2 ":" then 
+                                      let ty_cst := match rest_ty with
+                                                    | [] => Symbol "Unknown" empty_span
+                                                    | [t] => t
+                                                    | _ => SeqOf rest_ty sp
+                                                    end in
+                                      (n, ty_cst)
+                                   else ("unknown", a)
+                               | _ => ("unknown", a)
                                end
                             in
                             let params := map extract_arg args in
@@ -419,9 +451,24 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                             let extract_arg (a: CST) : (string * CST) := 
                                match a with
                                | Symbol n _ => (n, Symbol "Unknown" empty_span)
-                               | SeqOf (Symbol n _ :: Symbol kwd2 _ :: ty :: _) _ => 
-                                   if eqb kwd2 ":" then (n, ty) else ("unknown", Symbol "Unknown" empty_span)
-                               | _ => ("unknown", Symbol "Unknown" empty_span)
+                               | SeqOf (Symbol n _ :: AppCST (Symbol kwd2 _) ty_args _ :: rest_ty) sp => 
+                                   if eqb kwd2 ":" then 
+                                      let ty_cst := match rest_ty with
+                                                    | [] => Tuple ty_args empty_span
+                                                    | _ => SeqOf (Tuple ty_args empty_span :: rest_ty) sp
+                                                    end in
+                                      (n, ty_cst)
+                                   else ("unknown", a)
+                               | SeqOf (Symbol n _ :: Symbol kwd2 _ :: rest_ty) sp => 
+                                   if eqb kwd2 ":" then 
+                                      let ty_cst := match rest_ty with
+                                                    | [] => Symbol "Unknown" empty_span
+                                                    | [t] => t
+                                                    | _ => SeqOf rest_ty sp
+                                                    end in
+                                      (n, ty_cst)
+                                   else ("unknown", a)
+                               | _ => ("unknown", a)
                                end
                             in
                             let extract_targ (a: CST) : string := 
@@ -514,7 +561,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                         match e1 with
                         | Symbol name _ =>
                             match e2 with
-                            | Block variants _ _ =>
+                            | Block variants tail_cst _ =>
                                 let fix extract_variants (vs : list CST) : list CST :=
                                   match vs with
                                   | [] => []
@@ -555,12 +602,13 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                   | _ :: vrest => extract_variants vrest
                                   end
                                 in
-                                EnumCST name [] (extract_variants variants) s
+                                let all_variants : list CST := match tail_cst with | Symbol u _ => if string_dec u "Unit" then variants else app variants (tail_cst :: nil) | _ => app variants (tail_cst :: nil) end in
+                                EnumCST name [] (extract_variants all_variants) s
                             | _ => stmt
                             end
                         | ImplicitAppCST (Symbol name _) targs _ =>
                             match e2 with
-                            | Block variants _ _ =>
+                            | Block variants tail_cst _ =>
                                 let fix extract_variants (vs : list CST) : list CST :=
                                   match vs with
                                   | [] => []
@@ -605,7 +653,8 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                    match a with Symbol n _ => n | _ => "T" end 
                                 in
                                 let type_params := map extract_targ targs in
-                                EnumCST name type_params (extract_variants variants) s
+                                let all_variants : list CST := match tail_cst with | Symbol u _ => if string_dec u "Unit" then variants else app variants (tail_cst :: nil) | _ => app variants (tail_cst :: nil) end in
+                                EnumCST name type_params (extract_variants all_variants) s
                             | _ => stmt
                             end
                         | _ => stmt

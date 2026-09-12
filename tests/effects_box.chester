@@ -1,6 +1,6 @@
 effect State {
   def get(): Integer;
-  def put(s: Integer): Unit;
+  def put(s: Integer): Unit
 }
 
 def main() = {

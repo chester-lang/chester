@@ -13,11 +13,16 @@ Definition digit_char (d : nat) : string :=
   | 5 => "5" | 6 => "6" | 7 => "7" | 8 => "8" | _ => "9"
   end.
 
+Fixpoint nat_to_string_fuel (fuel n : nat) (acc : string) : string :=
+  match fuel with
+  | 0 => acc
+  | S f =>
+      if Nat.eqb n 0 then acc
+      else nat_to_string_fuel f (Nat.div n 10) (digit_char (Nat.modulo n 10) ++ acc)
+  end.
+
 Definition nat_to_string (n : nat) : string :=
-  let tens := Nat.div n 10 in
-  let ones := Nat.modulo n 10 in
-  if Nat.eqb tens 0 then digit_char ones
-  else digit_char tens ++ digit_char ones.
+  if Nat.eqb n 0 then "0" else nat_to_string_fuel 20 n "".
 
 Definition effect_label (eff : EffectRef) : string :=
   match eff with

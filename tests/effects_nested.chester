@@ -1,8 +1,8 @@
 effect Outer {
-  def ask(): Integer;
+  def ask(): Integer
 }
 effect Inner {
-  def bump(): Integer;
+  def bump(): Integer
 }
 
 def main() = {

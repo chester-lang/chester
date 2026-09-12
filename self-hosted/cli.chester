@@ -1,25 +1,27 @@
+
 def chester_main(): String = {
-  let source = main.__chester_read_stdin();
+  let source = __chester_read_stdin();
   let tokens = lex(source);
   match parse(tokens) {
-    case ParseResult(cst, remaining) => {
-      let expanded_cst = expand_cst_top_env(cst);
+    case MkParseResult(cst, _) => {
+      let expanded_cst = expand_cst_top(cst);
       let init_state = MkElabState(list_empty[Pair](), 1, list_empty[Pair](), list_empty[String](), list_empty[String](), list_empty[String](), list_empty[Pair]());
       put_elab_state(init_state);
       match elaborate_top(list_empty[Pair](), expanded_cst, OptionAST.NoneAST) {
-        case MkPair(ast, ty) => {
-          let code = emit_go_stmt(10000, ast);
-          main.__chester_write_stdout(code);
+        case MkPair(ast, _) => {
+          let body = emit_go_stmt(10000, ast);
+          let code = __chester_assemble_go(body);
+          __chester_write_stdout(code);
           ""
         };
         case _ => {
-          main.__chester_write_stdout("Elaboration error\n");
+          __chester_write_stdout("Elaboration error\n");
           ""
         }
       }
     };
     case _ => {
-      main.__chester_write_stdout("Parse error\n");
+      __chester_write_stdout("Parse error\n");
       ""
     }
   }

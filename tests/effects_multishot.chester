@@ -1,5 +1,5 @@
 effect Flip {
-  def flip(): Boolean;
+  def flip(): Boolean
 }
 
 // True multi-shot: each resume re-enters the continuation after perform

@@ -8,7 +8,7 @@ Open Scope string_scope.
   Golang AST Representation for the Backend
 *)
 
-Definition go_quote : string := String (ascii_of_nat 34) "".
+Definition go_quote : string := String (ascii_of_nat 96) "".
 Definition go_colon_space : string :=
   String (ascii_of_nat 58) (String (ascii_of_nat 32) "").
 
@@ -21,6 +21,7 @@ Inductive GoStmt : Type :=
   | GoReturn : GoExpr -> GoStmt
   | GoPanic : string -> GoStmt
   | GoFuncDecl : string -> list string -> list GoStmt -> GoStmt
+  | GoLocalFuncDecl : string -> list string -> list GoStmt -> GoStmt
   | GoStruct : string -> GoStmt
   | GoEmpty : GoStmt
   | GoBlock : list GoStmt -> GoStmt
@@ -65,6 +66,19 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
       "if " ++ stringify_go_expr cond ++ " { " ++ thenStr ++ "} else { " ++ elseStr ++ "}"
   | GoReturn expr => "return " ++ stringify_go_expr expr ++ "; "
   | GoPanic msg => "panic(" ++ go_quote ++ msg ++ go_quote ++ "); "
+  
+  | GoLocalFuncDecl name params body =>
+      let bodyStr := concat_strings " " (map_go_stmt body) in
+      match params with
+      | [] =>
+          "var " ++ name ++ " interface{}; " ++ name ++ " = func() interface{} {
+" ++ bodyStr ++ "
+}; "
+      | _ =>
+          "var " ++ name ++ " interface{}; " ++ name ++ " = func(" ++ concat_strings " interface{}, " params ++ " interface{}) interface{} {
+" ++ bodyStr ++ "
+}; "
+      end
   | GoFuncDecl name params body =>
       match params with
       | [] =>

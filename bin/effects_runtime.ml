@@ -5,6 +5,10 @@ let ts_primitives =
    const prim__string_eq = (a, b) => a === b;\n\
    const prim__list_length = (l) => l.length;\n\
    const prim__int_eq = (a, b) => a === b;\n\
+   const prim__cst_tag = (cst) => cst._tag || \"unknown_tag\";\n\
+   const prim__list_advance = (l) => l.slice(1);\n\
+   const prim__list_filter = (l, pred) => l.filter(pred);\n\
+   const prim__join_strings = (sep, ls) => ls.join(sep);\n\
    const prim__list_make = (len, f) => Array.from({length: len}, (_, i) => \
    f(i));\n\
    const prim__int_sub = (a, b) => a - b;\n\
@@ -99,40 +103,95 @@ let ts_test_preamble =
    const int_sub = prim__int_sub;\n"
   ^ ts_effects_runtime
 
-let go_effects_preamble =
+let go_preamble_body =
   {|
 package main
 
 import (
     "fmt"
+    "strings"
+    "strconv"
     "io"
     "os"
 )
 
-func string_eq(a, b interface{}) interface{} { return a.(string) == b.(string) }
-func string_concat(a, b interface{}) interface{} { return a.(string) + b.(string) }
-func string_length(a interface{}) interface{} { return len(a.(string)) }
-func string_substring(s, start, end interface{}) interface{} { return s.(string)[start.(int):end.(int)] }
+func prim__string_eq(a, b interface{}) interface{} { return a.(string) == b.(string) }
+func prim__string_concat(a, b interface{}) interface{} { return a.(string) + b.(string) }
+func prim__string_length(a interface{}) interface{} { return len(a.(string)) }
+func prim__string_substring(s, start, end interface{}) interface{} { return s.(string)[start.(int):end.(int)] }
 
-func int_eq(a, b interface{}) interface{} { return a.(int) == b.(int) }
-func int_add(a, b interface{}) interface{} { return a.(int) + b.(int) }
-func int_sub(a, b interface{}) interface{} { return a.(int) - b.(int) }
-func int_mul(a, b interface{}) interface{} { return a.(int) * b.(int) }
-func int_div(a, b interface{}) interface{} { return a.(int) / b.(int) }
-func int_lt(a, b interface{}) interface{} { return a.(int) < b.(int) }
-func int_gt(a, b interface{}) interface{} { return a.(int) > b.(int) }
-func int_le(a, b interface{}) interface{} { return a.(int) <= b.(int) }
-func int_ge(a, b interface{}) interface{} { return a.(int) >= b.(int) }
-func int_to_string(a interface{}) interface{} { return fmt.Sprintf("%d", a.(int)) }
+func prim__int_eq(a, b interface{}) interface{} { return a.(int) == b.(int) }
+func prim__int_add(a, b interface{}) interface{} { return a.(int) + b.(int) }
+func prim__int_sub(a, b interface{}) interface{} { return a.(int) - b.(int) }
+func prim__int_mul(a, b interface{}) interface{} { return a.(int) * b.(int) }
+func prim__int_div(a, b interface{}) interface{} { return a.(int) / b.(int) }
+func prim__int_mod(a, b interface{}) interface{} { return a.(int) % b.(int) }
+func prim__int_lt(a, b interface{}) interface{} { return a.(int) < b.(int) }
+func prim__int_gt(a, b interface{}) interface{} { return a.(int) > b.(int) }
+func prim__int_le(a, b interface{}) interface{} { return a.(int) <= b.(int) }
+func prim__int_ge(a, b interface{}) interface{} { return a.(int) >= b.(int) }
+func prim__int_neg(a interface{}) interface{} { return -a.(int) }
 
-func bool_or(a, b interface{}) interface{} { return a.(bool) || b.(bool) }
-func bool_and(a, b interface{}) interface{} { return a.(bool) && b.(bool) }
-func bool_not(a interface{}) interface{} { return !a.(bool) }
+func prim__bool_or(a, b interface{}) interface{} { return a.(bool) || b.(bool) }
+func prim__bool_and(a, b interface{}) interface{} { return a.(bool) && b.(bool) }
+func prim__bool_not(a interface{}) interface{} { return !a.(bool) }
 
-func list_empty() interface{} { return []interface{}{} }
-func list_length(l interface{}) interface{} { return len(l.([]interface{})) }
-func list_get(l, i interface{}) interface{} { return l.([]interface{})[i.(int)] }
-func list_make(l, f interface{}) interface{} {
+func prim__int_to_string(a interface{}) interface{} { return fmt.Sprintf("%d", a.(int)) }
+
+func prim__list_empty() interface{} { return []interface{}{} }
+func prim__list_length(l interface{}) interface{} { return len(l.([]interface{})) }
+func prim__list_get(l, i interface{}) interface{} { return l.([]interface{})[i.(int)] }
+func prim__list_advance(l interface{}) interface{} {
+	switch v := l.(type) {
+	case []interface{}:
+		if len(v) == 0 {
+			return v
+		}
+		return v[1:]
+	default:
+		panic("list_advance on non-list")
+	}
+}
+
+func prim__list_filter(l interface{}, pred interface{}) interface{} {
+	switch v := l.(type) {
+	case []interface{}:
+		var res []interface{}
+		fn := pred.(func(interface{}) interface{})
+		for _, x := range v {
+			if fn(x).(bool) {
+				res = append(res, x)
+			}
+		}
+		if res == nil {
+			return []interface{}{}
+		}
+		return res
+	default:
+		panic("list_filter on non-list")
+	}
+}
+
+func prim__join_strings(sep interface{}, ls interface{}) interface{} {
+	switch v := ls.(type) {
+	case []interface{}:
+		if len(v) == 0 {
+			return ""
+		}
+		var sb strings.Builder
+		for i, x := range v {
+			if i > 0 {
+				sb.WriteString(sep.(string))
+			}
+			sb.WriteString(x.(string))
+		}
+		return sb.String()
+	default:
+		panic("join_strings on non-list")
+	}
+}
+
+func prim__list_make(l, f interface{}) interface{} {
 	res := make([]interface{}, l.(int))
 	fn := f.(func(interface{}) interface{})
 	for i := 0; i < l.(int); i++ {
@@ -140,13 +199,13 @@ func list_make(l, f interface{}) interface{} {
 	}
 	return res
 }
-func list_insert_first(l, e interface{}) interface{} {
+func prim__list_insert_first(l, e interface{}) interface{} {
 	return append([]interface{}{e}, l.([]interface{})...)
 }
-func list_append(l1, l2 interface{}) interface{} {
-	return append(l1.([]interface{}), l2.([]interface{})...)
+func prim__list_append(l1, l2 interface{}) interface{} {
+	return append(l1.([]interface{}), l2)
 }
-func list_drop_last(l interface{}) interface{} {
+func prim__list_drop_last(l interface{}) interface{} {
 	ls := l.([]interface{})
 	return ls[:len(ls)-1]
 }
@@ -159,6 +218,16 @@ func __chester_read_stdin() interface{} {
 func __chester_write_stdout(s interface{}) interface{} {
     fmt.Print(s.(string))
     return nil
+}
+
+func __chester_field(obj interface{}, field string) interface{} {
+    if obj == nil { panic(fmt.Sprintf("cannot access field %s on nil", field)) }
+    if m, ok := obj.(map[string]interface{}); ok {
+        if val, ok := m[field]; ok {
+            return val
+        }
+    }
+    panic(fmt.Sprintf("unknown field %s on %T", field, obj))
 }
 
 var __chester_caps []map[string]interface{}
@@ -264,13 +333,51 @@ func __chester_box(labels []interface{}, bodyFn func() interface{}) interface{} 
 	return func() interface{} { return __chester_with_evidence(ev, bodyFn) }
 }
 
-func prim__int_add(a interface{}, b interface{}) interface{} {
-	return a.(int) + b.(int)
-}
-
-var int_add = prim__int_add
 var Unit = struct{}{}
+
+
+var _global_elab_state interface{}
+func prim__get_elab_state() interface{} { return _global_elab_state }
+func prim__put_elab_state(s interface{}) interface{} { _global_elab_state = s; return Unit }
+
 |}
+
+(* Emit a Go double-quoted string literal (preamble contains backticks, so raw strings cannot wrap it). *)
+let go_string_lit (s : string) : string =
+  let buf = Buffer.create (String.length s * 2) in
+  Buffer.add_char buf '"';
+  String.iter (function
+    | '"' -> Buffer.add_string buf "\\\""
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | '\n' -> Buffer.add_string buf "\\n"
+    | '\t' -> Buffer.add_string buf "\\t"
+    | '\r' -> Buffer.add_string buf "\\r"
+    | c -> Buffer.add_char buf c) s;
+  Buffer.add_char buf '"';
+  Buffer.contents buf
+
+(* Fixed source of __chester_assemble_go for re-emission into stage2+. Uses strconv.Quote(pre) at runtime. *)
+let go_assemble_core_src =
+  "\nfunc __chester_assemble_go(body interface{}) interface{} {\n"
+  ^ "\tb := strings.Replace(body.(string), \"func main(\", \"func chester_main(\", 1)\n"
+  ^ "\tif !strings.Contains(b, \"func chester_main(\") {\n"
+  ^ "\t\tb = b + \"\\nfunc chester_main() interface{} { return nil }\\n\"\n"
+  ^ "\t}\n"
+  ^ "\tpre := __chester_go_preamble().(string)\n"
+  ^ "\tgetter := \"\\nfunc __chester_go_preamble() interface{} { return \" + strconv.Quote(pre) + \" }\\n\"\n"
+  ^ "\tsrc := __chester_assemble_go_src()\n"
+  ^ "\tsrcFn := \"\\nfunc __chester_assemble_go_src() string { return \" + strconv.Quote(src) + \" }\\n\"\n"
+  ^ "\treturn pre + getter + src + srcFn + b + \"\\nfunc main() {\\n\\tfmt.Println(chester_main())\\n}\\n\"\n"
+  ^ "}\n"
+
+let go_assemble_helpers =
+  "\nfunc __chester_go_preamble() interface{} { return " ^ go_string_lit go_preamble_body ^ " }\n"
+  ^ go_assemble_core_src
+  ^ "\nfunc __chester_assemble_go_src() string { return " ^ go_string_lit go_assemble_core_src ^ " }\n"
+
+let go_effects_preamble = go_preamble_body ^ go_assemble_helpers
+
+
 
 let rocq_effects_preamble =
   "From Stdlib Require Import Strings.String.\n\

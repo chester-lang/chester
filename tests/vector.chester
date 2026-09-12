@@ -5,5 +5,5 @@ enum Vector[T] {
 def head[T](v: Vector[T](1)): T = {
   match v {
     case Cons(h, t) => h
-  };
+  }
 }

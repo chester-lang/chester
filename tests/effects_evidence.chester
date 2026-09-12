@@ -1,6 +1,6 @@
 effect State {
   def get(): Integer;
-  def put(s: Integer): Unit;
+  def put(s: Integer): Unit
 }
 
 // Box under a handler captures evidence; unbox outside still has State.

@@ -14,12 +14,16 @@ Definition digit_char (d : nat) : string :=
   | 5 => "5" | 6 => "6" | 7 => "7" | 8 => "8" | _ => "9"
   end.
 
-(* nat_to_string for small field indices (up to 99 is plenty for enum variants) *)
+Fixpoint nat_to_string_fuel (fuel n : nat) (acc : string) : string :=
+  match fuel with
+  | 0 => acc
+  | S f =>
+      if Nat.eqb n 0 then acc
+      else nat_to_string_fuel f (Nat.div n 10) (digit_char (Nat.modulo n 10) ++ acc)
+  end.
+
 Definition nat_to_string (n : nat) : string :=
-  let tens := Nat.div n 10 in
-  let ones := Nat.modulo n 10 in
-  if Nat.eqb tens 0 then digit_char ones
-  else digit_char tens ++ digit_char ones.
+  if Nat.eqb n 0 then "0" else nat_to_string_fuel 20 n "".
 
 Definition effect_label (eff : EffectRef) : string :=
   match eff with
@@ -59,9 +63,22 @@ Definition go_direct_call (name : string) : bool :=
   else false.
 
 (* Package selectors (fmt.Println) and direct builtins call without interface{} asserts. *)
+
+Definition is_upper (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c _ =>
+      let n := nat_of_ascii c in
+      (PeanoNat.Nat.leb 65 n) && (PeanoNat.Nat.leb n 90)
+  end.
+
 Definition go_app_direct (func : AST) : bool :=
   match func with
-  | AstRef name => if string_dec name "resume" then false else true
+  | AstRef name => 
+      if string_dec name "resume" then false else
+      if string_dec name "f" then false else
+      if string_dec name "predicate" then false else
+      true
   | AstFieldAccess _ _ => true
   | _ => false
   end.
@@ -70,17 +87,15 @@ Definition go_app_direct (func : AST) : bool :=
 Definition go_call_emitted (direct : bool) (callee : GoExpr) (args : list GoExpr) : GoExpr :=
   if direct then GoCall callee args
   else
-    match args with
-    | [] => GoCall (GoTypeAssert callee "func() interface{}") []
-    | [a] => GoCall (GoTypeAssert callee "func(interface{}) interface{}") [a]
-    | a :: rest =>
-        let fix go (f : GoExpr) (xs : list GoExpr) : GoExpr :=
-          match xs with
-          | [] => f
-          | x :: xs' => go (GoCall (GoTypeAssert f "func(interface{}) interface{}") [x]) xs'
-          end
-        in go (GoCall (GoTypeAssert callee "func(interface{}) interface{}") [a]) rest
-    end.
+    let fix gen_types (n : nat) : string :=
+      match n with
+      | 0 => ""
+      | S 0 => "interface{}"
+      | S n' => append "interface{}, " (gen_types n')
+      end
+    in
+    let assert_ty := append "func(" (append (gen_types (length args)) ") interface{}") in
+    GoCall (GoTypeAssert callee assert_ty) args.
 
 Definition go_bool_cond (e : GoExpr) : GoExpr :=
   match e with
@@ -519,12 +534,12 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
         | (pat, body) :: rest =>
             match pat with
             | PatConstructor cname vars =>
-                let cond := GoCall (GoIdentifier "_ok && _tag[""_tag""] ==") [GoStringLiteral cname] in
+                let cond := GoCall (GoIdentifier "_match_val.(map[string]interface{})[""_tag""] ==") [GoStringLiteral cname] in
                 let body_go := emit_go_block body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
                   match vs with
                   | [] => acc
-                  | v :: vs' => bind_vars vs' (S idx) (GoLet v (GoIndex (GoTypeAssert (GoSelector (GoIdentifier "_tag") "args") "[]interface{}") (GoIntLiteral (nat_to_string idx))) :: acc)
+                  | v :: vs' => bind_vars vs' (S idx) (GoLet v (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]interface{}") (GoStringLiteral "args")) "[]interface{}") (GoIntLiteral (nat_to_string idx))) :: acc)
                   end
                 in
                 [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
@@ -534,7 +549,10 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
         end
       in GoCall (GoFuncLiteral [] (GoLet "_match_val" (emit_go_expr expr) :: emit_cases cases)) []
   | AstRecord name _ _ => GoIdentifier "nil"
-  | AstFieldAccess expr field => GoSelector (emit_go_expr expr) field
+  | AstFieldAccess expr field =>       match expr with
+      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr expr) field
+      | _ => GoSelector (emit_go_expr expr) field
+      end
   | AstImport _ _ _ _ => GoIdentifier "nil"
   | AstMeta id => GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstUniverse _ => GoCall (GoFuncLiteral [] [GoPanic "Universe in term"]) []
@@ -549,7 +567,36 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       GoBlock [GoLet name (emit_go_expr value); GoDiscardBinding name]
   | AstDef name _ params _ body => GoFuncDecl name (map fst params) (emit_go_block body)
   | AstRecord name _ _ => GoStruct name
-  | AstEnum _ _ _ => GoEmpty
+  | AstEnum name _ variants =>
+      let fix emit_variant (v : string * list AST * AST) : GoStmt :=
+        let vname := fst (fst v) in
+        let fields := snd (fst v) in
+        let fix field_names (n : nat) (fs : list AST) : list string :=
+          match fs with
+          | [] => []
+          | _ :: rest => ("_f" ++ nat_to_string n) :: field_names (S n) rest
+          end
+        in
+        let params := field_names 0 fields in
+        let fix field_vars (ps : list string) : list GoExpr :=
+          match ps with
+          | [] => []
+          | p :: rest => GoIdentifier p :: field_vars rest
+          end
+        in
+        let body := GoMapLiteral [("_tag", GoStringLiteral vname); ("args", GoArray (field_vars params))] in
+        match params with
+        | [] => GoLet vname body
+        | _ => GoFuncDecl vname params [GoReturn body]
+        end
+      in
+      let fix emit_variants (vs : list (string * list AST * AST)) : list GoStmt :=
+        match vs with
+        | [] => []
+        | v :: rest => emit_variant v :: emit_variants rest
+        end
+      in
+      GoBlock (emit_variants variants)
   | AstExtension _ _ _ meths =>
       let fix map_meths (ls : list AST) : list GoStmt :=
         match ls with
@@ -624,12 +671,12 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
         | (pat, body) :: rest =>
             match pat with
             | PatConstructor cname vars =>
-                let cond := GoCall (GoIdentifier "_ok && _tag[""_tag""] ==") [GoStringLiteral cname] in
+                let cond := GoCall (GoIdentifier "_match_val.(map[string]interface{})[""_tag""] ==") [GoStringLiteral cname] in
                 let body_go := emit_go_block body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
                   match vs with
                   | [] => acc
-                  | v :: vs' => bind_vars vs' (S idx) (GoLet v (GoIndex (GoTypeAssert (GoSelector (GoIdentifier "_tag") "args") "[]interface{}") (GoIntLiteral (nat_to_string idx))) :: acc)
+                  | v :: vs' => bind_vars vs' (S idx) (GoLet v (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]interface{}") (GoStringLiteral "args")) "[]interface{}") (GoIntLiteral (nat_to_string idx))) :: acc)
                   end
                 in
                 [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
@@ -638,7 +685,10 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
             end
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] (GoLet "_match_val" (emit_go_expr expr) :: emit_cases cases)) [])
-  | AstFieldAccess expr field => GoExprStmt (GoSelector (emit_go_expr expr) field)
+  | AstFieldAccess expr field => GoExprStmt (      match expr with
+      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr expr) field
+      | _ => GoSelector (emit_go_expr expr) field
+      end)
   | AstMeta id => GoExprStmt (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))
   | AstUniverse _ => GoExprStmt (GoCall (GoFuncLiteral [] [GoPanic "Universe in term"]) [])
   | AstError e => GoExprStmt (GoCall (GoFuncLiteral [] [GoPanic e]) [])
@@ -648,10 +698,17 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
 with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
   match ast with
   | AstBlock stmts ret =>
+      let fix to_local (s : GoStmt) : GoStmt :=
+        match s with
+        | GoFuncDecl n p b => GoLocalFuncDecl n p b
+        | _ => s
+        end
+      in
       let fix map_go_stmt (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_stmt x :: map_go_stmt xs
+        | AstRef "Unit" :: xs => map_go_stmt xs
+        | x :: xs => to_local (emit_go_stmt x) :: map_go_stmt xs
         end
       in map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)]
   | AstIf cond true_br false_br => [GoIfStmt (go_bool_cond (emit_go_expr cond)) (emit_go_block true_br) (emit_go_block false_br)]
@@ -662,12 +719,12 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
         | (pat, body) :: rest =>
             match pat with
             | PatConstructor cname vars =>
-                let cond := GoCall (GoIdentifier "_ok && _tag[""_tag""] ==") [GoStringLiteral cname] in
+                let cond := GoCall (GoIdentifier "_match_val.(map[string]interface{})[""_tag""] ==") [GoStringLiteral cname] in
                 let body_go := emit_go_block body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
                   match vs with
                   | [] => acc
-                  | v :: vs' => bind_vars vs' (S idx) (GoLet v (GoIndex (GoTypeAssert (GoSelector (GoIdentifier "_tag") "args") "[]interface{}") (GoIntLiteral (nat_to_string idx))) :: acc)
+                  | v :: vs' => bind_vars vs' (S idx) (GoLet v (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]interface{}") (GoStringLiteral "args")) "[]interface{}") (GoIntLiteral (nat_to_string idx))) :: acc)
                   end
                 in
                 [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
@@ -737,7 +794,10 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
   | AstEnum _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstRecord name _ _ => [GoReturn (GoIdentifier "nil")]
-  | AstFieldAccess expr field => [GoReturn (GoSelector (emit_go_expr expr) field)]
+  | AstFieldAccess expr field => [GoReturn (      match expr with
+      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr expr) field
+      | _ => GoSelector (emit_go_expr expr) field
+      end)]
   | AstImport lang _ mod_path _ => [emit_go_import lang mod_path]
   | AstMeta id => [GoReturn (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
   end.
@@ -745,10 +805,17 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
 Definition emit_go (ast : AST) : GoStmt :=
   match ast with
   | AstBlock stmts ret =>
+      let fix to_local (s : GoStmt) : GoStmt :=
+        match s with
+        | GoFuncDecl n p b => GoLocalFuncDecl n p b
+        | _ => s
+        end
+      in
       let fix map_go_stmt (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_stmt x :: map_go_stmt xs
+        | AstRef "Unit" :: xs => map_go_stmt xs
+        | x :: xs => to_local (emit_go_stmt x) :: map_go_stmt xs
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] (map_go_stmt stmts ++ [GoExprStmt (emit_go_expr ret)])) [])
   | _ => emit_go_stmt ast
