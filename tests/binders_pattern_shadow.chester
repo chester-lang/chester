@@ -1,0 +1,11 @@
+// Pattern binders shadow outer lets of the same name.
+// Expect: 9
+enum Box {
+  case Mk(x: Integer)
+};
+def main(): Integer = {
+  let x = 1;
+  match Mk(9) {
+    case Mk(x) => x
+  }
+};

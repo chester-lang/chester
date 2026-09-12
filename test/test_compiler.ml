@@ -62,19 +62,58 @@ let compile_fixture_ast filename =
   | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
   | Inl ((ast, _), _) -> ast
 
+let rec collect_elab_env (ast : aST) : typeEnv0 =
+  match ast with
+  | AstBlock (stmts, tail) ->
+      List.concat_map collect_elab_stmt stmts @ collect_elab_env tail
+  | AstSpan (_, inner) -> collect_elab_env inner
+  | AstDef _ as d -> collect_elab_stmt d
+  | AstExtension _ as e -> collect_elab_stmt e
+  | _ -> []
+
+and collect_elab_stmt = function
+  | AstDef (name, tps, ps, rt, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
+  | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
+  | AstSpan (_, inner) -> collect_elab_env inner
+  | AstBlock _ as b -> collect_elab_env b
+  | _ -> []
+
 let list_selfhosted_sources () =
-  let dir = fixture_path "self-hosted" in
-  Sys.readdir dir |> Array.to_list
-  |> List.filter (fun f -> Filename.check_suffix f ".chester")
-  |> List.sort compare
+  (* Dependency order for cross-file binder resolution. *)
+  [
+    "ast.chester";
+    "cst.chester";
+    "lexer.chester";
+    "parser.chester";
+    "expander.chester";
+    "elaborator.chester";
+    "formatter.chester";
+    "codegen_go.chester";
+    "cli.chester";
+  ]
 
 let check_selfhosted_sources () =
+  let state = ref init_elab_state in
+  let tenv = ref [] in
+  let files =
+    "stdlib/std.chester"
+    :: List.map (fun f -> Filename.concat "self-hosted" f) (list_selfhosted_sources ())
+  in
   List.iter
-    (fun filename ->
-      let path = Filename.concat "self-hosted" filename in
-      compile_fixture_ast path |> ignore;
-      print_endline (path ^ " ok"))
-    (list_selfhosted_sources ())
+    (fun path ->
+      let source = read_file (fixture_path path) in
+      let tokens = Lexer.tokenize path source in
+      let cst = parse tokens in
+      let expanded_cst = expand_cst_top cst in
+      match elaborate_top !tenv expanded_cst None !state with
+      | Inr (msg, _) ->
+          failwith ("Type Error: " ^ string_of_char_list msg)
+      | Inl ((ast, _), state') ->
+          state := state';
+          tenv := collect_elab_env ast @ !tenv;
+          if String.starts_with ~prefix:"self-hosted/" path then
+            print_endline (path ^ " ok"))
+    files
 
 let run_fixture_main filename =
   let ast = compile_fixture_ast filename in
@@ -437,6 +476,42 @@ let%expect_test "go typed emit runs" =
   run_fixture_go "tests/go_typed_emit.chester";
   [%expect {| 2 |}]
 
+let%expect_test "binders nested let shadow" =
+  check_fixture "tests/binders_shadow.chester";
+  [%expect {| tests/binders_shadow.chester ok |}]
+
+let%expect_test "binders nested let shadow runs" =
+  run_fixture_go "tests/binders_shadow.chester";
+  [%expect {| 3 |}]
+
+let%expect_test "binders shadow restore runs" =
+  run_fixture_go "tests/binders_shadow_restore.chester";
+  [%expect {| 1 |}]
+
+let%expect_test "binders closure capture runs" =
+  run_fixture_go "tests/binders_capture.chester";
+  [%expect {| 11 |}]
+
+let%expect_test "binders param shadow runs" =
+  run_fixture_go "tests/binders_param_shadow.chester";
+  [%expect {| 7 |}]
+
+let%expect_test "binders pattern shadow runs" =
+  run_fixture_go "tests/binders_pattern_shadow.chester";
+  [%expect {| 9 |}]
+
+let%expect_test "binders recursive def runs" =
+  run_fixture_go "tests/binders_rec_def.chester";
+  [%expect {| 6 |}]
+
+let%expect_test "binders unbound is error" =
+  expect_type_error "tests/binders_unbound.chester";
+  [%expect {| Unbound variable: nope |}]
+
+let%expect_test "macro hygiene runs tmp stays 42" =
+  run_fixture_go "tests/macro_hygiene.chester";
+  [%expect {| 42 |}]
+
 let%expect_test "cli prelude chains definitions" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
@@ -515,14 +590,14 @@ let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
   [%expect {|
     self-hosted/ast.chester ok
-    self-hosted/cli.chester ok
-    self-hosted/codegen_go.chester ok
     self-hosted/cst.chester ok
-    self-hosted/elaborator.chester ok
-    self-hosted/expander.chester ok
-    self-hosted/formatter.chester ok
     self-hosted/lexer.chester ok
     self-hosted/parser.chester ok
+    self-hosted/expander.chester ok
+    self-hosted/elaborator.chester ok
+    self-hosted/formatter.chester ok
+    self-hosted/codegen_go.chester ok
+    self-hosted/cli.chester ok
     |}]
 
 let%expect_test "react mini ts emit" =

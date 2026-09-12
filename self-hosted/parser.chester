@@ -328,7 +328,7 @@ def parse_program_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) 
           case _ => {
             if int_eq(list_length(ParseResult_remaining(p)), 0) then {
               // Match Rocq: block-ending decls go in stmts with Unit tail
-              if ends_with_block(ParseResult_result(p)) then {
+              if ends_with_block_cst(ParseResult_result(p)) then {
                 ParseResult.MkParseResult(CST.Block(list_append(acc, ParseResult_result(p)), CST.Symbol("Unit", Span(0, 0, list_empty[Integer]())), Span(0, 0, list_empty[Integer]())), ParseResult_remaining(p))
               } else {
                 ParseResult.MkParseResult(CST.Block(acc, ParseResult_result(p), Span(0, 0, list_empty[Integer]())), ParseResult_remaining(p))
@@ -339,21 +339,21 @@ def parse_program_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) 
                 case SymToken(s2) => {
                   if string_eq(s2, ";") then {
                     parse_program_helper(advance(ParseResult_remaining(p)), list_append(acc, ParseResult_result(p)))
-                  } else if ends_with_block(ParseResult_result(p)) then {
+                  } else if ends_with_block_cst(ParseResult_result(p)) then {
                     parse_program_helper(ParseResult_remaining(p), list_append(acc, ParseResult_result(p)))
                   } else {
                     ParseResult.MkParseResult(CST.Error("Expected ';' at top level", Token_span(next_tok)), ParseResult_remaining(p))
                   }
                 };
                 case EOF() => {
-                  if ends_with_block(ParseResult_result(p)) then {
+                  if ends_with_block_cst(ParseResult_result(p)) then {
                     ParseResult.MkParseResult(CST.Block(list_append(acc, ParseResult_result(p)), CST.Symbol("Unit", Span(0, 0, list_empty[Integer]())), Span(0, 0, list_empty[Integer]())), advance(ParseResult_remaining(p)))
                   } else {
                     ParseResult.MkParseResult(CST.Block(acc, ParseResult_result(p), Span(0, 0, list_empty[Integer]())), advance(ParseResult_remaining(p)))
                   }
                 };
                 case _ => {
-                  if ends_with_block(ParseResult_result(p)) then {
+                  if ends_with_block_cst(ParseResult_result(p)) then {
                     parse_program_helper(ParseResult_remaining(p), list_append(acc, ParseResult_result(p)))
                   } else {
                     ParseResult.MkParseResult(CST.Error("Expected ';' or EOF at top level", Token_span(next_tok)), ParseResult_remaining(p))

@@ -22,7 +22,8 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
   | Tuple args span :: rest =>
       match acc with
       | Symbol kw _ :: acc_rest =>
-          if orb (eqb kw "then") (orb (eqb kw "else") (orb (eqb kw "case") (orb (eqb kw "if") (orb (eqb kw "match") (orb (eqb kw "=>") (eqb kw "=")))))) then
+          (* Keep type punctuation (`:`, `->`) and control keywords from becoming AppCST. *)
+          if orb (eqb kw "then") (orb (eqb kw "else") (orb (eqb kw "case") (orb (eqb kw "if") (orb (eqb kw "match") (orb (eqb kw "=>") (orb (eqb kw "=") (orb (eqb kw ":") (eqb kw "->")))))))) then
             collapse_apps_aux rest (Tuple args span :: acc)
           else
             collapse_apps_aux rest (AppCST (Symbol kw empty_span) args span :: acc_rest)
@@ -198,6 +199,43 @@ Fixpoint expand_if (elems : list CST) (span : Span) : option CST :=
   | _ => None
   end.
 
+Fixpoint split_at_arrow (acc : list CST) (ls : list CST) : option (list CST * list CST) :=
+  match ls with
+  | [] => None
+  | Symbol "->" _ :: rest => Some (rev acc, rest)
+  | x :: rest => split_at_arrow (x :: acc) rest
+  end.
+
+Definition parse_ty_binder (a : CST) : string * CST :=
+  match a with
+  | Symbol n _ => (n, Symbol "Any" empty_span)
+  | SeqOf (Symbol n _ :: Symbol ":" _ :: rest) sp =>
+      (n, match rest with [] => Symbol "Any" empty_span | [t] => t | _ => SeqOf rest sp end)
+  | SeqOf (Symbol n _ :: AppCST (Symbol ":" _) ty_args _ :: rest) sp =>
+      let ty :=
+        match rest with
+        | [] => match ty_args with [t] => t | _ => Tuple ty_args empty_span end
+        | _ => SeqOf (Tuple ty_args empty_span :: rest) sp
+        end
+      in
+      (n, ty)
+  | _ => ("_", a)
+  end.
+
+Fixpoint binders_to_lam (bs : list (string * CST)) (ret : CST) (span : Span) : CST :=
+  match bs with
+  | [] => ret
+  | (n, ty) :: rest => LamCST n (Some ty) (binders_to_lam rest ret span) span
+  end.
+
+Definition expand_arrow_type (lhs : list CST) (rhs : list CST) (span : Span) : option CST :=
+  let ret := match rhs with [] => Tuple [] span | [r] => r | _ => SeqOf rhs span end in
+  match lhs with
+  | [Tuple params _] => Some (binders_to_lam (map parse_ty_binder params) ret span)
+  | [ty] => Some (LamCST "_" (Some ty) ret span)
+  | _ => None
+  end.
+
 Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST :=
   match try_parse_infix op_env elems span with
   | Some infix_cst => infix_cst
@@ -303,7 +341,15 @@ Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST
           in
           HandleCST (Block body_stmts body_tail body_sp) eff
             (methods_of_block h_stmts h_tail) span
-      | _ => SeqOf collapsed span
+      | _ =>
+          match split_at_arrow [] collapsed with
+          | Some (lhs, rhs) =>
+              match expand_arrow_type lhs rhs span with
+              | Some arrow_cst => arrow_cst
+              | None => SeqOf collapsed span
+              end
+          | None => SeqOf collapsed span
+          end
       end
   end
   end.
@@ -429,7 +475,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                    if eqb kwd2 ":" then 
                                       let ty_cst := match rest_ty with
                                                     | [] => Tuple ty_args empty_span
-                                                    | _ => SeqOf (Tuple ty_args empty_span :: rest_ty) sp
+                                                    | _ => expand_seq_expr env (Tuple ty_args empty_span :: rest_ty) sp
                                                     end in
                                       (n, ty_cst)
                                    else ("unknown", a)
@@ -438,7 +484,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                       let ty_cst := match rest_ty with
                                                     | [] => Symbol "Unknown" empty_span
                                                     | [t] => t
-                                                    | _ => SeqOf rest_ty sp
+                                                    | _ => expand_seq_expr env rest_ty sp
                                                     end in
                                       (n, ty_cst)
                                    else ("unknown", a)
@@ -465,7 +511,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                    if eqb kwd2 ":" then 
                                       let ty_cst := match rest_ty with
                                                     | [] => Tuple ty_args empty_span
-                                                    | _ => SeqOf (Tuple ty_args empty_span :: rest_ty) sp
+                                                    | _ => expand_seq_expr env (Tuple ty_args empty_span :: rest_ty) sp
                                                     end in
                                       (n, ty_cst)
                                    else ("unknown", a)
@@ -474,7 +520,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                       let ty_cst := match rest_ty with
                                                     | [] => Symbol "Unknown" empty_span
                                                     | [t] => t
-                                                    | _ => SeqOf rest_ty sp
+                                                    | _ => expand_seq_expr env rest_ty sp
                                                     end in
                                       (n, ty_cst)
                                    else ("unknown", a)
@@ -949,8 +995,177 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
     end
   end.
 
+(* --- Minimal top-level macro post-pass (tuple cases + AppCST rewrite) --- *)
+Definition MacroEnv := list (string * list (list string * CST)).
 
-Definition expand_cst_top (expr : CST) : CST := fst (expand_cst (cst_fuel expr) [] expr).
+Fixpoint extract_pat_vars (args : list CST) : list string :=
+  match args with
+  | [] => []
+  | Symbol v _ :: rest => v :: extract_pat_vars rest
+  | _ :: rest => extract_pat_vars rest
+  end.
+
+Fixpoint extract_macro_case (c : CST) : option (list string * CST) :=
+  match c with
+  | SeqOf (Symbol "case" _ :: Tuple args _ :: Symbol "=>" _ :: body :: _) _ =>
+      Some (extract_pat_vars args, body)
+  | SeqOf (Symbol "case" _ :: Symbol _ _ :: Tuple args _ :: Symbol "=>" _ :: body :: _) _ =>
+      Some (extract_pat_vars args, body)
+  | _ => None
+  end.
+
+Fixpoint extract_macro_cases (cs : list CST) : list (list string * CST) :=
+  match cs with
+  | [] => []
+  | x :: xs =>
+      match extract_macro_case x with
+      | Some c => c :: extract_macro_cases xs
+      | None => extract_macro_cases xs
+      end
+  end.
+
+Fixpoint methods_of_block (b : CST) : list CST :=
+  match b with
+  | Block stmts (Symbol "Unit" _) _ => stmts
+  | Block stmts tail _ => stmts ++ [tail]
+  | _ => []
+  end.
+
+Fixpoint collect_macros_stmts (ss : list CST) (acc : MacroEnv) : MacroEnv * list CST :=
+  match ss with
+  | [] => (acc, [])
+  | SeqOf (Symbol "macro" _ :: Symbol name _ :: block :: _) _ :: rest =>
+      let cases := extract_macro_cases (methods_of_block block) in
+      let (acc', kept) := collect_macros_stmts rest ((name, cases) :: acc) in
+      (acc', kept)
+  | x :: rest =>
+      let (acc', kept) := collect_macros_stmts rest acc in
+      (acc', x :: kept)
+  end.
+
+Fixpoint lookup_macro (name : string) (env : MacroEnv) : option (list (list string * CST)) :=
+  match env with
+  | [] => None
+  | (n, cases) :: rest =>
+      if eqb n name then Some cases else lookup_macro name rest
+  end.
+
+Fixpoint zip_subst (vs : list string) (args : list CST) : option (list (string * CST)) :=
+  match vs, args with
+  | [], [] => Some []
+  | v :: vs', a :: as' =>
+      match zip_subst vs' as' with
+      | Some s => Some ((v, a) :: s)
+      | None => None
+      end
+  | _, _ => None
+  end.
+
+Fixpoint lookup_subst (n : string) (s : list (string * CST)) : option CST :=
+  match s with
+  | [] => None
+  | (k, v) :: rest => if eqb k n then Some v else lookup_subst n rest
+  end.
+
+Fixpoint subst_cst (s : list (string * CST)) (c : CST) {struct c} : CST :=
+  let fix on_list (xs : list CST) : list CST :=
+    match xs with
+    | [] => []
+    | x :: xs' => subst_cst s x :: on_list xs'
+    end
+  in
+  match c with
+  | Symbol n sp =>
+      match lookup_subst n s with
+      | Some v => v
+      | None => Symbol n sp
+      end
+  | Tuple elems sp => Tuple (on_list elems) sp
+  | ListLiteral elems sp => ListLiteral (on_list elems) sp
+  | Block stmts tail sp => Block (on_list stmts) (subst_cst s tail) sp
+  | SeqOf elems sp => SeqOf (on_list elems) sp
+  | LetCST n v next sp => LetCST n (subst_cst s v) (subst_cst s next) sp
+  | IfCST c0 t e sp => IfCST (subst_cst s c0) (subst_cst s t) (subst_cst s e) sp
+  | DefCST n tps ps rt body sp =>
+      DefCST n tps ps (subst_cst s rt) (subst_cst s body) sp
+  | LamCST n ty body sp =>
+      let ty' := match ty with Some t => Some (subst_cst s t) | None => None end in
+      LamCST n ty' (subst_cst s body) sp
+  | AppCST f args sp => AppCST (subst_cst s f) (on_list args) sp
+  | FieldAccessCST e f sp => FieldAccessCST (subst_cst s e) f sp
+  | MatchCST e cases sp =>
+      MatchCST (subst_cst s e)
+        (map (fun p => (fst p, subst_cst s (snd p))) cases) sp
+  | _ => c
+  end.
+
+Fixpoint apply_macro_cases (cases : list (list string * CST)) (args : list CST) : option CST :=
+  match cases with
+  | [] => None
+  | (vars, body) :: rest =>
+      match zip_subst vars args with
+      | Some s => Some (subst_cst s body)
+      | None => apply_macro_cases rest args
+      end
+  end.
+
+Fixpoint apply_macros_fuel (fuel : nat) (env : MacroEnv) (c : CST) {struct fuel} : CST :=
+  match fuel with
+  | 0 => c
+  | S fuel' =>
+      let fix on_list (e : MacroEnv) (xs : list CST) : list CST :=
+        match xs with
+        | [] => []
+        | x :: xs' => apply_macros_fuel fuel' e x :: on_list e xs'
+        end
+      in
+      match c with
+      | AppCST (Symbol name sp) args asp =>
+          match lookup_macro name env with
+          | Some cases =>
+              match apply_macro_cases cases args with
+              | Some body => apply_macros_fuel fuel' env body
+              | None => AppCST (Symbol name sp) (on_list env args) asp
+              end
+          | None => AppCST (Symbol name sp) (on_list env args) asp
+          end
+      | Block stmts tail sp =>
+          let (env', kept) := collect_macros_stmts stmts env in
+          Block (on_list env' kept) (apply_macros_fuel fuel' env' tail) sp
+      | Tuple elems sp => Tuple (on_list env elems) sp
+      | ListLiteral elems sp => ListLiteral (on_list env elems) sp
+      | SeqOf elems sp => SeqOf (on_list env elems) sp
+      | LetCST n v next sp =>
+          LetCST n (apply_macros_fuel fuel' env v) (apply_macros_fuel fuel' env next) sp
+      | IfCST c0 t e sp =>
+          IfCST (apply_macros_fuel fuel' env c0) (apply_macros_fuel fuel' env t)
+            (apply_macros_fuel fuel' env e) sp
+      | DefCST n tps ps rt body sp =>
+          DefCST n tps ps (apply_macros_fuel fuel' env rt)
+            (apply_macros_fuel fuel' env body) sp
+      | LamCST n ty body sp =>
+          let ty' :=
+            match ty with
+            | Some t => Some (apply_macros_fuel fuel' env t)
+            | None => None
+            end
+          in
+          LamCST n ty' (apply_macros_fuel fuel' env body) sp
+      | FieldAccessCST e f sp => FieldAccessCST (apply_macros_fuel fuel' env e) f sp
+      | MatchCST e cases sp =>
+          MatchCST (apply_macros_fuel fuel' env e)
+            (map (fun p => (fst p, apply_macros_fuel fuel' env (snd p))) cases) sp
+      | _ => c
+      end
+  end.
+
+Definition apply_macros (env : MacroEnv) (c : CST) : CST :=
+  apply_macros_fuel (cst_fuel c) env c.
+
+Definition expand_cst_top (expr : CST) : CST :=
+  let expanded := fst (expand_cst (cst_fuel expr) [] expr) in
+  apply_macros [] expanded.
 
 Definition expand_cst_top_env (op_env : OpEnv) (expr : CST) : (CST * OpEnv) :=
-  expand_cst (cst_fuel expr) op_env expr.
+  let (expanded, env') := expand_cst (cst_fuel expr) op_env expr in
+  (apply_macros [] expanded, env').

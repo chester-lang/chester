@@ -806,6 +806,25 @@ def extract_macro_cases(cs: List(CST)): List(MacroCase) = {
                         let body_cst = list_get(elems, 4);
                         list_insert_first(r, MacroCase.CasePair(PatternCST.PatConstructorCST(vname, extract_vars(args_cst), Span(0, 0, list_empty[Integer]())), body_cst))
                       };
+                      case Symbol(arrsym, _) => {
+                        // case name => body  (no arg tuple)
+                        if string_eq(arrsym, "=>") then {
+                          let body_cst = list_get(elems, 3);
+                          list_insert_first(r, MacroCase.CasePair(PatternCST.PatConstructorCST(vname, list_empty[String](), Span(0, 0, list_empty[Integer]())), body_cst))
+                        } else list_insert_first(r, MacroCase.CasePair(PatternCST.PatWildcardCST(Span(0, 0, list_empty[Integer]())), x))
+                      };
+                      case _ => list_insert_first(r, MacroCase.CasePair(PatternCST.PatWildcardCST(Span(0, 0, list_empty[Integer]())), x))
+                    }
+                  };
+                  case Tuple(args_cst, _) => {
+                    // case (a, b) => body
+                    match args_node {
+                      case Symbol(arrsym, _) => {
+                        if string_eq(arrsym, "=>") then {
+                          let body_cst = list_get(elems, 3);
+                          list_insert_first(r, MacroCase.CasePair(PatternCST.PatConstructorCST("", extract_vars(args_cst), Span(0, 0, list_empty[Integer]())), body_cst))
+                        } else list_insert_first(r, MacroCase.CasePair(PatternCST.PatWildcardCST(Span(0, 0, list_empty[Integer]())), x))
+                      };
                       case _ => list_insert_first(r, MacroCase.CasePair(PatternCST.PatWildcardCST(Span(0, 0, list_empty[Integer]())), x))
                     }
                   };
@@ -1389,14 +1408,19 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                             };
                             
                             let body_len = list_length(body_exprs);
-                            let body_cst = if int_eq(body_len, 1) then list_get(body_exprs, 0) else expand_seq_expr(body_exprs, op_env, sp);
-                            
-                            let params = extract_params(args, op_env);
-                            
-                            let def_cst = DefCST(def_name, tparams, params, ret_ty, body_cst, sp);
-                            let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
-                            match res_rest {
-                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, def_cst), final_m)
+                            let body_raw = if int_eq(body_len, 1) then list_get(body_exprs, 0) else expand_seq_expr(body_exprs, op_env, sp);
+                            // Re-expand body with the current macro env so calls inside
+                            // `def` see macros registered earlier in the same block.
+                            let res_body = expand_cst(fuel, env, op_env, m, body_raw);
+                            match res_body {
+                              case Res(body_cst, m_body) => {
+                                let params = extract_params(args, op_env);
+                                let def_cst = DefCST(def_name, tparams, params, ret_ty, body_cst, sp);
+                                let res_rest = process_stmts(fuel, env, op_env, m_body, rest_ss);
+                                match res_rest {
+                                  case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, def_cst), final_m)
+                                }
+                              }
                             }
                           }
                         }

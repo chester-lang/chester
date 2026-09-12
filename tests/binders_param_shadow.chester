@@ -1,0 +1,7 @@
+// Function parameter shadows an outer let of the same name.
+// Expect: 7 (param), not 1 (outer)
+def pick(x: Integer): Integer = x;
+def main(): Integer = {
+  let x = 1;
+  pick(7)
+};

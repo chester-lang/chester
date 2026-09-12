@@ -1,6 +1,9 @@
 From Stdlib Require Import Ascii.
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import List.
+From Stdlib Require Import PeanoNat.
+Import ListNotations.
+Open Scope string_scope.
 Require Import Chester.CST.
 Require Import Chester.CoreChecker.
 
@@ -31,6 +34,47 @@ Fixpoint string_to_nat_aux (s : string) (acc : nat) : nat :=
   end.
 
 Definition string_to_nat (s : string) : nat := string_to_nat_aux s 0.
+
+(* Surface type constructors / keywords allowed as unbound AstRefs. *)
+Definition name_is_upper (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c _ =>
+      let n := nat_of_ascii c in
+      (PeanoNat.Nat.leb 65 n) && (PeanoNat.Nat.leb n 90)
+  end.
+
+Definition is_preamble_prim (name : string) : bool :=
+  let fix in_list (xs : list string) : bool :=
+    match xs with
+    | [] => false
+    | x :: rest => if String.eqb name x then true else in_list rest
+    end
+  in
+  in_list
+    ["int_add"; "int_sub"; "int_mul"; "int_div"; "int_mod"; "int_neg";
+     "int_eq"; "int_lt"; "int_gt"; "int_le"; "int_ge";
+     "bool_or"; "bool_and"; "bool_not";
+     "string_eq"; "string_concat"; "string_length"; "string_substring";
+     "string_char_at"; "string_append"; "string_to_int"; "int_to_string";
+     "list_length"; "list_get"; "list_empty"; "list_insert_first"; "advance";
+     "true"; "false"; "null"; "undefined";
+     "fmt"; "math"; "os"; "console"].
+
+Fixpoint string_starts_with (pre s : string) : bool :=
+  match pre, s with
+  | EmptyString, _ => true
+  | String pc pre', String sc s' =>
+      if Ascii.eqb pc sc then string_starts_with pre' s' else false
+  | _, _ => false
+  end.
+
+(* Unbound lowercase locals error; types, prims, FFI packages, and runtime hooks stay free. *)
+Definition is_allowed_unbound (name : string) : bool :=
+  orb (name_is_upper name)
+    (orb (is_preamble_prim name)
+      (orb (string_starts_with "prim__" name)
+        (string_starts_with "__" name))).
 
 Definition mangle_name (n : string) (ctx : list nat) : string :=
   let fix join (ls : list nat) : string :=
@@ -372,6 +416,14 @@ Definition IntType := AstRef "Int".
 Definition BoolType := AstRef "Bool".
 Definition TypeUniverse := AstRef "Type".
 
+Definition is_type_expected (expected : option AST) : bool :=
+  match expected with
+  | Some (AstRef n) =>
+      orb (if string_dec n "Type" then true else false)
+        (if string_dec n "TypeUniverse" then true else false)
+  | _ => false
+  end.
+
 Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
   match fuel with
   | 0 => ret tt
@@ -545,7 +597,10 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           | Some exp => unify fuel' ty exp ;; ret (AstRef (mangle_name name resolved_ctx), ty)
           | None => ret (AstRef (mangle_name name resolved_ctx), ty)
           end
-      | None => ret (AstRef name, AstRef "Any")
+      | None =>
+          if is_allowed_unbound name then ret (AstRef name, AstRef "Any")
+          else if is_type_expected expected then ret (AstRef name, TypeUniverse)
+          else throw (append "Unbound variable: " name)
       end
   | StringLiteral s _ => 
       match expected with Some exp => unify fuel' StringType exp | None => ret tt end ;;
@@ -609,6 +664,16 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           end
       end
   | Block stmts ret_expr _ => 
+      (* Pre-bind every def name so mutual / forward references resolve. *)
+      let fix collect_def_binders (ls : list CST) : TypeEnv :=
+        match ls with
+        | [] => []
+        | DefCST name _ _ _ _ span :: rest =>
+            ((name, context span), AstRef "Any") :: collect_def_binders rest
+        | _ :: rest => collect_def_binders rest
+        end
+      in
+      let env_with_defs := app (collect_def_binders stmts) env in
       let fix map_elabs (current_env : TypeEnv) (ls : list CST) : ElabM (list AST * TypeEnv) :=
         match ls with
         | [] => ret ([], current_env)
@@ -633,13 +698,13 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 let new_env := ((name, context span), snd res) :: current_env in
                 rest <- map_elabs new_env xs ;
                 ret (fst res :: fst rest, snd rest)
-            | ImportCST lang alias mod syms span =>
+            | ImportCST lang alias modp syms span =>
                 rest <- map_elabs current_env xs ;
-                ret (AstImport lang alias mod syms :: fst rest, snd rest)
-            | ExternCST lang mod decls span =>
+                ret (AstImport lang alias modp syms :: fst rest, snd rest)
+            | ExternCST lang modp decls span =>
                 let (syms, new_env) := elab_extern_decls current_env decls in
                 rest <- map_elabs new_env xs ;
-                ret (AstImport lang "" mod syms :: fst rest, snd rest)
+                ret (AstImport lang "" modp syms :: fst rest, snd rest)
             | _ =>
                 res <- elaborate fuel' current_env x None ;
                 rest <- map_elabs current_env xs ;
@@ -647,7 +712,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             end
         end
       in
-      stmtsRes <- map_elabs env stmts ;
+      stmtsRes <- map_elabs env_with_defs stmts ;
       let stmtsAst := fst stmtsRes in
       let final_env := snd stmtsRes in
       retAst <- elaborate fuel' final_env ret_expr None ;
@@ -718,8 +783,10 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         | (pname, pty) :: rest => build_env rest (((pname, context span), pty) :: env0)
         end
       in
-      let body_env := build_env paramsAst env in
       retAst <- elaborate fuel' env ret_ty (Some TypeUniverse) ;
+      (* Bind the def name before the body so recursive calls resolve. *)
+      let fun_ty0 := AstFunTy type_params paramsAst (fst retAst) [] in
+      let body_env := ((name, context span), fun_ty0) :: build_env paramsAst env in
       old_pending <- get_pending ;
       set_pending [] ;;
       bodyAst <- elaborate fuel' body_env body (Some (fst retAst)) ;
@@ -734,6 +801,12 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                    | Some ty => elaborate fuel' env ty (Some TypeUniverse)
                    | None => m <- fresh_meta ; ret (m, TypeUniverse)
                    end) ;
+      (* In type position, `\x: T => U` / `(x: T) -> U` elaborate to AstPi. *)
+      if is_type_expected expected then
+        bodyAst <- elaborate fuel' (((arg_name, context span), fst argTyAst) :: env) body (Some TypeUniverse) ;
+        let piTy := AstPi arg_name (fst argTyAst) (fst bodyAst) [] in
+        ret (piTy, TypeUniverse)
+      else
       old_pending <- get_pending ;
       set_pending [] ;;
       bodyAst <- elaborate fuel' (((arg_name, context span), fst argTyAst) :: env) body None ;
@@ -965,7 +1038,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         match es with
         | [] => ret ([], AstRef "Unit")
         | x :: xs =>
-            xAst <- elaborate fuel' env x None;
+            let exp := if is_type_expected expected then Some TypeUniverse else None in
+            xAst <- elaborate fuel' env x exp;
             restAst <- elab_elems xs;
             ret (fst xAst :: fst restAst, AstRef "Tuple")
         end
@@ -987,11 +1061,11 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       ret (AstTuple (fst elemsRes), snd elemsRes)
 
   | CommentCST msg _ => ret (AstRef "Unit", AstRef "Unit")
-  | ImportCST lang alias mod syms _ =>
-      ret (AstImport lang alias mod syms, AstRef "Unit")
-  | ExternCST lang mod decls _ =>
+  | ImportCST lang alias modp syms _ =>
+      ret (AstImport lang alias modp syms, AstRef "Unit")
+  | ExternCST lang modp decls _ =>
       let (syms, _) := elab_extern_decls env decls in
-      ret (AstImport lang "" mod syms, AstRef "Unit")
+      ret (AstImport lang "" modp syms, AstRef "Unit")
   | MacroDefCST _ _ _ => throw "MacroDefCST reached Elaborator"
   | Error msg _ => throw msg
 

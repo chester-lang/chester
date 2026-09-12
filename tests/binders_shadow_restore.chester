@@ -1,0 +1,11 @@
+// After an inner scope ends, the outer binder is visible again.
+// Expect: 1
+def main(): Integer = {
+  let x = 1;
+  let inner = {
+    let x = 99;
+    x
+  };
+  let _discard = inner;
+  x
+};

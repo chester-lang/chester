@@ -1,3 +1,5 @@
+// Macro-introduced `tmp` must not overwrite the caller's `tmp`.
+// Expect: 42
 macro swap {
   case (a, b) => {
     let tmp = a;
@@ -5,8 +7,10 @@ macro swap {
     let b = tmp
   }
 };
-let tmp = 42;
-let a = 1;
-let b = 2;
-swap(a, b);
-tmp // Should still be 42, not overwritten by macro's `tmp`
+def main(): Integer = {
+  let tmp = 42;
+  let a = 1;
+  let b = 2;
+  swap(a, b);
+  tmp
+};

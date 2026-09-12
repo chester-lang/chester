@@ -53,6 +53,22 @@ let rename_chester_main go_code =
       String.sub go_code 0 i ^ repl
       ^ String.sub go_code (i + n) (String.length go_code - i - n)
 
+let rec collect_elab_env (ast : aST) : typeEnv0 =
+  match ast with
+  | AstBlock (stmts, tail) ->
+      List.concat_map collect_elab_stmt stmts @ collect_elab_env tail
+  | AstSpan (_, inner) -> collect_elab_env inner
+  | AstDef _ as d -> collect_elab_stmt d
+  | AstExtension _ as e -> collect_elab_stmt e
+  | _ -> []
+
+and collect_elab_stmt = function
+  | AstDef (name, tps, ps, rt, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
+  | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
+  | AstSpan (_, inner) -> collect_elab_env inner
+  | AstBlock _ as b -> collect_elab_env b
+  | _ -> []
+
 let read_file filename =
   let ch = open_in filename in
   Fun.protect
@@ -63,7 +79,7 @@ let read_file filename =
       really_input ch buf 0 len;
       Bytes.to_string buf)
 
-let compile_file ~verbose filename state op_env =
+let compile_file ~verbose filename state op_env tenv =
   let source = read_file filename in
   if verbose then print_endline ("\n[Parsing " ^ filename ^ "]");
   let tokens = Lexer.tokenize filename source in
@@ -74,12 +90,14 @@ let compile_file ~verbose filename state op_env =
   if verbose then (
     print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
     print_endline ("\n[Elaborating & TypeChecking " ^ filename ^ "]"));
-  match elaborate_top [] expanded_cst None state with
+  match elaborate_top !tenv expanded_cst None state with
   | Inr (msg, _) ->
       print_endline ("Type Error: " ^ string_of_char_list msg);
       print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
       exit 1
-  | Inl ((ast, _), state') -> (ast, state')
+  | Inl ((ast, _), state') ->
+      tenv := collect_elab_env ast @ !tenv;
+      (ast, state')
 
 let emit_ast ~target ~verbose ~go_prior filename oc ast =
   match target with
@@ -99,8 +117,8 @@ let emit_ast ~target ~verbose ~go_prior filename oc ast =
       if verbose then print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
       output_string oc (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) ^ "\n")
 
-let process_file ~target ~verbose ~emit ~go_prior oc filename state op_env =
-  let ast, state' = compile_file ~verbose filename state op_env in
+let process_file ~target ~verbose ~emit ~go_prior oc filename state op_env tenv =
+  let ast, state' = compile_file ~verbose filename state op_env tenv in
   if emit then emit_ast ~target ~verbose ~go_prior filename oc ast;
   state'
 
@@ -283,19 +301,20 @@ let () =
       let state = ref state in
       let op_env = ref [] in
       let go_prior = ref [] in
+      let tenv = ref [] in
       List.iter
         (fun f ->
           (* Go needs prelude defs in the package; TS/Rocq keep elaborate-only. *)
           let emit_prelude = opts.target = EmitGo in
           state :=
             process_file ~target:opts.target ~verbose:false ~emit:emit_prelude
-              ~go_prior oc f !state op_env)
+              ~go_prior oc f !state op_env tenv)
         prelude_paths;
       List.iter
         (fun f ->
           state :=
             process_file ~target:opts.target ~verbose:true ~emit:true ~go_prior
-              oc f !state op_env)
+              oc f !state op_env tenv)
         resolved_files;
       if opts.target = EmitGo then
         output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";

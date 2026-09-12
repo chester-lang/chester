@@ -361,3 +361,24 @@ Definition test_whnf_app : AST := whnf test_app_true.
 
 Eval compute in test_whnf_app.
 
+(* Binder / capture notes for string subst (until locally-nameless). *)
+Example subst_stops_at_shadowing :
+  subst_ast "x" (AstIntLit 1)
+    (AstLam "x" (AstRef "Int") (AstRef "x"))
+  = AstLam "x" (AstRef "Int") (AstRef "x").
+Proof. reflexivity. Qed.
+
+Example subst_under_distinct_binder :
+  subst_ast "x" (AstIntLit 1)
+    (AstLam "y" (AstRef "Int") (AstRef "x"))
+  = AstLam "y" (AstRef "Int") (AstIntLit 1).
+Proof. reflexivity. Qed.
+
+(* Classic capture: substituting a free `y` under binder `y`.
+   Current naive subst captures; LN/open-close must freshen. *)
+Example subst_captures_today :
+  subst_ast "x" (AstRef "y")
+    (AstLam "y" (AstRef "Int") (AstRef "x"))
+  = AstLam "y" (AstRef "Int") (AstRef "y").
+Proof. reflexivity. Qed.
+

@@ -1,0 +1,2 @@
+// Unbound lowercase names must fail elaboration (not silently become Any).
+def main(): Integer = nope

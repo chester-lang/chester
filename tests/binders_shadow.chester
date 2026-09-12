@@ -1,0 +1,10 @@
+// Nested let shadowing: inner `x` does not overwrite outer `x`.
+// Expect: 1 + 2 = 3
+def main(): Integer = {
+  let x = 1;
+  let y = {
+    let x = 2;
+    x
+  };
+  int_add(x, y)
+};

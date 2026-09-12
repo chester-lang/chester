@@ -1,0 +1,7 @@
+// Closure captures the outer binder (not a free string lookup at call time).
+// Expect: 10 + 1 = 11
+def main(): Integer = {
+  let x = 10;
+  let f = \y => int_add(x, y);
+  f(1)
+};

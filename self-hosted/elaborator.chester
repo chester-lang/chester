@@ -439,6 +439,82 @@ def lookup_type(name: String, ctx: List(Integer), env: List(Pair)): OptionAST = 
     }
   }
 };
+def is_preamble_prim(name: String): Bool = {
+  if string_eq(name, "int_add") then true
+  else if string_eq(name, "int_sub") then true
+  else if string_eq(name, "int_mul") then true
+  else if string_eq(name, "int_div") then true
+  else if string_eq(name, "int_mod") then true
+  else if string_eq(name, "int_neg") then true
+  else if string_eq(name, "int_eq") then true
+  else if string_eq(name, "int_lt") then true
+  else if string_eq(name, "int_gt") then true
+  else if string_eq(name, "int_le") then true
+  else if string_eq(name, "int_ge") then true
+  else if string_eq(name, "bool_or") then true
+  else if string_eq(name, "bool_and") then true
+  else if string_eq(name, "bool_not") then true
+  else if string_eq(name, "string_eq") then true
+  else if string_eq(name, "string_concat") then true
+  else if string_eq(name, "string_length") then true
+  else if string_eq(name, "string_substring") then true
+  else if string_eq(name, "string_char_at") then true
+  else if string_eq(name, "string_append") then true
+  else if string_eq(name, "string_to_int") then true
+  else if string_eq(name, "int_to_string") then true
+  else if string_eq(name, "list_length") then true
+  else if string_eq(name, "list_get") then true
+  else if string_eq(name, "list_empty") then true
+  else if string_eq(name, "list_insert_first") then true
+  else if string_eq(name, "advance") then true
+  else if string_eq(name, "true") then true
+  else if string_eq(name, "false") then true
+  else if string_eq(name, "null") then true
+  else if string_eq(name, "undefined") then true
+  else if string_eq(name, "fmt") then true
+  else if string_eq(name, "math") then true
+  else if string_eq(name, "os") then true
+  else if string_eq(name, "console") then true
+  else if string_eq(name, "\\") then true
+  else false
+};
+def string_starts_with(pre: String, s: String): Bool = {
+  let plen = string_length(pre);
+  if int_gt(plen, string_length(s)) then false
+  else string_eq(string_substring(s, 0, plen), pre)
+};
+def name_is_upper(name: String): Bool = {
+  if int_eq(string_length(name), 0) then false else {
+    let c = string_char_at(name, 0);
+    if string_eq(c, "A") then true else if string_eq(c, "B") then true else if string_eq(c, "C") then true
+    else if string_eq(c, "D") then true else if string_eq(c, "E") then true else if string_eq(c, "F") then true
+    else if string_eq(c, "G") then true else if string_eq(c, "H") then true else if string_eq(c, "I") then true
+    else if string_eq(c, "J") then true else if string_eq(c, "K") then true else if string_eq(c, "L") then true
+    else if string_eq(c, "M") then true else if string_eq(c, "N") then true else if string_eq(c, "O") then true
+    else if string_eq(c, "P") then true else if string_eq(c, "Q") then true else if string_eq(c, "R") then true
+    else if string_eq(c, "S") then true else if string_eq(c, "T") then true else if string_eq(c, "U") then true
+    else if string_eq(c, "V") then true else if string_eq(c, "W") then true else if string_eq(c, "X") then true
+    else if string_eq(c, "Y") then true else if string_eq(c, "Z") then true else false
+  }
+};
+def is_allowed_unbound(name: String): Bool = {
+  if name_is_upper(name) then true
+  else if is_preamble_prim(name) then true
+  else if string_starts_with("prim__", name) then true
+  else if string_starts_with("__", name) then true
+  else false
+};
+def is_type_expected(expected: OptionAST): Bool = {
+  match expected {
+    case SomeAST(ty) => {
+      match ty {
+        case AstRef(n) => bool_or(string_eq(n, "Type"), string_eq(n, "TypeUniverse"));
+        case _ => false
+      }
+    };
+    case OptionAST.NoneAST => false
+  }
+};
 def resolve_hygiene(env: List(Pair), name: String, ctx: List(Integer)): Pair = {
   let res = lookup_type(name, ctx, env);
   match res {
@@ -644,6 +720,17 @@ def elab_extern_decls(env: List(Pair), decls: List(CST)): Pair = {
         }
       };
       case _ => elab_extern_decls(env, rest)
+    }
+  }
+};
+def collect_def_binders(ls: List(CST)): List(Pair) = {
+  if int_eq(list_length(ls), 0) then list_empty[Pair]() else {
+    let x = list_get(ls, 0);
+    let rest = collect_def_binders(advance(ls));
+    match x {
+      case DefCST(name, _, _, _, _, span) =>
+        list_insert_first(rest, Pair.MkPair(Pair.MkPair(name, span_context(span)), AST.AstRef("Any")));
+      case _ => rest
     }
   }
 };
@@ -1070,7 +1157,11 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       match res {
         case MkPair(ty, resolved_ctx) => {
           match ty {
-            case AstError(_) => Pair.MkPair(AST.AstRef(name), AST.AstRef("Any"));
+            case AstError(_) => {
+              if is_allowed_unbound(name) then Pair.MkPair(AST.AstRef(name), AST.AstRef("Any"))
+              else if is_type_expected(expected) then Pair.MkPair(AST.AstRef(name), AST.AstRef("Type"))
+              else Pair.MkPair(AST.AstError(string_concat("Unbound variable: ", name)), AST.AstRef("Any"))
+            };
             case _ => {
               match expected {
                 case SomeAST(exp) => {
@@ -1130,7 +1221,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       }
 };
     case Block(stmts, tail, _) => {
-      let stmtsRes = map_elabs(env, stmts);
+      let env_with_defs = append_env(collect_def_binders(stmts), env);
+      let stmtsRes = map_elabs(env_with_defs, stmts);
       match stmtsRes {
         case MkPair(stmtsAst, final_env) => {
           let retAst_res = elaborate(final_env, tail, OptionAST.NoneAST);
@@ -1242,14 +1334,15 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
         }
       }
     };
-    case DefCST(name, type_params, params, ret_ty, body, _) => {
+    case DefCST(name, type_params, params, ret_ty, body, span) => {
       let params_res = elab_map_params(env, params);
       match params_res {
         case MkPair(paramsAst, envItems) => {
-          let body_env = append_env(envItems, env);
           let retAst_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
           match retAst_res {
             case MkPair(rAst, _) => {
+              let fun_ty0 = AST.AstFunTy(type_params, paramsAst, rAst, list_empty[String]());
+              let body_env = list_insert_first(append_env(envItems, env), Pair.MkPair(Pair.MkPair(name, span_context(span)), fun_ty0));
               let s0 = get_elab_state();
               match s0 {
                 case MkElabState(e0, nv0, sub0, ex0, ef0, act0, pend0) => {
@@ -1286,6 +1379,15 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       match argTyAst_res {
         case MkPair(argTyAst, _) => {
           let new_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(arg_name, span_context(span)), argTyAst));
+          if is_type_expected(expected) then {
+            let bodyAst_res = elaborate(new_env, body, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+            match bodyAst_res {
+              case MkPair(bAst, _) => {
+                let piTy = AST.AstPi(arg_name, argTyAst, bAst, list_empty[String]());
+                Pair.MkPair(piTy, AST.AstRef("Type"))
+              }
+            }
+          } else {
           let s0 = get_elab_state();
           match s0 {
             case MkElabState(e0, nv0, sub0, ex0, ef0, act0, pend0) => {
@@ -1305,6 +1407,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                 }
               }
             }
+          }
           }
         }
       }
