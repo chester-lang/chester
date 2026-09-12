@@ -26,13 +26,10 @@ def chester_to_go_type(ty: AST.AST): String = {
       else if string_eq(name, "Any") then go_iface()
       else if string_eq(name, "Type") then go_iface()
       else if string_eq(name, "Unknown") then go_iface()
-      else if is_upper(name) then name
       else go_iface()
     };
     case AstMeta(_) => go_iface();
-    case AstApp(AstRef(n), _) => {
-      if string_eq(n, "List") then string_concat("[]", go_iface()) else go_iface()
-    };
+    case AstApp(_, _) => go_iface();
     case AstSpan(_, inner) => chester_to_go_type(inner);
     case _ => go_iface()
   }

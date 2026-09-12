@@ -12,14 +12,6 @@ Definition go_str_eq (a b : string) : bool :=
   if string_dec a b then true else false.
 
 (* Chester surface/elaborated types → Go type strings. Fallback is interface{}. *)
-Definition is_go_upper (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c _ =>
-      let n := nat_of_ascii c in
-      (PeanoNat.Nat.leb 65 n) && (PeanoNat.Nat.leb n 90)
-  end.
-
 Fixpoint chester_to_go_type (ty : AST) {struct ty} : string :=
   match ty with
   | AstRef name =>
@@ -30,10 +22,11 @@ Fixpoint chester_to_go_type (ty : AST) {struct ty} : string :=
       else if go_str_eq name "Any" then go_iface
       else if go_str_eq name "Type" then go_iface
       else if go_str_eq name "Unknown" then go_iface
-      else if is_go_upper name then name
+      (* Nominal Chester types (records/enums/typarams) stay dynamic until
+         we thread a record env; mapping `T`/`Option` to Go names breaks stdlib. *)
       else go_iface
   | AstMeta _ => go_iface
-  | AstApp (AstRef "List") _ => "[]" ++ go_iface
+  | AstApp (AstRef "List") _ => go_iface
   | AstApp (AstRef "Pair") _ => go_iface
   | AstPi _ _ _ _ => go_iface
   | AstFunTy _ _ _ _ => go_iface
@@ -73,19 +66,7 @@ Definition go_scalar_ret_ty (name : string) : option string :=
     then Some "string"
   else None.
 
-Fixpoint go_type_of_ast_value (e : AST) {struct e} : string :=
-  match e with
-  | AstIntLit _ => "int"
-  | AstStringLit _ => "string"
-  | AstBoolLit _ => "bool"
-  | AstApp (AstRef name) _ =>
-      match go_scalar_ret_ty name with
-      | Some ty => ty
-      | None => go_iface
-      end
-  | AstSpan _ inner => go_type_of_ast_value inner
-  | _ => go_iface
-  end.
+
 
 Definition go_iife (body : list GoStmt) : GoExpr :=
   GoFuncLiteral [] go_iface body.
@@ -100,38 +81,62 @@ Definition go_starts_with (pre s : string) : bool :=
     end
   in sw pre s.
 
-Definition go_wrap_ret (ret_ty : string) (e : GoExpr) : GoExpr :=
-  if go_str_eq ret_ty go_iface then e
-  else
-    match e with
-    | GoCall (GoIdentifier name) _ =>
-        if orb (go_str_eq name "resume") (go_starts_with "__chester_" name)
-        then GoTypeAssert e ret_ty else e
-    | GoCall (GoFuncLiteral _ _ _) _ => GoTypeAssert e ret_ty
-    | GoCall (GoTypeAssert _ _) _ => GoTypeAssert e ret_ty
-    | _ => e
-    end.
+(* name -> (param go tys, ret go ty) *)
+Definition GoSigEnv := list (string * (list string * string)).
 
-Fixpoint go_map_returns (fuel : nat) (ret_ty : string) (ss : list GoStmt) {struct fuel} : list GoStmt :=
+Fixpoint go_lookup_sig (env : GoSigEnv) (name : string) : option (list string * string) :=
+  match env with
+  | [] => None
+  | (n, info) :: rest =>
+      if go_str_eq n name then Some info else go_lookup_sig rest name
+  end.
+
+Fixpoint collect_go_sigs (fuel : nat) (asts : list AST) {struct fuel} : GoSigEnv :=
   match fuel with
-  | 0 => ss
+  | 0 => []
   | S fuel' =>
-      match ss with
+      match asts with
       | [] => []
-      | GoReturn e :: rest => GoReturn (go_wrap_ret ret_ty e) :: go_map_returns fuel' ret_ty rest
-      | GoIfStmt c t e :: rest =>
-          GoIfStmt c (go_map_returns fuel' ret_ty t) (go_map_returns fuel' ret_ty e)
-            :: go_map_returns fuel' ret_ty rest
-      | GoBlock b :: rest =>
-          GoBlock (go_map_returns fuel' ret_ty b) :: go_map_returns fuel' ret_ty rest
-      | s :: rest => s :: go_map_returns fuel' ret_ty rest
+      | AstDef name _ params ret_ty _ :: rest =>
+          (name, (map (fun p => chester_to_go_type (snd p)) params, chester_to_go_type ret_ty))
+            :: collect_go_sigs fuel' rest
+      | AstExtension _ _ _ meths :: rest =>
+          app (collect_go_sigs fuel' meths) (collect_go_sigs fuel' rest)
+      | _ :: rest => collect_go_sigs fuel' rest
       end
   end.
 
-Definition go_map_returns_top (ret_ty : string) (ss : list GoStmt) : list GoStmt :=
-  go_map_returns 64 ret_ty ss.
+Definition collect_go_sigs_top (asts : list AST) : GoSigEnv :=
+  collect_go_sigs 256 asts.
 
-(* Call-site coercion via helpers so both concrete and interface{} args work. *)
+Definition go_known_ret (sigs : GoSigEnv) (name : string) : option string :=
+  match go_scalar_ret_ty name with
+  | Some ty => Some ty
+  | None =>
+      match go_lookup_sig sigs name with
+      | Some (_, ret) => Some ret
+      | None => None
+      end
+  end.
+
+Fixpoint go_type_of_ast_value (sigs : GoSigEnv) (e : AST) {struct e} : string :=
+  match e with
+  | AstIntLit _ => "int"
+  | AstStringLit _ => "string"
+  | AstBoolLit _ => "bool"
+  | AstApp func _ =>
+      match func with
+      | AstRef name =>
+          match go_known_ret sigs name with
+          | Some ty => ty
+          | None => go_iface
+          end
+      | _ => go_iface
+      end
+  | AstSpan _ inner => go_type_of_ast_value sigs inner
+  | _ => go_iface
+  end.
+
 Definition go_as_helper (ty : string) : string :=
   match go_str_eq ty "int", go_str_eq ty "string", go_str_eq ty "bool" with
   | true, _, _ => "__chester_as_int"
@@ -140,7 +145,51 @@ Definition go_as_helper (ty : string) : string :=
   | _, _, _ => EmptyString
   end.
 
-Definition go_coerce_arg (param_ty : string) (arg : GoExpr) : GoExpr :=
+Definition go_coerce_to (ty : string) (e : GoExpr) : GoExpr :=
+  let h := go_as_helper ty in
+  if go_str_eq h EmptyString then e else GoCall (GoIdentifier h) [e].
+
+Definition go_wrap_ret (sigs : GoSigEnv) (ret_ty : string) (e : GoExpr) : GoExpr :=
+  if go_str_eq ret_ty go_iface then e
+  else
+    match e with
+    | GoIntLiteral _ => e
+    | GoStringLiteral _ => e
+    | GoBoolLiteral _ => e
+    | GoTypeAssert _ ty => if go_str_eq ty ret_ty then e else go_coerce_to ret_ty e
+    | GoCall (GoIdentifier name) _ =>
+        if go_str_eq name (go_as_helper ret_ty) then e
+        else
+          match go_known_ret sigs name with
+          | Some ty => if go_str_eq ty ret_ty then e else go_coerce_to ret_ty e
+          | None => go_coerce_to ret_ty e
+          end
+    | GoCall (GoFuncLiteral _ _ _) _ => go_coerce_to ret_ty e
+    | GoCall (GoTypeAssert _ _) _ => go_coerce_to ret_ty e
+    | GoIdentifier _ => go_coerce_to ret_ty e
+    | _ => go_coerce_to ret_ty e
+    end.
+
+Fixpoint go_map_returns (fuel : nat) (sigs : GoSigEnv) (ret_ty : string) (ss : list GoStmt) {struct fuel} : list GoStmt :=
+  match fuel with
+  | 0 => ss
+  | S fuel' =>
+      match ss with
+      | [] => []
+      | GoReturn e :: rest => GoReturn (go_wrap_ret sigs ret_ty e) :: go_map_returns fuel' sigs ret_ty rest
+      | GoIfStmt c t e :: rest =>
+          GoIfStmt c (go_map_returns fuel' sigs ret_ty t) (go_map_returns fuel' sigs ret_ty e)
+            :: go_map_returns fuel' sigs ret_ty rest
+      | GoBlock b :: rest =>
+          GoBlock (go_map_returns fuel' sigs ret_ty b) :: go_map_returns fuel' sigs ret_ty rest
+      | s :: rest => s :: go_map_returns fuel' sigs ret_ty rest
+      end
+  end.
+
+Definition go_map_returns_top (sigs : GoSigEnv) (ret_ty : string) (ss : list GoStmt) : list GoStmt :=
+  go_map_returns 64 sigs ret_ty ss.
+
+Definition go_coerce_arg (sigs : GoSigEnv) (param_ty : string) (arg : GoExpr) : GoExpr :=
   if go_str_eq param_ty go_iface then arg
   else
     match arg with
@@ -148,38 +197,24 @@ Definition go_coerce_arg (param_ty : string) (arg : GoExpr) : GoExpr :=
     | GoStringLiteral _ => arg
     | GoBoolLiteral _ => arg
     | GoTypeAssert _ ty =>
-        if go_str_eq ty param_ty then arg
-        else
-          let h := go_as_helper param_ty in
-          if go_str_eq h EmptyString then GoTypeAssert arg param_ty
-          else GoCall (GoIdentifier h) [arg]
+        if go_str_eq ty param_ty then arg else go_coerce_to param_ty arg
     | GoCall (GoIdentifier name) _ =>
         if go_str_eq name (go_as_helper param_ty) then arg
         else
-          match go_scalar_ret_ty name with
-          | Some ty => if go_str_eq ty param_ty then arg else
-              let h := go_as_helper param_ty in
-              if go_str_eq h EmptyString then GoTypeAssert arg param_ty
-              else GoCall (GoIdentifier h) [arg]
-          | None =>
-              let h := go_as_helper param_ty in
-              if go_str_eq h EmptyString then GoTypeAssert arg param_ty
-              else GoCall (GoIdentifier h) [arg]
+          match go_known_ret sigs name with
+          | Some ty => if go_str_eq ty param_ty then arg else go_coerce_to param_ty arg
+          | None => go_coerce_to param_ty arg
           end
-    | _ =>
-        let h := go_as_helper param_ty in
-        if go_str_eq h EmptyString then GoTypeAssert arg param_ty
-        else GoCall (GoIdentifier h) [arg]
+    | _ => go_coerce_to param_ty arg
     end.
 
-Fixpoint go_coerce_args (param_tys : list string) (args : list GoExpr) : list GoExpr :=
+Fixpoint go_coerce_args (sigs : GoSigEnv) (param_tys : list string) (args : list GoExpr) : list GoExpr :=
   match param_tys, args with
   | [], _ => args
   | _, [] => []
-  | ty :: tys, a :: as_ => go_coerce_arg ty a :: go_coerce_args tys as_
+  | ty :: tys, a :: as_ => go_coerce_arg sigs ty a :: go_coerce_args sigs tys as_
   end.
 
-(* Builtin scalar ops: coerce args at call sites. *)
 Definition go_builtin_param_tys (name : string) (nargs : nat) : option (list string) :=
   let fix reps (ty : string) (n : nat) : list string :=
     match n with
@@ -211,13 +246,17 @@ Definition go_builtin_param_tys (name : string) (nargs : nat) : option (list str
     then Some (reps "bool" nargs)
   else None.
 
-Definition go_call_args (func : AST) (args : list GoExpr) : list GoExpr :=
+Definition go_call_args (sigs : GoSigEnv) (func : AST) (args : list GoExpr) : list GoExpr :=
   let nargs := length args in
   match func with
   | AstRef name =>
       match go_builtin_param_tys name nargs with
-      | Some tys => go_coerce_args tys args
-      | None => args
+      | Some tys => go_coerce_args sigs tys args
+      | None =>
+          match go_lookup_sig sigs name with
+          | Some (tys, _) => go_coerce_args sigs tys args
+          | None => args
+          end
       end
   | _ => args
   end.
@@ -693,11 +732,11 @@ Definition emit_ts_top (ast : AST) : TypeScriptStmt :=
 (* 
   Golang Backend
 *)
-Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
+Fixpoint emit_go_expr (sigs : GoSigEnv) (ast : AST) {struct ast} : GoExpr :=
   let fix map_go_expr (ls : list AST) : list GoExpr :=
     match ls with
     | [] => []
-    | x :: xs => emit_go_expr x :: map_go_expr xs
+    | x :: xs => emit_go_expr sigs x :: map_go_expr xs
     end
   in
   match ast with
@@ -709,16 +748,16 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
       let fix map_go_stmt (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_stmt x :: map_go_stmt xs
+        | x :: xs => emit_go_stmt sigs x :: map_go_stmt xs
         end
-      in GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)])) []
+      in GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts ++ [GoReturn (emit_go_expr sigs ret)])) []
   | AstApp func args =>
       let direct := go_app_direct func in
       let raw_args := map_go_expr args in
-      go_call_emitted direct (emit_go_expr func) (go_call_args func raw_args)
-  | AstImplicitApp func _args => emit_go_expr func  (* type args erased *)
+      go_call_emitted direct (emit_go_expr sigs func) (go_call_args sigs func raw_args)
+  | AstImplicitApp func _args => emit_go_expr sigs func  (* type args erased *)
   | AstFunTy _tparams _params _ret_ty _effs => GoIdentifier "interface{}"
-  | AstLam argName argTy body => GoFuncLiteral [(argName, go_iface)] go_iface (emit_go_block body)
+  | AstLam argName argTy body => GoFuncLiteral [(argName, go_iface)] go_iface (emit_go_block sigs body)
   | AstPi argName argTy retTy effs => GoIdentifier "interface{}"
   | AstDo op args =>
       let op_name := match op with AstRef n => n | _ => "unknown" end in
@@ -728,26 +767,26 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
       let fix emit_hs (hs : list (string * AST)) : list (string * GoExpr) :=
         match hs with
         | [] => []
-        | (op, fn) :: rest => (op, emit_go_expr fn) :: emit_hs rest
+        | (op, fn) :: rest => (op, emit_go_expr sigs fn) :: emit_hs rest
         end
       in
       GoCall (GoIdentifier "__chester_handle")
         [GoStringLiteral (effect_label eff);
-         GoFuncLiteral [] go_iface (emit_go_block action);
+         GoFuncLiteral [] go_iface (emit_go_block sigs action);
          GoMapLiteral (emit_hs handlers)]
   | AstBoolLit b => GoBoolLiteral b
   | AstLet name value =>
-      GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value value) (emit_go_expr value); GoDiscardBinding name]) []
-  | AstVar name value => GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr value)]) []
-  | AstAssign name value => GoCall (GoFuncLiteral [] go_iface [GoAssign name (emit_go_expr value)]) []
+      GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs value) (emit_go_expr sigs value); GoDiscardBinding name]) []
+  | AstVar name value => GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr sigs value)]) []
+  | AstAssign name value => GoCall (GoFuncLiteral [] go_iface [GoAssign name (emit_go_expr sigs value)]) []
   | AstBox e caps =>
       GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
-         GoFuncLiteral [] go_iface [GoReturn (emit_go_expr e)]]
+         GoFuncLiteral [] go_iface [GoReturn (emit_go_expr sigs e)]]
   | AstUnbox e =>
-      go_call_emitted false (emit_go_expr e) []
-  | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] go_iface [GoIfStmt (go_bool_cond (emit_go_expr cond)) (emit_go_block true_br) (emit_go_block false_br)]) []
-  | AstDef name _ params ret_ty body => GoCall (GoFuncLiteral [] go_iface [GoFuncDecl name (go_params_of params) (chester_to_go_type ret_ty) (go_map_returns_top (chester_to_go_type ret_ty) (emit_go_block body))]) []
+      go_call_emitted false (emit_go_expr sigs e) []
+  | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] go_iface [GoIfStmt (go_bool_cond (emit_go_expr sigs cond)) (emit_go_block sigs true_br) (emit_go_block sigs false_br)]) []
+  | AstDef name _ params ret_ty body => GoCall (GoFuncLiteral [] go_iface [GoFuncDecl name (go_params_of params) (chester_to_go_type ret_ty) (go_map_returns_top sigs (chester_to_go_type ret_ty) (emit_go_block sigs body))]) []
   | AstEnum _ _ _ => GoIdentifier "nil"
   | AstExtension _ _ _ _ => GoIdentifier "nil"
   | AstMatch expr cases => 
@@ -758,7 +797,7 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
             match pat with
             | PatConstructor cname vars =>
                 let cond := GoCall (GoIdentifier "_match_val.(map[string]interface{})[""_tag""] ==") [GoStringLiteral cname] in
-                let body_go := emit_go_block body in
+                let body_go := emit_go_block sigs body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
                   match vs with
                   | [] => acc
@@ -766,29 +805,29 @@ Fixpoint emit_go_expr (ast : AST) {struct ast} : GoExpr :=
                   end
                 in
                 [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
-            | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block body) (emit_cases rest)]
-            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block body
+            | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block sigs body) (emit_cases rest)]
+            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block sigs body
             end
         end
-      in GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr expr) :: emit_cases cases)) []
+      in GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs expr) :: emit_cases cases)) []
   | AstRecord name _ _ => GoIdentifier "nil"
   | AstFieldAccess expr field =>       match expr with
-      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr expr) field
-      | _ => GoSelector (emit_go_expr expr) field
+      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr sigs expr) field
+      | _ => GoSelector (emit_go_expr sigs expr) field
       end
   | AstImport _ _ _ _ => GoIdentifier "nil"
   | AstMeta id => GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstUniverse _ => GoCall (GoFuncLiteral [] go_iface [GoPanic "Universe in term"]) []
   | AstError e => GoCall (GoFuncLiteral [] go_iface [GoPanic e]) []
-  | AstSpan _ inner => emit_go_expr inner
+  | AstSpan _ inner => emit_go_expr sigs inner
   end
 
-with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
+with emit_go_stmt (sigs : GoSigEnv) (ast : AST) {struct ast} : GoStmt :=
   match ast with
   | AstImport lang _ mod_path _ => emit_go_import lang mod_path
   | AstLet name value =>
-      GoBlock [GoLet name (go_type_of_ast_value value) (emit_go_expr value); GoDiscardBinding name]
-  | AstDef name _ params ret_ty body => GoFuncDecl name (go_params_of params) (chester_to_go_type ret_ty) (go_map_returns_top (chester_to_go_type ret_ty) (emit_go_block body))
+      GoBlock [GoLet name (go_type_of_ast_value sigs value) (emit_go_expr sigs value); GoDiscardBinding name]
+  | AstDef name _ params ret_ty body => GoFuncDecl name (go_params_of params) (chester_to_go_type ret_ty) (go_map_returns_top sigs (chester_to_go_type ret_ty) (emit_go_block sigs body))
   | AstRecord name _ fields => GoStruct name (go_fields_of fields)
   | AstEnum name _ variants =>
       let fix emit_variant (v : string * list AST * AST) : GoStmt :=
@@ -824,7 +863,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       let fix map_meths (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_stmt x :: map_meths xs
+        | x :: xs => emit_go_stmt sigs x :: map_meths xs
         end
       in GoBlock (map_meths meths)
   | AstRef name => GoExprStmt (GoIdentifier name)
@@ -832,7 +871,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
+        | x :: xs => emit_go_expr sigs x :: map_go_expr xs
         end
       in GoExprStmt (GoArray (map_go_expr elems))
   | AstStringLit s => GoExprStmt (GoStringLiteral s)
@@ -841,29 +880,29 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       let fix map_go_stmt (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_stmt x :: map_go_stmt xs
+        | x :: xs => emit_go_stmt sigs x :: map_go_stmt xs
         end
-      in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)])) [])
+      in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts ++ [GoReturn (emit_go_expr sigs ret)])) [])
   | AstApp func args =>
       let direct := go_app_direct func in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
+        | x :: xs => emit_go_expr sigs x :: map_go_expr xs
         end
       in
       let raw_args := map_go_expr args in
-      GoExprStmt (go_call_emitted direct (emit_go_expr func) (go_call_args func raw_args))
-  | AstImplicitApp func _args => GoExprStmt (emit_go_expr func)  (* type args erased *)
+      GoExprStmt (go_call_emitted direct (emit_go_expr sigs func) (go_call_args sigs func raw_args))
+  | AstImplicitApp func _args => GoExprStmt (emit_go_expr sigs func)  (* type args erased *)
   | AstFunTy _tparams _params _ret_ty _effs => GoExprStmt (GoIdentifier "interface{}")
-  | AstLam argName argTy body => GoExprStmt (GoFuncLiteral [(argName, go_iface)] go_iface (emit_go_block body))
+  | AstLam argName argTy body => GoExprStmt (GoFuncLiteral [(argName, go_iface)] go_iface (emit_go_block sigs body))
   | AstPi argName argTy retTy effs => GoExprStmt (GoIdentifier "interface{}")
   | AstDo op args =>
       let op_name := match op with AstRef n => n | _ => "unknown" end in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
+        | x :: xs => emit_go_expr sigs x :: map_go_expr xs
         end
       in
       GoExprStmt (GoCall (GoIdentifier "__chester_perform")
@@ -872,22 +911,22 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
       let fix emit_hs (hs : list (string * AST)) : list (string * GoExpr) :=
         match hs with
         | [] => []
-        | (op, fn) :: rest => (op, emit_go_expr fn) :: emit_hs rest
+        | (op, fn) :: rest => (op, emit_go_expr sigs fn) :: emit_hs rest
         end
       in
       GoExprStmt (GoCall (GoIdentifier "__chester_handle")
         [GoStringLiteral (effect_label eff);
-         GoFuncLiteral [] go_iface (emit_go_block action);
+         GoFuncLiteral [] go_iface (emit_go_block sigs action);
          GoMapLiteral (emit_hs handlers)])
   | AstBoolLit b => GoExprStmt (GoBoolLiteral b)
-  | AstVar name value => GoLet name go_iface (emit_go_expr value)
-  | AstAssign name value => GoAssign name (emit_go_expr value)
+  | AstVar name value => GoLet name go_iface (emit_go_expr sigs value)
+  | AstAssign name value => GoAssign name (emit_go_expr sigs value)
   | AstBox e caps =>
       GoExprStmt (GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
-         GoFuncLiteral [] go_iface [GoReturn (emit_go_expr e)]])
-  | AstUnbox e => GoExprStmt (go_call_emitted false (emit_go_expr e) [])
-  | AstIf cond true_br false_br => GoExprStmt (GoCall (GoFuncLiteral [] go_iface [GoIfStmt (go_bool_cond (emit_go_expr cond)) (emit_go_block true_br) (emit_go_block false_br)]) [])
+         GoFuncLiteral [] go_iface [GoReturn (emit_go_expr sigs e)]])
+  | AstUnbox e => GoExprStmt (go_call_emitted false (emit_go_expr sigs e) [])
+  | AstIf cond true_br false_br => GoExprStmt (GoCall (GoFuncLiteral [] go_iface [GoIfStmt (go_bool_cond (emit_go_expr sigs cond)) (emit_go_block sigs true_br) (emit_go_block sigs false_br)]) [])
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
         match cs with
@@ -896,7 +935,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
             match pat with
             | PatConstructor cname vars =>
                 let cond := GoCall (GoIdentifier "_match_val.(map[string]interface{})[""_tag""] ==") [GoStringLiteral cname] in
-                let body_go := emit_go_block body in
+                let body_go := emit_go_block sigs body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
                   match vs with
                   | [] => acc
@@ -904,22 +943,22 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
                   end
                 in
                 [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
-            | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block body) (emit_cases rest)]
-            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block body
+            | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block sigs body) (emit_cases rest)]
+            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block sigs body
             end
         end
-      in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr expr) :: emit_cases cases)) [])
+      in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs expr) :: emit_cases cases)) [])
   | AstFieldAccess expr field => GoExprStmt (      match expr with
-      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr expr) field
-      | _ => GoSelector (emit_go_expr expr) field
+      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr sigs expr) field
+      | _ => GoSelector (emit_go_expr sigs expr) field
       end)
   | AstMeta id => GoExprStmt (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))
   | AstUniverse _ => GoExprStmt (GoCall (GoFuncLiteral [] go_iface [GoPanic "Universe in term"]) [])
   | AstError e => GoExprStmt (GoCall (GoFuncLiteral [] go_iface [GoPanic e]) [])
-  | AstSpan _ inner => emit_go_stmt inner
+  | AstSpan _ inner => emit_go_stmt sigs inner
   end
 
-with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
+with emit_go_block (sigs : GoSigEnv) (ast : AST) {struct ast} : list GoStmt :=
   match ast with
   | AstBlock stmts ret =>
       let fix to_local (s : GoStmt) : GoStmt :=
@@ -932,10 +971,10 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
         match ls with
         | [] => []
         | AstRef "Unit" :: xs => map_go_stmt xs
-        | x :: xs => to_local (emit_go_stmt x) :: map_go_stmt xs
+        | x :: xs => to_local (emit_go_stmt sigs x) :: map_go_stmt xs
         end
-      in map_go_stmt stmts ++ [GoReturn (emit_go_expr ret)]
-  | AstIf cond true_br false_br => [GoIfStmt (go_bool_cond (emit_go_expr cond)) (emit_go_block true_br) (emit_go_block false_br)]
+      in map_go_stmt stmts ++ [GoReturn (emit_go_expr sigs ret)]
+  | AstIf cond true_br false_br => [GoIfStmt (go_bool_cond (emit_go_expr sigs cond)) (emit_go_block sigs true_br) (emit_go_block sigs false_br)]
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
         match cs with
@@ -944,7 +983,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
             match pat with
             | PatConstructor cname vars =>
                 let cond := GoCall (GoIdentifier "_match_val.(map[string]interface{})[""_tag""] ==") [GoStringLiteral cname] in
-                let body_go := emit_go_block body in
+                let body_go := emit_go_block sigs body in
                 let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
                   match vs with
                   | [] => acc
@@ -952,20 +991,20 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
                   end
                 in
                 [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
-            | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block body) (emit_cases rest)]
-            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block body
+            | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block sigs body) (emit_cases rest)]
+            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block sigs body
             end
         end
-      in GoLet "_match_val" go_iface (emit_go_expr expr) :: emit_cases cases
+      in GoLet "_match_val" go_iface (emit_go_expr sigs expr) :: emit_cases cases
   | AstUniverse _ => [GoPanic "Universe in term"]
   | AstError e => [GoPanic e]
-  | AstSpan _ inner => emit_go_block inner
+  | AstSpan _ inner => emit_go_block sigs inner
   | AstRef name => [GoReturn (GoIdentifier name)]
   | AstTuple elems => 
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
+        | x :: xs => emit_go_expr sigs x :: map_go_expr xs
         end
       in [GoReturn (GoArray (map_go_expr elems))]
   | AstStringLit s => [GoReturn (GoStringLiteral s)]
@@ -975,21 +1014,21 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
+        | x :: xs => emit_go_expr sigs x :: map_go_expr xs
         end
       in
       let raw_args := map_go_expr args in
-      [GoReturn (go_call_emitted direct (emit_go_expr func) (go_call_args func raw_args))]
-  | AstImplicitApp func _args => [GoReturn (emit_go_expr func)]  (* type args erased *)
+      [GoReturn (go_call_emitted direct (emit_go_expr sigs func) (go_call_args sigs func raw_args))]
+  | AstImplicitApp func _args => [GoReturn (emit_go_expr sigs func)]  (* type args erased *)
   | AstFunTy _tparams _params _ret_ty _effs => [GoReturn (GoIdentifier "interface{}")]
-  | AstLam argName argTy body => [GoReturn (GoFuncLiteral [(argName, go_iface)] go_iface (emit_go_block body))]
+  | AstLam argName argTy body => [GoReturn (GoFuncLiteral [(argName, go_iface)] go_iface (emit_go_block sigs body))]
   | AstPi argName argTy retTy effs => [GoReturn (GoIdentifier "interface{}")]
   | AstDo op args =>
       let op_name := match op with AstRef n => n | _ => "unknown" end in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
-        | x :: xs => emit_go_expr x :: map_go_expr xs
+        | x :: xs => emit_go_expr sigs x :: map_go_expr xs
         end
       in
       [GoReturn (GoCall (GoIdentifier "__chester_perform")
@@ -998,30 +1037,30 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
       let fix emit_hs (hs : list (string * AST)) : list (string * GoExpr) :=
         match hs with
         | [] => []
-        | (op, fn) :: rest => (op, emit_go_expr fn) :: emit_hs rest
+        | (op, fn) :: rest => (op, emit_go_expr sigs fn) :: emit_hs rest
         end
       in
       [GoReturn (GoCall (GoIdentifier "__chester_handle")
         [GoStringLiteral (effect_label eff);
-         GoFuncLiteral [] go_iface (emit_go_block action);
+         GoFuncLiteral [] go_iface (emit_go_block sigs action);
          GoMapLiteral (emit_hs handlers)])]
   | AstBoolLit b => [GoReturn (GoBoolLiteral b)]
   | AstLet name value =>
-      [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value value) (emit_go_expr value); GoDiscardBinding name]) [])]
-  | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr value)]) [])]
-  | AstAssign name value => [GoAssign name (emit_go_expr value)]
+      [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs value) (emit_go_expr sigs value); GoDiscardBinding name]) [])]
+  | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr sigs value)]) [])]
+  | AstAssign name value => [GoAssign name (emit_go_expr sigs value)]
   | AstBox e caps =>
       [GoReturn (GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
-         GoFuncLiteral [] go_iface [GoReturn (emit_go_expr e)]])]
-  | AstUnbox e => [GoReturn (go_call_emitted false (emit_go_expr e) [])]
-  | AstDef name _ params ret_ty body => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoFuncDecl name (go_params_of params) (chester_to_go_type ret_ty) (go_map_returns_top (chester_to_go_type ret_ty) (emit_go_block body))]) [])]
+         GoFuncLiteral [] go_iface [GoReturn (emit_go_expr sigs e)]])]
+  | AstUnbox e => [GoReturn (go_call_emitted false (emit_go_expr sigs e) [])]
+  | AstDef name _ params ret_ty body => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoFuncDecl name (go_params_of params) (chester_to_go_type ret_ty) (go_map_returns_top sigs (chester_to_go_type ret_ty) (emit_go_block sigs body))]) [])]
   | AstEnum _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstRecord name _ _ => [GoReturn (GoIdentifier "nil")]
   | AstFieldAccess expr field => [GoReturn (      match expr with
-      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr expr) field
-      | _ => GoSelector (emit_go_expr expr) field
+      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr sigs expr) field
+      | _ => GoSelector (emit_go_expr sigs expr) field
       end)]
   | AstImport lang _ mod_path _ => [emit_go_import lang mod_path]
   | AstMeta id => [GoReturn (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
@@ -1030,6 +1069,7 @@ with emit_go_block (ast : AST) {struct ast} : list GoStmt :=
 Definition emit_go (ast : AST) : GoStmt :=
   match ast with
   | AstBlock stmts ret =>
+      let sigs := collect_go_sigs_top stmts in
       let fix to_local (s : GoStmt) : GoStmt :=
         match s with
         | GoFuncDecl n p r b => GoLocalFuncDecl n p r b
@@ -1040,27 +1080,28 @@ Definition emit_go (ast : AST) : GoStmt :=
         match ls with
         | [] => []
         | AstRef "Unit" :: xs => map_go_stmt xs
-        | x :: xs => to_local (emit_go_stmt x) :: map_go_stmt xs
+        | x :: xs => to_local (emit_go_stmt sigs x) :: map_go_stmt xs
         end
-      in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts ++ [GoExprStmt (emit_go_expr ret)])) [])
-  | _ => emit_go_stmt ast
+      in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts ++ [GoExprStmt (emit_go_expr sigs ret)])) [])
+  | _ => emit_go_stmt [] ast
   end.
 
 (* Top-level Go emit: keep declarations at package scope (no wrapping IIFE). *)
 Definition emit_go_top (ast : AST) : GoStmt :=
   match ast with
   | AstBlock stmts ret =>
+      let sigs := collect_go_sigs_top stmts in
       let fix map_go_stmt (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
         | AstRef "Unit" :: xs => map_go_stmt xs
-        | x :: xs => emit_go_stmt x :: map_go_stmt xs
+        | x :: xs => emit_go_stmt sigs x :: map_go_stmt xs
         end
       in
       match ret with
       | AstRef "Unit" => GoBlock (map_go_stmt stmts)
-      | _ => GoBlock (map_go_stmt stmts ++ [GoExprStmt (emit_go_expr ret)])
+      | _ => GoBlock (map_go_stmt stmts ++ [GoExprStmt (emit_go_expr sigs ret)])
       end
-  | _ => emit_go_stmt ast
+  | _ => emit_go_stmt [] ast
   end.
 

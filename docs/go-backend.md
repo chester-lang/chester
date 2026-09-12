@@ -13,17 +13,24 @@ The emitter maps Chester types to concrete Go types where it can:
 | `Integer` / `Int` | `int` |
 | `String` | `string` |
 | `Bool` | `bool` |
-| named records (`Point`, …) | same Go struct name |
-| `List(_)`, `Any`, `Unit`, unknowns | `interface{}` |
+| records / enums / typarams / `List(_)` / `Any` / `Unit` | `interface{}` |
+
+Record **declarations** still emit `type Point struct{ x int; y int }` from field
+types; using `Point` as a Go nominal type in signatures is deferred until a
+record env is threaded through emit.
 
 Applied today (Rocq / `main.exe --go`):
 
 - **Record fields** — `type Point struct{ x int; y int }`
 - **`def` params / returns** — `func add(a int, b int) int`
-- **`let` bindings** — inferred from literals and scalar ops (`var x int = 40`)
+- **`let` bindings** — inferred from literals, scalar ops, and known def return types
 - **`var` bindings** — stay `interface{}` (mutable / effect-friendly)
 - **Lambdas / handlers** — stay `interface{}` (effects runtime)
 - **Lists, enums, effects maps** — still dynamic
+- **Call / return boundaries** — top-level def and extension-method signatures are
+  collected; args and returns are coerced with `__chester_as_*` when the value may
+  still be `interface{}` (so `let a = id(1); id(a)`, `var x = 1; x`, and
+  `ListOps_get(list, i)` all compile)
 
 Self-hosted `codegen_go.chester` matches record-field and `let` typing; `def`
 params/returns stay `interface{}` until its call-site coercion catches up with
