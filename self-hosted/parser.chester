@@ -223,19 +223,61 @@ def is_terminator(tok: Token): Bool = {
     case _ => false
   }
 };
+def is_block_continue_kw(s: String): Bool = {
+  if string_eq(s, "else") then true
+  else if string_eq(s, "catch") then true
+  else if string_eq(s, "with") then true
+  else if string_eq(s, "for") then true
+  else if string_eq(s, "same_as") then true
+  else if string_eq(s, "tighter_than") then true
+  else false
+};
+def ends_with_block_cst(c: CST): Bool = {
+  match c {
+    case Block(_, _, _) => true;
+    case SeqOf(elems, _) => {
+      if int_eq(list_length(elems), 0) then false else {
+        match list_get(elems, int_sub(list_length(elems), 1)) {
+          case Block(_, _, _) => true;
+          case _ => false
+        }
+      }
+    };
+    case _ => false
+  }
+};
+def finish_atom_seq(acc: List(CST), tokens: List(Token)): ParseResult(CST) = {
+  let len = list_length(acc);
+  if int_eq(len, 1) then ParseResult.MkParseResult(list_get(acc, 0), tokens)
+  else ParseResult.MkParseResult(CST.SeqOf(acc, Span(0, 0, list_empty[Integer]())), tokens)
+};
 def parse_atom_sequence_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
   if int_eq(list_length(tokens), 0) then {
     ParseResult.MkParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens)
   } else {
     let tok = list_get(tokens, 0);
-    if is_terminator(tok) then {
-      let len = list_length(acc);
-      if int_eq(len, 1) then ParseResult.MkParseResult(list_get(acc, 0), tokens) else ParseResult.MkParseResult(CST.SeqOf(acc, Span(0, 0, list_empty[Integer]())), tokens)
-    } else {
+    if is_terminator(tok) then finish_atom_seq(acc, tokens) else {
       let p = parse_atom(tokens);
       match ParseResult_result(p) {
         case Error(_, _) => p;
-        case _ => parse_atom_sequence_helper(ParseResult_remaining(p), list_append(acc, ParseResult_result(p)))
+        case atom => {
+          let new_acc = list_append(acc, atom);
+          let rem = ParseResult_remaining(p);
+          // Rocq ModeSeq: after `{...}` stop unless a continuation keyword follows
+          // (else/catch/with/for/…), so `effect {…} def …` becomes two statements.
+          if ends_with_block_cst(atom) then {
+            if int_eq(list_length(rem), 0) then finish_atom_seq(new_acc, rem) else {
+              let next = list_get(rem, 0);
+              match Token_kind(next) {
+                case Identifier() => {
+                  if is_block_continue_kw(Token_text(next)) then parse_atom_sequence_helper(rem, new_acc)
+                  else finish_atom_seq(new_acc, rem)
+                };
+                case _ => finish_atom_seq(new_acc, rem)
+              }
+            }
+          } else parse_atom_sequence_helper(rem, new_acc)
+        }
       }
     }
   }

@@ -1112,8 +1112,19 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           hsRes <- elab_handlers handlers ;
           ret (AstHandle (fst bodyAst) (UserEffect eff) hsRes, snd bodyAst)
       end
-  | RecordCST name type_params fields _ => 
-      ret (AstRecord name type_params [], AstRef "Unit")
+  | RecordCST name type_params fields _ =>
+      let fix elab_fs (fs : list CST) : ElabM (list (string * AST)) :=
+        match fs with
+        | [] => ret []
+        | f :: rest =>
+            let (fname, fty) := extract_arg_cst f in
+            tyAst <- elaborate fuel' env fty (Some (AstUniverse 0)) ;
+            restFs <- elab_fs rest ;
+            ret ((fname, fst tyAst) :: restFs)
+        end
+      in
+      fsRes <- elab_fs fields ;
+      ret (AstRecord name type_params fsRes, AstRef "Unit")
       
   | FieldAccessCST expr field _ =>
       exprAst <- elaborate fuel' env expr None ;

@@ -1160,6 +1160,37 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
 };
                   case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                 }
+} else if string_eq(sym, "record") then {
+                let app_node = list_get(elems, 1);
+                match app_node {
+                  case AppCST(f, fields, _) => {
+                    match f {
+                      case Symbol(rec_name, _) => {
+                        let node = RecordCST(rec_name, list_empty[String](), fields, sp);
+                        let cont = cont_with_leftover(elems, 2, sp, rest_ss);
+                        let res_rest = process_stmts(fuel, env, op_env, m, cont);
+                        match res_rest {
+                          case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
+                        }
+                      };
+                      case ImplicitAppCST(inner, targs, _) => {
+                        match inner {
+                          case Symbol(rec_name, _) => {
+                            let node = RecordCST(rec_name, extract_tparams(targs), fields, sp);
+                            let cont = cont_with_leftover(elems, 2, sp, rest_ss);
+                            let res_rest = process_stmts(fuel, env, op_env, m, cont);
+                            match res_rest {
+                              case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
+                            }
+                          };
+                          case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                        }
+                      };
+                      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                    }
+                  };
+                  case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                }
 } else if string_eq(sym, "macro") then {
                 let name_node = list_get(elems, 1);
                 let block_node = list_get(elems, 2);

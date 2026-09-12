@@ -387,9 +387,19 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                     | _ => stmt
                     end
                 else if eqb kwd "extern" then
+                    let methods_of_block (b : CST) : list CST :=
+                      match b with
+                      | Block meths tail _ =>
+                          match tail with
+                          | Symbol u _ =>
+                              if eqb u "Unit" then meths else app meths [tail]
+                          | _ => app meths [tail]
+                          end
+                      | _ => []
+                      end in
                     match rest_seq with
-                    | Symbol lang _ :: StringLiteral mod _ :: Block decls _ _ :: [] =>
-                        ExternCST lang mod decls s
+                    | Symbol lang _ :: StringLiteral mod _ :: (Block _ _ _ as blk) :: [] =>
+                        ExternCST lang mod (fst (process_stmts f2' env (methods_of_block blk))) s
                     | _ => stmt
                     end
                 else if eqb kwd "unbox" then

@@ -375,7 +375,23 @@ def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
           string_concat("import ", string_concat(q, string_concat(mod_path, string_concat(q, ";"))))
         } else ""
       };
-      case AstRecord(name, _, _) => string_concat("type ", string_concat(name, " struct{};"));
+      case AstRecord(name, _, fields) => {
+        let fix field_decls(fs: List(Pair)): String = {
+          if int_eq(list_length(fs), 0) then "" else {
+            match list_get(fs, 0) {
+              case MkPair(fname, _) => {
+                let rest = advance(fs);
+                let decl = string_concat(fname, " interface{}");
+                if int_eq(list_length(rest), 0) then decl
+                else string_concat(decl, string_concat("; ", field_decls(rest)))
+              };
+              case _ => field_decls(advance(fs))
+            }
+          }
+        };
+        if int_eq(list_length(fields), 0) then string_concat("type ", string_concat(name, " struct{};"))
+        else string_concat("type ", string_concat(name, string_concat(" struct{ ", string_concat(field_decls(fields), " };"))))
+      };
       case AstBox(_, _) => string_concat("return ", emit_go_expr(next_fuel, ast));
       case AstUnbox(_) => string_concat("return ", emit_go_expr(next_fuel, ast));
       case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val)));

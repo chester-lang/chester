@@ -3,6 +3,42 @@ def span_context(sp: CST.Span): List(Integer) = {
     case Span(_, _, ctx) => ctx
   }
 };
+def elab_extract_field(f: CST): Pair = {
+  match f {
+    case Symbol(n, _) => Pair.MkPair(n, CST.Symbol("Unknown", Span(0, 0, list_empty[Integer]())));
+    case SeqOf(elems, _) => {
+      if int_lt(list_length(elems), 3) then Pair.MkPair("unknown", CST.Symbol("Unknown", Span(0, 0, list_empty[Integer]()))) else {
+        match list_get(elems, 0) {
+          case Symbol(n, _) => {
+            match list_get(elems, 1) {
+              case Symbol(kw, _) => {
+                if string_eq(kw, ":") then Pair.MkPair(n, list_get(elems, 2))
+                else Pair.MkPair("unknown", CST.Symbol("Unknown", Span(0, 0, list_empty[Integer]())))
+              };
+              case _ => Pair.MkPair("unknown", CST.Symbol("Unknown", Span(0, 0, list_empty[Integer]())))
+            }
+          };
+          case _ => Pair.MkPair("unknown", CST.Symbol("Unknown", Span(0, 0, list_empty[Integer]())))
+        }
+      }
+    };
+    case _ => Pair.MkPair("unknown", CST.Symbol("Unknown", Span(0, 0, list_empty[Integer]())))
+  }
+};
+def elab_record_fields(env: List(Pair), fs: List(CST)): List(Pair) = {
+  if int_eq(list_length(fs), 0) then list_empty[Pair]() else {
+    let f = list_get(fs, 0);
+    let rest = elab_record_fields(env, advance(fs));
+    match elab_extract_field(f) {
+      case MkPair(fname, fty) => {
+        let ty_res = elaborate(env, fty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+        match ty_res {
+          case MkPair(tAst, _) => list_insert_first(rest, Pair.MkPair(fname, tAst))
+        }
+      }
+    }
+  }
+};
 def elab_fields(fs: List(CST)): List(AST) = {
                       if int_eq(list_length(fs), 0) then list_empty[AST]() else {
                         let f0 = list_get(fs, 0);
@@ -1373,8 +1409,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
         case MkPair(asts, _) => Pair.MkPair(AST.AstTuple(asts), AST.AstRef("List"))
       }
 };
-    case RecordCST(name, type_params, _, _) => {
-      Pair.MkPair(AST.AstRecord(name, type_params, list_empty[Pair]()), AST.AstRef("Unit"))
+    case RecordCST(name, type_params, fields, _) => {
+      Pair.MkPair(AST.AstRecord(name, type_params, elab_record_fields(env, fields)), AST.AstRef("Unit"))
     };
     case FieldAccess(expr, field, _) => {
       let eAst_res = elaborate(env, expr, OptionAST.NoneAST);

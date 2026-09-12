@@ -566,7 +566,7 @@ with emit_go_stmt (ast : AST) {struct ast} : GoStmt :=
   | AstLet name value =>
       GoBlock [GoLet name (emit_go_expr value); GoDiscardBinding name]
   | AstDef name _ params _ body => GoFuncDecl name (map fst params) (emit_go_block body)
-  | AstRecord name _ _ => GoStruct name
+  | AstRecord name _ fields => GoStruct name (map fst fields)
   | AstEnum name _ variants =>
       let fix emit_variant (v : string * list AST * AST) : GoStmt :=
         let vname := fst (fst v) in

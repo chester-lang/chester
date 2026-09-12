@@ -22,7 +22,7 @@ Inductive GoStmt : Type :=
   | GoPanic : string -> GoStmt
   | GoFuncDecl : string -> list string -> list GoStmt -> GoStmt
   | GoLocalFuncDecl : string -> list string -> list GoStmt -> GoStmt
-  | GoStruct : string -> GoStmt
+  | GoStruct : string -> list string -> GoStmt
   | GoEmpty : GoStmt
   | GoBlock : list GoStmt -> GoStmt
   | GoImport : string -> GoStmt
@@ -86,7 +86,17 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
       | _ =>
           "func " ++ name ++ "(" ++ concat_strings " interface{}, " params ++ " interface{}) interface{} { " ++ concat_strings " " (map_go_stmt body) ++ "}"
       end
-  | GoStruct name => "type " ++ name ++ " struct{}; "
+  | GoStruct name fields =>
+      let fix field_decls (fs : list string) : list string :=
+        match fs with
+        | [] => []
+        | f :: rest => (f ++ " interface{}") :: field_decls rest
+        end
+      in
+      match fields with
+      | [] => "type " ++ name ++ " struct{}; "
+      | _ => "type " ++ name ++ " struct{ " ++ concat_strings "; " (field_decls fields) ++ " }; "
+      end
   | GoEmpty => ""
   | GoBlock stmts => concat_strings (String (ascii_of_nat 10) "") (map_go_stmt stmts)
   | GoImport mod => "import " ++ go_quote ++ mod ++ go_quote ++ "; "
