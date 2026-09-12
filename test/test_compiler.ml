@@ -419,6 +419,24 @@ let%expect_test "stdlib elaborates" =
   check_fixture "stdlib/std.chester";
   [%expect {| stdlib/std.chester ok |}]
 
+let%expect_test "go typed emit params returns lets" =
+  let prog = assemble_go_program (compile_fixture_ast "tests/go_typed_emit.chester") in
+  print_endline
+    (if has_substr prog "func id(x int) int"
+        && has_substr prog "var a int ="
+        && has_substr prog "var n int ="
+        && has_substr prog "var b bool ="
+        && has_substr prog "prim__string_length("
+        && (has_substr prog "if b {" || has_substr prog "if __chester_as_bool(b)")
+        && has_substr prog "id(a)"
+     then "go typed emit ok"
+     else "go typed emit missing");
+  [%expect {| go typed emit ok |}]
+
+let%expect_test "go typed emit runs" =
+  run_fixture_go "tests/go_typed_emit.chester";
+  [%expect {| 2 |}]
+
 let%expect_test "cli prelude chains definitions" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
@@ -435,7 +453,10 @@ let%expect_test "cli prelude chains definitions" =
   let code = read_file out in
   Sys.remove out;
   if st <> 0 then failwith "prelude compile failed";
-  print_endline (if has_substr code "int_add(forty(), 2)" then "prelude ok" else "prelude missing");
+  print_endline
+    (if has_substr code "int_add(" && has_substr code "forty()"
+     then "prelude ok"
+     else "prelude missing");
   [%expect {| prelude ok |}]
 
 let%expect_test "cli stdlib prelude provides int_add" =

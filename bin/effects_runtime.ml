@@ -142,8 +142,31 @@ func __chester_as_int(v interface{}) int { return v.(int) }
 func __chester_as_string(v interface{}) string { return v.(string) }
 func __chester_as_bool(v interface{}) bool { return v.(bool) }
 
+// Surface names used by desugaring (`+` → int_add) and stdlib wrappers.
+// Emitter skips AstDef for these names so emitting stdlib does not redeclare.
+var int_add = prim__int_add
+var int_sub = prim__int_sub
+var int_mul = prim__int_mul
+var int_div = prim__int_div
+var int_mod = prim__int_mod
+var int_neg = prim__int_neg
+var int_eq = prim__int_eq
+var int_lt = prim__int_lt
+var int_gt = prim__int_gt
+var int_le = prim__int_le
+var int_ge = prim__int_ge
+var bool_or = prim__bool_or
+var bool_and = prim__bool_and
+var bool_not = prim__bool_not
+var string_eq = prim__string_eq
+var string_concat = prim__string_concat
+var string_length = prim__string_length
+var string_substring = prim__string_substring
+var int_to_string = prim__int_to_string
+var list_length = prim__list_length
+
 func prim__list_empty() interface{} { return []interface{}{} }
-func prim__list_length(l interface{}) interface{} { return len(l.([]interface{})) }
+func prim__list_length(l interface{}) int { return len(l.([]interface{})) }
 func prim__list_get(l, i interface{}) interface{} { return l.([]interface{})[i.(int)] }
 func prim__list_advance(l interface{}) interface{} {
 	switch v := l.(type) {

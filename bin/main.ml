@@ -281,9 +281,11 @@ let () =
       let op_env = ref [] in
       List.iter
         (fun f ->
+          (* Go needs prelude defs in the package; TS/Rocq keep elaborate-only. *)
+          let emit_prelude = opts.target = EmitGo in
           state :=
-            process_file ~target:opts.target ~verbose:false ~emit:false oc f
-              !state op_env)
+            process_file ~target:opts.target ~verbose:false ~emit:emit_prelude
+              oc f !state op_env)
         prelude_paths;
       List.iter
         (fun f ->

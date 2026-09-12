@@ -27,7 +27,7 @@ nix develop --command ./_build/default/bin/main.exe [options] file.chester
 | `--emit-ts-runtime PATH` | Write `runtime/chester-runtime.ts` and exit |
 | `-o PATH` / `--output PATH` | Output file (default: `out/compiler.{ts,go,v}`) |
 | `--module-path DIR` | Add a directory to the search path (repeatable) |
-| `--prelude FILE` | Elaborate a prelude file before inputs (repeatable, not emitted) |
+| `--prelude FILE` | Elaborate a prelude file before inputs (repeatable; emitted for Go only) |
 | `--go-sigs FILE` | Load Go package signatures JSON (Go emit; validates file) |
 | `--list-go-sigs` | Print loaded packages from `--go-sigs` (or default) and exit |
 
@@ -54,8 +54,9 @@ nix develop --command ./_build/default/bin/main.exe examples/go/simple.chester
 ### Prelude files
 
 `--prelude` elaborates Chester sources before your main inputs so definitions
-and effects are available across files. Prelude files are **not** emitted to
-the output — only the listed input files are.
+and effects are available across files. For TypeScript and Rocq emit, prelude
+files are **not** written to the output. For **Go**, prelude defs are emitted
+into the package so calls like `int_add` / `forty()` resolve at `go run` time.
 
 ```bash
 nix develop --command ./_build/default/bin/main.exe \

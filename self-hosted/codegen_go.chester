@@ -1,4 +1,3 @@
-
 // Real newline char (Chester text "\n" is stored as backslash+n by the Go backend).
 def go_nl(): String = get_newline_char();
 def go_iface(): String = "interface{}";
@@ -35,57 +34,357 @@ def chester_to_go_type(ty: AST.AST): String = {
   }
 };
 
-def go_type_of_ast_value(e: AST.AST): String = {
-  match e {
-    case AstIntLit(_) => "int";
-    case AstStringLit(_) => "string";
-    case AstBoolLit(_) => "bool";
-    case AstApp(AstRef(name), _) => {
-      if string_eq(name, "int_add") then "int"
-      else if string_eq(name, "int_sub") then "int"
-      else if string_eq(name, "int_mul") then "int"
-      else if string_eq(name, "int_div") then "int"
-      else if string_eq(name, "int_mod") then "int"
-      else if string_eq(name, "int_neg") then "int"
-      else if string_eq(name, "string_concat") then "string"
-      else if string_eq(name, "string_length") then "string"
-      else if string_eq(name, "int_to_string") then "string"
-      else if string_eq(name, "int_eq") then "bool"
-      else if string_eq(name, "string_eq") then "bool"
-      else go_iface()
-    };
-    case AstSpan(_, inner) => go_type_of_ast_value(inner);
-    case _ => go_iface()
-  }
+def go_preamble_surface(name: String): Bool = {
+  if string_eq(name, "int_add") then true
+  else if string_eq(name, "int_sub") then true
+  else if string_eq(name, "int_mul") then true
+  else if string_eq(name, "int_div") then true
+  else if string_eq(name, "int_mod") then true
+  else if string_eq(name, "int_neg") then true
+  else if string_eq(name, "int_eq") then true
+  else if string_eq(name, "int_lt") then true
+  else if string_eq(name, "int_gt") then true
+  else if string_eq(name, "int_le") then true
+  else if string_eq(name, "int_ge") then true
+  else if string_eq(name, "bool_or") then true
+  else if string_eq(name, "bool_and") then true
+  else if string_eq(name, "bool_not") then true
+  else if string_eq(name, "string_eq") then true
+  else if string_eq(name, "string_concat") then true
+  else if string_eq(name, "string_length") then true
+  else if string_eq(name, "string_substring") then true
+  else if string_eq(name, "int_to_string") then true
+  else if string_eq(name, "list_length") then true
+  else false
+};
+  if string_eq(name, "int_add") then "int"
+  else if string_eq(name, "int_sub") then "int"
+  else if string_eq(name, "int_mul") then "int"
+  else if string_eq(name, "int_div") then "int"
+  else if string_eq(name, "int_mod") then "int"
+  else if string_eq(name, "int_neg") then "int"
+  else if string_eq(name, "string_length") then "int"
+  else if string_eq(name, "list_length") then "int"
+  else if string_eq(name, "prim__int_add") then "int"
+  else if string_eq(name, "prim__int_sub") then "int"
+  else if string_eq(name, "prim__int_mul") then "int"
+  else if string_eq(name, "prim__int_div") then "int"
+  else if string_eq(name, "prim__int_mod") then "int"
+  else if string_eq(name, "prim__int_neg") then "int"
+  else if string_eq(name, "prim__string_length") then "int"
+  else if string_eq(name, "prim__list_length") then "int"
+  else if string_eq(name, "int_eq") then "bool"
+  else if string_eq(name, "int_lt") then "bool"
+  else if string_eq(name, "int_gt") then "bool"
+  else if string_eq(name, "int_le") then "bool"
+  else if string_eq(name, "int_ge") then "bool"
+  else if string_eq(name, "bool_or") then "bool"
+  else if string_eq(name, "bool_and") then "bool"
+  else if string_eq(name, "bool_not") then "bool"
+  else if string_eq(name, "string_eq") then "bool"
+  else if string_eq(name, "prim__int_eq") then "bool"
+  else if string_eq(name, "prim__int_lt") then "bool"
+  else if string_eq(name, "prim__int_gt") then "bool"
+  else if string_eq(name, "prim__int_le") then "bool"
+  else if string_eq(name, "prim__int_ge") then "bool"
+  else if string_eq(name, "prim__bool_or") then "bool"
+  else if string_eq(name, "prim__bool_and") then "bool"
+  else if string_eq(name, "prim__bool_not") then "bool"
+  else if string_eq(name, "prim__string_eq") then "bool"
+  else if string_eq(name, "string_concat") then "string"
+  else if string_eq(name, "string_substring") then "string"
+  else if string_eq(name, "int_to_string") then "string"
+  else if string_eq(name, "prim__string_concat") then "string"
+  else if string_eq(name, "prim__string_substring") then "string"
+  else if string_eq(name, "prim__int_to_string") then "string"
+  else ""
 };
 
-def map_go_expr(fuel: Integer, ls: List(AST.AST)): List(String) = {
-  if int_eq(fuel, 0) then list_empty[String]() else {
-    if int_eq(list_length(ls), 0) then list_empty[String]() else {
-      let head_str = emit_go_expr(int_sub(fuel, 1), list_get(ls, 0));
-      list_insert_first(map_go_expr(int_sub(fuel, 1), advance(ls)), head_str)
+def go_list_concat_pair(a: List(Pair), b: List(Pair)): List(Pair) = {
+  if int_eq(list_length(a), 0) then b
+  else list_insert_first(go_list_concat_pair(advance(a), b), list_get(a, 0))
+};
+
+def go_lookup_local(env: List(Pair), name: String): String = {
+  if int_eq(list_length(env), 0) then ""
+  else {
+    match list_get(env, 0) {
+      case MkPair(n, ty) => {
+        if string_eq(n, name) then ty else go_lookup_local(advance(env), name)
+      };
+      case _ => go_lookup_local(advance(env), name)
     }
   }
 };
 
-def map_go_stmt(fuel: Integer, ls: List(AST.AST)): List(String) = {
+// Sig entry: MkPair(name, MkPair(param_tys: List(String), ret: String))
+def go_lookup_sig(env: List(Pair), name: String): List(Pair) = {
+  if int_eq(list_length(env), 0) then list_empty[Pair]()
+  else {
+    match list_get(env, 0) {
+      case MkPair(n, info) => {
+        if string_eq(n, name) then list_insert_first(list_empty[Pair](), info)
+        else go_lookup_sig(advance(env), name)
+      };
+      case _ => go_lookup_sig(advance(env), name)
+    }
+  }
+};
+
+def map_param_go_tys(fuel: Integer, ls: List(Pair)): List(String) = {
   if int_eq(fuel, 0) then list_empty[String]() else {
     if int_eq(list_length(ls), 0) then list_empty[String]() else {
+      match list_get(ls, 0) {
+        case MkPair(_, ty) => list_insert_first(map_param_go_tys(int_sub(fuel, 1), advance(ls)), chester_to_go_type(ty));
+        case _ => list_insert_first(map_param_go_tys(int_sub(fuel, 1), advance(ls)), go_iface())
+      }
+    }
+  }
+};
+
+def collect_go_sigs(fuel: Integer, asts: List(AST.AST)): List(Pair) = {
+  if int_eq(fuel, 0) then list_empty[Pair]() else {
+    if int_eq(list_length(asts), 0) then list_empty[Pair]() else {
+      let head = list_get(asts, 0);
+      let rest = advance(asts);
+      let next = int_sub(fuel, 1);
+      match head {
+        case AstDef(name, _, params, ret_ty, _) => {
+          let info = MkPair(map_param_go_tys(next, params), chester_to_go_type(ret_ty));
+          list_insert_first(collect_go_sigs(next, rest), MkPair(name, info))
+        };
+        case AstExtension(_, _, _, meths) => {
+          go_list_concat_pair(collect_go_sigs(next, meths), collect_go_sigs(next, rest))
+        };
+        case AstSpan(_, inner) => {
+          collect_go_sigs(next, list_insert_first(rest, inner))
+        };
+        case _ => collect_go_sigs(next, rest)
+      }
+    }
+  }
+};
+
+def go_known_ret(sigs: List(Pair), name: String): String = {
+  let s = go_scalar_ret_ty(name);
+  if string_eq(s, "") then {
+    let found = go_lookup_sig(sigs, name);
+    if int_eq(list_length(found), 0) then ""
+    else {
+      match list_get(found, 0) {
+        case MkPair(_, ret) => ret;
+        case _ => ""
+      }
+    }
+  } else s
+};
+
+def go_app_func_name(fn: AST.AST): String = {
+  match fn {
+    case AstRef(name) => name;
+    case AstImplicitApp(inner, _) => go_app_func_name(inner);
+    case AstSpan(_, inner) => go_app_func_name(inner);
+    case _ => ""
+  }
+};
+
+def go_type_of_ast_value(sigs: List(Pair), locals: List(Pair), e: AST.AST): String = {
+  match e {
+    case AstIntLit(_) => "int";
+    case AstStringLit(_) => "string";
+    case AstBoolLit(_) => "bool";
+    case AstRef(name) => {
+      let loc = go_lookup_local(locals, name);
+      if string_eq(loc, "") then go_iface() else loc
+    };
+    case AstApp(fn, _) => {
+      let name = go_app_func_name(fn);
+      if string_eq(name, "") then go_iface()
+      else {
+        let k = go_known_ret(sigs, name);
+        if string_eq(k, "") then go_iface() else k
+      }
+    };
+    case AstSpan(_, inner) => go_type_of_ast_value(sigs, locals, inner);
+    case _ => go_iface()
+  }
+};
+
+def go_extend_from_ast(sigs: List(Pair), locals: List(Pair), ast: AST.AST): List(Pair) = {
+  match ast {
+    case AstLet(name, value) => list_insert_first(locals, MkPair(name, go_type_of_ast_value(sigs, locals, value)));
+    case AstVar(name, _) => list_insert_first(locals, MkPair(name, go_iface()));
+    case AstSpan(_, inner) => go_extend_from_ast(sigs, locals, inner);
+    case _ => locals
+  }
+};
+
+def go_params_as_locals(params: List(Pair)): List(Pair) = {
+  if int_eq(list_length(params), 0) then list_empty[Pair]()
+  else {
+    match list_get(params, 0) {
+      case MkPair(name, ty) => list_insert_first(go_params_as_locals(advance(params)), MkPair(name, chester_to_go_type(ty)));
+      case _ => go_params_as_locals(advance(params))
+    }
+  }
+};
+
+def go_bind_params(locals: List(Pair), params: List(Pair)): List(Pair) = {
+  go_list_concat_pair(go_params_as_locals(params), locals)
+};
+
+def go_fold_locals(sigs: List(Pair), locals: List(Pair), ls: List(AST.AST)): List(Pair) = {
+  if int_eq(list_length(ls), 0) then locals
+  else go_fold_locals(sigs, go_extend_from_ast(sigs, locals, list_get(ls, 0)), advance(ls))
+};
+
+def go_coerce_to(ty: String, e_str: String): String = {
+  if string_eq(ty, "int") then string_concat("__chester_as_int(", string_concat(e_str, ")"))
+  else if string_eq(ty, "string") then string_concat("__chester_as_string(", string_concat(e_str, ")"))
+  else if string_eq(ty, "bool") then string_concat("__chester_as_bool(", string_concat(e_str, ")"))
+  else e_str
+};
+
+def go_wrap_ret(sigs: List(Pair), locals: List(Pair), ret_ty: String, e_ast: AST.AST, e_str: String): String = {
+  if string_eq(ret_ty, go_iface()) then e_str
+  else {
+    let known = go_type_of_ast_value(sigs, locals, e_ast);
+    if string_eq(known, ret_ty) then e_str else go_coerce_to(ret_ty, e_str)
+  }
+};
+
+def go_return(sigs: List(Pair), locals: List(Pair), ret_ty: String, e_ast: AST.AST, e_str: String): String = {
+  string_concat("return ", go_wrap_ret(sigs, locals, ret_ty, e_ast, e_str))
+};
+
+def go_coerce_arg(sigs: List(Pair), locals: List(Pair), param_ty: String, arg_ast: AST.AST, arg_str: String): String = {
+  if string_eq(param_ty, go_iface()) then arg_str
+  else {
+    let known = go_type_of_ast_value(sigs, locals, arg_ast);
+    if string_eq(known, param_ty) then arg_str else go_coerce_to(param_ty, arg_str)
+  }
+};
+
+def go_coerce_args(sigs: List(Pair), locals: List(Pair), param_tys: List(String), arg_asts: List(AST.AST), arg_strs: List(String)): List(String) = {
+  if int_eq(list_length(param_tys), 0) then arg_strs
+  else if int_eq(list_length(arg_strs), 0) then list_empty[String]()
+  else {
+    let head = go_coerce_arg(sigs, locals, list_get(param_tys, 0), list_get(arg_asts, 0), list_get(arg_strs, 0));
+    list_insert_first(go_coerce_args(sigs, locals, advance(param_tys), advance(arg_asts), advance(arg_strs)), head)
+  }
+};
+
+def go_reps(ty: String, n: Integer): List(String) = {
+  if int_eq(n, 0) then list_empty[String]()
+  else list_insert_first(go_reps(ty, int_sub(n, 1)), ty)
+};
+
+// Empty list = no builtin param types (fall through to sig lookup).
+def go_builtin_param_tys(name: String, nargs: Integer): List(String) = {
+  if string_eq(name, "int_add") then go_reps("int", nargs)
+  else if string_eq(name, "int_sub") then go_reps("int", nargs)
+  else if string_eq(name, "int_mul") then go_reps("int", nargs)
+  else if string_eq(name, "int_div") then go_reps("int", nargs)
+  else if string_eq(name, "int_mod") then go_reps("int", nargs)
+  else if string_eq(name, "int_eq") then go_reps("int", nargs)
+  else if string_eq(name, "int_lt") then go_reps("int", nargs)
+  else if string_eq(name, "int_gt") then go_reps("int", nargs)
+  else if string_eq(name, "int_le") then go_reps("int", nargs)
+  else if string_eq(name, "int_ge") then go_reps("int", nargs)
+  else if string_eq(name, "int_neg") then go_reps("int", nargs)
+  else if string_eq(name, "int_to_string") then go_reps("int", nargs)
+  else if string_eq(name, "string_eq") then go_reps("string", nargs)
+  else if string_eq(name, "string_concat") then go_reps("string", nargs)
+  else if string_eq(name, "string_length") then go_reps("string", nargs)
+  else if string_eq(name, "string_substring") then {
+    list_insert_first(list_insert_first(list_insert_first(list_empty[String](), "int"), "int"), "string")
+  }
+  else if string_eq(name, "list_length") then go_reps(go_iface(), nargs)
+  else if string_eq(name, "prim__list_length") then go_reps(go_iface(), nargs)
+  else if string_eq(name, "bool_or") then go_reps("bool", nargs)
+  else if string_eq(name, "bool_and") then go_reps("bool", nargs)
+  else if string_eq(name, "bool_not") then go_reps("bool", nargs)
+  else if string_eq(name, "prim__int_add") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_sub") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_mul") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_div") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_mod") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_eq") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_lt") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_gt") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_le") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_ge") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_neg") then go_reps("int", nargs)
+  else if string_eq(name, "prim__int_to_string") then go_reps("int", nargs)
+  else if string_eq(name, "prim__string_eq") then go_reps("string", nargs)
+  else if string_eq(name, "prim__string_concat") then go_reps("string", nargs)
+  else if string_eq(name, "prim__string_length") then go_reps("string", nargs)
+  else if string_eq(name, "prim__string_substring") then {
+    list_insert_first(list_insert_first(list_insert_first(list_empty[String](), "int"), "int"), "string")
+  }
+  else if string_eq(name, "prim__bool_or") then go_reps("bool", nargs)
+  else if string_eq(name, "prim__bool_and") then go_reps("bool", nargs)
+  else if string_eq(name, "prim__bool_not") then go_reps("bool", nargs)
+  else list_empty[String]()
+};
+
+def go_call_args(sigs: List(Pair), locals: List(Pair), func: AST.AST, arg_asts: List(AST.AST), arg_strs: List(String)): List(String) = {
+  let nargs = list_length(arg_strs);
+  match func {
+    case AstImplicitApp(inner, _) => go_call_args(sigs, locals, inner, arg_asts, arg_strs);
+    case AstSpan(_, inner) => go_call_args(sigs, locals, inner, arg_asts, arg_strs);
+    case AstRef(name) => {
+      let btys = go_builtin_param_tys(name, nargs);
+      if int_eq(list_length(btys), 0) then {
+        let found = go_lookup_sig(sigs, name);
+        if int_eq(list_length(found), 0) then arg_strs
+        else {
+          match list_get(found, 0) {
+            case MkPair(tys, _) => go_coerce_args(sigs, locals, tys, arg_asts, arg_strs);
+            case _ => arg_strs
+          }
+        }
+      } else go_coerce_args(sigs, locals, btys, arg_asts, arg_strs)
+    };
+    case _ => arg_strs
+  }
+};
+
+// Prefer bare cond when already bool; else __chester_as_bool(...).
+def go_bool_cond(sigs: List(Pair), locals: List(Pair), cond: AST.AST, c_str: String): String = {
+  let ty = go_type_of_ast_value(sigs, locals, cond);
+  if string_eq(ty, "bool") then c_str
+  else string_concat("__chester_as_bool(", string_concat(c_str, ")"))
+};
+
+def map_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ls: List(AST.AST)): List(String) = {
+  if int_eq(fuel, 0) then list_empty[String]() else {
+    if int_eq(list_length(ls), 0) then list_empty[String]() else {
+      let head_str = emit_go_expr(int_sub(fuel, 1), sigs, locals, list_get(ls, 0));
+      list_insert_first(map_go_expr(int_sub(fuel, 1), sigs, locals, advance(ls)), head_str)
+    }
+  }
+};
+
+def map_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ls: List(AST.AST)): List(String) = {
+  if int_eq(fuel, 0) then list_empty[String]() else {
+    if int_eq(list_length(ls), 0) then list_empty[String]() else {
+      let head = list_get(ls, 0);
       // Middle block stmts are expression statements — no `return` (Rocq GoExprStmt).
-      let head_str = emit_go_expr_stmt(int_sub(fuel, 1), list_get(ls, 0));
-      list_insert_first(map_go_stmt(int_sub(fuel, 1), advance(ls)), head_str)
+      let head_str = emit_go_expr_stmt(int_sub(fuel, 1), sigs, locals, head);
+      let locals2 = go_extend_from_ast(sigs, locals, head);
+      list_insert_first(map_go_stmt(int_sub(fuel, 1), sigs, locals2, advance(ls)), head_str)
     }
   }
 };
 
 def map_params(fuel: Integer, ls: List(Pair)): List(String) = {
-  // Keep def params as interface{} until call-site coercion matches Rocq Backend.
   if int_eq(fuel, 0) then list_empty[String]() else {
     if int_eq(list_length(ls), 0) then list_empty[String]() else {
       let head = list_get(ls, 0);
       match head {
-        case MkPair(name, _) => {
-          let head_str = string_concat(name, string_concat(" ", go_iface()));
+        case MkPair(name, ty) => {
+          let head_str = string_concat(name, string_concat(" ", chester_to_go_type(ty)));
           list_insert_first(map_params(int_sub(fuel, 1), advance(ls)), head_str)
         };
         case _ => list_insert_first(map_params(int_sub(fuel, 1), advance(ls)), "/* bad param */")
@@ -119,14 +418,14 @@ def pat_ctor_cond(cname: String): String = {
   string_concat(p4, string_concat(" {", go_nl()))
 };
 
-def emit_go_(fuel: Integer, cases: List(Pair)): String = {
+def emit_go_(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: String, cases: List(Pair)): String = {
   if int_eq(fuel, 0) then string_concat(string_concat("panic(", string_concat(go_q(), string_concat("out of fuel", string_concat(go_q(), ");")))), go_nl()) else {
     if int_eq(list_length(cases), 0) then string_concat(string_concat("panic(", string_concat(go_q(), string_concat("Non-exhaustive match", string_concat(go_q(), ");")))), go_nl()) else {
       let head = list_get(cases, 0);
-      let rest = emit_go_(int_sub(fuel, 1), advance(cases));
+      let rest = emit_go_(int_sub(fuel, 1), sigs, locals, ret_ty, advance(cases));
       match head {
         case MkPair(pat, body) => {
-          let body_str = emit_go_stmt(int_sub(fuel, 1), body);
+          let body_str = emit_go_stmt(int_sub(fuel, 1), sigs, locals, ret_ty, body);
           match pat {
             case PatWildcard() => string_concat(string_concat("if true {", go_nl()), string_concat(body_str, string_concat(string_concat(string_concat(go_nl(), "}"), go_nl()), rest)));
             case PatVar(v) => string_concat(string_concat("{", go_nl()), string_concat("var ", string_concat(v, string_concat(" interface{} = _match_val;", string_concat(go_nl(), string_concat(body_str, string_concat(string_concat(string_concat(go_nl(), "}"), go_nl()), rest)))))));
@@ -215,13 +514,13 @@ def emit_enum_variant(v: Pair): String = {
   }
 };
 
-def emit_ext_methods(fuel: Integer, meths: List(AST)): String = {
+def emit_ext_methods(fuel: Integer, sigs: List(Pair), locals: List(Pair), meths: List(AST)): String = {
   if int_eq(list_length(meths), 0) then ""
   else {
-    let head = emit_go_stmt(fuel, list_get(meths, 0));
+    let head = emit_go_stmt(fuel, sigs, locals, go_iface(), list_get(meths, 0));
     let rest = advance(meths);
     if int_eq(list_length(rest), 0) then head
-    else string_concat(head, string_concat(go_nl(), emit_ext_methods(fuel, rest)))
+    else string_concat(head, string_concat(go_nl(), emit_ext_methods(fuel, sigs, locals, rest)))
   }
 };
 
@@ -288,7 +587,7 @@ def emit_cap_lits(caps: List(String)): String = {
   }
 };
 
-def emit_handle_handlers(fuel: Integer, hs: List(Pair)): String = {
+def emit_handle_handlers(fuel: Integer, sigs: List(Pair), locals: List(Pair), hs: List(Pair)): String = {
   if int_eq(list_length(hs), 0) then ""
   else {
     let h = list_get(hs, 0);
@@ -296,16 +595,16 @@ def emit_handle_handlers(fuel: Integer, hs: List(Pair)): String = {
     match h {
       case MkPair(op, fn) => {
         let q = go_q();
-        let entry = string_concat(q, string_concat(op, string_concat(q, string_concat(": ", emit_go_expr(fuel, fn)))));
+        let entry = string_concat(q, string_concat(op, string_concat(q, string_concat(": ", emit_go_expr(fuel, sigs, locals, fn)))));
         if int_eq(list_length(rest), 0) then entry
-        else string_concat(entry, string_concat(", ", emit_handle_handlers(fuel, rest)))
+        else string_concat(entry, string_concat(", ", emit_handle_handlers(fuel, sigs, locals, rest)))
       };
-      case _ => emit_handle_handlers(fuel, rest)
+      case _ => emit_handle_handlers(fuel, sigs, locals, rest)
     }
   }
 };
 
-def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
+def emit_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.AST): String = {
   if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
     let next_fuel = int_sub(fuel, 1);
     match ast {
@@ -315,57 +614,60 @@ def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
       case AstRef(name) => { if string_eq(name, "Unit") then "nil" else name };
       case AstTuple(elems) => {
         if int_eq(list_length(elems), 0) then "nil" else {
-          let args_strs = map_go_expr(next_fuel, elems);
+          let args_strs = map_go_expr(next_fuel, sigs, locals, elems);
           string_concat("[]interface{}{", string_concat(join_strings(", ", args_strs), "}"))
         }
       };
       case AstApp(fn_expr, args) => {
-        let func_str = emit_go_expr(next_fuel, fn_expr);
-        let args_strs = map_go_expr(next_fuel, args);
-        go_call_emitted(go_app_direct(fn_expr), func_str, args_strs)
+        let func_str = emit_go_expr(next_fuel, sigs, locals, fn_expr);
+        let args_strs = map_go_expr(next_fuel, sigs, locals, args);
+        let coerced = go_call_args(sigs, locals, fn_expr, args, args_strs);
+        go_call_emitted(go_app_direct(fn_expr), func_str, coerced)
       };
-      case AstImplicitApp(fn_expr, _) => emit_go_expr(next_fuel, fn_expr);
+      case AstImplicitApp(fn_expr, _) => emit_go_expr(next_fuel, sigs, locals, fn_expr);
       case AstFieldAccess(expr, field) => {
         match expr {
           case AstRef(n) => {
-             if is_upper(n) then field else string_concat(emit_go_expr(next_fuel, expr), string_concat(".", field))
+             if is_upper(n) then field else string_concat(emit_go_expr(next_fuel, sigs, locals, expr), string_concat(".", field))
           };
-          case _ => string_concat(emit_go_expr(next_fuel, expr), string_concat(".", field))
+          case _ => string_concat(emit_go_expr(next_fuel, sigs, locals, expr), string_concat(".", field))
         }
       };
       case AstError(msg) => string_concat("panic(", string_concat(go_q(), string_concat(escape_go_string(msg, 0, ""), string_concat(go_q(), ")"))));
-      case AstSpan(_, inner) => emit_go_expr(next_fuel, inner);
-      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" ", string_concat(go_iface(), string_concat(" = ", emit_go_expr(next_fuel, val))))));
+      case AstSpan(_, inner) => emit_go_expr(next_fuel, sigs, locals, inner);
+      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" ", string_concat(go_iface(), string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val))))));
       case AstLet(name, val) => {
-        let ty = go_type_of_ast_value(val);
-        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, val), string_concat(";", go_nl())))))));
+        let ty = go_type_of_ast_value(sigs, locals, val);
+        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), string_concat(";", go_nl())))))));
         let discard = string_concat("_ = ", string_concat(name, string_concat(";", go_nl())));
         string_concat("func() interface{} {", string_concat(go_nl(), string_concat(bind, string_concat(discard, string_concat("return nil;", string_concat(go_nl(), "}()"))))))
       };
       case AstLam(arg, _, body) => {
-        string_concat("func(", string_concat(arg, string_concat(" interface{}) interface{} {", string_concat(go_nl(), string_concat(emit_go_stmt(next_fuel, body), string_concat(go_nl(), "}"))))))
+        let lam_locals = list_insert_first(locals, MkPair(arg, go_iface()));
+        string_concat("func(", string_concat(arg, string_concat(" interface{}) interface{} {", string_concat(go_nl(), string_concat(emit_go_stmt(next_fuel, sigs, lam_locals, go_iface(), body), string_concat(go_nl(), "}"))))))
       };
       case AstIf(cond, then_b, else_b) => {
-        let c_str = emit_go_expr(next_fuel, cond);
-        let t_str = emit_go_stmt(next_fuel, then_b);
-        let e_str = emit_go_stmt(next_fuel, else_b);
-        let head = string_concat("func() interface{} {", string_concat(go_nl(), string_concat("if ", string_concat(c_str, string_concat(".(bool) {", go_nl())))));
+        let c_str = emit_go_expr(next_fuel, sigs, locals, cond);
+        let c_bool = go_bool_cond(sigs, locals, cond, c_str);
+        let t_str = emit_go_stmt(next_fuel, sigs, locals, go_iface(), then_b);
+        let e_str = emit_go_stmt(next_fuel, sigs, locals, go_iface(), else_b);
+        let head = string_concat("func() interface{} {", string_concat(go_nl(), string_concat("if ", string_concat(c_bool, string_concat(" {", go_nl())))));
         let mid = string_concat(t_str, string_concat(go_nl(), string_concat("} else {", go_nl())));
         let tail = string_concat(e_str, string_concat(go_nl(), string_concat("}", string_concat(go_nl(), "}()"))));
         string_concat(head, string_concat(mid, tail))
       };
       case AstBlock(_, _) => {
-        string_concat("func() interface{} {", string_concat(go_nl(), string_concat(emit_go_stmt(next_fuel, ast), string_concat(go_nl(), "}()"))))
+        string_concat("func() interface{} {", string_concat(go_nl(), string_concat(emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast), string_concat(go_nl(), "}()"))))
       };
       
       case AstMatch(expr, cases) => {
-        let e_str = emit_go_expr(next_fuel, expr);
-        let cases_str = emit_go_(next_fuel, cases);
+        let e_str = emit_go_expr(next_fuel, sigs, locals, expr);
+        let cases_str = emit_go_(next_fuel, sigs, locals, go_iface(), cases);
         string_concat(string_concat(string_concat("func() interface{} {", go_nl()), "var _match_val interface{} = "), string_concat(e_str, string_concat(string_concat(";", go_nl()), string_concat(cases_str, string_concat(go_nl(), "}()")))))
       };
       
       case AstDo(op, args) => {
-        let args_strs = map_go_expr(next_fuel, args);
+        let args_strs = map_go_expr(next_fuel, sigs, locals, args);
         let q = go_q();
         string_concat("__chester_perform(", string_concat(q, string_concat(effect_op_name(op), string_concat(q, string_concat(", []interface{}{", string_concat(join_strings(", ", args_strs), "})"))))))
       };
@@ -374,19 +676,19 @@ def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
       case AstExtension(_, _, _, _) => "nil";
       case AstHandle(body, eff, handlers) => {
         let q = go_q();
-        let body_str = emit_go_stmt(next_fuel, body);
-        let hs = emit_handle_handlers(next_fuel, handlers);
+        let body_str = emit_go_stmt(next_fuel, sigs, locals, go_iface(), body);
+        let hs = emit_handle_handlers(next_fuel, sigs, locals, handlers);
         string_concat("__chester_handle(", string_concat(q, string_concat(eff, string_concat(q, string_concat(", func() interface{} { ", string_concat(body_str, string_concat(" }, map[string]interface{}{", string_concat(hs, "})"))))))))
       };
       case AstBox(inner, caps) => {
-        let body = emit_go_expr(next_fuel, inner);
+        let body = emit_go_expr(next_fuel, sigs, locals, inner);
         let p1 = string_concat("__chester_box([]interface{}{", emit_cap_lits(caps));
         let p2 = string_concat(p1, "}, func() interface{} { return ");
         let p3 = string_concat(p2, body);
         string_concat(p3, " })")
       };
       case AstUnbox(inner) => {
-        let callee = emit_go_expr(next_fuel, inner);
+        let callee = emit_go_expr(next_fuel, sigs, locals, inner);
         string_concat(callee, ".(func() interface{})()")
       };
       case AstPi(_, _, _, _) => "interface{}";
@@ -399,7 +701,7 @@ def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
         let a1 = string_concat("func() interface{} {", go_nl());
         let a2 = string_concat(a1, name);
         let a3 = string_concat(a2, " = ");
-        let a4 = string_concat(a3, emit_go_expr(next_fuel, val));
+        let a4 = string_concat(a3, emit_go_expr(next_fuel, sigs, locals, val));
         let a5 = string_concat(a4, ";");
         let a6 = string_concat(a5, go_nl());
         let a7 = string_concat(a6, "return nil;");
@@ -412,7 +714,7 @@ def emit_go_expr(fuel: Integer, ast: AST.AST): String = {
   }
 };
 
-def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
+def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: String, ast: AST.AST): String = {
   if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
     let next_fuel = int_sub(fuel, 1);
     match ast {
@@ -439,98 +741,142 @@ def emit_go_stmt(fuel: Integer, ast: AST.AST): String = {
         if int_eq(list_length(fields), 0) then string_concat("type ", string_concat(name, " struct{};"))
         else string_concat("type ", string_concat(name, string_concat(" struct{ ", string_concat(field_decls(fields), " };"))))
       };
-      case AstBox(_, _) => string_concat("return ", emit_go_expr(next_fuel, ast));
-      case AstUnbox(_) => string_concat("return ", emit_go_expr(next_fuel, ast));
-      case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val)));
-      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, val))));
+      case AstBox(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
+      case AstUnbox(_) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
+      case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val)));
+      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, sigs, locals, val))));
       case AstLet(name, val) => {
-        let ty = go_type_of_ast_value(val);
-        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, val), ";"))))));
+        let ty = go_type_of_ast_value(sigs, locals, val);
+        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), ";"))))));
         string_concat(bind, string_concat(go_nl(), string_concat("_ = ", string_concat(name, ";"))))
       };
       case AstIf(cond, then_b, else_b) => {
-        let c_str = emit_go_expr(next_fuel, cond);
-        let t_str = emit_go_stmt(next_fuel, then_b);
-        let e_str = emit_go_stmt(next_fuel, else_b);
-        string_concat("if ", string_concat(c_str, string_concat(".(bool) {", string_concat(go_nl(), string_concat(t_str, string_concat(go_nl(), string_concat("} else {", string_concat(go_nl(), string_concat(e_str, string_concat(go_nl(), "}"))))))))))
+        let c_str = emit_go_expr(next_fuel, sigs, locals, cond);
+        let c_bool = go_bool_cond(sigs, locals, cond, c_str);
+        let t_str = emit_go_stmt(next_fuel, sigs, locals, ret_ty, then_b);
+        let e_str = emit_go_stmt(next_fuel, sigs, locals, ret_ty, else_b);
+        string_concat("if ", string_concat(c_bool, string_concat(" {", string_concat(go_nl(), string_concat(t_str, string_concat(go_nl(), string_concat("} else {", string_concat(go_nl(), string_concat(e_str, string_concat(go_nl(), "}"))))))))))
       };
       case AstRef(name) => {
-        if string_eq(name, "Unit") then "" else string_concat("return ", name)
+        if string_eq(name, "Unit") then "" else go_return(sigs, locals, ret_ty, ast, name)
       };
-      case AstSpan(_, inner) => emit_go_stmt(next_fuel, inner);
+      case AstSpan(_, inner) => emit_go_stmt(next_fuel, sigs, locals, ret_ty, inner);
       case AstBlock(stmts, tail) => {
-        let stmts_strs = map_go_stmt(next_fuel, stmts);
-        // Rocq emit_go_block: stmts then GoReturn (emit_go_expr ret)
+        let stmts_strs = map_go_stmt(next_fuel, sigs, locals, stmts);
+        let tail_locals = go_fold_locals(sigs, locals, stmts);
         match tail {
           case AstRef(u) => {
             if string_eq(u, "Unit") then join_strings(go_nl(), stmts_strs)
             else {
-              let ret = string_concat("return ", emit_go_expr(next_fuel, tail));
+              let ret = go_return(sigs, tail_locals, ret_ty, tail, emit_go_expr(next_fuel, sigs, tail_locals, tail));
               if int_eq(list_length(stmts), 0) then ret
               else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), ret))
             }
           };
+          case AstDef(_, _, _, _, _) => {
+            let d = emit_go_stmt(next_fuel, sigs, tail_locals, go_iface(), tail);
+            if int_eq(list_length(stmts), 0) then d
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
+          };
+          case AstRecord(_, _, _) => {
+            let d = emit_go_stmt(next_fuel, sigs, tail_locals, go_iface(), tail);
+            if int_eq(list_length(stmts), 0) then d
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
+          };
+          case AstEnum(_, _, _) => {
+            let d = emit_go_stmt(next_fuel, sigs, tail_locals, go_iface(), tail);
+            if int_eq(list_length(stmts), 0) then d
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
+          };
+          case AstExtension(_, _, _, _) => {
+            let d = emit_go_stmt(next_fuel, sigs, tail_locals, go_iface(), tail);
+            if int_eq(list_length(stmts), 0) then d
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
+          };
+          case AstImport(_, _, _, _) => {
+            let d = emit_go_stmt(next_fuel, sigs, tail_locals, go_iface(), tail);
+            if int_eq(list_length(stmts), 0) then d
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
+          };
           case _ => {
-            let ret = string_concat("return ", emit_go_expr(next_fuel, tail));
+            let ret = go_return(sigs, tail_locals, ret_ty, tail, emit_go_expr(next_fuel, sigs, tail_locals, tail));
             if int_eq(list_length(stmts), 0) then ret
             else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), ret))
           }
         }
       };
       
-      case AstDef(name, _, params, _, body) => {
-        let params_strs = map_params(next_fuel, params);
-        let body_str = emit_go_stmt(next_fuel, body);
-        string_concat("func ", string_concat(name, string_concat("(", string_concat(join_strings(", ", params_strs), string_concat(string_concat(") ", string_concat(go_iface(), string_concat(" {", go_nl()))), string_concat(body_str, string_concat(go_nl(), "}")))))))
+      case AstDef(name, _, params, ret_ann, body) => {
+        if go_preamble_surface(name) then ""
+        else {
+          let go_ret = chester_to_go_type(ret_ann);
+          let params_strs = map_params(next_fuel, params);
+          let body_locals = go_bind_params(locals, params);
+          let body_str = emit_go_stmt(next_fuel, sigs, body_locals, go_ret, body);
+          string_concat("func ", string_concat(name, string_concat("(", string_concat(join_strings(", ", params_strs), string_concat(string_concat(") ", string_concat(go_ret, string_concat(" {", go_nl()))), string_concat(body_str, string_concat(go_nl(), "}")))))))
+        }
       };
       
       case AstEnum(_, _, variants) => emit_enum_variants(variants);
-      case AstExtension(_, _, _, meths) => emit_ext_methods(next_fuel, meths);
-      case AstDo(_, _) => string_concat("return ", emit_go_expr(next_fuel, ast));
-      case AstHandle(_, _, _) => string_concat("return ", emit_go_expr(next_fuel, ast));
-      case AstMatch(_, _) => string_concat("return ", emit_go_expr(next_fuel, ast));
-      case AstLam(_, _, _) => string_concat("return ", emit_go_expr(next_fuel, ast));
+      case AstExtension(_, _, _, meths) => emit_ext_methods(next_fuel, sigs, locals, meths);
+      case AstDo(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
+      case AstHandle(_, _, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
+      case AstMatch(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
+      case AstLam(_, _, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       
       // Expression statement / function body result
-      case _ => string_concat("return ", emit_go_expr(next_fuel, ast))
+      case _ => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast))
     }
   }
 };
 
 // Like Rocq emit_go_stmt used for non-tail block statements (no return).
-def emit_go_expr_stmt(fuel: Integer, ast: AST.AST): String = {
+def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.AST): String = {
   if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
     let next_fuel = int_sub(fuel, 1);
     match ast {
-      case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, val)));
-      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, val))));
+      case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val)));
+      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, sigs, locals, val))));
       case AstLet(name, val) => {
-        let ty = go_type_of_ast_value(val);
-        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, val), ";"))))));
+        let ty = go_type_of_ast_value(sigs, locals, val);
+        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), ";"))))));
         string_concat(bind, string_concat(go_nl(), string_concat("_ = ", string_concat(name, ";"))))
       };
       case AstIf(cond, then_b, else_b) => {
-        let c_str = emit_go_expr(next_fuel, cond);
-        let t_str = emit_go_stmt(next_fuel, then_b);
-        let e_str = emit_go_stmt(next_fuel, else_b);
-        string_concat("if ", string_concat(c_str, string_concat(".(bool) {", string_concat(go_nl(), string_concat(t_str, string_concat(go_nl(), string_concat("} else {", string_concat(go_nl(), string_concat(e_str, string_concat(go_nl(), "}"))))))))))
+        let c_str = emit_go_expr(next_fuel, sigs, locals, cond);
+        let c_bool = go_bool_cond(sigs, locals, cond, c_str);
+        let t_str = emit_go_stmt(next_fuel, sigs, locals, go_iface(), then_b);
+        let e_str = emit_go_stmt(next_fuel, sigs, locals, go_iface(), else_b);
+        string_concat("if ", string_concat(c_bool, string_concat(" {", string_concat(go_nl(), string_concat(t_str, string_concat(go_nl(), string_concat("} else {", string_concat(go_nl(), string_concat(e_str, string_concat(go_nl(), "}"))))))))))
       };
       case AstRef(name) => {
         if string_eq(name, "Unit") then "" else name
       };
-      case AstSpan(_, inner) => emit_go_expr_stmt(next_fuel, inner);
-      case AstBlock(_, _) => emit_go_stmt(next_fuel, ast);
-      case AstDef(_, _, _, _, _) => emit_go_stmt(next_fuel, ast);
-      case AstEnum(_, _, _) => emit_go_stmt(next_fuel, ast);
-      case AstExtension(_, _, _, _) => emit_go_stmt(next_fuel, ast);
-      case AstImport(_, _, _, _) => emit_go_stmt(next_fuel, ast);
-      case AstRecord(_, _, _) => emit_go_stmt(next_fuel, ast);
-      case AstBox(_, _) => emit_go_expr(next_fuel, ast);
-      case AstUnbox(_) => emit_go_expr(next_fuel, ast);
-      case AstDo(_, _) => emit_go_expr(next_fuel, ast);
-      case AstHandle(_, _, _) => emit_go_expr(next_fuel, ast);
-      case AstMatch(_, _) => emit_go_expr(next_fuel, ast);
-      case _ => emit_go_expr(next_fuel, ast)
+      case AstSpan(_, inner) => emit_go_expr_stmt(next_fuel, sigs, locals, inner);
+      case AstBlock(_, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
+      case AstDef(_, _, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
+      case AstEnum(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
+      case AstExtension(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
+      case AstImport(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
+      case AstRecord(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
+      case AstBox(_, _) => emit_go_expr(next_fuel, sigs, locals, ast);
+      case AstUnbox(_) => emit_go_expr(next_fuel, sigs, locals, ast);
+      case AstDo(_, _) => emit_go_expr(next_fuel, sigs, locals, ast);
+      case AstHandle(_, _, _) => emit_go_expr(next_fuel, sigs, locals, ast);
+      case AstMatch(_, _) => emit_go_expr(next_fuel, sigs, locals, ast);
+      case _ => emit_go_expr(next_fuel, sigs, locals, ast)
     }
+  }
+};
+
+// Top-level: collect GoSigEnv from AstBlock stmts, then emit.
+def emit_go_top(fuel: Integer, ast: AST.AST): String = {
+  match ast {
+    case AstBlock(stmts, _) => {
+      let sigs = collect_go_sigs(256, stmts);
+      emit_go_stmt(fuel, sigs, list_empty[Pair](), go_iface(), ast)
+    };
+    case AstSpan(_, inner) => emit_go_top(fuel, inner);
+    case _ => emit_go_stmt(fuel, list_empty[Pair](), list_empty[Pair](), go_iface(), ast)
   }
 };

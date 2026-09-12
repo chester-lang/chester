@@ -9,7 +9,7 @@ def chester_main(): String = {
       put_elab_state(init_state);
       match elaborate_top(list_empty[Pair](), expanded_cst, OptionAST.NoneAST) {
         case MkPair(ast, _) => {
-          let body = emit_go_stmt(10000, ast);
+          let body = emit_go_top(10000, ast);
           let code = __chester_assemble_go(body);
           __chester_write_stdout(code);
           ""

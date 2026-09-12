@@ -1,0 +1,8 @@
+def id(x: Integer): Integer = x;
+
+def main(): Integer = {
+  let a = id(2);
+  let n = prim__string_length("hi");
+  let b = prim__int_eq(a, n);
+  if b then id(a) else 0
+};
