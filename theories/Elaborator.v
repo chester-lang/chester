@@ -35,46 +35,10 @@ Fixpoint string_to_nat_aux (s : string) (acc : nat) : nat :=
 
 Definition string_to_nat (s : string) : nat := string_to_nat_aux s 0.
 
-(* Surface type constructors / keywords allowed as unbound AstRefs. *)
-Definition name_is_upper (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c _ =>
-      let n := nat_of_ascii c in
-      (PeanoNat.Nat.leb 65 n) && (PeanoNat.Nat.leb n 90)
-  end.
-
-Definition is_preamble_prim (name : string) : bool :=
-  let fix in_list (xs : list string) : bool :=
-    match xs with
-    | [] => false
-    | x :: rest => if String.eqb name x then true else in_list rest
-    end
-  in
-  in_list
-    ["int_add"; "int_sub"; "int_mul"; "int_div"; "int_mod"; "int_neg";
-     "int_eq"; "int_lt"; "int_gt"; "int_le"; "int_ge";
-     "bool_or"; "bool_and"; "bool_not";
-     "string_eq"; "string_concat"; "string_length"; "string_substring";
-     "string_char_at"; "string_append"; "string_to_int"; "int_to_string";
-     "list_length"; "list_get"; "list_empty"; "list_insert_first"; "advance";
-     "true"; "false"; "null"; "undefined";
-     "fmt"; "math"; "os"; "console"].
-
-Fixpoint string_starts_with (pre s : string) : bool :=
-  match pre, s with
-  | EmptyString, _ => true
-  | String pc pre', String sc s' =>
-      if Ascii.eqb pc sc then string_starts_with pre' s' else false
-  | _, _ => false
-  end.
-
-(* Unbound lowercase locals error; types, prims, FFI packages, and runtime hooks stay free. *)
+(* Unbound lowercase locals error; types, prims, FFI packages, and runtime hooks stay free.
+   Policy lives in CoreChecker so post-elab core checking shares it. *)
 Definition is_allowed_unbound (name : string) : bool :=
-  orb (name_is_upper name)
-    (orb (is_preamble_prim name)
-      (orb (string_starts_with "prim__" name)
-        (string_starts_with "__" name))).
+  Chester.CoreChecker.is_allowed_unbound name.
 
 Definition mangle_name (n : string) (ctx : list nat) : string :=
   let fix join (ls : list nat) : string :=
@@ -1248,12 +1212,19 @@ Definition test_zonk_run : ElabM AST :=
 Eval compute in test_zonk_run test_unify_env.
 
 
+Definition core_env_of_elab (env : TypeEnv) : Chester.CoreChecker.TypeEnv :=
+  map (fun entry : (string * list nat) * AST => (fst (fst entry), snd entry)) env.
+
 Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : ElabM (AST * AST) :=
   res <- elaborate (cst_fuel expr) env expr expected ;
   pending <- get_pending ;
   let fix check_pending (ps : EffectSet) : ElabM (AST * AST) :=
     match ps with
-    | [] => ret res
+    | [] =>
+        match Chester.CoreChecker.infer_check (core_env_of_elab env) (fst res) None with
+        | TyOk _ => ret res
+        | TyErr msg => throw (append "Core check: " msg)
+        end
     | EffectRowVar _ :: rest => check_pending rest
     | UserEffect e :: _ => throw (append "Unhandled effect: " e)
     | BuiltinEffect e :: _ => throw (append "Unhandled effect: " e)
