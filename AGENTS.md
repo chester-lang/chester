@@ -35,3 +35,13 @@ elaborator represents it as `AstRef "Unit"` and backends treat it like void. Pre
 - New language fixtures go in `tests/*.chester` and should be wired into `dune runtest`.
 - Build with Nix: `nix develop --command sh -c "coq_makefile -f _CoqProject -o Makefile && make && dune build && dune runtest"`.
 - CLI flags (`--module-path`, `--prelude`, backends) are documented in `docs/cli-usage.md`.
+
+### Rocq recursion / fuel
+
+- Do **not** hardcode magic fuel constants (e.g. `4096`, `1000`) for recursive AST/CST
+  walks when a structural or measure-derived bound is available.
+- Prefer `{struct t}` recursion on the term, or fuel derived from a size/depth measure of
+  the input (same idea as `cst_size` / `cst_fuel` in `theories/CST.v`, or `ast_size` for
+  `subst_ast` in `theories/CoreChecker.v`).
+- If fuel is still required for well-foundedness (e.g. rename-then-subst), compute it from
+  the input measure; do not invent a large fixed ceiling.
