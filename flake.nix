@@ -77,6 +77,14 @@
 
               # 5. Build Stage 2 Go binary
               go build -o stage2 stage2.go
+
+              # 6. Smoke-test Stage 2 on fixtures the bootstrap must keep working
+              ./stage2 < tests/effects.chester > smoke_effects.go
+              go run smoke_effects.go | grep -qx '42'
+              ./stage2 < tests/effects_box.chester > smoke_box.go
+              go run smoke_box.go | grep -qx '5'
+              printf '%s\n' 'def main(): Integer = 42' | ./stage2 > smoke_main.go
+              go run smoke_main.go | grep -qx '42'
             '';
             installPhase = ''
               mkdir -p $out/bin

@@ -1434,7 +1434,7 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                       }
 }
                   };
-                  case _ => ExpandResultList.ResList(list_empty[CST](), m)
+                  case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
                 }
 } else if string_eq(sym, "box") then {
                 let inner = expand_seq_expr(advance(elems), op_env, sp);
