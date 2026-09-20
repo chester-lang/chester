@@ -47,9 +47,10 @@ libraries without emitting them (see [CLI Usage](cli-usage.md)).
 - `Unit` is the unit **type** (`def f(): Unit`).
 - `()` is the unit **value** (preferred in expression position).
 - `resume(Unit)` in effect handlers is accepted for compatibility with existing
-  tests; prefer `()` in new code (see `AGENTS.md`).
+  tests; prefer `()` in new code (see [AGENTS.md](../../AGENTS.md)).
 
 ## See also
 
 - [Getting Started](getting-started.md)
 - [Universal Parsed Syntax](universal-syntax.md)
+- [Docs hub](../README.md)

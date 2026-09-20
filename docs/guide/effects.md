@@ -42,3 +42,9 @@ def do_io(): Unit / [io] = {
   // perform IO operations
 }
 ```
+
+## See also
+
+- [Getting Started](getting-started.md)
+- [Literature (effects papers)](../paper/LITERATURE.md)
+- [Docs hub](../README.md)

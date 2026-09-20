@@ -103,3 +103,4 @@ nix develop --command bash examples/counter/build-chester.sh
 
 - [Getting Started](getting-started.md)
 - [Statements & scoping](statements.md)
+- [Docs hub](../README.md)

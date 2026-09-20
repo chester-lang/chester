@@ -6,7 +6,7 @@ sibling directories explored many of the same ideas in a product/tooling stack.
 
 Some papers are behind anti-bot protections or institutional firewalls (ACM Digital Library,
 MIT DSpace, etc.) and cannot be fetched automatically. Use the direct links below, or the
-local PDF copies in the sibling `chester-references` repository (`../chester-references/`).
+local PDF copies in the sibling `chester-references` repository (`../../chester-references/`).
 
 ## 1. Elaboration & extensibility
 
@@ -14,7 +14,7 @@ local PDF copies in the sibling `chester-references` repository (`../chester-ref
   - *Significance:* Modern elaborator framework; maps to Chester's UPS/CST phase (`theories/CST.v`,
     `theories/Expander.v`) and semantic AST (`theories/AST.v`, `theories/Elaborator.v`).
   - [ACM Digital Library (DOI: 10.1145/3652561.3652565)](https://dl.acm.org/doi/pdf/10.1145/3652561.3652565)
-  - Local PDF: `../chester-references/3652561.3652565.pdf`
+  - Local PDF: `../../chester-references/3652561.3652565.pdf`
 
 ## 2. Propagator networks (historical / exploratory)
 
@@ -38,19 +38,19 @@ the algebraic-effects line of work. See `stdlib/std.chester`, `tests/effects*.ch
 `bin/effects_runtime.ml`.
 
 - **"Effect Handlers for Algol-Like Languages"** / handling algebraic effects (Plotkin & Pretnar, 2013)
-  - Local PDF: `../chester-references/handling-algebraic-effects-plotkin-pretnar-2013.pdf`
+  - Local PDF: `../../chester-references/handling-algebraic-effects-plotkin-pretnar-2013.pdf`
 - **"Effekt: Capability-Passing Style for Extensible Algebraic Effects"** (Brachthäuser et al., 2017)
-  - Local PDF: `../chester-references/effekt-2017.pdf`
+  - Local PDF: `../../chester-references/effekt-2017.pdf`
 - **"Effects as Capabilities: Effect Handlers and Lightweight Effect Polymorphism"** (Brachthäuser et al., 2020)
   - [ACM PACMPL (DOI: 10.1145/3428194)](https://dl.acm.org/doi/pdf/10.1145/3428194)
-  - Local PDF: `../chester-references/Effects-as-Capabilities-2020.pdf`
+  - Local PDF: `../../chester-references/Effects-as-Capabilities-2020.pdf`
 
 ## 4. Dependent types (partial support)
 
 Chester has basic dependent features (`Type` as a kind, indexed `enum`, `tests/dependent_types.chester`).
 
 - **"Two-Level Type Theory"** (Annenkov, Capriotti, Kraus, Sattler, 2017)
-  - Local PDF: `../chester-references/two-level-type-theory-annenkov-2017.pdf`
+  - Local PDF: `../../chester-references/two-level-type-theory-annenkov-2017.pdf`
 
 ## 5. Module systems (SML-core in Chester)
 
@@ -72,5 +72,6 @@ types are not implemented.
 
 ## See also
 
-- [Getting Started](getting-started.md) — build, CLI, and first programs
-- [Universal Parsed Syntax](universal-syntax.md) — how UPS maps to `theories/CST.v` and `theories/Expander.v`
+- [Getting Started](../guide/getting-started.md) — build, CLI, and first programs
+- [Universal Parsed Syntax](../guide/universal-syntax.md) — how UPS maps to `theories/CST.v` and `theories/Expander.v`
+- [Paper overview](README.md)

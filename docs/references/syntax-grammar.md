@@ -97,3 +97,7 @@ Newline        ::= /* \n or \r\n */
 ```bnf
 '(' | ')' | '{' | '}' | '[' | ']' | ',' | ';' | ':' | '.' | '=' | '=>' | '->' | '@' | '#'
 ``` 
+## See also
+
+- [Guide: Universal Parsed Syntax](../guide/universal-syntax.md)
+- [Docs hub](../README.md)

@@ -91,5 +91,6 @@ already reformats from CST).
 
 ## See also
 
-- [Universal Parsed Syntax](universal-syntax.md) — CST / expander / elaborator pipeline
-- `AGENTS.md` — contributor rules for current surface syntax
+- [Syntax Grammar](../references/syntax-grammar.md) — surface BNF
+- `theories/CST.v`, `theories/Expander.v`, `theories/Elaborator.v`
+- [AGENTS.md](../../AGENTS.md) — contributor rules for current surface syntax

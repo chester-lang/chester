@@ -118,8 +118,9 @@ Resolve imports with `--module-path` / `CHESTER_PATH`. See `tests/modules*.chest
 - [Go backend](go-backend.md) — `--go` emission and FFI style
 - [Statements & scoping](statements.md) — `let` vs `def`
 - [Universal Parsed Syntax](universal-syntax.md) — CST / expander / elaborator pipeline
-- [Literature](LITERATURE.md) — foundational papers
-- [AGENTS.md](../AGENTS.md) — language rules for contributors
+- [Literature](../paper/LITERATURE.md) — foundational papers
+- [AGENTS.md](../../AGENTS.md) — language rules for contributors
+- [Docs hub](../README.md) — guide / reference / paper map
 
 ## Troubleshooting
 

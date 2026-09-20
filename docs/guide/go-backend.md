@@ -74,4 +74,5 @@ go run /tmp/hello.go
 
 - [CLI Usage](cli-usage.md)
 - [Getting Started](getting-started.md)
+- [Docs hub](../README.md)
 - Draft design notes: `chester2026draft/docs/src/dev/go-backend.md` (Scala-era; historical)

@@ -44,7 +44,7 @@ elaborator represents it as `AstRef "Unit"` and backends treat it like void. Pre
 - `self-hosted/*.chester` must elaborate; `test/test_compiler.ml` checks this.
 - New language fixtures go in `tests/*.chester` and should be wired into `dune runtest`.
 - Build with Nix: `nix develop --command sh -c "coq_makefile -f _CoqProject -o Makefile && make && dune build && dune runtest"`.
-- CLI flags (`--module-path`, `--prelude`, backends) are documented in `docs/cli-usage.md`.
+- CLI flags (`--module-path`, `--prelude`, backends) are documented in `docs/guide/cli-usage.md`.
 
 ### Rocq recursion / fuel
 
