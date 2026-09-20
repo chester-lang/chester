@@ -69,6 +69,20 @@ Inductive CST : Type :=
   | ImportCST : string -> string -> string -> list string -> Span -> CST
   (* lang, alias, module_path, named symbols (empty => namespace import) *)
   | ExternCST : string -> string -> list CST -> Span -> CST
+  (* Module system: name, functor_params, opaque seal sig, body *)
+  | ModuleCST : string -> list (string * CST) -> option CST -> list CST -> Span -> CST
+  | SignatureCST : string -> list CST -> Span -> CST
+  | FunctorAppCST : CST -> list CST -> Span -> CST
+  | ModuleAliasCST : string -> CST -> Span -> CST (* module N = F(M) *)
+  | SigValCST : string -> list string -> list (string * CST) -> CST -> Span -> CST
+  (* File import: binder, path ("" => resolve Binder.chester), applicative? unused *)
+  | FileImportCST : string -> string -> Span -> CST
+  (* Signature with type constraints: sig with type t = T *)
+  | SigWithCST : CST -> list (string * CST) -> Span -> CST
+  (* First-class: pack M as S / unpack (X : S) = e in body *)
+  | PackCST : CST -> CST -> Span -> CST
+  | UnpackCST : string -> CST -> CST -> CST -> Span -> CST
+  (* name, type_params, params, ret_ty — signature spec without body *)
   (* lang, module_path, declaration CST nodes *)
   | Error : string -> Span -> CST.
 
@@ -126,6 +140,15 @@ Definition get_span (c : CST) : Span :=
   | ExtensionCST _ _ _ _ span => span
   | ImportCST _ _ _ _ span => span
   | ExternCST _ _ _ span => span
+  | ModuleCST _ _ _ _ span => span
+  | SignatureCST _ _ span => span
+  | FunctorAppCST _ _ span => span
+  | ModuleAliasCST _ _ span => span
+  | SigValCST _ _ _ _ span => span
+  | FileImportCST _ _ span => span
+  | SigWithCST _ _ span => span
+  | PackCST _ _ span => span
+  | UnpackCST _ _ _ _ span => span
   | CommentCST _ span => span
   | Error _ span => span
   | _ => empty_span
@@ -175,6 +198,19 @@ Fixpoint cst_size (c : CST) {struct c} : nat :=
   | ExtensionCST _ _ target meths _ => S (cst_size target + sizes meths)
   | ImportCST _ _ _ _ _ => 1
   | ExternCST _ _ decls _ => S (sizes decls)
+  | ModuleCST _ params seal body _ =>
+      S (size_params params
+           + match seal with Some s => cst_size s | None => 0 end
+           + sizes body)
+  | SignatureCST _ b _ => S (sizes b)
+  | FunctorAppCST f a _ => S (cst_size f + sizes a)
+  | ModuleAliasCST _ e _ => S (cst_size e)
+  | SigValCST _ _ params ret _ => S (size_params params + cst_size ret)
+  | FileImportCST _ _ _ => 1
+  | SigWithCST s eqs _ =>
+      S (cst_size s + size_params eqs)
+  | PackCST m s _ => S (cst_size m + cst_size s)
+  | UnpackCST _ s e b _ => S (cst_size s + cst_size e + cst_size b)
   end.
 
 (** Fuel large enough for a full walk plus modest expansion/elaboration overhead. *)

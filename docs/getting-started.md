@@ -94,6 +94,22 @@ Go examples use bare package selectors (e.g. `fmt.Println`) — see `examples/go
 and `stdlib/go/std.chester`. Pre-baked Go package signatures for a future extractor
 live in `data/go-signatures.json` (ported from `chester2026draft`).
 
+## Modules
+
+Chester supports SML-style modules in a file and across files:
+
+```chester
+import Math from "math_lib.chester";
+
+module Counter :> Printable { ... };   // opaque
+module Visible : Printable { ... };    // transparent
+module app F(X: S) { ... };            // applicative functor
+unpack (X : S) = pack M as S in { ... };
+signature T = S with type t = Int;
+```
+
+Resolve imports with `--module-path` / `CHESTER_PATH`. See `tests/modules*.chester`.
+
 ## Learn more
 
 - [CLI Usage](cli-usage.md) — flags, module paths, prelude files

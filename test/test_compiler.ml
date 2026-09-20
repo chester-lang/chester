@@ -297,6 +297,48 @@ let%expect_test "fixture operators" =
   check_fixture "tests/operators.chester";
   [%expect {| tests/operators.chester ok |}]
 
+let%expect_test "fixture modules" =
+  check_fixture "tests/modules.chester";
+  [%expect {| tests/modules.chester ok |}]
+
+let%expect_test "fixture modules ext" =
+  check_fixture "tests/modules_ext.chester";
+  [%expect {| tests/modules_ext.chester ok |}]
+
+let%expect_test "fixture modules import" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let src = Filename.concat root "tests/modules_import.chester" in
+  let out = Filename.temp_file "chester_mod_imp" ".ts" in
+  let st =
+    Sys.command
+      (Printf.sprintf "%s --module-path %s %s -o %s >/dev/null 2>&1"
+         (Filename.quote main_bin)
+         (Filename.quote (Filename.concat root "tests"))
+         (Filename.quote src) (Filename.quote out))
+  in
+  if st <> 0 then failwith "modules_import compile failed";
+  let code = read_file out in
+  Sys.remove out;
+  if not (has_substr code "namespace Math") then
+    failwith "expected Math namespace from file import";
+  if not (has_substr code "Math.add") then
+    failwith "expected Math.add call";
+  print_endline "tests/modules_import.chester ok";
+  [%expect {| tests/modules_import.chester ok |}]
+
+let%expect_test "fixture modules ext unpack emit" =
+  let ast = compile_fixture_ast "tests/modules_ext.chester" in
+  let ts = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
+  if not (has_substr ts "namespace Counter") then
+    failwith "expected Counter namespace";
+  if not (has_substr ts "const X =") then
+    failwith "expected unpack binder in TS emit";
+  if not (has_substr ts "X.show") then
+    failwith "expected packed module use X.show";
+  print_endline "tests/modules_ext.chester unpack emit ok";
+  [%expect {| tests/modules_ext.chester unpack emit ok |}]
+
 let%expect_test "fixture extension method" =
   check_fixture "tests/test_ext.chester";
   [%expect {| tests/test_ext.chester ok |}]

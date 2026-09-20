@@ -38,5 +38,14 @@ enum CST {
   case BoxCST(inner: CST, span: Span);
   case UnboxCST(inner: CST, span: Span);
   case ImportCST(lang: String, alias: String, mod_path: String, syms: List(String), span: Span);
-  case ExternCST(lang: String, mod_path: String, decls: List(CST), span: Span)
+  case ExternCST(lang: String, mod_path: String, decls: List(CST), span: Span);
+  case ModuleCST(name: String, params: List(Pair), seal: List(CST), body: List(CST), span: Span);
+  case SignatureCST(name: String, body: List(CST), span: Span);
+  case FunctorAppCST(func: CST, args: List(CST), span: Span);
+  case ModuleAliasCST(name: String, rhs: CST, span: Span);
+  case SigValCST(name: String, type_params: List(String), params: List(Pair), ret_ty: CST, span: Span);
+  case FileImportCST(name: String, path: String, span: Span);
+  case SigWithCST(base: CST, eqs: List(Pair), span: Span);
+  case PackCST(mod_expr: CST, sig_expr: CST, span: Span);
+  case UnpackCST(name: String, sig_expr: CST, packed: CST, body: CST, span: Span)
 };

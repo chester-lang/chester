@@ -83,6 +83,23 @@ Fixpoint free_in (name : string) (t : AST) {struct t} : bool :=
   | AstFieldAccess e _ => free_in name e
   | AstExtension _ _ tgt meths =>
       orb (free_in name tgt) (existsb (free_in name) meths)
+  | AstModule _ params seal body =>
+      orb (existsb (fun p => free_in name (snd p)) params)
+        (orb (match seal with Some s => free_in name s | None => false end)
+           (existsb (free_in name) body))
+  | AstSignature _ decls => existsb (free_in name) decls
+  | AstFunctorApp f args => orb (free_in name f) (existsb (free_in name) args)
+  | AstModTy exports => existsb (fun p => free_in name (snd p)) exports
+  | AstSigVal _ _ params ret =>
+      orb (existsb (fun p => free_in name (snd p)) params) (free_in name ret)
+  | AstSigWith s eqs =>
+      orb (free_in name s) (existsb (fun p => free_in name (snd p)) eqs)
+  | AstPack m s => orb (free_in name m) (free_in name s)
+  | AstUnpack n s e b =>
+      orb (free_in name s)
+        (orb (free_in name e)
+           (if String.eqb n name then false else free_in name b))
+  | AstFileImport _ _ => false
   | AstSpan _ inner => free_in name inner
   end.
 
@@ -145,6 +162,30 @@ Fixpoint rename_free (old new : string) (t : AST) {struct t} : AST :=
   | AstFieldAccess e f => AstFieldAccess (rename_free old new e) f
   | AstExtension n tp tgt meths =>
       AstExtension n tp (rename_free old new tgt) (map (rename_free old new) meths)
+  | AstModule n params seal body =>
+      AstModule n
+        (map (fun p => (fst p, rename_free old new (snd p))) params)
+        (match seal with Some s => Some (rename_free old new s) | None => None end)
+        (map (rename_free old new) body)
+  | AstSignature n decls => AstSignature n (map (rename_free old new) decls)
+  | AstFunctorApp f args =>
+      AstFunctorApp (rename_free old new f) (map (rename_free old new) args)
+  | AstModTy exports =>
+      AstModTy (map (fun p => (fst p, rename_free old new (snd p))) exports)
+  | AstSigVal n tp params ret =>
+      AstSigVal n tp
+        (map (fun p => (fst p, rename_free old new (snd p))) params)
+        (rename_free old new ret)
+  | AstSigWith s eqs =>
+      AstSigWith (rename_free old new s)
+        (map (fun p => (fst p, rename_free old new (snd p))) eqs)
+  | AstPack m s => AstPack (rename_free old new m) (rename_free old new s)
+  | AstUnpack n s e b =>
+      let s' := rename_free old new s in
+      let e' := rename_free old new e in
+      if String.eqb n old then AstUnpack n s' e' b
+      else AstUnpack n s' e' (rename_free old new b)
+  | AstFileImport n p => AstFileImport n p
   | AstSpan sp inner => AstSpan sp (rename_free old new inner)
   end.
 
@@ -206,6 +247,18 @@ Fixpoint ast_size (t : AST) {struct t} : nat :=
   | AstFunTy _ params ret _ => S (sizes_paired params + ast_size ret)
   | AstMatch e cases => S (ast_size e + sizes_cases cases)
   | AstExtension _ _ tgt meths => S (ast_size tgt + sizes meths)
+  | AstModule _ params seal body =>
+      S (sizes_paired params
+           + match seal with Some s => ast_size s | None => 0 end
+           + sizes body)
+  | AstSignature _ decls => S (sizes decls)
+  | AstFunctorApp f args => S (ast_size f + sizes args)
+  | AstModTy exports => S (sizes_paired exports)
+  | AstSigVal _ _ params ret => S (sizes_paired params + ast_size ret)
+  | AstSigWith s eqs => S (ast_size s + sizes_paired eqs)
+  | AstPack m s => S (ast_size m + ast_size s)
+  | AstUnpack _ s e b => S (ast_size s + ast_size e + ast_size b)
+  | AstFileImport _ _ => 1
   end.
 
 Fixpoint subst_ast_fuel (fuel : nat) (x : string) (v : AST) (body : AST) {struct fuel} : AST :=
@@ -338,6 +391,35 @@ Fixpoint subst_ast_fuel (fuel : nat) (x : string) (v : AST) (body : AST) {struct
       AstExtension n tp (subst_ast_fuel fuel' x v tgt)
         (map (subst_ast_fuel fuel' x v) meths)
   | AstImport lang alias modp syms => AstImport lang alias modp syms
+  | AstModule n params seal body =>
+      AstModule n
+        (map (fun p => (fst p, subst_ast_fuel fuel' x v (snd p))) params)
+        (match seal with
+         | Some s => Some (subst_ast_fuel fuel' x v s)
+         | None => None
+         end)
+        (map (subst_ast_fuel fuel' x v) body)
+  | AstSignature n decls =>
+      AstSignature n (map (subst_ast_fuel fuel' x v) decls)
+  | AstFunctorApp f args =>
+      AstFunctorApp (subst_ast_fuel fuel' x v f) (map (subst_ast_fuel fuel' x v) args)
+  | AstModTy exports =>
+      AstModTy (map (fun p => (fst p, subst_ast_fuel fuel' x v (snd p))) exports)
+  | AstSigVal n tp params ret =>
+      AstSigVal n tp
+        (map (fun p => (fst p, subst_ast_fuel fuel' x v (snd p))) params)
+        (subst_ast_fuel fuel' x v ret)
+  | AstSigWith s eqs =>
+      AstSigWith (subst_ast_fuel fuel' x v s)
+        (map (fun p => (fst p, subst_ast_fuel fuel' x v (snd p))) eqs)
+  | AstPack m s =>
+      AstPack (subst_ast_fuel fuel' x v m) (subst_ast_fuel fuel' x v s)
+  | AstUnpack n s e b =>
+      let s' := subst_ast_fuel fuel' x v s in
+      let e' := subst_ast_fuel fuel' x v e in
+      if String.eqb n x then AstUnpack n s' e' b
+      else AstUnpack n s' e' (subst_ast_fuel fuel' x v b)
+  | AstFileImport n p => AstFileImport n p
   | AstMeta m => AstMeta m
   | AstSpan sp inner => AstSpan sp (subst_ast_fuel fuel' x v inner)
   | AstError msg => AstError msg
@@ -396,6 +478,26 @@ Fixpoint strip_span (e : AST) : AST :=
   | AstRecord n tp fields => AstRecord n tp fields
   | AstFieldAccess expr f => AstFieldAccess (strip_span expr) f
   | AstExtension n tp tgt meths => AstExtension n tp (strip_span tgt) meths
+  | AstModule n params seal body =>
+      AstModule n
+        (map (fun p => (fst p, strip_span (snd p))) params)
+        (match seal with Some s => Some (strip_span s) | None => None end)
+        (map strip_span body)
+  | AstSignature n decls => AstSignature n (map strip_span decls)
+  | AstFunctorApp f args => AstFunctorApp (strip_span f) (map strip_span args)
+  | AstModTy exports =>
+      AstModTy (map (fun p => (fst p, strip_span (snd p))) exports)
+  | AstSigVal n tp params ret =>
+      AstSigVal n tp
+        (map (fun p => (fst p, strip_span (snd p))) params)
+        (strip_span ret)
+  | AstSigWith s eqs =>
+      AstSigWith (strip_span s)
+        (map (fun p => (fst p, strip_span (snd p))) eqs)
+  | AstPack m s => AstPack (strip_span m) (strip_span s)
+  | AstUnpack n s e b =>
+      AstUnpack n (strip_span s) (strip_span e) (strip_span b)
+  | AstFileImport n p => AstFileImport n p
   | _ => e
   end.
 
@@ -695,6 +797,53 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 prebind xs ((name, AstFunTy tps params ret_ty []) :: e)
             | AstSpan _ (AstDef name tps params ret_ty _) =>
                 prebind xs ((name, AstFunTy tps params ret_ty []) :: e)
+            | AstModule name _ seal body =>
+                let fix exports_of (ls : list AST) : list (string * AST) :=
+                  match ls with
+                  | [] => []
+                  | AstDef n tps params ret_ty _ :: xs =>
+                      (n, AstFunTy tps params ret_ty []) :: exports_of xs
+                  | AstSigVal n tps params ret_ty :: xs =>
+                      (n, AstFunTy tps params ret_ty []) :: exports_of xs
+                  | AstSpan _ (AstDef n tps params ret_ty _) :: xs =>
+                      (n, AstFunTy tps params ret_ty []) :: exports_of xs
+                  | AstSpan _ (AstSigVal n tps params ret_ty) :: xs =>
+                      (n, AstFunTy tps params ret_ty []) :: exports_of xs
+                  | AstSpan _ (AstModule n _ _ _) :: xs =>
+                      (n, AstModTy []) :: exports_of xs
+                  | AstModule n _ _ _ :: xs =>
+                      (n, AstModTy []) :: exports_of xs
+                  | _ :: xs => exports_of xs
+                  end
+                in
+                let ex :=
+                  match seal with
+                  | Some (AstSignature _ decls) =>
+                      let full := exports_of body in
+                      let fix filter_sig (ds : list AST) : list (string * AST) :=
+                        match ds with
+                        | [] => []
+                        | AstSigVal n _ _ _ :: rest =>
+                            match find (fun p => String.eqb (fst p) n) full with
+                            | Some p => p :: filter_sig rest
+                            | None => filter_sig rest
+                            end
+                        | AstDef n _ _ _ _ :: rest =>
+                            match find (fun p => String.eqb (fst p) n) full with
+                            | Some p => p :: filter_sig rest
+                            | None => filter_sig rest
+                            end
+                        | _ :: rest => filter_sig rest
+                        end
+                      in filter_sig decls
+                  | Some (AstModTy ex0) => ex0
+                  | _ => exports_of body
+                  end
+                in
+                prebind xs ((name, AstModTy ex) :: e)
+            | AstSignature name decls =>
+                prebind xs ((name, AstSignature name decls) :: e)
+            | AstFunctorApp _ _ => prebind xs e
             | AstImport _ _ _ syms =>
                 let fix bind_syms (ss : list string) (e0 : TypeEnv) : TypeEnv :=
                   match ss with
@@ -900,11 +1049,114 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
             end
         end
       in check_meths meths
+  | AstModule _ _ _ body =>
+      let fix check_body (ls : list AST) : TyResult AST :=
+        match ls with
+        | [] => meet_expected UnitType expected
+        | m :: ms' =>
+            match infer_check env m None with
+            | TyOk _ => check_body ms'
+            | TyErr err => TyErr err
+            end
+        end
+      in check_body body
+  | AstSignature _ decls =>
+      let fix check_decls (ls : list AST) : TyResult AST :=
+        match ls with
+        | [] => meet_expected UnitType expected
+        | m :: ms' =>
+            match infer_check env m None with
+            | TyOk _ => check_decls ms'
+            | TyErr err => TyErr err
+            end
+        end
+      in check_decls decls
+  | AstFunctorApp f args =>
+      match infer_check env f None with
+      | TyOk _ =>
+          let fix check_args (ls : list AST) : TyResult AST :=
+            match ls with
+            | [] => meet_expected UnitType expected
+            | a :: as_ =>
+                match infer_check env a None with
+                | TyOk _ => check_args as_
+                | TyErr err => TyErr err
+                end
+            end
+          in check_args args
+      | TyErr err => TyErr err
+      end
+  | AstModTy _ => meet_expected TypeUniverse expected
+  | AstSigVal _ _ params ret =>
+      let fix check_params (ps : list (string * AST)) (e : TypeEnv) : TyResult TypeEnv :=
+        match ps with
+        | [] => TyOk e
+        | (_, ty) :: rest =>
+            match infer_check e ty None with
+            | TyOk _ => check_params rest e
+            | TyErr err => TyErr err
+            end
+        end
+      in
+      match check_params params env with
+      | TyOk e' =>
+          match infer_check e' ret None with
+          | TyOk _ => meet_expected UnitType expected
+          | TyErr err => TyErr err
+          end
+      | TyErr err => TyErr err
+      end
+  | AstSigWith s eqs =>
+      match infer_check env s None with
+      | TyOk _ =>
+          let fix check_eqs (es : list (string * AST)) : TyResult AST :=
+            match es with
+            | [] => meet_expected TypeUniverse expected
+            | (_, ty) :: rest =>
+                match infer_check env ty None with
+                | TyOk _ => check_eqs rest
+                | TyErr err => TyErr err
+                end
+            end
+          in check_eqs eqs
+      | TyErr err => TyErr err
+      end
+  | AstPack m s =>
+      match infer_check env m None with
+      | TyOk _ =>
+          match infer_check env s None with
+          | TyOk sty => meet_expected sty expected
+          | TyErr err => TyErr err
+          end
+      | TyErr err => TyErr err
+      end
+  | AstUnpack _ s e b =>
+      match infer_check env s None with
+      | TyOk sty =>
+          match infer_check env e (Some sty) with
+          | TyOk _ => infer_check env b expected
+          | TyErr err => TyErr err
+          end
+      | TyErr err => TyErr err
+      end
+  | AstFileImport _ _ => meet_expected UnitType expected
   | AstImport _ _ _ syms =>
       (* Extern/import symbols are elaborated into the env; surface as Unit. *)
       let _ := syms in meet_expected UnitType expected
-  | AstFieldAccess expr _ =>
+  | AstFieldAccess expr field =>
       match infer_check env expr None with
+      | TyOk (AstModTy exports) =>
+          let fix lookup (xs : list (string * AST)) : option AST :=
+            match xs with
+            | [] => None
+            | (n, ty) :: rest =>
+                if String.eqb n field then Some ty else lookup rest
+            end
+          in
+          match lookup exports with
+          | Some ty => meet_expected ty expected
+          | None => TyErr ("module has no export: " ++ field)
+          end
       | TyOk _ => meet_expected AnyType expected
       | err => err
       end

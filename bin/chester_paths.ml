@@ -46,3 +46,39 @@ let ensure_exists label path =
   if not (Sys.file_exists path) then (
     print_endline ("Error: " ^ label ^ " not found: " ^ path);
     exit 1)
+
+(** Resolve a Chester module file: [name] with empty path → Name.chester / name.chester;
+    otherwise resolve [path] on the search path. *)
+let resolve_chester_module ~search_paths name path =
+  let candidates =
+    if path = "" then
+      let cap =
+        if name = "" then []
+        else
+          let c0 = name.[0] in
+          let upper =
+            String.make 1 (Char.uppercase_ascii c0)
+            ^ String.sub name 1 (String.length name - 1)
+          in
+          [ upper ^ ".chester"; name ^ ".chester"; String.lowercase_ascii name ^ ".chester" ]
+      in
+      cap
+    else [ path ]
+  in
+  let rec try_one = function
+    | [] -> None
+    | c :: rest ->
+        let resolved = resolve_input ~search_paths c in
+        if Sys.file_exists resolved then Some resolved else try_one rest
+  in
+  try_one candidates
+
+let module_binder_from_path path name =
+  if
+    name <> ""
+    && (not (String.contains name '/' || String.contains name '.'))
+  then name
+  else
+    let base = Filename.basename path in
+    try Filename.chop_extension base with Invalid_argument _ -> base
+

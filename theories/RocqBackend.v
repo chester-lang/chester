@@ -165,6 +165,10 @@ Fixpoint emit_rocq_expr (ast : AST) {struct ast} : RocqExpr :=
   | AstEnum _ _ _ => RocqUnit
   | AstExtension _ _ _ _ => RocqUnit
   | AstImport _ _ _ _ => RocqUnit
+  | AstModule _ _ _ _ | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => RocqUnit
+  | AstPack m _ => emit_rocq_expr m
+  | AstUnpack x _ e body =>
+      RocqLetIn x (emit_rocq_expr e) (emit_rocq_expr body)
   | AstMatch expr cases =>
       RocqMatch (emit_rocq_expr expr) (emit_match_cases cases)
   | AstRecord _ _ _ => RocqUnit
@@ -195,6 +199,39 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
         end
       in RocqBlock (map_meths meths)
   | AstImport _ _ _ _ => RocqEmpty
+  | AstModule name _ _ body =>
+      let fix prefix_defs (ls : list AST) : list RocqStmt :=
+        match ls with
+        | [] => []
+        | AstDef dname _ params _ bd :: xs =>
+            RocqDefinition dname (map fst params)
+              (emit_rocq_lam_params (map fst params) (emit_rocq_expr bd))
+              :: prefix_defs xs
+        | AstSpan _ (AstDef dname _ params _ bd) :: xs =>
+            RocqDefinition dname (map fst params)
+              (emit_rocq_lam_params (map fst params) (emit_rocq_expr bd))
+              :: prefix_defs xs
+        | AstSpan _ inner :: xs =>
+            emit_rocq_stmt inner :: prefix_defs xs
+        | _ :: xs => prefix_defs xs
+        end
+      in RocqModule name (prefix_defs body)
+  | AstSignature name decls =>
+      let fix sig_defs (ls : list AST) : list RocqStmt :=
+        match ls with
+        | [] => []
+        | AstSigVal n _ params _ :: xs =>
+            RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
+        | AstDef n _ params _ _ :: xs =>
+            RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
+        | _ :: xs => sig_defs xs
+        end
+      in RocqModuleType name (sig_defs decls)
+  | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _
+  | AstFileImport _ _ => RocqEmpty
+  | AstPack m _ => RocqDefinition "_pack" [] (emit_rocq_expr m)
+  | AstUnpack x _ e body =>
+      RocqDefinition "_unpack" [] (RocqLetIn x (emit_rocq_expr e) (emit_rocq_expr body))
   | AstRef name => RocqDefinition ("_expr_" ++ name) [] (RocqIdentifier name)
   | AstTuple elems =>
       let fix map_exprs (ls : list AST) : list RocqExpr :=

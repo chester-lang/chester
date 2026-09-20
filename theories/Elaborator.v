@@ -548,6 +548,55 @@ Fixpoint elab_extern_decls (env : TypeEnv) (decls : list CST) : list string * Ty
       end
   end.
 
+(** Collect structure exports (name, type) from an elaborated module body. *)
+Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
+  match body with
+  | [] => []
+  | AstDef n tps params ret _ :: xs =>
+      (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstSigVal n tps params ret :: xs =>
+      (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstModule n _ (Some (AstModTy ex)) _ :: xs =>
+      (n, AstModTy ex) :: module_exports_of xs
+  | AstModule n _ _ _ :: xs =>
+      (n, AstModTy []) :: module_exports_of xs
+  | AstSignature n decls :: xs =>
+      (n, AstSignature n decls) :: module_exports_of xs
+  | AstSpan _ (AstDef n tps params ret _) :: xs =>
+      (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstSpan _ (AstModule n _ (Some (AstModTy ex)) _) :: xs =>
+      (n, AstModTy ex) :: module_exports_of xs
+  | AstSpan _ (AstModule n _ _ _) :: xs =>
+      (n, AstModTy []) :: module_exports_of xs
+  | AstSpan _ (AstSignature n decls) :: xs =>
+      (n, AstSignature n decls) :: module_exports_of xs
+  | _ :: xs => module_exports_of xs
+  end.
+
+(** Opaque seal: keep only exports named in the signature. *)
+Fixpoint seal_exports (full : list (string * AST)) (sig_decls : list AST)
+  : list (string * AST) :=
+  match sig_decls with
+  | [] => []
+  | AstSigVal n _ _ _ :: rest =>
+      match find (fun p => String.eqb (fst p) n) full with
+      | Some p => p :: seal_exports full rest
+      | None => seal_exports full rest
+      end
+  | AstDef n _ _ _ _ :: rest =>
+      match find (fun p => String.eqb (fst p) n) full with
+      | Some p => p :: seal_exports full rest
+      | None => seal_exports full rest
+      end
+  | _ :: rest => seal_exports full rest
+  end.
+
+Definition lookup_export (exports : list (string * AST)) (field : string) : option AST :=
+  match find (fun p => String.eqb (fst p) field) exports with
+  | Some (_, ty) => Some ty
+  | None => None
+  end.
+
 Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option AST) {struct fuel}
   : ElabM (AST * AST) :=
   match fuel with
@@ -634,6 +683,12 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         | [] => []
         | DefCST name _ _ _ _ span :: rest =>
             ((name, context span), AstRef "Any") :: collect_def_binders rest
+        | ModuleCST name _ _ _ span :: rest =>
+            ((name, context span), AstModTy []) :: collect_def_binders rest
+        | ModuleAliasCST name _ span :: rest =>
+            ((name, context span), AstModTy []) :: collect_def_binders rest
+        | SignatureCST name _ span :: rest =>
+            ((name, context span), AstSignature name []) :: collect_def_binders rest
         | _ :: rest => collect_def_binders rest
         end
       in
@@ -665,6 +720,25 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             | ImportCST lang alias modp syms span =>
                 rest <- map_elabs current_env xs ;
                 ret (AstImport lang alias modp syms :: fst rest, snd rest)
+            | ModuleCST name params seal body span =>
+                res <- elaborate fuel' current_env x None ;
+                let new_env := ((name, context span), snd res) :: current_env in
+                rest <- map_elabs new_env xs ;
+                ret (fst res :: fst rest, snd rest)
+            | ModuleAliasCST name rhs span =>
+                res <- elaborate fuel' current_env x None ;
+                let new_env := ((name, context span), snd res) :: current_env in
+                rest <- map_elabs new_env xs ;
+                ret (fst res :: fst rest, snd rest)
+            | SignatureCST name body span =>
+                res <- elaborate fuel' current_env x None ;
+                let new_env := ((name, context span), snd res) :: current_env in
+                rest <- map_elabs new_env xs ;
+                ret (fst res :: fst rest, snd rest)
+            | FunctorAppCST func args span =>
+                res <- elaborate fuel' current_env x None ;
+                rest <- map_elabs current_env xs ;
+                ret (fst res :: fst rest, snd rest)
             | ExternCST lang modp decls span =>
                 let (syms, new_env) := elab_extern_decls current_env decls in
                 rest <- map_elabs new_env xs ;
@@ -802,6 +876,48 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   argsAst <- elab_args args ;
                   ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Any")
               | None =>
+                  match snd exprAst with
+                  | AstModTy exports =>
+                      match lookup_export exports field with
+                      | Some ty =>
+                          argsAst <- elab_args args ;
+                          let ret_ty :=
+                            match ty with
+                            | AstFunTy _ _ r _ => r
+                            | AstPi _ _ r _ => r
+                            | _ => AstRef "Any"
+                            end
+                          in
+                          ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, ret_ty)
+                      | None => throw ("module has no export: " ++ field)
+                      end
+                  | _ =>
+                      let full_name := find_ext_method (snd exprAst) field exts in
+                      if string_dec full_name EmptyString then
+                        argsAst <- elab_args args ;
+                        ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
+                      else
+                        let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
+                        elaborate fuel' env new_cst expected
+                  end
+              end
+          | _ =>
+              match snd exprAst with
+              | AstModTy exports =>
+                  match lookup_export exports field with
+                  | Some ty =>
+                      argsAst <- elab_args args ;
+                      let ret_ty :=
+                        match ty with
+                        | AstFunTy _ _ r _ => r
+                        | AstPi _ _ r _ => r
+                        | _ => AstRef "Any"
+                        end
+                      in
+                      ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, ret_ty)
+                  | None => throw ("module has no export: " ++ field)
+                  end
+              | _ =>
                   let full_name := find_ext_method (snd exprAst) field exts in
                   if string_dec full_name EmptyString then
                     argsAst <- elab_args args ;
@@ -810,14 +926,6 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                     let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
                     elaborate fuel' env new_cst expected
               end
-          | _ =>
-              let full_name := find_ext_method (snd exprAst) field exts in
-              if string_dec full_name EmptyString then
-                argsAst <- elab_args args ;
-                ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
-              else
-                let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
-                elaborate fuel' env new_cst expected
           end
           end
       | ImplicitAppCST inner_func _targs _tspan =>
@@ -1027,6 +1135,247 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
   | CommentCST msg _ => ret (AstRef "Unit", AstRef "Unit")
   | ImportCST lang alias modp syms _ =>
       ret (AstImport lang alias modp syms, AstRef "Unit")
+  | SigValCST name tps params ret_ty span =>
+      let fix elab_params (ps : list (string * CST)) : ElabM (list (string * AST)) :=
+        match ps with
+        | [] => ret []
+        | (n, ty) :: rest =>
+            tyAst <- elaborate fuel' env ty (Some TypeUniverse) ;
+            restPs <- elab_params rest ;
+            ret ((n, fst tyAst) :: restPs)
+        end
+      in
+      paramsAst <- elab_params params ;
+      retAst <- elaborate fuel' env ret_ty (Some TypeUniverse) ;
+      ret (AstSigVal name tps paramsAst (fst retAst), AstRef "Unit")
+  | ModuleCST name params seal body span =>
+      let fix elab_fparams (ps : list (string * CST)) (e0 : TypeEnv)
+          : ElabM (list (string * AST) * TypeEnv) :=
+        match ps with
+        | [] => ret ([], e0)
+        | (pn, pty) :: rest =>
+            tyAst <- elaborate fuel' e0 pty None ;
+            let pty_ast := fst tyAst in
+            let pmodty :=
+              match snd tyAst with
+              | AstSignature _ decls =>
+                  AstModTy (module_exports_of decls)
+              | AstModTy ex => AstModTy ex
+              | other => other
+              end
+            in
+            let e1 := ((pn, context span), pmodty) :: e0 in
+            restRes <- elab_fparams rest e1 ;
+            ret ((pn, pty_ast) :: fst restRes, snd restRes)
+        end
+      in
+      paramsRes <- elab_fparams params env ;
+      let params_ast := fst paramsRes in
+      let benv0 := snd paramsRes in
+      let fix elab_mod_body (benv : TypeEnv) (cs : list CST)
+          : ElabM (list AST * TypeEnv) :=
+        match cs with
+        | [] => ret ([], benv)
+        | c :: cs' =>
+            r <- elaborate fuel' benv c None ;
+            let benv' :=
+              match c, fst r, snd r with
+              | DefCST n _ _ _ _ sp, AstDef _ tps ps rt _, ty =>
+                  ((n, context sp), ty) :: benv
+              | ModuleCST n _ _ _ sp, _, ty =>
+                  ((n, context sp), ty) :: benv
+              | SignatureCST n _ sp, _, ty =>
+                  ((n, context sp), ty) :: benv
+              | _, _, _ => benv
+              end
+            in
+            rest <- elab_mod_body benv' cs' ;
+            ret (fst r :: fst rest, snd rest)
+        end
+      in
+      bodyRes <- elab_mod_body benv0 body ;
+      let body_ast := fst bodyRes in
+      let full_ex := module_exports_of body_ast in
+      let fix keep_sealed (sealed : list (string * AST)) (ls : list AST) : list AST :=
+        match ls with
+        | [] => []
+        | AstDef n tps ps rt b :: xs =>
+            match lookup_export sealed n with
+            | Some _ => AstDef n tps ps rt b :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | AstSpan sp (AstDef n tps ps rt b) :: xs =>
+            match lookup_export sealed n with
+            | Some _ => AstSpan sp (AstDef n tps ps rt b) :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | x :: xs => x :: keep_sealed sealed xs
+        end
+      in
+      let apply_sig_seal (opaque : bool) (sig_ty : AST) (seal_node : AST)
+          : ElabM (option AST * AST * list AST * bool) :=
+        match sig_ty with
+        | AstSignature _ decls =>
+            let sealed := seal_exports full_ex decls in
+            let body' := if opaque then keep_sealed sealed body_ast else body_ast in
+            (* Opaque :> hides extras; transparent : keeps the full inferred signature
+               after checking that every ascribed spec is present. *)
+            let ty := if opaque then AstModTy sealed else AstModTy full_ex in
+            ret (Some seal_node, ty, body', false)
+        | AstModTy ex =>
+            let ty := if opaque then AstModTy ex else AstModTy full_ex in
+            ret (Some seal_node, ty, body_ast, false)
+        | _ => ret (Some seal_node, AstModTy full_ex, body_ast, false)
+        end
+      in
+      sealRes <-
+        match seal with
+        | None => ret (None, AstModTy full_ex, body_ast, false)
+        | Some (Symbol "#applicative" _) =>
+            ret (Some (AstRef "#applicative"), AstModTy full_ex, body_ast, true)
+        | Some (AppCST (Symbol "#opaque" _) [inner] _) =>
+            sAst <- elaborate fuel' env inner None ;
+            apply_sig_seal true (snd sAst) (AstApp (AstRef "#opaque") [fst sAst])
+        | Some (AppCST (Symbol "#transparent" _) [inner] _) =>
+            sAst <- elaborate fuel' env inner None ;
+            apply_sig_seal false (snd sAst) (AstApp (AstRef "#transparent") [fst sAst])
+        | Some s0 =>
+            sAst <- elaborate fuel' env s0 None ;
+            apply_sig_seal true (snd sAst) (fst sAst)
+        end ;
+      let mod_ty :=
+        match params_ast, sealRes with
+        | [], (_, ty, _, _) => ty
+        | _, (s, _, b, _) => AstModule name params_ast s b
+        end
+      in
+      match sealRes with
+      | (s, _, b, is_app) =>
+          let s' :=
+            if is_app then
+              match s with
+              | None => Some (AstRef "#applicative")
+              | Some other => Some (AstApp (AstRef "#applicative") [other])
+              end
+            else s
+          in
+          ret (AstModule name params_ast s' b, mod_ty)
+      end
+  | SignatureCST name body span =>
+      let fix elab_sig_body (benv : TypeEnv) (cs : list CST)
+          : ElabM (list AST) :=
+        match cs with
+        | [] => ret []
+        | c :: cs' =>
+            r <- elaborate fuel' benv c None ;
+            rest <- elab_sig_body benv cs' ;
+            ret (fst r :: rest)
+        end
+      in
+      sig_ast <- elab_sig_body env body ;
+      ret (AstSignature name sig_ast, AstSignature name sig_ast)
+  | SigWithCST base eqs span =>
+      baseAst <- elaborate fuel' env base None ;
+      let fix elab_eqs (es : list (string * CST)) : ElabM (list (string * AST)) :=
+        match es with
+        | [] => ret []
+        | (n, ty) :: rest =>
+            tyAst <- elaborate fuel' env ty (Some TypeUniverse) ;
+            restEq <- elab_eqs rest ;
+            ret ((n, fst tyAst) :: restEq)
+        end
+      in
+      eqsAst <- elab_eqs eqs ;
+      let with_ast := AstSigWith (fst baseAst) eqsAst in
+      ret (with_ast, with_ast)
+  | FileImportCST name path span =>
+      (* Host CLI rewrites these to ModuleCST before elaborate; leftover is an error. *)
+      throw ("unresolved file import: " ++ name ++ " " ++ path)
+  | PackCST m sig span =>
+      mAst <- elaborate fuel' env m None ;
+      sigAst <- elaborate fuel' env sig None ;
+      let sty :=
+        match snd sigAst with
+        | AstSignature _ _ as s => s
+        | other => other
+        end
+      in
+      ret (AstPack (fst mAst) (fst sigAst), sty)
+  | UnpackCST x sig e body span =>
+      sigAst <- elaborate fuel' env sig None ;
+      eAst <- elaborate fuel' env e None ;
+      let sty := snd sigAst in
+      let modty :=
+        match sty with
+        | AstSignature _ decls => AstModTy (module_exports_of decls)
+        | AstModTy _ as m => m
+        | _ => AstModTy []
+        end
+      in
+      bodyAst <- elaborate fuel' (((x, context span), modty) :: env) body expected ;
+      ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst), snd bodyAst)
+  | ModuleAliasCST name rhs span =>
+      rhsAst <- elaborate fuel' env rhs None ;
+      ret (AstModule name [] None
+             match fst rhsAst with
+             | AstModule _ _ _ b => b
+             | other => [other]
+             end,
+           snd rhsAst)
+  | FunctorAppCST func args span =>
+      funcAst <- elaborate fuel' env func None ;
+      let fix elab_args (as_ : list CST) : ElabM (list AST * list AST) :=
+        match as_ with
+        | [] => ret ([], [])
+        | a :: rest =>
+            aAst <- elaborate fuel' env a None ;
+            restAst <- elab_args rest ;
+            ret (fst aAst :: fst restAst, snd aAst :: snd restAst)
+        end
+      in
+      argsRes <- elab_args args ;
+      match snd funcAst with
+      | AstModule fname ((_ :: _) as _params) seal body =>
+          let is_app :=
+            match seal with
+            | Some (AstRef "#applicative") => true
+            | Some (AstApp (AstRef "#applicative") _) => true
+            | _ => false
+            end
+          in
+          s <- get_state ;
+          match s with
+          | mkElabState n sol exts effs caps pending go_pkgs =>
+              let arg_name :=
+                match fst argsRes with
+                | AstModule an _ _ _ :: _ => an
+                | AstRef an :: _ => an
+                | _ => "Arg"
+                end
+              in
+              let pref :=
+                if is_app then fname ++ "__" ++ arg_name
+                else fname ++ "_g" ++ string_of_nat n
+              in
+              (if is_app then ret tt
+               else set_state (mkElabState (S n) sol exts effs caps pending go_pkgs)) ;;
+              let ex :=
+                match seal with
+                | Some (AstSignature _ decls) =>
+                    seal_exports (module_exports_of body) decls
+                | Some (AstApp (AstRef "#applicative") [AstSignature _ decls]) =>
+                    seal_exports (module_exports_of body) decls
+                | Some (AstModTy e) => e
+                | _ => module_exports_of body
+                end
+              in
+              ret (AstModule pref [] seal body, AstModTy ex)
+          end
+      | AstModTy _ =>
+          ret (AstFunctorApp (fst funcAst) (fst argsRes), AstModTy [])
+      | _ =>
+          ret (AstFunctorApp (fst funcAst) (fst argsRes), AstModTy [])
+      end
   | ExternCST lang modp decls _ =>
       let (syms, _) := elab_extern_decls env decls in
       ret (AstImport lang "" modp syms, AstRef "Unit")
@@ -1166,7 +1515,14 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       
   | FieldAccessCST expr field _ =>
       exprAst <- elaborate fuel' env expr None ;
-      ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
+      match snd exprAst with
+      | AstModTy exports =>
+          match lookup_export exports field with
+          | Some ty => ret (AstFieldAccess (fst exprAst) field, ty)
+          | None => throw ("module has no export: " ++ field)
+          end
+      | _ => ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
+      end
       
   | ExtensionCST ext_name tparams target_ty meths span =>
       targetTy_res <- elaborate fuel' env target_ty (Some (AstUniverse 0)) ;

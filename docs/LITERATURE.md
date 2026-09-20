@@ -52,6 +52,20 @@ Chester has basic dependent features (`Type` as a kind, indexed `enum`, `tests/d
 - **"Two-Level Type Theory"** (Annenkov, Capriotti, Kraus, Sattler, 2017)
   - Local PDF: `../chester-references/two-level-type-theory-annenkov-2017.pdf`
 
+## 5. Module systems (SML-core in Chester)
+
+Chester supports ML-style structures, signatures, opaque (`:>`) and transparent
+(`:`) sealing, generative and applicative (`module app`) functors, first-class
+`pack`/`unpack`, `with type` sharing constraints, Rocq `Module`/`Module Type`
+emit, and file-as-module import via `--module-path` / `CHESTER_PATH`
+(`tests/modules.chester`, `tests/modules_ext.chester`, `tests/modules_import.chester`).
+Functor parameters are first-order (signature-typed); full higher-order functor
+types are not implemented.
+
+- **"F-ing modules"** (Rossberg, Russo, Dreyer)
+  - [Journal PDF](https://people.mpi-sws.org/~dreyer/papers/f-ing/firstview-journal.pdf)
+- OCaml module manual — [structures, signatures, functors](https://ocaml.org/manual/5.1/moduleexamples.html)
+
 ## See also
 
 - [Getting Started](getting-started.md) — build, CLI, and first programs

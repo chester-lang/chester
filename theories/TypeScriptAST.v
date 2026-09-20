@@ -26,6 +26,7 @@ Inductive TypeScriptStmt : Type :=
   | TsInterface : string -> TypeScriptStmt
   | TsEmpty : TypeScriptStmt
   | TsBlock : list TypeScriptStmt -> TypeScriptStmt (* flat concatenation, no IIFE *)
+  | TsNamespace : string -> list TypeScriptStmt -> TypeScriptStmt (* module Foo { ... } → namespace Foo { ... } *)
 
 with TypeScriptExpr : Type :=
   | TsNumberLiteral : string -> TypeScriptExpr
@@ -79,6 +80,8 @@ Fixpoint stringify_ts_stmt (stmt : TypeScriptStmt) {struct stmt} : string :=
   | TsInterface name => "interface " ++ name ++ " { [key: string]: any }; "
   | TsEmpty => ""
   | TsBlock stmts => concat_strings "" (map_ts_stmt stmts)
+  | TsNamespace name stmts =>
+      "namespace " ++ name ++ " { " ++ concat_strings "" (map_ts_stmt stmts) ++ "}"
   end
 
 with stringify_ts_expr (expr : TypeScriptExpr) {struct expr} : string :=

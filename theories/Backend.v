@@ -508,6 +508,15 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   | AstRecord name _ _ => TsIdentifier "null"
   | AstFieldAccess expr field => TsPropertyAccess (emit_ts_expr expr) field
   | AstImport _ _ _ _ => TsIdentifier "undefined"
+  | AstModule name _ _ _ => TsIdentifier name
+  | AstSignature name _ => TsIdentifier name
+  | AstFunctorApp f _ => emit_ts_expr f
+  | AstModTy _ => TsIdentifier "undefined"
+  | AstSigVal _ _ _ _ => TsIdentifier "undefined"
+  | AstSigWith _ _ | AstFileImport _ _ => TsIdentifier "undefined"
+  | AstPack m _ => emit_ts_expr m
+  | AstUnpack x _ e body =>
+      TsIIFE (TsLet x (emit_ts_expr e) :: emit_ts_block body)
   | AstMeta id => TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstUniverse _ => TsIIFE [TsThrow "Universe in term"]
   | AstError e => TsIIFE [TsThrow e]
@@ -520,6 +529,19 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstVar name value => TsVar name (emit_ts_expr value)
   | AstAssign name value => TsAssign name (emit_ts_expr value)
   | AstImport lang alias mod_path syms => emit_ts_import lang alias mod_path syms
+  | AstModule name _ _ body =>
+      let fix emit_body (ls : list AST) : list TypeScriptStmt :=
+        match ls with
+        | [] => []
+        | x :: xs => emit_ts_stmt x :: emit_body xs
+        end
+      in TsNamespace name (emit_body body)
+  | AstSignature name _ => TsInterface name
+  | AstFunctorApp _ _ => TsEmpty
+  | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => TsEmpty
+  | AstPack m _ => TsExprStmt (emit_ts_expr m)
+  | AstUnpack x _ e body =>
+      TsExprStmt (TsIIFE (TsLet x (emit_ts_expr e) :: emit_ts_block body))
   | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
   | AstExtension _ _ _ meths =>
@@ -730,6 +752,18 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
   | AstRecord name _ _ => [TsReturn (TsIdentifier "null")]
   | AstFieldAccess expr field => [TsReturn (TsPropertyAccess (emit_ts_expr expr) field)]
   | AstImport lang alias mod_path syms => [emit_ts_import lang alias mod_path syms]
+  | AstModule name _ _ body =>
+      let fix emit_body (ls : list AST) : list TypeScriptStmt :=
+        match ls with
+        | [] => []
+        | x :: xs => emit_ts_stmt x :: emit_body xs
+        end
+      in [TsExprStmt (TsIdentifier ""); TsReturn (TsIdentifier name)]
+  | AstSignature name _ => [TsReturn (TsIdentifier "null")]
+  | AstFunctorApp _ _ => []
+  | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => []
+  | AstPack m _ => [TsReturn (emit_ts_expr m)]
+  | AstUnpack x _ e body => TsLet x (emit_ts_expr e) :: emit_ts_block body
   | AstMeta id => [TsReturn (TsIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
   end.
 
@@ -750,6 +784,15 @@ Definition emit_ts (ast : AST) : TypeScriptStmt :=
 Fixpoint emit_ts_top_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   match ast with
   | AstImport lang alias mod_path syms => emit_ts_import lang alias mod_path syms
+  | AstModule name _ _ body =>
+      let fix emit_body (ls : list AST) : list TypeScriptStmt :=
+        match ls with
+        | [] => []
+        | x :: xs => emit_ts_top_stmt x :: emit_body xs
+        end
+      in TsNamespace name (emit_body body)
+  | AstSignature name _ => TsInterface name
+  | AstFunctorApp _ _ => TsEmpty
   | AstDef name _ params _ body => TsExportFunction name (map fst params) (emit_ts_block body)
   | AstLet name value => TsConst name (emit_ts_expr value)
   | AstRef "Unit" => TsEmpty
@@ -880,11 +923,24 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
         end
       in GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs locals expr) :: emit_cases cases)) []
   | AstRecord name _ _ => GoIdentifier "nil"
-  | AstFieldAccess expr field =>       match expr with
-      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr sigs locals expr) field
+  | AstFieldAccess expr field =>
+      match expr with
+      (* Chester module path M.x → M_x; lowercase pkg.Method stays a selector (fmt.Println). *)
+      | AstRef n =>
+          if is_upper n then GoIdentifier (n ++ "_" ++ field)
+          else GoSelector (emit_go_expr sigs locals expr) field
       | _ => GoSelector (emit_go_expr sigs locals expr) field
       end
   | AstImport _ _ _ _ => GoIdentifier "nil"
+  | AstModule name _ _ _ => GoIdentifier name
+  | AstSignature name _ => GoIdentifier "nil"
+  | AstFunctorApp _ _ => GoIdentifier "nil"
+  | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => GoIdentifier "nil"
+  | AstPack m _ => emit_go_expr sigs locals m
+  | AstUnpack x _ e body =>
+      GoCall (GoFuncLiteral [] go_iface
+        (GoLet x go_iface (emit_go_expr sigs locals e)
+         :: emit_go_block sigs locals body)) []
   | AstMeta id => GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstUniverse _ => GoCall (GoFuncLiteral [] go_iface [GoPanic "Universe in term"]) []
   | AstError e => GoCall (GoFuncLiteral [] go_iface [GoPanic e]) []
@@ -894,6 +950,35 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
 with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct ast} : GoStmt :=
   match ast with
   | AstImport lang _ mod_path _ => emit_go_import lang mod_path
+  | AstModule name _ _ body =>
+      let fix prefix_and_emit (ls : list AST) : list GoStmt :=
+        match ls with
+        | [] => []
+        | AstDef dname _ params ret_ty bd :: xs =>
+            let ps := go_params_of params in
+            let ret := chester_to_go_type ret_ty in
+            let bls := go_bind_params [] ps in
+            GoFuncDecl (name ++ "_" ++ dname) ps ret
+              (go_map_returns_top [] bls ret (emit_go_block [] bls bd))
+              :: prefix_and_emit xs
+        | AstRecord rname tp fields :: xs =>
+            GoStruct (name ++ "_" ++ rname) (go_fields_of fields)
+              :: prefix_and_emit xs
+        | AstEnum ename tp variants :: xs =>
+            (* Flatten enum name; emit via nested match on a renamed node is non-structural,
+               so drop body-level enums for now (top-level enums still emit). *)
+            let _ := (ename, tp, variants) in prefix_and_emit xs
+        | AstSpan _ inner :: xs =>
+            emit_go_stmt [] [] inner :: prefix_and_emit xs
+        | _ :: xs => prefix_and_emit xs
+        end
+      in GoBlock (prefix_and_emit body)
+  | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => GoEmpty
+  | AstPack m _ => GoExprStmt (emit_go_expr sigs locals m)
+  | AstUnpack x _ e body =>
+      GoExprStmt (GoCall (GoFuncLiteral [] go_iface
+        (GoLet x go_iface (emit_go_expr sigs locals e)
+         :: emit_go_block sigs (go_bind_local locals x go_iface) body)) [])
   | AstLet name value =>
       GoBlock [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name]
   | AstDef name _ params ret_ty body =>
@@ -1031,8 +1116,11 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
             end
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs locals expr) :: emit_cases cases)) [])
-  | AstFieldAccess expr field => GoExprStmt (      match expr with
-      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr sigs locals expr) field
+  | AstFieldAccess expr field => GoExprStmt (
+      match expr with
+      | AstRef n =>
+          if is_upper n then GoIdentifier (n ++ "_" ++ field)
+          else GoSelector (emit_go_expr sigs locals expr) field
       | _ => GoSelector (emit_go_expr sigs locals expr) field
       end)
   | AstMeta id => GoExprStmt (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))
@@ -1156,11 +1244,38 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
   | AstEnum _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstRecord name _ _ => [GoReturn (GoIdentifier "nil")]
-  | AstFieldAccess expr field => [GoReturn (      match expr with
-      | AstRef n => if is_upper n then GoIdentifier field else GoSelector (emit_go_expr sigs locals expr) field
+  | AstFieldAccess expr field => [GoReturn (
+      match expr with
+      | AstRef n =>
+          if is_upper n then GoIdentifier (n ++ "_" ++ field)
+          else GoSelector (emit_go_expr sigs locals expr) field
       | _ => GoSelector (emit_go_expr sigs locals expr) field
       end)]
   | AstImport lang _ mod_path _ => [emit_go_import lang mod_path]
+  | AstModule name _ _ body =>
+      let fix prefix_decls (ls : list AST) : list GoStmt :=
+        match ls with
+        | [] => []
+        | AstDef dname _ params ret_ty bd :: xs =>
+            let ps := go_params_of params in
+            let ret := chester_to_go_type ret_ty in
+            let bls := go_bind_params [] ps in
+            GoFuncDecl (name ++ "_" ++ dname) ps ret
+              (go_map_returns_top [] bls ret (emit_go_block [] bls bd))
+            :: prefix_decls xs
+        | AstRecord rname tp fields :: xs =>
+            GoStruct (name ++ "_" ++ rname) (go_fields_of fields)
+              :: prefix_decls xs
+        | AstSpan _ inner :: xs =>
+            emit_go_stmt [] [] inner :: prefix_decls xs
+        | _ :: xs => prefix_decls xs
+        end
+      in prefix_decls body
+  | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => []
+  | AstPack m _ => [GoReturn (emit_go_expr sigs locals m)]
+  | AstUnpack x _ e body =>
+      GoLet x go_iface (emit_go_expr sigs locals e)
+        :: emit_go_block sigs (go_bind_local locals x go_iface) body
   | AstMeta id => [GoReturn (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
   end.
 
@@ -1204,6 +1319,7 @@ Fixpoint go_is_top_decl (ast : AST) {struct ast} : bool :=
   | AstEnum _ _ _ => true
   | AstExtension _ _ _ _ => true
   | AstImport _ _ _ _ => true
+  | AstModule _ _ _ _ | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstPack _ _ | AstUnpack _ _ _ _ | AstFileImport _ _ => true
   | AstSpan _ inner => go_is_top_decl inner
   | _ => false
   end.

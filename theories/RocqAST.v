@@ -6,11 +6,15 @@ Open Scope string_scope.
 
 (* Rocq AST representation for the Chester backend. *)
 
+Definition rocq_newline : string := String (ascii_of_nat 10) "".
+
 Inductive RocqStmt : Type :=
   | RocqDefinition : string -> list string -> RocqExpr -> RocqStmt
   | RocqInductive : string -> RocqStmt
   | RocqEmpty : RocqStmt
   | RocqBlock : list RocqStmt -> RocqStmt
+  | RocqModule : string -> list RocqStmt -> RocqStmt
+  | RocqModuleType : string -> list RocqStmt -> RocqStmt
 
 with RocqExpr : Type :=
   | RocqNat : string -> RocqExpr
@@ -121,5 +125,11 @@ Fixpoint stringify_rocq_stmt (stmt : RocqStmt) {struct stmt} : string :=
       end
   | RocqInductive name => "Inductive " ++ name ++ " : Type := ."
   | RocqEmpty => ""
-  | RocqBlock stmts => concat_strings "\n" (map_stmts stmts)
+  | RocqBlock stmts => concat_strings rocq_newline (map_stmts stmts)
+  | RocqModule name stmts =>
+      "Module " ++ name ++ "." ++ rocq_newline ++ concat_strings rocq_newline (map_stmts stmts)
+      ++ rocq_newline ++ "End " ++ name ++ "."
+  | RocqModuleType name stmts =>
+      "Module Type " ++ name ++ "." ++ rocq_newline ++ concat_strings rocq_newline (map_stmts stmts)
+      ++ rocq_newline ++ "End " ++ name ++ "."
   end.

@@ -126,7 +126,22 @@ Inductive AST : Type :=
   | AstImport : string -> string -> string -> list string -> AST
   (* lang, alias, module_path, named symbols (empty => namespace import) *)
   
-  (* A meta variable or hole, indexed by its unique ID *)
+  (* Module System (SML-core + extensions) *)
+  (* name, functor_params, seal (None | opaque/transparent marker apps), body *)
+  | AstModule : string -> list (string * AST) -> option AST -> list AST -> AST
+  | AstSignature : string -> list AST -> AST
+  | AstFunctorApp : AST -> list AST -> AST
+  | AstModTy : list (string * AST) -> AST
+  | AstSigVal : string -> list string -> list (string * AST) -> AST -> AST
+  (* Signature enrichment: S with type t = T ... *)
+  | AstSigWith : AST -> list (string * AST) -> AST
+  (* First-class modules *)
+  | AstPack : AST -> AST -> AST (* structure expr, ascribed signature *)
+  | AstUnpack : string -> AST -> AST -> AST -> AST
+  (* binder, signature, packed value, body *)
+  (* File-as-module import (resolved by host / elaborator to AstModule) *)
+  | AstFileImport : string -> string -> AST (* binder, path *)
+
   | AstMeta : MetaId -> AST
   
   (* Wrapper to preserve source code locations *)

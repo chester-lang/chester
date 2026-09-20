@@ -27,6 +27,14 @@ elaborator represents it as `AstRef "Unit"` and backends treat it like void. Pre
 - Go FFI: bare package calls such as `fmt.Println(...)` in `stdlib/go/std.chester` (no
   `import go "fmt"` surface syntax).
 - Algebraic data: `enum` / `case`, not draft `data` / `trait` syntax.
+- Modules (SML-core, same-file): `module M { ... }`, `signature S { ... }`,
+  opaque sealing `module M :> S { ... }`, transparent `module M : S { ... }`,
+  generative functors `module F(X: S) { ... }` / `module N = F(M)`,
+  applicative functors `module app F(X: S) { ... }`, paths `M.x`,
+  first-class `pack M as S` / `unpack (X : S) = e in body`,
+  sharing `signature T = S with type t = Int`,
+  and Chester file imports `import Math` / `import Math from "math.chester"`
+  (resolved via `--module-path` / `CHESTER_PATH`).
 
 ## Repository conventions
 

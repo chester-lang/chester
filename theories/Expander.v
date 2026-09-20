@@ -23,7 +23,7 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
       match acc with
       | Symbol kw _ :: acc_rest =>
           (* Keep type punctuation (`:`, `->`) and control keywords from becoming AppCST. *)
-          if orb (eqb kw "then") (orb (eqb kw "else") (orb (eqb kw "case") (orb (eqb kw "if") (orb (eqb kw "match") (orb (eqb kw "=>") (orb (eqb kw "=") (orb (eqb kw ":") (eqb kw "->")))))))) then
+          if orb (eqb kw "then") (orb (eqb kw "else") (orb (eqb kw "case") (orb (eqb kw "if") (orb (eqb kw "match") (orb (eqb kw "=>") (orb (eqb kw "=") (orb (eqb kw ":") (orb (eqb kw "->") (orb (eqb kw "unpack") (eqb kw "pack")))))))))) then
             collapse_apps_aux rest (Tuple args span :: acc)
           else
             collapse_apps_aux rest (AppCST (Symbol kw empty_span) args span :: acc_rest)
@@ -396,6 +396,28 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                 end
             | None =>
             let processed_stmt := match stmt with
+            | SeqOf (AppCST (Symbol "unpack" _) args _ :: rest_seq) s =>
+                (* collapse_apps turns `unpack (X : S)` into AppCST *)
+                let pack_of (e : CST) : CST :=
+                  match e with
+                  | SeqOf (Symbol "pack" _ :: m :: Symbol "as" _ :: sig :: []) sp =>
+                      PackCST m sig sp
+                  | AppCST (Symbol "pack" _) [m; sig] sp => PackCST m sig sp
+                  | _ => e
+                  end
+                in
+                match args, rest_seq with
+                | [Tuple [SeqOf (Symbol x _ :: Symbol ":" _ :: sig :: []) _] _],
+                  Symbol "=" _ :: e :: Symbol "in" _ :: body :: [] =>
+                    UnpackCST x sig (pack_of e) body s
+                | [Tuple [SeqOf (Symbol x _ :: Symbol ":" _ :: sig :: []) _] _],
+                  Symbol "=" _ :: Symbol "pack" _ :: m :: Symbol "as" _ :: psig :: Symbol "in" _ :: body :: [] =>
+                    UnpackCST x sig (PackCST m psig s) body s
+                | [Tuple [SeqOf (Symbol x _ :: Symbol ":" _ :: sig :: []) _] _],
+                  Symbol "=" _ :: e :: body :: [] =>
+                    UnpackCST x sig (pack_of e) body s
+                | _, _ => stmt
+                end
             | SeqOf (Symbol kwd _ :: rest_seq) s =>
                 if eqb kwd "let" then
                     match rest_seq with
@@ -426,10 +448,211 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                     end
                 else if eqb kwd "import" then
                     match rest_seq with
+                    (* Chester file: import Math from "math.chester" (before FFI alias form) *)
+                    | Symbol name _ :: Symbol "from" _ :: StringLiteral path _ :: [] =>
+                        FileImportCST name path s
+                    (* FFI: import ts [alias] "path" *)
                     | Symbol lang _ :: Symbol alias _ :: StringLiteral mod _ :: rest =>
                         ImportCST lang alias mod (extract_import_syms rest) s
                     | Symbol lang _ :: StringLiteral mod _ :: rest =>
                         ImportCST lang lang mod (extract_import_syms rest) s
+                    (* Chester file: import "math.chester" (binder filled by host from stem) *)
+                    | StringLiteral path _ :: [] =>
+                        FileImportCST path path s
+                    (* Chester file: import Math  (resolve Math.chester) *)
+                    | Symbol name _ :: [] =>
+                        FileImportCST name "" s
+                    | _ => stmt
+                    end
+                else if eqb kwd "pack" then
+                    match rest_seq with
+                    | m :: Symbol "as" _ :: sig :: [] => PackCST m sig s
+                    | _ => stmt
+                    end
+                else if eqb kwd "unpack" then
+                    (* unpack (X : S) = e in body
+                       Note: `pack M as S` often flattens into the same SeqOf. *)
+                    let pack_of (e : CST) : CST :=
+                      match e with
+                      | SeqOf (Symbol "pack" _ :: m :: Symbol "as" _ :: sig :: []) sp =>
+                          PackCST m sig sp
+                      | AppCST (Symbol "pack" _) [m; sig] sp => PackCST m sig sp
+                      | _ => e
+                      end
+                    in
+                    match rest_seq with
+                    | Tuple [SeqOf (Symbol x _ :: Symbol ":" _ :: sig :: []) _] _
+                      :: Symbol "=" _ :: e :: Symbol "in" _ :: body :: [] =>
+                        UnpackCST x sig (pack_of e) body s
+                    | Tuple [SeqOf (Symbol x _ :: Symbol ":" _ :: sig :: []) _] _
+                      :: Symbol "=" _ :: Symbol "pack" _ :: m :: Symbol "as" _ :: psig
+                      :: Symbol "in" _ :: body :: [] =>
+                        UnpackCST x sig (PackCST m psig s) body s
+                    | Tuple [SeqOf (Symbol x _ :: Symbol ":" _ :: sig :: []) _] _
+                      :: Symbol "=" _ :: e :: body :: [] =>
+                        UnpackCST x sig (pack_of e) body s
+                    | _ => stmt
+                    end
+                else if eqb kwd "module" then
+                    let methods_of_block (b : CST) : list CST :=
+                      match b with
+                      | Block meths tail _ =>
+                          match tail with
+                          | Symbol u _ => if eqb u "Unit" then meths else app meths [tail]
+                          | _ => app meths [tail]
+                          end
+                      | _ => []
+                      end in
+                    let extract_fparam (a : CST) : (string * CST) :=
+                      match a with
+                      | Symbol n _ => (n, Symbol "Unknown" empty_span)
+                      | SeqOf (Symbol n _ :: Symbol kwd2 _ :: rest_ty) sp =>
+                          if eqb kwd2 ":" then
+                            let ty_cst :=
+                              match rest_ty with
+                              | [] => Symbol "Unknown" empty_span
+                              | [t] => t
+                              | _ => expand_seq_expr env rest_ty sp
+                              end
+                            in (n, ty_cst)
+                          else ("unknown", a)
+                      | _ => ("unknown", a)
+                      end
+                    in
+                    let opaque_seal (signame : string) : CST :=
+                      AppCST (Symbol "#opaque" empty_span) [Symbol signame empty_span] empty_span
+                    in
+                    let transparent_seal (signame : string) : CST :=
+                      AppCST (Symbol "#transparent" empty_span) [Symbol signame empty_span] empty_span
+                    in
+                    (* applicative module F(X:S) { } — keyword app before name *)
+                    let (is_app, rest_seq) :=
+                      match rest_seq with
+                      | Symbol "app" _ :: rest => (true, rest)
+                      | Symbol "applicative" _ :: rest => (true, rest)
+                      | _ => (false, rest_seq)
+                      end
+                    in
+                    (* Mark applicative functors by sealing with #applicative on empty seal slot via param tag —
+                       use ModuleCST name with a fake seal AstRef "#applicative" when is_app and no other seal. *)
+                    let app_mark :=
+                      if is_app then Some (Symbol "#applicative" empty_span) else None
+                    in
+                    match rest_seq with
+                    (* module M { ... } *)
+                    | Symbol modname _ :: (Block _ _ _ as blk) :: [] =>
+                        ModuleCST modname [] app_mark
+                          (fst (process_stmts f2' env (methods_of_block blk))) s
+                    (* module M :> S { ... } opaque *)
+                    | Symbol modname _ :: Symbol ":>" _ :: Symbol signame _ :: (Block _ _ _ as blk) :: [] =>
+                        ModuleCST modname [] (Some (opaque_seal signame))
+                          (fst (process_stmts f2' env (methods_of_block blk))) s
+                    (* module M : S { ... } transparent *)
+                    | Symbol modname _ :: Symbol ":" _ :: Symbol signame _ :: (Block _ _ _ as blk) :: [] =>
+                        ModuleCST modname [] (Some (transparent_seal signame))
+                          (fst (process_stmts f2' env (methods_of_block blk))) s
+                    (* module M : > S { ... } (lexer split) opaque *)
+                    | Symbol modname _ :: Symbol ":" _ :: Symbol ">" _ :: Symbol signame _ :: (Block _ _ _ as blk) :: [] =>
+                        ModuleCST modname [] (Some (opaque_seal signame))
+                          (fst (process_stmts f2' env (methods_of_block blk))) s
+                    (* module F(X: S) { ... } *)
+                    | AppCST (Symbol modname _) args _ :: (Block _ _ _ as blk) :: [] =>
+                        ModuleCST modname (map extract_fparam args) app_mark
+                          (fst (process_stmts f2' env (methods_of_block blk))) s
+                    (* module F(X: S) :> R { ... } *)
+                    | AppCST (Symbol modname _) args _ :: Symbol ":>" _ :: Symbol signame _ :: (Block _ _ _ as blk) :: [] =>
+                        ModuleCST modname (map extract_fparam args) (Some (opaque_seal signame))
+                          (fst (process_stmts f2' env (methods_of_block blk))) s
+                    | AppCST (Symbol modname _) args _ :: Symbol ":" _ :: Symbol signame _ :: (Block _ _ _ as blk) :: [] =>
+                        ModuleCST modname (map extract_fparam args) (Some (transparent_seal signame))
+                          (fst (process_stmts f2' env (methods_of_block blk))) s
+                    (* module N = F(M) — RHS must be a single expression (end of SeqOf). *)
+                    | Symbol modname _ :: Symbol eqop _ :: AppCST f args sp :: [] =>
+                        if eqb eqop "=" then
+                          ModuleAliasCST modname (FunctorAppCST f args sp) s
+                        else stmt
+                    | Symbol modname _ :: Symbol eqop _ :: Symbol f _ :: Tuple args sp :: [] =>
+                        if eqb eqop "=" then
+                          ModuleAliasCST modname
+                            (FunctorAppCST (Symbol f empty_span) args sp) s
+                        else stmt
+                    | Symbol modname _ :: Symbol eqop _ :: Symbol other _ :: [] =>
+                        if eqb eqop "=" then
+                          ModuleAliasCST modname (Symbol other empty_span) s
+                        else stmt
+                    | _ => stmt
+                    end
+                else if eqb kwd "signature" then
+                    let methods_of_block (b : CST) : list CST :=
+                      match b with
+                      | Block meths tail _ =>
+                          match tail with
+                          | Symbol u _ => if eqb u "Unit" then meths else app meths [tail]
+                          | _ => app meths [tail]
+                          end
+                      | _ => []
+                      end in
+                    let extract_arg (a : CST) : (string * CST) :=
+                      match a with
+                      | Symbol n _ => (n, Symbol "Unknown" empty_span)
+                      | SeqOf (Symbol n _ :: Symbol kwd2 _ :: rest_ty) sp =>
+                          if eqb kwd2 ":" then
+                            let ty_cst :=
+                              match rest_ty with
+                              | [] => Symbol "Unknown" empty_span
+                              | [t] => t
+                              | _ => expand_seq_expr env rest_ty sp
+                              end
+                            in (n, ty_cst)
+                          else ("unknown", a)
+                      | _ => ("unknown", a)
+                      end
+                    in
+                    let fix to_sig_specs (cs : list CST) : list CST :=
+                      match cs with
+                      | [] => []
+                      | DefCST name tps params ret _ sp :: rest =>
+                          SigValCST name tps params ret sp :: to_sig_specs rest
+                      | SeqOf (Symbol "def" _ :: AppCST (Symbol name _) args _ :: rest_ty) sp :: rest =>
+                          let ret_ty :=
+                            match rest_ty with
+                            | Symbol ":" _ :: tys =>
+                                match tys with
+                                | [t] => t
+                                | _ => expand_seq_expr env tys sp
+                                end
+                            | _ => Symbol "Unknown" empty_span
+                            end
+                          in
+                          SigValCST name [] (map extract_arg args) ret_ty sp
+                            :: to_sig_specs rest
+                      | SeqOf (Symbol "def" _ :: Symbol name _ :: ListLiteral _ _ :: Tuple args _ :: rest_ty) sp :: rest =>
+                          let ret_ty :=
+                            match rest_ty with
+                            | Symbol ":" _ :: tys =>
+                                match tys with
+                                | [t] => t
+                                | _ => expand_seq_expr env tys sp
+                                end
+                            | _ => Symbol "Unknown" empty_span
+                            end
+                          in
+                          SigValCST name [] (map extract_arg args) ret_ty sp
+                            :: to_sig_specs rest
+                      | x :: rest => x :: to_sig_specs rest
+                      end
+                    in
+                    match rest_seq with
+                    | Symbol modname _ :: (Block _ _ _ as blk) :: [] =>
+                        SignatureCST modname
+                          (to_sig_specs (fst (process_stmts f2' env (methods_of_block blk)))) s
+                    (* signature Name = Base with type t = T *)
+                    | Symbol modname _ :: Symbol "=" _ :: base :: Symbol "with" _ :: Symbol "type" _ :: Symbol tname _ :: Symbol "=" _ :: ty :: [] =>
+                        SignatureCST modname
+                          [SigWithCST base [(tname, ty)] empty_span] s
+                    | Symbol modname _ :: Symbol "=" _ :: base :: [] =>
+                        (* signature Alias = Other *)
+                        SignatureCST modname [base] s
                     | _ => stmt
                     end
                 else if eqb kwd "extern" then
@@ -458,6 +681,16 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                         end
                     end
                 else if eqb kwd "def" then
+                    let process_body (b : CST) : CST :=
+                      match b with
+                      | Block meths tail sp =>
+                          let (meths', _) := process_stmts f2' env meths in
+                          let (tl, _) := process_stmts f2' env [tail] in
+                          let tail' := match tl with | t :: _ => t | _ => tail end in
+                          Block meths' tail' sp
+                      | _ => b
+                      end
+                    in
                     match rest_seq with
                     | AppCST (Symbol name _) args _ :: rest_def =>
                         match split_at_eq [] rest_def with
@@ -492,7 +725,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                end
                             in
                             let params := map extract_arg args in
-                            DefCST name [] params ret_ty body_cst s
+                            DefCST name [] params ret_ty (process_body body_cst) s
                         | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: ListLiteral [] empty_span :: Tuple args empty_span :: rest_def) s
                         end
                     | AppCST (ImplicitAppCST (Symbol name _) targs _) args _ :: rest_def =>
@@ -532,7 +765,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                             in
                             let type_params := map extract_targ targs in
                             let params := map extract_arg args in
-                            DefCST name type_params params ret_ty body_cst s
+                            DefCST name type_params params ret_ty (process_body body_cst) s
                         | None => SeqOf (Symbol "def" empty_span :: Symbol name empty_span :: ListLiteral targs empty_span :: Tuple args empty_span :: rest_def) s
                         end
                     | _ => stmt
@@ -979,6 +1212,30 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
       let (e', env') := expand_cst fuel' op_env e in
       (UnboxCST e' span, env')
   | ImportCST lang alias mod syms span => (ImportCST lang alias mod syms span, op_env)
+  | DefCST name tps params ret body span =>
+      let fix map_params (env : OpEnv) (ps : list (string * CST))
+          : (list (string * CST) * OpEnv) :=
+        match ps with
+        | [] => ([], env)
+        | (n, ty) :: xs =>
+            let (ty', e1) := expand_cst fuel' env ty in
+            let (xs', e2) := map_params e1 xs in
+            ((n, ty') :: xs', e2)
+        end
+      in
+      let (params', env1) := map_params op_env params in
+      let (ret', env2) := expand_cst fuel' env1 ret in
+      let (body', env3) := expand_cst fuel' env2 body in
+      (DefCST name tps params' ret' body' span, env3)
+  | LetCST name value next span =>
+      let (value', env1) := expand_cst fuel' op_env value in
+      let (next', env2) := expand_cst fuel' env1 next in
+      (LetCST name value' next' span, env2)
+  | IfCST c t e span =>
+      let (c', e1) := expand_cst fuel' op_env c in
+      let (t', e2) := expand_cst fuel' e1 t in
+      let (e', e3) := expand_cst fuel' e2 e in
+      (IfCST c' t' e' span, e3)
   | ExternCST lang mod decls span =>
       let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
         match cs with
@@ -991,6 +1248,102 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
       in
       let (decls', env') := map_elems op_env decls in
       (ExternCST lang mod decls' span, env')
+  | ModuleCST name params seal body span =>
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let fix map_params (env : OpEnv) (ps : list (string * CST))
+          : (list (string * CST) * OpEnv) :=
+        match ps with
+        | [] => ([], env)
+        | (n, ty) :: xs =>
+            let (ty', e1) := expand_cst fuel' env ty in
+            let (xs', e2) := map_params e1 xs in
+            ((n, ty') :: xs', e2)
+        end
+      in
+      let (params', env1) := map_params op_env params in
+      let (seal', env2) :=
+        match seal with
+        | Some s0 =>
+            let (s1, e) := expand_cst fuel' env1 s0 in (Some s1, e)
+        | None => (None, env1)
+        end
+      in
+      let (body', env') := map_elems env2 body in
+      (ModuleCST name params' seal' body' span, env')
+  | SignatureCST name body span =>
+      let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_elems e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (body', env') := map_elems op_env body in
+      (SignatureCST name body' span, env')
+  | FunctorAppCST func args span =>
+      let (func', env1) := expand_cst fuel' op_env func in
+      let fix map_args (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
+        match cs with
+        | [] => ([], env)
+        | x :: xs =>
+            let (x', e1) := expand_cst fuel' env x in
+            let (xs', e2) := map_args e1 xs in
+            (x' :: xs', e2)
+        end
+      in
+      let (args', env') := map_args env1 args in
+      (FunctorAppCST func' args' span, env')
+  | ModuleAliasCST name rhs span =>
+      let (rhs', env') := expand_cst fuel' op_env rhs in
+      (ModuleAliasCST name rhs' span, env')
+  | SigValCST name tps params ret span =>
+      let fix map_params (env : OpEnv) (ps : list (string * CST))
+          : (list (string * CST) * OpEnv) :=
+        match ps with
+        | [] => ([], env)
+        | (n, ty) :: xs =>
+            let (ty', e1) := expand_cst fuel' env ty in
+            let (xs', e2) := map_params e1 xs in
+            ((n, ty') :: xs', e2)
+        end
+      in
+      let (params', env1) := map_params op_env params in
+      let (ret', env') := expand_cst fuel' env1 ret in
+      (SigValCST name tps params' ret' span, env')
+  | FileImportCST n p span => (FileImportCST n p span, op_env)
+  | SigWithCST base eqs span =>
+      let (base', env1) := expand_cst fuel' op_env base in
+      let fix map_eqs (env : OpEnv) (es : list (string * CST))
+          : (list (string * CST) * OpEnv) :=
+        match es with
+        | [] => ([], env)
+        | (n, ty) :: xs =>
+            let (ty', e1) := expand_cst fuel' env ty in
+            let (xs', e2) := map_eqs e1 xs in
+            ((n, ty') :: xs', e2)
+        end
+      in
+      let (eqs', env') := map_eqs env1 eqs in
+      (SigWithCST base' eqs' span, env')
+  | PackCST m sig span =>
+      let (m', e1) := expand_cst fuel' op_env m in
+      let (sig', e2) := expand_cst fuel' e1 sig in
+      (PackCST m' sig' span, e2)
+  | UnpackCST n sig e body span =>
+      let (sig', e1) := expand_cst fuel' op_env sig in
+      let (e', e2) := expand_cst fuel' e1 e in
+      let (body', e3) := expand_cst fuel' e2 body in
+      (UnpackCST n sig' e' body' span, e3)
   | _ => (c, op_env)
     end
   end.

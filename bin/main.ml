@@ -60,11 +60,32 @@ let rec collect_elab_env (ast : aST) : typeEnv0 =
   | AstSpan (_, inner) -> collect_elab_env inner
   | AstDef _ as d -> collect_elab_stmt d
   | AstExtension _ as e -> collect_elab_stmt e
+  | AstModule _ as m -> collect_elab_stmt m
+  | AstSignature _ as s -> collect_elab_stmt s
   | _ -> []
 
 and collect_elab_stmt = function
   | AstDef (name, tps, ps, rt, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
   | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
+  | AstModule (name, params, seal, body) ->
+      let exports =
+        let rec go = function
+          | [] -> []
+          | AstDef (n, tps, ps, rt, _) :: xs ->
+              (n, AstFunTy (tps, ps, rt, [])) :: go xs
+          | AstSpan (_, inner) :: xs -> go (inner :: xs)
+          | AstModule (n, _, _, _) :: xs -> (n, AstModTy []) :: go xs
+          | _ :: xs -> go xs
+        in
+        go body
+      in
+      let ty =
+        match params with
+        | [] -> AstModTy exports
+        | _ -> AstModule (name, params, seal, body)
+      in
+      [ ((name, []), ty) ]
+  | AstSignature (name, decls) -> [ ((name, []), AstSignature (name, decls)) ]
   | AstSpan (_, inner) -> collect_elab_env inner
   | AstBlock _ as b -> collect_elab_env b
   | _ -> []
@@ -79,7 +100,77 @@ let read_file filename =
       really_input ch buf 0 len;
       Bytes.to_string buf)
 
-let compile_file ~verbose filename state op_env tenv =
+let char_list_of_string s =
+  let rec aux i acc = if i < 0 then acc else aux (i - 1) (s.[i] :: acc) in
+  aux (String.length s - 1) []
+
+(** Rewrite [FileImportCST] nodes into [ModuleCST] by loading Chester files. *)
+let rec resolve_file_imports ~verbose ~search_paths ~visited state op_env tenv
+    (cst : cST) : cST =
+  let resolve_one name path =
+    let name_s = string_of_char_list name in
+    let path_s = string_of_char_list path in
+    match Chester_paths.resolve_chester_module ~search_paths name_s path_s with
+    | None ->
+        print_endline
+          ("Error: cannot resolve Chester module import: "
+          ^ if path_s = "" then name_s else path_s);
+        exit 1
+    | Some resolved ->
+        if List.exists (fun p -> p = resolved) visited then (
+          print_endline ("Error: cyclic module import: " ^ resolved);
+          exit 1);
+        if verbose then print_endline ("[Importing " ^ resolved ^ "]");
+        let binder =
+          Chester_paths.module_binder_from_path resolved name_s
+          |> char_list_of_string
+        in
+        let source = read_file resolved in
+        let tokens = Lexer.tokenize resolved source in
+        let file_cst = parse tokens in
+        let expanded, op' = expand_cst_top_env !op_env file_cst in
+        op_env := op';
+        let expanded =
+          resolve_file_imports ~verbose ~search_paths
+            ~visited:(resolved :: visited) state op_env tenv expanded
+        in
+        let body =
+          match expanded with
+          | Block (stmts, _, _) -> stmts
+          | other -> [ other ]
+        in
+        ModuleCST (binder, [], None, body, empty_span)
+  in
+  let rec walk (c : cST) : cST =
+    match c with
+    | FileImportCST (name, path, _) -> resolve_one name path
+    | Block (stmts, tail, sp) -> Block (List.map walk stmts, walk tail, sp)
+    | SeqOf (elems, sp) -> SeqOf (List.map walk elems, sp)
+    | ModuleCST (n, ps, seal, body, sp) ->
+        ModuleCST
+          ( n,
+            List.map (fun (a, t) -> (a, walk t)) ps,
+            Option.map walk seal,
+            List.map walk body,
+            sp )
+    | SignatureCST (n, body, sp) -> SignatureCST (n, List.map walk body, sp)
+    | ExternCST (lang, modp, decls, sp) ->
+        ExternCST (lang, modp, List.map walk decls, sp)
+    | Tuple (es, sp) -> Tuple (List.map walk es, sp)
+    | ListLiteral (es, sp) -> ListLiteral (List.map walk es, sp)
+    | AppCST (f, args, sp) -> AppCST (walk f, List.map walk args, sp)
+    | FunctorAppCST (f, args, sp) ->
+        FunctorAppCST (walk f, List.map walk args, sp)
+    | ModuleAliasCST (n, rhs, sp) -> ModuleAliasCST (n, walk rhs, sp)
+    | PackCST (m, s, sp) -> PackCST (walk m, walk s, sp)
+    | UnpackCST (n, s, e, b, sp) -> UnpackCST (n, walk s, walk e, walk b, sp)
+    | SigWithCST (b, eqs, sp) ->
+        SigWithCST (walk b, List.map (fun (a, t) -> (a, walk t)) eqs, sp)
+    | other -> other
+  in
+  walk cst
+
+let compile_file ~verbose ~search_paths filename state op_env tenv =
   let source = read_file filename in
   if verbose then print_endline ("\n[Parsing " ^ filename ^ "]");
   let tokens = Lexer.tokenize filename source in
@@ -87,6 +178,10 @@ let compile_file ~verbose filename state op_env tenv =
   if verbose then print_endline ("\n[Expanding " ^ filename ^ "]");
   let expanded_cst, op_env' = expand_cst_top_env !op_env cst in
   op_env := op_env';
+  let expanded_cst =
+    resolve_file_imports ~verbose ~search_paths ~visited:[ filename ]
+      state op_env tenv expanded_cst
+  in
   if verbose then (
     print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
     print_endline ("\n[Elaborating & TypeChecking " ^ filename ^ "]"));
@@ -117,8 +212,11 @@ let emit_ast ~target ~verbose ~go_prior filename oc ast =
       if verbose then print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
       output_string oc (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) ^ "\n")
 
-let process_file ~target ~verbose ~emit ~go_prior oc filename state op_env tenv =
-  let ast, state' = compile_file ~verbose filename state op_env tenv in
+let process_file ~target ~verbose ~emit ~go_prior ~search_paths oc filename state
+    op_env tenv =
+  let ast, state' =
+    compile_file ~verbose ~search_paths filename state op_env tenv
+  in
   if emit then emit_ast ~target ~verbose ~go_prior filename oc ast;
   state'
 
@@ -308,13 +406,13 @@ let () =
           let emit_prelude = opts.target = EmitGo in
           state :=
             process_file ~target:opts.target ~verbose:false ~emit:emit_prelude
-              ~go_prior oc f !state op_env tenv)
+              ~go_prior ~search_paths oc f !state op_env tenv)
         prelude_paths;
       List.iter
         (fun f ->
           state :=
             process_file ~target:opts.target ~verbose:true ~emit:true ~go_prior
-              oc f !state op_env tenv)
+              ~search_paths oc f !state op_env tenv)
         resolved_files;
       if opts.target = EmitGo then
         output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";

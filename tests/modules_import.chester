@@ -1,0 +1,6 @@
+import Math from "math_lib.chester";
+
+def main(): Unit = {
+  let _ = Math.add(2, 3);
+  ()
+}

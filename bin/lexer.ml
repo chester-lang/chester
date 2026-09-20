@@ -86,6 +86,10 @@ let tokenize filename source =
         aux (i + 2)
           (TokSym (char_list_of_string "=>", make_span filename i (i + 2))
           :: acc)
+      else if c = ':' && i + 1 < len && source.[i + 1] = '>' then
+        aux (i + 2)
+          (TokSym (char_list_of_string ":>", make_span filename i (i + 2))
+          :: acc)
       else if c = '-' && i + 1 < len && source.[i + 1] = '>' then
         aux (i + 2)
           (TokSym (char_list_of_string "->", make_span filename i (i + 2))

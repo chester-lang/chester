@@ -1,0 +1,25 @@
+module Math {
+  def add(a: Int, b: Int): Int = { a + b }
+};
+
+signature Printable {
+  def show(): String
+};
+
+module Counter :> Printable {
+  def show(): String = { "0" };
+  def bump(): Unit = { () }
+};
+
+module Id(X: Printable) {
+  def tag(): String = { "id" }
+};
+
+module P = Id(Counter);
+
+def main(): Unit = {
+  let _ = Math.add(1, 2);
+  let _ = Counter.show();
+  let _ = P.tag();
+  ()
+}

@@ -33,5 +33,14 @@ enum AST {
   case AstHandle(body: AST, eff: String, handlers: List(Pair));
   case AstBox(inner: AST, caps: List(String));
   case AstUnbox(inner: AST);
-  case AstImport(lang: String, alias: String, mod_path: String, syms: List(String))
+  case AstImport(lang: String, alias: String, mod_path: String, syms: List(String));
+  case AstModule(name: String, params: List(Pair), seal: List(AST), body: List(AST));
+  case AstSignature(name: String, decls: List(AST));
+  case AstFunctorApp(func: AST, args: List(AST));
+  case AstModTy(exports: List(Pair));
+  case AstSigVal(name: String, type_params: List(String), params: List(Pair), ret_ty: AST);
+  case AstSigWith(base: AST, eqs: List(Pair));
+  case AstPack(mod_expr: AST, sig_expr: AST);
+  case AstUnpack(name: String, sig_expr: AST, packed: AST, body: AST);
+  case AstFileImport(name: String, path: String)
 };

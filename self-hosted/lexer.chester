@@ -165,6 +165,9 @@ def lex_helper(source: String, idx: Integer, len: Integer, acc: List (Token)): L
       } else if bool_and(string_eq(c, "="), string_eq(next_c, ">")) then {
         let tok = Token(TokenKind.SymToken("=>"), "=>", Span(idx, idx + 2, list_empty[Integer]()));
         lex_helper(source, idx + 2, len, list_append(acc, tok))
+      } else if bool_and(string_eq(c, ":"), string_eq(next_c, ">")) then {
+        let tok = Token(TokenKind.SymToken(":>"), ":>", Span(idx, idx + 2, list_empty[Integer]()));
+        lex_helper(source, idx + 2, len, list_append(acc, tok))
       } else if bool_and(string_eq(c, "<"), string_eq(next_c, "=")) then {
         let tok = Token(TokenKind.SymToken("<="), "<=", Span(idx, idx + 2, list_empty[Integer]()));
         lex_helper(source, idx + 2, len, list_append(acc, tok))

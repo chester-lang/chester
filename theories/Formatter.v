@@ -284,6 +284,133 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
             else " " ++ alias
           in
           "import " ++ lang ++ alias_part ++ " " ++ quote ++ mod_path ++ quote ++ syms_str
+      | ModuleCST name params seal body _ =>
+          let fix format_decl (d : CST) : string :=
+            match d with
+            | CommentCST m _ => "// " ++ m
+            | _ => format_cst f indent d
+            end
+          in
+          let fix map_decls (ds : list CST) : string :=
+            match ds with
+            | [] => ""
+            | [x] => format_decl x
+            | x :: xs => format_decl x ++ "\n" ++ map_decls xs
+            end
+          in
+          let fix format_params (ps : list (string * CST)) : string :=
+            match ps with
+            | [] => ""
+            | (n, ty) :: xs =>
+                let one := n ++ ": " ++ format_cst f indent ty in
+                match xs with
+                | [] => one
+                | _ => one ++ ", " ++ format_params xs
+                end
+            end
+          in
+          let param_part :=
+            match params with
+            | [] => ""
+            | _ => "(" ++ format_params params ++ ")"
+            end
+          in
+          let seal_part :=
+            match seal with
+            | Some (AppCST (Symbol "#transparent" _) [inner] _) =>
+                " : " ++ format_cst f indent inner
+            | Some (AppCST (Symbol "#opaque" _) [inner] _) =>
+                " :> " ++ format_cst f indent inner
+            | Some (Symbol "#applicative" _) => ""
+            | Some (AppCST (Symbol "#applicative" _) _ _) => ""
+            | Some s0 => " :> " ++ format_cst f indent s0
+            | None => ""
+            end
+          in
+          let app_part :=
+            match seal with
+            | Some (Symbol "#applicative" _) => "app "
+            | Some (AppCST (Symbol "#applicative" _) _ _) => "app "
+            | _ => ""
+            end
+          in
+          "module " ++ app_part ++ name ++ param_part ++ seal_part ++ " {\n"
+            ++ map_decls body ++ "\n}"
+      | SignatureCST name body _ =>
+          let fix format_decl (d : CST) : string :=
+            match d with
+            | CommentCST m _ => "// " ++ m
+            | SigValCST n _ params ret _ =>
+                let fix fmt_ps (ps : list (string * CST)) : string :=
+                  match ps with
+                  | [] => ""
+                  | (pn, ty) :: xs =>
+                      let one := pn ++ ": " ++ format_cst f indent ty in
+                      match xs with
+                      | [] => one
+                      | _ => one ++ ", " ++ fmt_ps xs
+                      end
+                  end
+                in
+                "def " ++ n ++ "(" ++ fmt_ps params ++ "): " ++ format_cst f indent ret
+            | _ => format_cst f indent d
+            end
+          in
+          let fix map_decls (ds : list CST) : string :=
+            match ds with
+            | [] => ""
+            | [x] => format_decl x
+            | x :: xs => format_decl x ++ "\n" ++ map_decls xs
+            end
+          in
+          "signature " ++ name ++ " {\n" ++ map_decls body ++ "\n}"
+      | FunctorAppCST func args _ =>
+          let fix fmt_args (as_ : list CST) : string :=
+            match as_ with
+            | [] => ""
+            | [x] => format_cst f indent x
+            | x :: xs => format_cst f indent x ++ ", " ++ fmt_args xs
+            end
+          in
+          format_cst f indent func ++ "(" ++ fmt_args args ++ ")"
+      | ModuleAliasCST name rhs _ =>
+          "module " ++ name ++ " = " ++ format_cst f indent rhs
+      | SigValCST n _ params ret _ =>
+          let fix fmt_ps (ps : list (string * CST)) : string :=
+            match ps with
+            | [] => ""
+            | (pn, ty) :: xs =>
+                let one := pn ++ ": " ++ format_cst f indent ty in
+                match xs with
+                | [] => one
+                | _ => one ++ ", " ++ fmt_ps xs
+                end
+            end
+          in
+          "def " ++ n ++ "(" ++ fmt_ps params ++ "): " ++ format_cst f indent ret
+      | FileImportCST name path _ =>
+          if string_eqb path "" then "import " ++ name
+          else if string_eqb name path then
+            "import " ++ quote ++ path ++ quote
+          else "import " ++ name ++ " from " ++ quote ++ path ++ quote
+      | SigWithCST base eqs _ =>
+          let fix fmt_eqs (es : list (string * CST)) : string :=
+            match es with
+            | [] => ""
+            | (n, ty) :: xs =>
+                let one := "type " ++ n ++ " = " ++ format_cst f indent ty in
+                match xs with
+                | [] => one
+                | _ => one ++ " and " ++ fmt_eqs xs
+                end
+            end
+          in
+          format_cst f indent base ++ " with " ++ fmt_eqs eqs
+      | PackCST m sig _ =>
+          "pack " ++ format_cst f indent m ++ " as " ++ format_cst f indent sig
+      | UnpackCST x sig e body _ =>
+          "unpack (" ++ x ++ " : " ++ format_cst f indent sig ++ ") = "
+            ++ format_cst f indent e ++ " in " ++ format_cst f indent body
       | ExternCST lang mod_path decls _ =>
           let fix format_decl (d : CST) : string :=
             match d with

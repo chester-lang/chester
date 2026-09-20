@@ -34,9 +34,9 @@ nix develop --command ./_build/default/bin/main.exe [options] file.chester
 ### Search paths
 
 `--module-path` and the `CHESTER_PATH` environment variable (colon-separated on
-Unix) are used to resolve relative input paths. The compiler also searches the
-repository root (directory containing `dune-project` or `theories/`) and the
-current working directory.
+Unix) resolve relative input paths **and** Chester `import Math` /
+`import Math from "file.chester"` file-as-module loads. The compiler also
+searches the repository root and the current working directory.
 
 Example:
 
