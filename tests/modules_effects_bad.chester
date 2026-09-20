@@ -1,0 +1,16 @@
+effect IO {
+  def put(): Unit
+};
+
+signature S {
+  def go(): Unit
+};
+
+module M : S {
+  def go(): Unit / [IO] = {
+    perform put();
+    ()
+  }
+};
+
+def main(): Unit = { () }

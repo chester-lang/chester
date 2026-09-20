@@ -132,7 +132,8 @@ Inductive AST : Type :=
   | AstSignature : string -> list AST -> AST
   | AstFunctorApp : AST -> list AST -> AST
   | AstModTy : list (string * AST) -> AST
-  | AstSigVal : string -> list string -> list (string * AST) -> AST -> AST
+  | AstSigVal : string -> list string -> list (string * AST) -> AST -> EffectSet -> AST
+  (* name, type_params, params, ret_ty, declared effects *)
   (* Type component: name, Some def (transparent) | None (abstract) *)
   | AstTypeDecl : string -> option AST -> AST
   (* Signature enrichment: S with type t = T ... *)

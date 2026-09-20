@@ -105,6 +105,7 @@ module Counter :> Printable { ... };   // opaque
 module Visible : Printable { ... };    // transparent
 module app F(X: S) { ... };            // applicative functor
 type t = Int;                          // type component (also abstract `type t` in sigs)
+def go(): Unit / [IO];                 // effect row on signature / sealed members
 unpack (X : S) = pack M as S in { ... };
 signature T = S with type t = Int;
 ```

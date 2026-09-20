@@ -60,7 +60,9 @@ Chester supports ML-style structures, signatures, opaque (`:>`) and transparent
 `with type` sharing constraints, Rocq `Module`/`Module Type` emit, and
 file-as-module import via `--module-path` / `CHESTER_PATH`
 (`tests/modules.chester`, `tests/modules_ext.chester`, `tests/modules_types.chester`,
-`tests/modules_import.chester`).
+`tests/modules_import.chester`, `tests/modules_effects.chester`).
+Effect rows on `def` / signature members (`/ [e]`) are preserved in module
+types and checked under sealing (implementation ⊆ declared).
 Functor parameters are first-order (signature-typed); full higher-order functor
 types are not implemented.
 

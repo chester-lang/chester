@@ -165,7 +165,7 @@ Fixpoint emit_rocq_expr (ast : AST) {struct ast} : RocqExpr :=
   | AstEnum _ _ _ => RocqUnit
   | AstExtension _ _ _ _ => RocqUnit
   | AstImport _ _ _ _ => RocqUnit
-  | AstModule _ _ _ _ | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => RocqUnit
+  | AstModule _ _ _ _ | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => RocqUnit
   | AstTypeDecl name (Some ty) => emit_rocq_expr ty
   | AstTypeDecl name None => RocqIdentifier name
   | AstPack m _ => emit_rocq_expr m
@@ -230,7 +230,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
       let fix sig_defs (ls : list AST) : list RocqStmt :=
         match ls with
         | [] => []
-        | AstSigVal n _ params _ :: xs =>
+        | AstSigVal n _ params _ _ :: xs =>
             RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
         | AstDef n _ params _ _ :: xs =>
             RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
@@ -239,7 +239,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
         | _ :: xs => sig_defs xs
         end
       in RocqModuleType name (sig_defs decls)
-  | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _
+  | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _
   | AstFileImport _ _ => RocqEmpty
   | AstTypeDecl name (Some ty) =>
       RocqDefinition name [] (emit_rocq_expr ty)

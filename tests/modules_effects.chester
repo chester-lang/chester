@@ -1,0 +1,23 @@
+effect IO {
+  def put(): Unit
+};
+
+signature S {
+  def go(): Unit / [IO]
+};
+
+module M : S {
+  def go(): Unit / [IO] = {
+    perform put();
+    ()
+  }
+};
+
+def main(): Unit = {
+  handle {
+    let _ = M.go();
+    ()
+  } with IO {
+    case put() => resume(())
+  }
+}

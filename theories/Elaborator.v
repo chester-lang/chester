@@ -173,6 +173,30 @@ Fixpoint merge_effects (a b : EffectSet) : EffectSet :=
   | x :: xs => merge_effects xs (add_effect x b)
   end.
 
+(** Map a surface effect name to an EffectRef (`io` is builtin). *)
+Definition effect_ref_of_name (n : string) : EffectRef :=
+  if string_dec n "io" then BuiltinEffect n else UserEffect n.
+
+Fixpoint effect_set_of_names (ns : list string) : EffectSet :=
+  match ns with
+  | [] => []
+  | n :: rest => effect_ref_of_name n :: effect_set_of_names rest
+  end.
+
+(** Peel expander encoding `AppCST #effect_row [ret; ListLiteral names]`. *)
+Definition peel_effect_row_cst (ret_ty : CST) : (CST * EffectSet) :=
+  match ret_ty with
+  | AppCST (Symbol "#effect_row" _) [inner; ListLiteral names _] _ =>
+      let fix names_of (es : list CST) : list string :=
+        match es with
+        | [] => []
+        | Symbol n _ :: rest => n :: names_of rest
+        | _ :: rest => names_of rest
+        end
+      in (inner, effect_set_of_names (names_of names))
+  | other => (other, [])
+  end.
+
 Fixpoint string_in_list (s : string) (xs : list string) : bool :=
   match xs with
   | [] => false
@@ -554,8 +578,8 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
   | [] => []
   | AstDef n tps params ret _ :: xs =>
       (n, AstFunTy tps params ret []) :: module_exports_of xs
-  | AstSigVal n tps params ret :: xs =>
-      (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstSigVal n tps params ret effs :: xs =>
+      (n, AstFunTy tps params ret effs) :: module_exports_of xs
   | AstTypeDecl n opt :: xs =>
       (n, AstTypeDecl n opt) :: module_exports_of xs
   | AstModule n _ (Some (AstModTy ex)) _ :: xs =>
@@ -566,6 +590,8 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
       (n, AstSignature n decls) :: module_exports_of xs
   | AstSpan _ (AstDef n tps params ret _) :: xs =>
       (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstSpan _ (AstSigVal n tps params ret effs) :: xs =>
+      (n, AstFunTy tps params ret effs) :: module_exports_of xs
   | AstSpan _ (AstTypeDecl n opt) :: xs =>
       (n, AstTypeDecl n opt) :: module_exports_of xs
   | AstSpan _ (AstModule n _ (Some (AstModTy ex)) _) :: xs =>
@@ -578,13 +604,22 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
   end.
 
 (** Seal exports against signature specs. Missing required members are an error
-    (returned as inl err); opaque abstracts type components. *)
+    (returned as inl err); opaque abstracts type components; value specs require
+    implementation effects ⊆ declared signature effects. *)
 Fixpoint seal_exports_check (opaque : bool) (full : list (string * AST))
     (sig_decls : list AST) : sum string (list (string * AST)) :=
   match sig_decls with
   | [] => inr []
-  | AstSigVal n _ _ _ :: rest =>
+  | AstSigVal n tps params ret effs :: rest =>
       match find (fun p => String.eqb (fst p) n) full with
+      | Some (_, AstFunTy _ _ _ impl_effs) =>
+          if effect_row_subsumes impl_effs effs then
+            match seal_exports_check opaque full rest with
+            | inl err => inl err
+            | inr xs =>
+                inr ((n, AstFunTy tps params ret effs) :: xs)
+            end
+          else inl ("effect row too large for signature member: " ++ n)
       | Some p =>
           match seal_exports_check opaque full rest with
           | inl err => inl err
@@ -613,7 +648,6 @@ Fixpoint seal_exports_check (opaque : bool) (full : list (string * AST))
           | inr xs => inr ((n, exported) :: xs)
           end
       | Some _ =>
-          (* Value export used to satisfy a type spec — reject. *)
           inl ("signature type component is not a type: " ++ n)
       | None => inl ("signature requires missing type: " ++ n)
       end
@@ -626,11 +660,10 @@ Definition seal_exports (full : list (string * AST)) (sig_decls : list AST)
   match seal_exports_check true full sig_decls with
   | inr xs => xs
   | inl _ =>
-      (* Best-effort: drop missing (should not be used after check). *)
       let fix go (ds : list AST) : list (string * AST) :=
         match ds with
         | [] => []
-        | AstSigVal n _ _ _ :: rest =>
+        | AstSigVal n _ _ _ _ :: rest =>
             match find (fun p => String.eqb (fst p) n) full with
             | Some p => p :: go rest
             | None => go rest
@@ -890,18 +923,33 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         | (pname, pty) :: rest => build_env rest (((pname, context span), pty) :: env0)
         end
       in
-      retAst <- elaborate fuel' env ret_ty (Some TypeUniverse) ;
+      let (ret_cst, decl_effs) := peel_effect_row_cst ret_ty in
+      retAst <- elaborate fuel' env ret_cst (Some TypeUniverse) ;
       (* Bind the def name before the body so recursive calls resolve. *)
-      let fun_ty0 := AstFunTy type_params paramsAst (fst retAst) [] in
+      let fun_ty0 := AstFunTy type_params paramsAst (fst retAst) decl_effs in
       let body_env := ((name, context span), fun_ty0) :: build_env paramsAst env in
       old_pending <- get_pending ;
       set_pending [] ;;
       bodyAst <- elaborate fuel' body_env body (Some (fst retAst)) ;
       body_effs <- get_pending ;
       open_effs <- with_open_row body_effs ;
-      set_pending (merge_effects old_pending body_effs) ;;
-      let fun_ty := AstFunTy type_params paramsAst (fst retAst) open_effs in
-      ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
+      match decl_effs with
+      | [] =>
+          (* Unannotated: keep prior pending discipline (callers of top-level
+             entry defs still see residual body effects via pending). *)
+          set_pending (merge_effects old_pending body_effs) ;;
+          let fun_ty := AstFunTy type_params paramsAst (fst retAst) open_effs in
+          ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
+      | _ =>
+          (* Annotated: effects are latent on the FunTy only — not performed
+             at the definition site. *)
+          set_pending old_pending ;;
+          if effect_row_subsumes body_effs decl_effs then
+            let fun_ty := AstFunTy type_params paramsAst (fst retAst) decl_effs in
+            ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
+          else
+            throw ("effect row too large for declared annotation on: " ++ name)
+      end
 
   | LamCST arg_name opt_arg_ty body span =>
       argTyAst <- (match opt_arg_ty with
@@ -1215,8 +1263,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         end
       in
       paramsAst <- elab_params params ;
-      retAst <- elaborate fuel' env ret_ty (Some TypeUniverse) ;
-      ret (AstSigVal name tps paramsAst (fst retAst), AstRef "Unit")
+      let (ret_cst, decl_effs) := peel_effect_row_cst ret_ty in
+      retAst <- elaborate fuel' env ret_cst (Some TypeUniverse) ;
+      ret (AstSigVal name tps paramsAst (fst retAst) decl_effs, AstRef "Unit")
   | ModuleCST name params seal body span =>
       let fix elab_fparams (ps : list (string * CST)) (e0 : TypeEnv)
           : ElabM (list (string * AST) * TypeEnv) :=
@@ -1242,31 +1291,35 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       let params_ast := fst paramsRes in
       let benv0 := snd paramsRes in
       let fix elab_mod_body (benv : TypeEnv) (cs : list CST)
-          : ElabM (list AST * TypeEnv) :=
+          (acc_ex : list (string * AST))
+          : ElabM (list AST * TypeEnv * list (string * AST)) :=
         match cs with
-        | [] => ret ([], benv)
+        | [] => ret ([], benv, rev acc_ex)
         | c :: cs' =>
             r <- elaborate fuel' benv c None ;
-            let benv' :=
+            let '(benv', acc_ex') :=
               match c, fst r, snd r with
               | DefCST n _ _ _ _ sp, AstDef _ tps ps rt _, ty =>
-                  ((n, context sp), ty) :: benv
+                  (((n, context sp), ty) :: benv, (n, ty) :: acc_ex)
               | TypeDeclCST n _ sp, AstTypeDecl _ opt, _ =>
-                  ((n, context sp), AstTypeDecl n opt) :: benv
+                  (((n, context sp), AstTypeDecl n opt) :: benv,
+                   (n, AstTypeDecl n opt) :: acc_ex)
               | ModuleCST n _ _ _ sp, _, ty =>
-                  ((n, context sp), ty) :: benv
+                  (((n, context sp), ty) :: benv, (n, ty) :: acc_ex)
               | SignatureCST n _ sp, _, ty =>
-                  ((n, context sp), ty) :: benv
-              | _, _, _ => benv
+                  (((n, context sp), ty) :: benv, (n, ty) :: acc_ex)
+              | _, _, _ => (benv, acc_ex)
               end
             in
-            rest <- elab_mod_body benv' cs' ;
-            ret (fst r :: fst rest, snd rest)
+            rest <- elab_mod_body benv' cs' acc_ex' ;
+            match rest with
+            | (asts, env_f, ex_f) => ret (fst r :: asts, env_f, ex_f)
+            end
         end
       in
-      bodyRes <- elab_mod_body benv0 body ;
-      let body_ast := fst bodyRes in
-      let full_ex := module_exports_of body_ast in
+      bodyRes <- elab_mod_body benv0 body [] ;
+      let body_ast := match bodyRes with (a, _, _) => a end in
+      let full_ex := match bodyRes with (_, _, ex) => ex end in
       let fix keep_sealed (sealed : list (string * AST)) (ls : list AST) : list AST :=
         match ls with
         | [] => []
@@ -1363,8 +1416,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               match c, fst r with
               | TypeDeclCST n _ sp, AstTypeDecl _ opt =>
                   ((n, context sp), AstTypeDecl n opt) :: benv
-              | SigValCST n _ _ _ sp, AstSigVal _ tps ps rt =>
-                  ((n, context sp), AstFunTy tps ps rt []) :: benv
+              | SigValCST n _ _ _ sp, AstSigVal _ tps ps rt effs =>
+                  ((n, context sp), AstFunTy tps ps rt effs) :: benv
               | _, _ => benv
               end
             in

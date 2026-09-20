@@ -33,9 +33,10 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
   | ListLiteral targs tspan :: rest =>
       match acc with
       | Symbol name sp :: acc_rest =>
-          (* `[]` is implicit app for callables; keep list literals after binders/punct. *)
-          if orb (eqb name "=") (orb (eqb name ":") (orb (eqb name "return")
-                (orb (eqb name "=>") (orb (eqb name ",") (eqb name ";"))))) then
+          (* `[]` is implicit app for callables; keep list literals after binders/punct.
+             Also keep after `/` so effect rows `T / [e]` are not ImplicitApp. *)
+          if orb (eqb name "=") (orb (eqb name ":") (orb (eqb name "/") (orb (eqb name "return")
+                (orb (eqb name "=>") (orb (eqb name ",") (eqb name ";")))))) then
             collapse_apps_aux rest (ListLiteral targs tspan :: Symbol name sp :: acc_rest)
           else
             collapse_apps_aux rest (ImplicitAppCST (Symbol name sp) targs tspan :: acc_rest)
@@ -146,8 +147,13 @@ with parse_infix_rhs (fuel : nat) (op_env : OpEnv) (min_prec : nat) (elems : lis
 Definition infix_fuel (elems : list CST) : nat := Nat.add (length elems) 1.
 
 Definition parse_infix_chain (op_env : OpEnv) (elems : list CST) (span : Span) : option CST :=
+  (* Require full consumption: a leftover means this SeqOf is a statement/form
+     (e.g. `def f(): T / [e] = ...`) that merely contains an infix token, not a
+     pure infix expression. Dropping leftovers previously turned such defs into
+     a lone `Symbol "def"`. *)
   match parse_infix_rhs (infix_fuel elems) op_env 0 elems span with
-  | Some (cst, _) => Some cst
+  | Some (cst, []) => Some cst
+  | Some (_, _ :: _) => None
   | None => None
   end.
 
@@ -164,9 +170,54 @@ Definition try_parse_infix (op_env : OpEnv) (elems : list CST) (span : Span) : o
   if has_infix_op op_env elems then
     match parse_infix_chain op_env elems span with
     | Some cst => Some cst
-    | None => parse_infix_chain op_env (collapse_apps elems) span
+    | None =>
+        match parse_infix_chain op_env (collapse_apps elems) span with
+        | Some cst => Some cst
+        | None => None
+        end
     end
   else None.
+
+(** Split a trailing effect-row annotation `T / [e1, e2]` from a type SeqOf.
+    Returns (ret_ty, effect names). Also accepts collapsed `ImplicitAppCST / [e]`. *)
+Definition split_ty_effect_row (tys : list CST) (span : Span) : (CST * list string) :=
+  let fix names_of (es : list CST) : list string :=
+    match es with
+    | [] => []
+    | Symbol n _ :: rest => n :: names_of rest
+    | _ :: rest => names_of rest
+    end
+  in
+  let pack_ret (ret_rev : list CST) : CST :=
+    match rev ret_rev with
+    | [] => Symbol "Unit" span
+    | [t] => t
+    | xs => SeqOf xs span
+    end
+  in
+  match rev tys with
+  | ListLiteral effs _ :: Symbol "/" _ :: ret_rev =>
+      (pack_ret ret_rev, names_of effs)
+  | ImplicitAppCST (Symbol "/" _) effs _ :: ret_rev =>
+      (pack_ret ret_rev, names_of effs)
+  | _ =>
+      let ret :=
+        match tys with
+        | [] => Symbol "Unknown" span
+        | [t] => t
+        | _ => SeqOf tys span
+        end
+      in (ret, [])
+  end.
+
+(** Encode declared effect row on a return type for the elaborator. *)
+Definition with_effect_row (ret : CST) (effs : list string) (span : Span) : CST :=
+  match effs with
+  | [] => ret
+  | _ =>
+      let eff_syms := map (fun n => Symbol n span) effs in
+      AppCST (Symbol "#effect_row" span) [ret; ListLiteral eff_syms span] span
+  end.
 
 Fixpoint extract_import_syms_from_block (stmts : list CST) : list string :=
   match stmts with
@@ -634,10 +685,13 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                           let ret_ty :=
                             match rest_ty with
                             | Symbol ":" _ :: tys =>
-                                match tys with
-                                | [t] => t
-                                | _ => expand_seq_expr env tys sp
-                                end
+                                let (ret0, effs) := split_ty_effect_row tys sp in
+                                let ret :=
+                                  match ret0 with
+                                  | SeqOf xs sp' => expand_seq_expr env xs sp'
+                                  | other => other
+                                  end
+                                in with_effect_row ret effs sp
                             | _ => Symbol "Unknown" empty_span
                             end
                           in
@@ -647,10 +701,13 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                           let ret_ty :=
                             match rest_ty with
                             | Symbol ":" _ :: tys =>
-                                match tys with
-                                | [t] => t
-                                | _ => expand_seq_expr env tys sp
-                                end
+                                let (ret0, effs) := split_ty_effect_row tys sp in
+                                let ret :=
+                                  match ret0 with
+                                  | SeqOf xs sp' => expand_seq_expr env xs sp'
+                                  | other => other
+                                  end
+                                in with_effect_row ret effs sp
                             | _ => Symbol "Unknown" empty_span
                             end
                           in
@@ -714,7 +771,15 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                         | Some (ty_exprs, body_exprs) =>
                             let ret_ty := match ty_exprs with 
                                           | Symbol kwd2 _ :: tys => 
-                                              if eqb kwd2 ":" then expand_seq_expr env tys s else Symbol "Unknown" empty_span
+                                              if eqb kwd2 ":" then
+                                                let (ret0, effs) := split_ty_effect_row tys s in
+                                                let ret :=
+                                                  match ret0 with
+                                                  | SeqOf xs sp => expand_seq_expr env xs sp
+                                                  | other => other
+                                                  end
+                                                in with_effect_row ret effs s
+                                              else Symbol "Unknown" empty_span
                                           | _ => Symbol "Unknown" empty_span 
                                           end in
                             let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr env body_exprs s end in
@@ -750,7 +815,15 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                         | Some (ty_exprs, body_exprs) =>
                             let ret_ty := match ty_exprs with 
                                           | Symbol kwd2 _ :: tys => 
-                                              if eqb kwd2 ":" then expand_seq_expr env tys s else Symbol "Unknown" empty_span
+                                              if eqb kwd2 ":" then
+                                                let (ret0, effs) := split_ty_effect_row tys s in
+                                                let ret :=
+                                                  match ret0 with
+                                                  | SeqOf xs sp => expand_seq_expr env xs sp
+                                                  | other => other
+                                                  end
+                                                in with_effect_row ret effs s
+                                              else Symbol "Unknown" empty_span
                                           | _ => Symbol "Unknown" empty_span 
                                           end in
                             let body_cst := match body_exprs with [b] => b | _ => expand_seq_expr env body_exprs s end in

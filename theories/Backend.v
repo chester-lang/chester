@@ -512,7 +512,7 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   | AstSignature name _ => TsIdentifier name
   | AstFunctorApp f _ => emit_ts_expr f
   | AstModTy _ => TsIdentifier "undefined"
-  | AstSigVal _ _ _ _ => TsIdentifier "undefined"
+  | AstSigVal _ _ _ _ _ => TsIdentifier "undefined"
   | AstTypeDecl name _ => TsIdentifier name
   | AstSigWith _ _ | AstFileImport _ _ => TsIdentifier "undefined"
   | AstPack m _ => emit_ts_expr m
@@ -539,7 +539,7 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
       in TsNamespace name (emit_body body)
   | AstSignature name _ => TsInterface name
   | AstFunctorApp _ _ => TsEmpty
-  | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => TsEmpty
+  | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => TsEmpty
   | AstTypeDecl name (Some ty) =>
       TsTypeAlias name (stringify_ts_expr (emit_ts_expr ty))
   | AstTypeDecl name None => TsTypeAlias name "unknown"
@@ -765,7 +765,7 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
       in [TsExprStmt (TsIdentifier ""); TsReturn (TsIdentifier name)]
   | AstSignature name _ => [TsReturn (TsIdentifier "null")]
   | AstFunctorApp _ _ => []
-  | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => []
+  | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => []
   | AstTypeDecl name (Some ty) =>
       [TsTypeAlias name (stringify_ts_expr (emit_ts_expr ty))]
   | AstTypeDecl name None => [TsTypeAlias name "unknown"]
@@ -942,7 +942,7 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
   | AstModule name _ _ _ => GoIdentifier name
   | AstSignature name _ => GoIdentifier "nil"
   | AstFunctorApp _ _ => GoIdentifier "nil"
-  | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => GoIdentifier "nil"
+  | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => GoIdentifier "nil"
   | AstTypeDecl name _ => GoIdentifier name
   | AstPack m _ => emit_go_expr sigs locals m
   | AstUnpack x _ e body =>
@@ -981,7 +981,7 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
         | _ :: xs => prefix_and_emit xs
         end
       in GoBlock (prefix_and_emit body)
-  | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => GoEmpty
+  | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => GoEmpty
   | AstTypeDecl name (Some _) =>
       GoExprStmt (GoIdentifier ("/* type " ++ name ++ " */"))
   | AstTypeDecl name None =>
@@ -1283,7 +1283,7 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
         | _ :: xs => prefix_decls xs
         end
       in prefix_decls body
-  | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => []
+  | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => []
   | AstTypeDecl name _ =>
       [GoExprStmt (GoIdentifier ("/* type " ++ name ++ " */"))]
   | AstPack m _ => [GoReturn (emit_go_expr sigs locals m)]
@@ -1333,7 +1333,7 @@ Fixpoint go_is_top_decl (ast : AST) {struct ast} : bool :=
   | AstEnum _ _ _ => true
   | AstExtension _ _ _ _ => true
   | AstImport _ _ _ _ => true
-  | AstModule _ _ _ _ | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstTypeDecl _ _ | AstSigWith _ _ | AstPack _ _ | AstUnpack _ _ _ _ | AstFileImport _ _ => true
+  | AstModule _ _ _ _ | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ _ | AstTypeDecl _ _ | AstSigWith _ _ | AstPack _ _ | AstUnpack _ _ _ _ | AstFileImport _ _ => true
   | AstSpan _ inner => go_is_top_decl inner
   | _ => false
   end.

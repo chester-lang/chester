@@ -32,6 +32,7 @@ elaborator represents it as `AstRef "Unit"` and backends treat it like void. Pre
   generative functors `module F(X: S) { ... }` / `module N = F(M)`,
   applicative functors `module app F(X: S) { ... }`, paths `M.x`,
   type components `type t` / `type t = T` (incl. `M.t` in type position),
+  effect rows on defs/signature members (`def f(): T / [e]`), checked under sealing,
   first-class `pack M as S` / `unpack (X : S) = e in body`,
   sharing `signature T = S with type t = Int`,
   and Chester file imports `import Math` / `import Math from "math.chester"`

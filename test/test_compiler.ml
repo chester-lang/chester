@@ -309,6 +309,14 @@ let%expect_test "fixture modules types" =
   check_fixture "tests/modules_types.chester";
   [%expect {| tests/modules_types.chester ok |}]
 
+let%expect_test "modules_effects fixture elaborates" =
+  check_fixture "tests/modules_effects.chester";
+  [%expect {| tests/modules_effects.chester ok |}]
+
+let%expect_test "modules_effects_bad rejects oversized row" =
+  expect_type_error "tests/modules_effects_bad.chester";
+  [%expect {| effect row too large for signature member: go |}]
+
 let%expect_test "fixture modules import" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
