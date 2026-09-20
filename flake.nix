@@ -78,17 +78,24 @@
               # 5. Build Stage 2 Go binary
               go build -o stage2 stage2.go
 
-              # 6. Smoke-test Stage 2 on fixtures the bootstrap must keep working
+              # 6. Smoke-test Stage 2, and require Rocq emit to match Stage 2 runtime
               smoke() {
                 local src="$1" expect="$2" out="$3"
                 ./stage2 < "$src" > "$out"
                 go run "$out" | grep -qx "$expect"
               }
-              smoke tests/effects.chester 42 smoke_effects.go
-              smoke tests/effects_box.chester 5 smoke_box.go
-              smoke tests/effects_state.chester 2 smoke_state.go
-              smoke tests/go_typed_emit.chester 2 smoke_typed.go
-              smoke examples/go/simple.chester 42 smoke_simple.go
+              parity() {
+                local src="$1" expect="$2"
+                smoke "$src" "$expect" "smoke_$3.go"
+                dune exec bin/main.exe -- --go -o "rocq_$3.go" "$src" >/dev/null
+                go run "rocq_$3.go" | grep -qx "$expect"
+              }
+              parity tests/effects.chester 42 effects
+              parity tests/effects_box.chester 5 box
+              parity tests/effects_state.chester 2 state
+              parity tests/go_typed_emit.chester 2 typed
+              parity examples/go/simple.chester 42 simple
+              parity tests/binders_shadow.chester 3 binders_shadow
               printf '%s\n' 'def main(): Integer = 42' | ./stage2 > smoke_main.go
               go run smoke_main.go | grep -qx '42'
             '';

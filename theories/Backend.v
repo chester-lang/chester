@@ -1002,8 +1002,9 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
         GoFuncDecl name ps ret (go_map_returns_top sigs body_locals ret (emit_go_block sigs body_locals body))
   | AstRecord name _ fields => GoStruct name (go_fields_of fields)
   | AstEnum name _ variants =>
-      let fix emit_variant (v : string * list AST * AST) : GoStmt :=
+      let fix emit_variant (v : string * list AST * AST) : list GoStmt :=
         let vname := fst (fst v) in
+        let go_name := name ++ "_" ++ vname in
         let fields := snd (fst v) in
         let fix field_names (n : nat) (fs : list AST) : list string :=
           match fs with
@@ -1018,16 +1019,23 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
           | p :: rest => GoIdentifier p :: field_vars rest
           end
         in
+        (* Short [_tag] for match; emit both [Enum_Ctor] (for [Enum.Ctor] paths)
+           and bare [Ctor] (for unqualified constructor applications). *)
         let body := GoMapLiteral [("_tag", GoStringLiteral vname); ("args", GoArray (field_vars params))] in
         match params with
-        | [] => GoLet vname go_iface body
-        | _ => GoFuncDecl vname (go_untyped_params params) go_iface [GoReturn body]
+        | [] =>
+            [ GoLet go_name go_iface body;
+              GoLet vname go_iface (GoIdentifier go_name) ]
+        | _ =>
+            (* Alias must be a func, not [var x interface{} = f], so calls type-check. *)
+            [ GoFuncDecl go_name (go_untyped_params params) go_iface [GoReturn body];
+              GoFuncDecl vname (go_untyped_params params) go_iface [GoReturn body] ]
         end
       in
       let fix emit_variants (vs : list (string * list AST * AST)) : list GoStmt :=
         match vs with
         | [] => []
-        | v :: rest => emit_variant v :: emit_variants rest
+        | v :: rest => List.app (emit_variant v) (emit_variants rest)
         end
       in
       GoBlock (emit_variants variants)

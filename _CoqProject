@@ -15,3 +15,7 @@ theories/Backend.v
 theories/Extract.v
 theories/Formatter.v
 theories/Expander.v
+theories/TypeSystemProps.v
+theories/CoreTyping.v
+theories/RocqIRSem.v
+theories/TypeScriptIRSem.v

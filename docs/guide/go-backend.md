@@ -36,6 +36,18 @@ Applied today (Rocq / `main.exe --go` and self-hosted `codegen_go.chester`):
   are unwrapped for sig lookup.
 - **Bool conditions** — skip `__chester_as_bool` when the cond is already `bool`
 
+## Rocq ↔ self-hosted parity
+
+Automated checks require both emitters to produce Go that runs to the same result
+on a shared fixture set (effects, typed emit, binders, `examples/go/simple`):
+
+- `dune runtest` — expect test `rocq vs self-hosted go runtime parity` (builds stage1
+  from `self-hosted/*.chester` via Rocq, then compares Rocq vs stage1 runtimes)
+- `nix build .#default` — Stage 2 smoke plus the same fixtures run through Rocq emit
+
+Enum constructors emit as both `Enum_Ctor` (for `Enum.Ctor` paths) and bare `Ctor`
+(for unqualified applications), matching Rocq and self-hosted `codegen_go.chester`.
+
 Scalar primitives in the Go preamble take/return concrete types
 (`prim__int_add(a, b int) int`) and expose surface aliases (`var int_add = …`).
 The emitter skips re-declaring those alias names when compiling stdlib/prelude.

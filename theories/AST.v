@@ -62,28 +62,29 @@ Definition effect_row_is_open (es : EffectSet) : bool :=
     end
   in go es.
 
+(* Does [provided] cover concrete label [n]? An open row variable accepts any label. *)
+Fixpoint effect_row_has (n : EffectRef) (ps : EffectSet) : bool :=
+  match ps with
+  | [] => false
+  | EffectRowVar _ :: _ => true
+  | p :: ps' =>
+      match n, p with
+      | UserEffect a, UserEffect b => if string_dec a b then true else effect_row_has n ps'
+      | BuiltinEffect a, BuiltinEffect b => if string_dec a b then true else effect_row_has n ps'
+      | _, _ => effect_row_has n ps'
+      end
+  end.
+
 (* Koka-style row subsumption: every concrete label in `needed` appears in `provided`,
-   or `provided` is open (has a row variable) and may accept further labels. *)
-Definition effect_row_subsumes (needed provided : EffectSet) : bool :=
-  let fix all_in (ns : EffectSet) : bool :=
-    match ns with
-    | [] => true
-    | EffectRowVar _ :: rest => all_in rest
-    | n :: rest =>
-        let fix has (ps : EffectSet) : bool :=
-          match ps with
-          | [] => false
-          | EffectRowVar _ :: _ => true
-          | p :: ps' =>
-              match n, p with
-              | UserEffect a, UserEffect b => if string_dec a b then true else has ps'
-              | BuiltinEffect a, BuiltinEffect b => if string_dec a b then true else has ps'
-              | _, _ => has ps'
-              end
-          end
-        in if has provided then all_in rest else false
-    end
-  in all_in needed.
+   or `provided` is open (has a row variable) and may accept further labels.
+   Open variables in `needed` are ignored (they do not constrain the provider). *)
+Fixpoint effect_row_subsumes (needed provided : EffectSet) : bool :=
+  match needed with
+  | [] => true
+  | EffectRowVar _ :: rest => effect_row_subsumes rest provided
+  | n :: rest =>
+      if effect_row_has n provided then effect_row_subsumes rest provided else false
+  end.
 
 Inductive PatternAST : Type :=
   | PatWildcard : PatternAST

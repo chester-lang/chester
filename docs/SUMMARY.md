@@ -21,3 +21,5 @@
 
 - [Paper overview](paper/README.md)
   - [Literature & References](paper/LITERATURE.md)
+  - Rocq properties (see [paper overview](paper/README.md#rocq-properties)):
+    `TypeSystemProps`, `CoreTyping`, `RocqIRSem`, `TypeScriptIRSem`

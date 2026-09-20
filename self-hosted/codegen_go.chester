@@ -492,19 +492,24 @@ def emit_enum_variant_var(vname: String, body: String): String = {
   string_concat("var ", string_concat(vname, string_concat(" interface{} = ", string_concat(body, ";"))))
 };
 
-def emit_enum_variant_code(vname: String, params: List(String)): String = {
+def emit_enum_variant_code(enum_name: String, vname: String, params: List(String)): String = {
+  let go_name = string_concat(enum_name, string_concat("_", vname));
+  let body = enum_variant_map_body(vname, params);
   if int_eq(list_length(params), 0) then {
-    emit_enum_variant_var(vname, enum_variant_map_body(vname, params))
+    let alias = string_concat("var ", string_concat(vname, string_concat(" interface{} = ", string_concat(go_name, ";"))));
+    string_concat(emit_enum_variant_var(go_name, body), string_concat(go_nl(), alias))
   } else {
-    emit_enum_variant_func(vname, params, enum_variant_map_body(vname, params))
+    string_concat(
+      emit_enum_variant_func(go_name, params, body),
+      string_concat(go_nl(), emit_enum_variant_func(vname, params, body)))
   }
 };
 
-def emit_enum_variant(v: Pair): String = {
+def emit_enum_variant(enum_name: String, v: Pair): String = {
   match v {
     case MkPair(vname, rest) => {
       match rest {
-        case MkPair(fields, _) => emit_enum_variant_code(vname, field_param_names(0, fields));
+        case MkPair(fields, _) => emit_enum_variant_code(enum_name, vname, field_param_names(0, fields));
         case _ => "/* bad enum variant */"
       }
     };
@@ -522,13 +527,13 @@ def emit_ext_methods(fuel: Integer, sigs: List(Pair), locals: List(Pair), meths:
   }
 };
 
-def emit_enum_variants(vs: List(Pair)): String = {
+def emit_enum_variants(enum_name: String, vs: List(Pair)): String = {
   if int_eq(list_length(vs), 0) then ""
   else {
-    let head = emit_enum_variant(list_get(vs, 0));
+    let head = emit_enum_variant(enum_name, list_get(vs, 0));
     let rest_vs = advance(vs);
     if int_eq(list_length(rest_vs), 0) then head
-    else string_concat(head, string_concat(go_nl(), emit_enum_variants(rest_vs)))
+    else string_concat(head, string_concat(go_nl(), emit_enum_variants(enum_name, rest_vs)))
   }
 };
 
@@ -816,7 +821,7 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
         }
       };
       
-      case AstEnum(_, _, variants) => emit_enum_variants(variants);
+      case AstEnum(name, _, variants) => emit_enum_variants(name, variants);
       case AstExtension(_, _, _, meths) => emit_ext_methods(next_fuel, sigs, locals, meths);
       case AstDo(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstHandle(_, _, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));

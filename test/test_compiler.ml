@@ -169,6 +169,24 @@ let assemble_go_program ast =
   in
   go_effects_preamble ^ "\n" ^ body ^ "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n"
 
+let first_line output =
+  try
+    let idx = String.index output '\n' in
+    String.sub output 0 idx
+  with Not_found -> output
+
+let go_run_program_in dir =
+  let out = Filename.temp_file "chester_go_out" ".txt" in
+  let st =
+    Sys.command
+      (Printf.sprintf "cd %s && go run main.go > %s 2>&1" (Filename.quote dir)
+         (Filename.quote out))
+  in
+  let output = read_file out in
+  Sys.remove out;
+  if st <> 0 then failwith ("go failed:\n" ^ output);
+  first_line output
+
 let run_fixture_go filename =
   let ast = compile_fixture_ast filename in
   let dir = Filename.temp_file "chester_go" "" in
@@ -178,23 +196,120 @@ let run_fixture_go filename =
   let oc = open_out path in
   output_string oc (assemble_go_program ast);
   close_out oc;
-  let out = Filename.temp_file "chester_go_out" ".txt" in
+  let line = go_run_program_in dir in
+  let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+  print_endline line
+
+(** Rocq-extracted Go emit + run (returns first stdout line). *)
+let rocq_go_run_output filename =
+  let ast = compile_fixture_ast filename in
+  let dir = Filename.temp_file "chester_rocq_go" "" in
+  Sys.remove dir;
+  Sys.mkdir dir 0o755;
+  let path = Filename.concat dir "main.go" in
+  let oc = open_out path in
+  output_string oc (assemble_go_program ast);
+  close_out oc;
+  let line = go_run_program_in dir in
+  let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+  line
+
+(** Build stage1 = self-hosted compiler emitted by Rocq [main.exe --go]. *)
+let build_stage1_compiler () =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  if not (Sys.file_exists main_bin) then
+    failwith ("missing " ^ main_bin ^ "; run dune build first");
+  let dir = Filename.temp_file "chester_stage1" "" in
+  Sys.remove dir;
+  Sys.mkdir dir 0o755;
+  let go_out = Filename.concat dir "stage1.go" in
+  let bin = Filename.concat dir "stage1" in
+  let log = Filename.concat dir "build.log" in
+  let inputs =
+    Filename.concat root "stdlib/std.chester"
+    :: List.map
+         (fun f -> Filename.concat root (Filename.concat "self-hosted" f))
+         (list_selfhosted_sources ())
+  in
   let st =
     Sys.command
-      (Printf.sprintf "cd %s && go run main.go > %s 2>&1" (Filename.quote dir)
-         (Filename.quote out))
+      (Printf.sprintf "%s --go -o %s %s > %s 2>&1"
+         (Filename.quote main_bin) (Filename.quote go_out)
+         (String.concat " " (List.map Filename.quote inputs))
+         (Filename.quote log))
   in
-  let output = read_file out in
-  Sys.remove out;
+  if st <> 0 then failwith ("stage1 emit failed:\n" ^ read_file log);
+  let gocache = Filename.concat dir "gocache" in
+  Sys.mkdir gocache 0o755;
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "cd %s && GOCACHE=%s go build -o %s %s > %s 2>&1"
+         (Filename.quote dir) (Filename.quote gocache) (Filename.quote bin)
+         (Filename.quote go_out) (Filename.quote log))
+  in
+  if st <> 0 then failwith ("stage1 go build failed:\n" ^ read_file log);
+  (dir, bin)
+
+(** Self-hosted stage1 compiles [filename] from stdin and runs the Go. *)
+let selfhosted_go_run_output stage1_bin filename =
+  let src = fixture_path filename in
+  let dir = Filename.temp_file "chester_sh_go" "" in
+  Sys.remove dir;
+  Sys.mkdir dir 0o755;
+  let go_path = Filename.concat dir "main.go" in
+  let err = Filename.concat dir "err.txt" in
+  let st =
+    Sys.command
+      (Printf.sprintf "%s < %s > %s 2> %s"
+         (Filename.quote stage1_bin) (Filename.quote src)
+         (Filename.quote go_path) (Filename.quote err))
+  in
+  if st <> 0 then
+    failwith
+      ("self-hosted compile failed for " ^ filename ^ ":\n" ^ read_file err
+     ^ read_file go_path);
+  let line = go_run_program_in dir in
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
-  if st <> 0 then failwith ("go failed:\n" ^ output);
-  let line =
-    try
-      let idx = String.index output '\n' in
-      String.sub output 0 idx
-    with Not_found -> output
-  in
-  print_endline line
+  line
+
+(** Fixtures where Rocq and self-hosted Go backends must agree at runtime.
+    [tests/macro_hygiene.chester] is Rocq-only for now: self-hosted block/let
+    emit still mishandles the expanded swap block return. *)
+let parity_fixtures =
+  [
+    ("tests/effects.chester", "42");
+    ("tests/effects_box.chester", "5");
+    ("tests/effects_state.chester", "2");
+    ("tests/go_typed_emit.chester", "2");
+    ("examples/go/simple.chester", "42");
+    ("tests/binders_shadow.chester", "3");
+    ("tests/binders_shadow_restore.chester", "1");
+    ("tests/binders_capture.chester", "11");
+  ]
+
+let check_rocq_selfhosted_parity () =
+  let stage_dir, stage1 = build_stage1_compiler () in
+  List.iter
+    (fun (fixture, expect) ->
+      let rocq = rocq_go_run_output fixture in
+      let selfh = selfhosted_go_run_output stage1 fixture in
+      if rocq <> expect then
+        failwith
+          (Printf.sprintf "rocq %s: got %S expected %S" fixture rocq expect);
+      if selfh <> expect then
+        failwith
+          (Printf.sprintf "self-hosted %s: got %S expected %S" fixture selfh
+             expect);
+      if rocq <> selfh then
+        failwith
+          (Printf.sprintf "parity mismatch %s: rocq=%S self-hosted=%S" fixture
+             rocq selfh);
+      print_endline (fixture ^ " parity ok (" ^ rocq ^ ")"))
+    parity_fixtures;
+  let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote stage_dir)) in
+  ()
 
 let format_source source =
   let tokens = Lexer.tokenize "test.chester" source in
@@ -731,3 +846,16 @@ let%expect_test "counter example vite build" =
   if st <> 0 then failwith ("counter example build failed:\n" ^ msg);
   print_endline "counter build ok";
   [%expect {| counter build ok |}]
+
+let%expect_test "rocq vs self-hosted go runtime parity" =
+  check_rocq_selfhosted_parity ();
+  [%expect {|
+    tests/effects.chester parity ok (42)
+    tests/effects_box.chester parity ok (5)
+    tests/effects_state.chester parity ok (2)
+    tests/go_typed_emit.chester parity ok (2)
+    examples/go/simple.chester parity ok (42)
+    tests/binders_shadow.chester parity ok (3)
+    tests/binders_shadow_restore.chester parity ok (1)
+    tests/binders_capture.chester parity ok (11)
+    |}]

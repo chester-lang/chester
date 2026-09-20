@@ -42,6 +42,9 @@ elaborator represents it as `AstRef "Unit"` and backends treat it like void. Pre
 
 - Verified core lives in `theories/*.v` and is extracted to `extraction/`.
 - `self-hosted/*.chester` must elaborate; `test/test_compiler.ml` checks this.
+- Rocq vs self-hosted Go runtime parity: `rocq vs self-hosted go runtime parity` in
+  `test/test_compiler.ml` (builds stage1, compares outputs on core fixtures); flake
+  `.#default` also checks Stage 2 against Rocq emit on the same set.
 - New language fixtures go in `tests/*.chester` and should be wired into `dune runtest`.
 - Build with Nix: `nix develop --command sh -c "coq_makefile -f _CoqProject -o Makefile && make && dune build && dune runtest"`.
 - CLI flags (`--module-path`, `--prelude`, backends) are documented in `docs/guide/cli-usage.md`.
