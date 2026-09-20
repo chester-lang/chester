@@ -305,6 +305,10 @@ let%expect_test "fixture modules ext" =
   check_fixture "tests/modules_ext.chester";
   [%expect {| tests/modules_ext.chester ok |}]
 
+let%expect_test "fixture modules types" =
+  check_fixture "tests/modules_types.chester";
+  [%expect {| tests/modules_types.chester ok |}]
+
 let%expect_test "fixture modules import" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in

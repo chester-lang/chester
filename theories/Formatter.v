@@ -388,6 +388,10 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
             end
           in
           "def " ++ n ++ "(" ++ fmt_ps params ++ "): " ++ format_cst f indent ret
+      | TypeDeclCST name (Some ty) _ =>
+          "type " ++ name ++ " = " ++ format_cst f indent ty
+      | TypeDeclCST name None _ =>
+          "type " ++ name
       | FileImportCST name path _ =>
           if string_eqb path "" then "import " ++ name
           else if string_eqb name path then

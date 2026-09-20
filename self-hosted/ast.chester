@@ -39,6 +39,7 @@ enum AST {
   case AstFunctorApp(func: AST, args: List(AST));
   case AstModTy(exports: List(Pair));
   case AstSigVal(name: String, type_params: List(String), params: List(Pair), ret_ty: AST);
+  case AstTypeDecl(name: String, def: List(AST));
   case AstSigWith(base: AST, eqs: List(Pair));
   case AstPack(mod_expr: AST, sig_expr: AST);
   case AstUnpack(name: String, sig_expr: AST, packed: AST, body: AST);

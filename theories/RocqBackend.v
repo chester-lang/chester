@@ -166,6 +166,8 @@ Fixpoint emit_rocq_expr (ast : AST) {struct ast} : RocqExpr :=
   | AstExtension _ _ _ _ => RocqUnit
   | AstImport _ _ _ _ => RocqUnit
   | AstModule _ _ _ _ | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => RocqUnit
+  | AstTypeDecl name (Some ty) => emit_rocq_expr ty
+  | AstTypeDecl name None => RocqIdentifier name
   | AstPack m _ => emit_rocq_expr m
   | AstUnpack x _ e body =>
       RocqLetIn x (emit_rocq_expr e) (emit_rocq_expr body)
@@ -207,10 +209,18 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
             RocqDefinition dname (map fst params)
               (emit_rocq_lam_params (map fst params) (emit_rocq_expr bd))
               :: prefix_defs xs
+        | AstTypeDecl tname (Some ty) :: xs =>
+            RocqDefinition tname [] (emit_rocq_expr ty) :: prefix_defs xs
+        | AstTypeDecl tname None :: xs =>
+            RocqDefinition tname [] RocqUnit :: prefix_defs xs
         | AstSpan _ (AstDef dname _ params _ bd) :: xs =>
             RocqDefinition dname (map fst params)
               (emit_rocq_lam_params (map fst params) (emit_rocq_expr bd))
               :: prefix_defs xs
+        | AstSpan _ (AstTypeDecl tname (Some ty)) :: xs =>
+            RocqDefinition tname [] (emit_rocq_expr ty) :: prefix_defs xs
+        | AstSpan _ (AstTypeDecl tname None) :: xs =>
+            RocqDefinition tname [] RocqUnit :: prefix_defs xs
         | AstSpan _ inner :: xs =>
             emit_rocq_stmt inner :: prefix_defs xs
         | _ :: xs => prefix_defs xs
@@ -224,11 +234,17 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
             RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
         | AstDef n _ params _ _ :: xs =>
             RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
+        | AstTypeDecl n _ :: xs =>
+            RocqDefinition n [] RocqUnit :: sig_defs xs
         | _ :: xs => sig_defs xs
         end
       in RocqModuleType name (sig_defs decls)
   | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ | AstSigWith _ _
   | AstFileImport _ _ => RocqEmpty
+  | AstTypeDecl name (Some ty) =>
+      RocqDefinition name [] (emit_rocq_expr ty)
+  | AstTypeDecl name None =>
+      RocqDefinition name [] RocqUnit
   | AstPack m _ => RocqDefinition "_pack" [] (emit_rocq_expr m)
   | AstUnpack x _ e body =>
       RocqDefinition "_unpack" [] (RocqLetIn x (emit_rocq_expr e) (emit_rocq_expr body))

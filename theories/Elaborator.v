@@ -556,6 +556,8 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
       (n, AstFunTy tps params ret []) :: module_exports_of xs
   | AstSigVal n tps params ret :: xs =>
       (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstTypeDecl n opt :: xs =>
+      (n, AstTypeDecl n opt) :: module_exports_of xs
   | AstModule n _ (Some (AstModTy ex)) _ :: xs =>
       (n, AstModTy ex) :: module_exports_of xs
   | AstModule n _ _ _ :: xs =>
@@ -564,6 +566,8 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
       (n, AstSignature n decls) :: module_exports_of xs
   | AstSpan _ (AstDef n tps params ret _) :: xs =>
       (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstSpan _ (AstTypeDecl n opt) :: xs =>
+      (n, AstTypeDecl n opt) :: module_exports_of xs
   | AstSpan _ (AstModule n _ (Some (AstModTy ex)) _) :: xs =>
       (n, AstModTy ex) :: module_exports_of xs
   | AstSpan _ (AstModule n _ _ _) :: xs =>
@@ -573,22 +577,77 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
   | _ :: xs => module_exports_of xs
   end.
 
-(** Opaque seal: keep only exports named in the signature. *)
-Fixpoint seal_exports (full : list (string * AST)) (sig_decls : list AST)
-  : list (string * AST) :=
+(** Seal exports against signature specs. Missing required members are an error
+    (returned as inl err); opaque abstracts type components. *)
+Fixpoint seal_exports_check (opaque : bool) (full : list (string * AST))
+    (sig_decls : list AST) : sum string (list (string * AST)) :=
   match sig_decls with
-  | [] => []
+  | [] => inr []
   | AstSigVal n _ _ _ :: rest =>
       match find (fun p => String.eqb (fst p) n) full with
-      | Some p => p :: seal_exports full rest
-      | None => seal_exports full rest
+      | Some p =>
+          match seal_exports_check opaque full rest with
+          | inl err => inl err
+          | inr xs => inr (p :: xs)
+          end
+      | None => inl ("signature requires missing value: " ++ n)
       end
   | AstDef n _ _ _ _ :: rest =>
       match find (fun p => String.eqb (fst p) n) full with
-      | Some p => p :: seal_exports full rest
-      | None => seal_exports full rest
+      | Some p =>
+          match seal_exports_check opaque full rest with
+          | inl err => inl err
+          | inr xs => inr (p :: xs)
+          end
+      | None => inl ("signature requires missing value: " ++ n)
       end
-  | _ :: rest => seal_exports full rest
+  | AstTypeDecl n _ :: rest =>
+      match find (fun p => String.eqb (fst p) n) full with
+      | Some (_, AstTypeDecl _ opt) =>
+          let exported :=
+            if opaque then AstTypeDecl n None
+            else AstTypeDecl n opt
+          in
+          match seal_exports_check opaque full rest with
+          | inl err => inl err
+          | inr xs => inr ((n, exported) :: xs)
+          end
+      | Some _ =>
+          (* Value export used to satisfy a type spec — reject. *)
+          inl ("signature type component is not a type: " ++ n)
+      | None => inl ("signature requires missing type: " ++ n)
+      end
+  | _ :: rest => seal_exports_check opaque full rest
+  end.
+
+(** Legacy name filter (CoreChecker / callers that ignore errors). *)
+Definition seal_exports (full : list (string * AST)) (sig_decls : list AST)
+  : list (string * AST) :=
+  match seal_exports_check true full sig_decls with
+  | inr xs => xs
+  | inl _ =>
+      (* Best-effort: drop missing (should not be used after check). *)
+      let fix go (ds : list AST) : list (string * AST) :=
+        match ds with
+        | [] => []
+        | AstSigVal n _ _ _ :: rest =>
+            match find (fun p => String.eqb (fst p) n) full with
+            | Some p => p :: go rest
+            | None => go rest
+            end
+        | AstDef n _ _ _ _ :: rest =>
+            match find (fun p => String.eqb (fst p) n) full with
+            | Some p => p :: go rest
+            | None => go rest
+            end
+        | AstTypeDecl n _ :: rest =>
+            match find (fun p => String.eqb (fst p) n) full with
+            | Some p => p :: go rest
+            | None => go rest
+            end
+        | _ :: rest => go rest
+        end
+      in go sig_decls
   end.
 
 Definition lookup_export (exports : list (string * AST)) (field : string) : option AST :=
@@ -605,10 +664,20 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
   match expr with
   | Symbol name span =>
       match resolve_hygiene env name (context span) with
-      | Some (ty, resolved_ctx) => 
-          match expected with
-          | Some exp => unify fuel' ty exp ;; ret (AstRef (mangle_name name resolved_ctx), ty)
-          | None => ret (AstRef (mangle_name name resolved_ctx), ty)
+      | Some (ty, resolved_ctx) =>
+          match ty with
+          | AstTypeDecl _ (Some def) =>
+              if is_type_expected expected then ret (def, TypeUniverse)
+              else throw ("type component used as value: " ++ name)
+          | AstTypeDecl _ None =>
+              if is_type_expected expected then
+                ret (AstRef (mangle_name name resolved_ctx), TypeUniverse)
+              else throw ("type component used as value: " ++ name)
+          | _ =>
+              match expected with
+              | Some exp => unify fuel' ty exp ;; ret (AstRef (mangle_name name resolved_ctx), ty)
+              | None => ret (AstRef (mangle_name name resolved_ctx), ty)
+              end
           end
       | None =>
           if is_allowed_unbound name then ret (AstRef name, AstRef "Any")
@@ -1182,6 +1251,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               match c, fst r, snd r with
               | DefCST n _ _ _ _ sp, AstDef _ tps ps rt _, ty =>
                   ((n, context sp), ty) :: benv
+              | TypeDeclCST n _ sp, AstTypeDecl _ opt, _ =>
+                  ((n, context sp), AstTypeDecl n opt) :: benv
               | ModuleCST n _ _ _ sp, _, ty =>
                   ((n, context sp), ty) :: benv
               | SignatureCST n _ sp, _, ty =>
@@ -1204,11 +1275,30 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             | Some _ => AstDef n tps ps rt b :: keep_sealed sealed xs
             | None => keep_sealed sealed xs
             end
+        | AstTypeDecl n opt :: xs =>
+            match lookup_export sealed n with
+            | Some (AstTypeDecl _ opt') => AstTypeDecl n opt' :: keep_sealed sealed xs
+            | Some _ => AstTypeDecl n opt :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
         | AstSpan sp (AstDef n tps ps rt b) :: xs =>
             match lookup_export sealed n with
             | Some _ => AstSpan sp (AstDef n tps ps rt b) :: keep_sealed sealed xs
             | None => keep_sealed sealed xs
             end
+        | AstSpan sp (AstTypeDecl n opt) :: xs =>
+            match lookup_export sealed n with
+            | Some (AstTypeDecl _ opt') =>
+                AstSpan sp (AstTypeDecl n opt') :: keep_sealed sealed xs
+            | Some _ => AstSpan sp (AstTypeDecl n opt) :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | AstModule _ _ _ _ :: xs => keep_sealed sealed xs
+        | AstSignature _ _ :: xs => keep_sealed sealed xs
+        | AstEnum _ _ _ :: xs => keep_sealed sealed xs
+        | AstRecord _ _ _ :: xs => keep_sealed sealed xs
+        | AstSpan _ (AstModule _ _ _ _) :: xs => keep_sealed sealed xs
+        | AstSpan _ (AstSignature _ _) :: xs => keep_sealed sealed xs
         | x :: xs => x :: keep_sealed sealed xs
         end
       in
@@ -1216,15 +1306,16 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           : ElabM (option AST * AST * list AST * bool) :=
         match sig_ty with
         | AstSignature _ decls =>
-            let sealed := seal_exports full_ex decls in
-            let body' := if opaque then keep_sealed sealed body_ast else body_ast in
-            (* Opaque :> hides extras; transparent : keeps the full inferred signature
-               after checking that every ascribed spec is present. *)
-            let ty := if opaque then AstModTy sealed else AstModTy full_ex in
-            ret (Some seal_node, ty, body', false)
+            match seal_exports_check opaque full_ex decls with
+            | inl err => throw err
+            | inr sealed =>
+                let body' := if opaque then keep_sealed sealed body_ast else body_ast in
+                (* Both : and :> expose the ascribed view; opaque abstracts types
+                   and drops extra body defs. *)
+                ret (Some seal_node, AstModTy sealed, body', false)
+            end
         | AstModTy ex =>
-            let ty := if opaque then AstModTy ex else AstModTy full_ex in
-            ret (Some seal_node, ty, body_ast, false)
+            ret (Some seal_node, AstModTy ex, body_ast, false)
         | _ => ret (Some seal_node, AstModTy full_ex, body_ast, false)
         end
       in
@@ -1268,7 +1359,16 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         | [] => ret []
         | c :: cs' =>
             r <- elaborate fuel' benv c None ;
-            rest <- elab_sig_body benv cs' ;
+            let benv' :=
+              match c, fst r with
+              | TypeDeclCST n _ sp, AstTypeDecl _ opt =>
+                  ((n, context sp), AstTypeDecl n opt) :: benv
+              | SigValCST n _ _ _ sp, AstSigVal _ tps ps rt =>
+                  ((n, context sp), AstFunTy tps ps rt []) :: benv
+              | _, _ => benv
+              end
+            in
+            rest <- elab_sig_body benv' cs' ;
             ret (fst r :: rest)
         end
       in
@@ -1518,12 +1618,34 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       match snd exprAst with
       | AstModTy exports =>
           match lookup_export exports field with
-          | Some ty => ret (AstFieldAccess (fst exprAst) field, ty)
+          | Some (AstTypeDecl _ (Some def)) =>
+              if is_type_expected expected then ret (def, TypeUniverse)
+              else throw ("type component used as value: " ++ field)
+          | Some (AstTypeDecl _ None) =>
+              if is_type_expected expected then
+                ret (AstFieldAccess (fst exprAst) field, TypeUniverse)
+              else throw ("type component used as value: " ++ field)
+          | Some ty =>
+              if is_type_expected expected then
+                ret (AstFieldAccess (fst exprAst) field, TypeUniverse)
+              else ret (AstFieldAccess (fst exprAst) field, ty)
           | None => throw ("module has no export: " ++ field)
           end
-      | _ => ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
+      | _ =>
+          if is_type_expected expected then
+            ret (AstFieldAccess (fst exprAst) field, TypeUniverse)
+          else ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
       end
-      
+
+  | TypeDeclCST name opt span =>
+      match opt with
+      | Some ty =>
+          tyAst <- elaborate fuel' env ty (Some TypeUniverse) ;
+          ret (AstTypeDecl name (Some (fst tyAst)), TypeUniverse)
+      | None =>
+          ret (AstTypeDecl name None, TypeUniverse)
+      end
+
   | ExtensionCST ext_name tparams target_ty meths span =>
       targetTy_res <- elaborate fuel' env target_ty (Some (AstUniverse 0)) ;
       s <- get_state ;

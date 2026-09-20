@@ -19,13 +19,11 @@ module app Twice(X: Showable) {
 module A = Twice(Counter);
 module B = Twice(Counter);
 
-// Sharing constraint: enrich a signature with a type equation.
 signature Shown = Showable with type carrier = String;
 
 def main(): Unit = {
   let _ = Counter.show();
   let _ = Visible.show();
-  let _ = Visible.secret();
   let _ = A.tag();
   let _ = B.tag();
   unpack (X : Showable) = pack Counter as Showable in {

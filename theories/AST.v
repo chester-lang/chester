@@ -133,6 +133,8 @@ Inductive AST : Type :=
   | AstFunctorApp : AST -> list AST -> AST
   | AstModTy : list (string * AST) -> AST
   | AstSigVal : string -> list string -> list (string * AST) -> AST -> AST
+  (* Type component: name, Some def (transparent) | None (abstract) *)
+  | AstTypeDecl : string -> option AST -> AST
   (* Signature enrichment: S with type t = T ... *)
   | AstSigWith : AST -> list (string * AST) -> AST
   (* First-class modules *)

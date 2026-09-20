@@ -24,6 +24,7 @@ Inductive TypeScriptStmt : Type :=
   | TsImportNamespace : string -> string -> TypeScriptStmt
   | TsImportNamed : string -> list string -> TypeScriptStmt
   | TsInterface : string -> TypeScriptStmt
+  | TsTypeAlias : string -> string -> TypeScriptStmt (* name, rhs text *)
   | TsEmpty : TypeScriptStmt
   | TsBlock : list TypeScriptStmt -> TypeScriptStmt (* flat concatenation, no IIFE *)
   | TsNamespace : string -> list TypeScriptStmt -> TypeScriptStmt (* module Foo { ... } → namespace Foo { ... } *)
@@ -78,6 +79,7 @@ Fixpoint stringify_ts_stmt (stmt : TypeScriptStmt) {struct stmt} : string :=
   | TsImportNamed mod names =>
       "import { " ++ concat_strings ", " names ++ " } from " ++ ts_quote ++ mod ++ ts_quote ++ "; "
   | TsInterface name => "interface " ++ name ++ " { [key: string]: any }; "
+  | TsTypeAlias name rhs => "type " ++ name ++ " = " ++ rhs ++ "; "
   | TsEmpty => ""
   | TsBlock stmts => concat_strings "" (map_ts_stmt stmts)
   | TsNamespace name stmts =>

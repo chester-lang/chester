@@ -75,6 +75,8 @@ Inductive CST : Type :=
   | FunctorAppCST : CST -> list CST -> Span -> CST
   | ModuleAliasCST : string -> CST -> Span -> CST (* module N = F(M) *)
   | SigValCST : string -> list string -> list (string * CST) -> CST -> Span -> CST
+  (* Type component in module/signature: name, Some def | None abstract *)
+  | TypeDeclCST : string -> option CST -> Span -> CST
   (* File import: binder, path ("" => resolve Binder.chester), applicative? unused *)
   | FileImportCST : string -> string -> Span -> CST
   (* Signature with type constraints: sig with type t = T *)
@@ -145,6 +147,7 @@ Definition get_span (c : CST) : Span :=
   | FunctorAppCST _ _ span => span
   | ModuleAliasCST _ _ span => span
   | SigValCST _ _ _ _ span => span
+  | TypeDeclCST _ _ span => span
   | FileImportCST _ _ span => span
   | SigWithCST _ _ span => span
   | PackCST _ _ span => span
@@ -206,6 +209,8 @@ Fixpoint cst_size (c : CST) {struct c} : nat :=
   | FunctorAppCST f a _ => S (cst_size f + sizes a)
   | ModuleAliasCST _ e _ => S (cst_size e)
   | SigValCST _ _ params ret _ => S (size_params params + cst_size ret)
+  | TypeDeclCST _ (Some ty) _ => S (cst_size ty)
+  | TypeDeclCST _ None _ => 1
   | FileImportCST _ _ _ => 1
   | SigWithCST s eqs _ =>
       S (cst_size s + size_params eqs)

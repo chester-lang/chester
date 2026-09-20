@@ -469,6 +469,17 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                     | m :: Symbol "as" _ :: sig :: [] => PackCST m sig s
                     | _ => stmt
                     end
+                else if eqb kwd "type" then
+                    (* type t [= T] — module/signature type component *)
+                    match rest_seq with
+                    | Symbol name _ :: Symbol "=" _ :: ty :: [] =>
+                        TypeDeclCST name (Some ty) s
+                    | Symbol name _ :: Symbol "=" _ :: rest_ty =>
+                        TypeDeclCST name (Some (expand_seq_expr env rest_ty s)) s
+                    | Symbol name _ :: [] =>
+                        TypeDeclCST name None s
+                    | _ => stmt
+                    end
                 else if eqb kwd "unpack" then
                     (* unpack (X : S) = e in body
                        Note: `pack M as S` often flattens into the same SeqOf. *)
@@ -613,6 +624,12 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                       | [] => []
                       | DefCST name tps params ret _ sp :: rest =>
                           SigValCST name tps params ret sp :: to_sig_specs rest
+                      | TypeDeclCST name opt sp :: rest =>
+                          TypeDeclCST name opt sp :: to_sig_specs rest
+                      | SeqOf (Symbol "type" _ :: Symbol name _ :: Symbol "=" _ :: ty :: []) sp :: rest =>
+                          TypeDeclCST name (Some ty) sp :: to_sig_specs rest
+                      | SeqOf (Symbol "type" _ :: Symbol name _ :: []) sp :: rest =>
+                          TypeDeclCST name None sp :: to_sig_specs rest
                       | SeqOf (Symbol "def" _ :: AppCST (Symbol name _) args _ :: rest_ty) sp :: rest =>
                           let ret_ty :=
                             match rest_ty with
@@ -1320,6 +1337,13 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
       let (params', env1) := map_params op_env params in
       let (ret', env') := expand_cst fuel' env1 ret in
       (SigValCST name tps params' ret' span, env')
+  | TypeDeclCST name opt span =>
+      match opt with
+      | Some ty =>
+          let (ty', env') := expand_cst fuel' op_env ty in
+          (TypeDeclCST name (Some ty') span, env')
+      | None => (TypeDeclCST name None span, op_env)
+      end
   | FileImportCST n p span => (FileImportCST n p span, op_env)
   | SigWithCST base eqs span =>
       let (base', env1) := expand_cst fuel' op_env base in

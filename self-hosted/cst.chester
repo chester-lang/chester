@@ -44,6 +44,7 @@ enum CST {
   case FunctorAppCST(func: CST, args: List(CST), span: Span);
   case ModuleAliasCST(name: String, rhs: CST, span: Span);
   case SigValCST(name: String, type_params: List(String), params: List(Pair), ret_ty: CST, span: Span);
+  case TypeDeclCST(name: String, def: List(CST), span: Span);
   case FileImportCST(name: String, path: String, span: Span);
   case SigWithCST(base: CST, eqs: List(Pair), span: Span);
   case PackCST(mod_expr: CST, sig_expr: CST, span: Span);

@@ -56,9 +56,11 @@ Chester has basic dependent features (`Type` as a kind, indexed `enum`, `tests/d
 
 Chester supports ML-style structures, signatures, opaque (`:>`) and transparent
 (`:`) sealing, generative and applicative (`module app`) functors, first-class
-`pack`/`unpack`, `with type` sharing constraints, Rocq `Module`/`Module Type`
-emit, and file-as-module import via `--module-path` / `CHESTER_PATH`
-(`tests/modules.chester`, `tests/modules_ext.chester`, `tests/modules_import.chester`).
+`pack`/`unpack`, type components (`type t` / `type t = T`, paths `M.t`),
+`with type` sharing constraints, Rocq `Module`/`Module Type` emit, and
+file-as-module import via `--module-path` / `CHESTER_PATH`
+(`tests/modules.chester`, `tests/modules_ext.chester`, `tests/modules_types.chester`,
+`tests/modules_import.chester`).
 Functor parameters are first-order (signature-typed); full higher-order functor
 types are not implemented.
 
