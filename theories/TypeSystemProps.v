@@ -211,3 +211,17 @@ Theorem subst_avoids_capture_thm :
     (AstLam "y" (AstRef "Int") (AstRef "x"))
   = AstLam "y'" (AstRef "Int") (AstRef "y").
 Proof. reflexivity. Qed.
+
+(* ------------------------------------------------------------ *)
+(* Termination checking                                         *)
+(* ------------------------------------------------------------ *)
+
+Example termination_check_fails_without_div :
+  infer_check [] (AstDef "loop" [] [] (AstRef "Int") (AstApp (AstRef "loop") []) []) None
+  = TyErr "Termination check failed: recursive function 'loop' must declare the 'div' effect".
+Proof. reflexivity. Qed.
+
+Example termination_check_passes_with_div :
+  infer_check [] (AstDef "loop" [] [] (AstRef "Int") (AstApp (AstRef "loop") []) [BuiltinEffect "div"]) None
+  = TyOk (AstFunTy [] [] (AstRef "Int") [BuiltinEffect "div"]).
+Proof. reflexivity. Qed.
