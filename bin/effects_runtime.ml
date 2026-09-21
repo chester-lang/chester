@@ -237,6 +237,33 @@ func prim__list_drop_last(l interface{}) interface{} {
 	return ls[:len(ls)-1]
 }
 
+
+func __chester_get_args() interface{} {
+    args := os.Args[1:]
+    res := make([]interface{}, len(args))
+    for i, a := range args {
+        res[i] = a
+    }
+    return res
+}
+
+
+func __chester_write_file(path interface{}, data interface{}) interface{} {
+    err := os.WriteFile(path.(string), []byte(data.(string)), 0644)
+    if err != nil {
+        panic(fmt.Sprintf("Failed to write file: %v", err))
+    }
+    return nil
+}
+
+func __chester_read_file(path interface{}) interface{} {
+    bytes, err := os.ReadFile(path.(string))
+    if err != nil {
+        panic(fmt.Sprintf("Failed to read file: %v", err))
+    }
+    return string(bytes)
+}
+
 func __chester_read_stdin() interface{} {
     bytes, _ := io.ReadAll(os.Stdin)
     return string(bytes)

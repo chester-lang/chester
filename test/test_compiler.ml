@@ -262,7 +262,7 @@ let selfhosted_go_run_output stage1_bin filename =
   let err = Filename.concat dir "err.txt" in
   let st =
     Sys.command
-      (Printf.sprintf "%s < %s > %s 2> %s"
+      (Printf.sprintf "%s %s > %s 2> %s"
          (Filename.quote stage1_bin) (Filename.quote src)
          (Filename.quote go_path) (Filename.quote err))
   in

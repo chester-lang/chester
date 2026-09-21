@@ -65,13 +65,13 @@ let rec collect_elab_env (ast : aST) : typeEnv0 =
   | _ -> []
 
 and collect_elab_stmt = function
-  | AstDef (name, tps, ps, rt, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
+  | AstDef (name, tps, ps, rt, _, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
   | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
   | AstModule (name, params, seal, body) ->
       let exports =
         let rec go = function
           | [] -> []
-          | AstDef (n, tps, ps, rt, _) :: xs ->
+          | AstDef (n, tps, ps, rt, _, _) :: xs ->
               (n, AstFunTy (tps, ps, rt, [])) :: go xs
           | AstSpan (_, inner) :: xs -> go (inner :: xs)
           | AstModule (n, _, _, _) :: xs -> (n, AstModTy []) :: go xs
