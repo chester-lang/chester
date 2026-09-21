@@ -28,6 +28,7 @@
             src = ./.;
             buildInputs = [
               pkgs.coq
+              pkgs.python3
               pkgs.rocqPackages.stdlib
               pkgs.ocamlPackages.ocaml
               pkgs.ocamlPackages.dune_3
@@ -130,6 +131,7 @@
           default = pkgs.mkShell {
             packages = [
               pkgs.coq
+              pkgs.python3
               pkgs.rocqPackages.stdlib
               pkgs.ocamlPackages.ocaml
               pkgs.ocamlPackages.dune_3
