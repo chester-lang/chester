@@ -43,7 +43,13 @@ on a shared fixture set (effects, typed emit, binders, `examples/go/simple`):
 
 - `dune runtest` — expect test `rocq vs self-hosted go runtime parity` (builds stage1
   from `self-hosted/*.chester` via Rocq, then compares Rocq vs stage1 runtimes)
-- `nix build .#default` — Stage 2 smoke plus the same fixtures run through Rocq emit
+- `dune runtest` — `bootstrap self-compile emit alpha`: Rocq builds stage1; stage1
+  compiles self-hosted → stage2; fixture Go emits must match up to alpha across
+  Rocq / stage1 / stage2 (`scripts/compare_go_emit_alpha.py`)
+- `nix build .#default` — Stage 2 smoke, alpha emit checks, plus Rocq runtime parity
+
+Full `stage1.go` ↔ `stage2.go` alpha-equality for the whole compiler corpus is not
+required yet (match/`__chester_as_*` wrapping still diverges); fixture emits are.
 
 Enum constructors emit as both `Enum_Ctor` (for `Enum.Ctor` paths) and bare `Ctor`
 (for unqualified applications), matching Rocq and self-hosted `codegen_go.chester`.

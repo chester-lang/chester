@@ -252,7 +252,8 @@ def go_wrap_ret(sigs: List(Pair), locals: List(Pair), ret_ty: String, e_ast: AST
 };
 
 def go_return(sigs: List(Pair), locals: List(Pair), ret_ty: String, e_ast: AST.AST, e_str: String): String = {
-  string_concat("return ", go_wrap_ret(sigs, locals, ret_ty, e_ast, e_str))
+  if string_eq(ret_ty, "") then string_concat(e_str, ";")
+  else string_concat("return ", go_wrap_ret(sigs, locals, ret_ty, e_ast, e_str))
 };
 
 def go_coerce_arg(sigs: List(Pair), locals: List(Pair), param_ty: String, arg_ast: AST.AST, arg_str: String): String = {
@@ -748,12 +749,8 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
       case AstBox(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstUnbox(_) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val)));
-      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" interface{} = ", emit_go_expr(next_fuel, sigs, locals, val))));
-      case AstLet(name, val) => {
-        let ty = go_type_of_ast_value(sigs, locals, val);
-        let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), ";"))))));
-        string_concat(bind, string_concat(go_nl(), string_concat("_ = ", string_concat(name, ";"))))
-      };
+      case AstVar(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
+      case AstLet(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstIf(cond, then_b, else_b) => {
         let c_str = emit_go_expr(next_fuel, sigs, locals, cond);
         let c_bool = go_bool_cond(sigs, locals, cond, c_str);
@@ -762,7 +759,11 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
         string_concat("if ", string_concat(c_bool, string_concat(" {", string_concat(go_nl(), string_concat(t_str, string_concat(go_nl(), string_concat("} else {", string_concat(go_nl(), string_concat(e_str, string_concat(go_nl(), "}"))))))))))
       };
       case AstRef(name) => {
-        if string_eq(name, "Unit") then "" else go_return(sigs, locals, ret_ty, ast, name)
+        if string_eq(name, "Unit") then {
+          if string_eq(ret_ty, "") then "" else "return nil;"
+        } else {
+          if string_eq(ret_ty, "") then "" else go_return(sigs, locals, ret_ty, ast, name)
+        }
       };
       case AstSpan(_, inner) => emit_go_stmt(next_fuel, sigs, locals, ret_ty, inner);
       case AstBlock(stmts, tail) => {
@@ -770,8 +771,12 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
         let tail_locals = go_fold_locals(sigs, locals, stmts);
         match tail {
           case AstRef(u) => {
-            if string_eq(u, "Unit") then join_strings(go_nl(), stmts_strs)
-            else {
+            if string_eq(u, "Unit") then {
+              let s = join_strings(go_nl(), stmts_strs);
+              if string_eq(ret_ty, "") then s
+              else if int_eq(list_length(stmts), 0) then "return nil;"
+              else string_concat(s, string_concat(go_nl(), "return nil;"))
+            } else {
               let ret = go_return(sigs, tail_locals, ret_ty, tail, emit_go_expr(next_fuel, sigs, tail_locals, tail));
               if int_eq(list_length(stmts), 0) then ret
               else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), ret))
@@ -802,6 +807,22 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
             if int_eq(list_length(stmts), 0) then d
             else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
           };
+          // A nested block as the tail of another block is emitted as a void
+          // statement (IIFE called for side effects), not as a return value.
+          // This matches the Rocq emitter and fixes macro-expanded swap blocks:
+          //   { let tmp=a; let a=b; { let b=tmp; Unit } }
+          // The inner AstBlock tail should be a statement call, not `return func(){...}()`.
+          case AstBlock(_, _) => {
+            let d = string_concat(emit_go_expr(next_fuel, sigs, tail_locals, tail), ";");
+            if int_eq(list_length(stmts), 0) then d
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
+          };
+          case AstSpan(_, _) => {
+            // Unwrap spans so the real tail node gets the correct case above.
+            let d = emit_go_stmt(next_fuel, sigs, tail_locals, ret_ty, tail);
+            if int_eq(list_length(stmts), 0) then d
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
+          };
           case _ => {
             let ret = go_return(sigs, tail_locals, ret_ty, tail, emit_go_expr(next_fuel, sigs, tail_locals, tail));
             if int_eq(list_length(stmts), 0) then ret
@@ -825,7 +846,12 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
       case AstExtension(_, _, _, meths) => emit_ext_methods(next_fuel, sigs, locals, meths);
       case AstDo(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstHandle(_, _, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
-      case AstMatch(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
+      case AstMatch(expr, cases) => {
+        let e_str = emit_go_expr(next_fuel, sigs, locals, expr);
+        let cases_str = emit_go_(next_fuel, sigs, locals, ret_ty, cases);
+        let init = string_concat("var _match_val interface{} = ", string_concat(e_str, ";"));
+        string_concat(init, string_concat(go_nl(), cases_str))
+      };
       case AstLam(_, _, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       
       // Expression statement / function body result
@@ -857,12 +883,12 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
         if string_eq(name, "Unit") then "" else name
       };
       case AstSpan(_, inner) => emit_go_expr_stmt(next_fuel, sigs, locals, inner);
-      case AstBlock(_, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
-      case AstDef(_, _, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
-      case AstEnum(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
-      case AstExtension(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
-      case AstImport(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
-      case AstRecord(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, go_iface(), ast);
+      case AstBlock(_, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstDef(_, _, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstEnum(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstExtension(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstImport(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstRecord(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
       case AstBox(_, _) => emit_go_expr(next_fuel, sigs, locals, ast);
       case AstUnbox(_) => emit_go_expr(next_fuel, sigs, locals, ast);
       case AstDo(_, _) => emit_go_expr(next_fuel, sigs, locals, ast);
@@ -880,9 +906,9 @@ def emit_go_top(ast: AST.AST): String = {
     case AstBlock(stmts, _) => {
       let sigs = collect_go_sigs(stmts);
       let fuel = int_mul(256, int_add(1, list_length(stmts)));
-      emit_go_stmt(fuel, sigs, list_empty[Pair](), go_iface(), ast)
+      emit_go_stmt(fuel, sigs, list_empty[Pair](), "", ast)
     };
     case AstSpan(_, inner) => emit_go_top(inner);
-    case _ => emit_go_stmt(256, list_empty[Pair](), list_empty[Pair](), go_iface(), ast)
+    case _ => emit_go_stmt(256, list_empty[Pair](), list_empty[Pair](), "", ast)
   }
 };

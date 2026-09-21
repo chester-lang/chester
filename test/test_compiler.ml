@@ -279,6 +279,7 @@ let selfhosted_go_run_output stage1_bin filename =
     emit still mishandles the expanded swap block return. *)
 let parity_fixtures =
   [
+    ("tests/macro_hygiene.chester", "42");
     ("tests/effects.chester", "42");
     ("tests/effects_box.chester", "5");
     ("tests/effects_state.chester", "2");
@@ -850,6 +851,7 @@ let%expect_test "counter example vite build" =
 let%expect_test "rocq vs self-hosted go runtime parity" =
   check_rocq_selfhosted_parity ();
   [%expect {|
+    tests/macro_hygiene.chester parity ok (42)
     tests/effects.chester parity ok (42)
     tests/effects_box.chester parity ok (5)
     tests/effects_state.chester parity ok (2)
@@ -859,3 +861,4 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/binders_shadow_restore.chester parity ok (1)
     tests/binders_capture.chester parity ok (11)
     |}]
+

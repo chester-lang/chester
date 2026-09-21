@@ -78,6 +78,20 @@
               # 5. Build Stage 2 Go binary
               go build -o stage2 stage2.go
 
+              # 5b. Fixture Go emits must match up to alpha (Rocq vs Stage1 vs Stage2)
+              alpha() {
+                local src="$1"
+                local tag="$2"
+                dune exec bin/main.exe -- --go -o "rocq_$tag.go" "$src" >/dev/null
+                ./stage1 < "$src" > "s1_$tag.go"
+                ./stage2 < "$src" > "s2_$tag.go"
+                python3 scripts/compare_go_emit_alpha.py "rocq_$tag.go" "s1_$tag.go"
+                python3 scripts/compare_go_emit_alpha.py "rocq_$tag.go" "s2_$tag.go"
+              }
+              alpha tests/effects.chester effects
+              alpha tests/go_typed_emit.chester typed
+              alpha examples/go/simple.chester simple
+
               # 6. Smoke-test Stage 2, and require Rocq emit to match Stage 2 runtime
               smoke() {
                 local src="$1" expect="$2" out="$3"

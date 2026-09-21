@@ -889,9 +889,9 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
          GoMapLiteral (emit_hs handlers)]
   | AstBoolLit b => GoBoolLiteral b
   | AstLet name value =>
-      GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name]) []
-  | AstVar name value => GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr sigs locals value)]) []
-  | AstAssign name value => GoCall (GoFuncLiteral [] go_iface [GoAssign name (emit_go_expr sigs locals value)]) []
+      GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name; GoReturn (GoIdentifier "nil")]) []
+  | AstVar name value => GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr sigs locals value); GoReturn (GoIdentifier "nil")]) []
+  | AstAssign name value => GoCall (GoFuncLiteral [] go_iface [GoAssign name (emit_go_expr sigs locals value); GoReturn (GoIdentifier "nil")]) []
   | AstBox e caps =>
       GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
@@ -1246,8 +1246,8 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
          GoMapLiteral (emit_hs handlers)])]
   | AstBoolLit b => [GoReturn (GoBoolLiteral b)]
   | AstLet name value =>
-      [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name]) [])]
-  | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr sigs locals value)]) [])]
+      [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name; GoReturn (GoIdentifier "nil")]) [])]
+  | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr sigs locals value); GoReturn (GoIdentifier "nil")]) [])]
   | AstAssign name value => [GoAssign name (emit_go_expr sigs locals value)]
   | AstBox e caps =>
       [GoReturn (GoCall (GoIdentifier "__chester_box")
