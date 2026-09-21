@@ -7,7 +7,7 @@ Open Scope string_scope.
 (*
   Golang AST Representation for the Backend
 
-  Bindings carry Go type strings. Use "interface{}" when the Chester type is
+  Bindings carry Go type strings. Use "any" when the Chester type is
   unknown or intentionally dynamic (effects, lists, enums).
 *)
 
@@ -15,7 +15,7 @@ Definition go_quote : string := String (ascii_of_nat 96) "".
 Definition go_colon_space : string :=
   String (ascii_of_nat 58) (String (ascii_of_nat 32) "").
 
-Definition go_iface : string := "interface{}".
+Definition go_iface : string := "any".
 
 Inductive GoStmt : Type :=
   | GoExprStmt : GoExpr -> GoStmt

@@ -138,9 +138,9 @@ func prim__bool_not(a bool) bool { return !a }
 
 func prim__int_to_string(a int) string { return fmt.Sprintf("%d", a) }
 
-func __chester_as_int(v interface{}) int { return v.(int) }
-func __chester_as_string(v interface{}) string { return v.(string) }
-func __chester_as_bool(v interface{}) bool { return v.(bool) }
+func __chester_as_int(v any) int { return v.(int) }
+func __chester_as_string(v any) string { return v.(string) }
+func __chester_as_bool(v any) bool { return v.(bool) }
 
 // Surface names used by desugaring (`+` → int_add) and stdlib wrappers.
 // Emitter skips AstDef for these names so emitting stdlib does not redeclare.
@@ -165,12 +165,12 @@ var string_substring = prim__string_substring
 var int_to_string = prim__int_to_string
 var list_length = prim__list_length
 
-func prim__list_empty() interface{} { return []interface{}{} }
-func prim__list_length(l interface{}) int { return len(l.([]interface{})) }
-func prim__list_get(l, i interface{}) interface{} { return l.([]interface{})[i.(int)] }
-func prim__list_advance(l interface{}) interface{} {
+func prim__list_empty() any { return []any{} }
+func prim__list_length(l any) int { return len(l.([]any)) }
+func prim__list_get(l, i any) any { return l.([]any)[i.(int)] }
+func prim__list_advance(l any) any {
 	switch v := l.(type) {
-	case []interface{}:
+	case []any:
 		if len(v) == 0 {
 			return v
 		}
@@ -180,18 +180,18 @@ func prim__list_advance(l interface{}) interface{} {
 	}
 }
 
-func prim__list_filter(l interface{}, pred interface{}) interface{} {
+func prim__list_filter(l any, pred any) any {
 	switch v := l.(type) {
-	case []interface{}:
-		var res []interface{}
-		fn := pred.(func(interface{}) interface{})
+	case []any:
+		var res []any
+		fn := pred.(func(any) any)
 		for _, x := range v {
 			if fn(x).(bool) {
 				res = append(res, x)
 			}
 		}
 		if res == nil {
-			return []interface{}{}
+			return []any{}
 		}
 		return res
 	default:
@@ -199,9 +199,9 @@ func prim__list_filter(l interface{}, pred interface{}) interface{} {
 	}
 }
 
-func prim__join_strings(sep interface{}, ls interface{}) interface{} {
+func prim__join_strings(sep any, ls any) any {
 	switch v := ls.(type) {
-	case []interface{}:
+	case []any:
 		if len(v) == 0 {
 			return ""
 		}
@@ -218,29 +218,29 @@ func prim__join_strings(sep interface{}, ls interface{}) interface{} {
 	}
 }
 
-func prim__list_make(l, f interface{}) interface{} {
-	res := make([]interface{}, l.(int))
-	fn := f.(func(interface{}) interface{})
+func prim__list_make(l, f any) any {
+	res := make([]any, l.(int))
+	fn := f.(func(any) any)
 	for i := 0; i < l.(int); i++ {
 		res[i] = fn(i)
 	}
 	return res
 }
-func prim__list_insert_first(l, e interface{}) interface{} {
-	return append([]interface{}{e}, l.([]interface{})...)
+func prim__list_insert_first(l, e any) any {
+	return append([]any{e}, l.([]any)...)
 }
-func prim__list_append(l1, l2 interface{}) interface{} {
-	return append(l1.([]interface{}), l2)
+func prim__list_append(l1, l2 any) any {
+	return append(l1.([]any), l2)
 }
-func prim__list_drop_last(l interface{}) interface{} {
-	ls := l.([]interface{})
+func prim__list_drop_last(l any) any {
+	ls := l.([]any)
 	return ls[:len(ls)-1]
 }
 
 
-func __chester_get_args() interface{} {
+func __chester_get_args() any {
     args := os.Args[1:]
-    res := make([]interface{}, len(args))
+    res := make([]any, len(args))
     for i, a := range args {
         res[i] = a
     }
@@ -248,7 +248,7 @@ func __chester_get_args() interface{} {
 }
 
 
-func __chester_write_file(path interface{}, data interface{}) interface{} {
+func __chester_write_file(path any, data any) any {
     err := os.WriteFile(path.(string), []byte(data.(string)), 0644)
     if err != nil {
         panic(fmt.Sprintf("Failed to write file: %v", err))
@@ -256,7 +256,7 @@ func __chester_write_file(path interface{}, data interface{}) interface{} {
     return nil
 }
 
-func __chester_read_file(path interface{}) interface{} {
+func __chester_read_file(path any) any {
     bytes, err := os.ReadFile(path.(string))
     if err != nil {
         panic(fmt.Sprintf("Failed to read file: %v", err))
@@ -264,19 +264,19 @@ func __chester_read_file(path interface{}) interface{} {
     return string(bytes)
 }
 
-func __chester_read_stdin() interface{} {
+func __chester_read_stdin() any {
     bytes, _ := io.ReadAll(os.Stdin)
     return string(bytes)
 }
 
-func __chester_write_stdout(s interface{}) interface{} {
+func __chester_write_stdout(s any) any {
     fmt.Print(s.(string))
     return nil
 }
 
-func __chester_field(obj interface{}, field string) interface{} {
+func __chester_field(obj any, field string) any {
     if obj == nil { panic(fmt.Sprintf("cannot access field %s on nil", field)) }
-    if m, ok := obj.(map[string]interface{}); ok {
+    if m, ok := obj.(map[string]any); ok {
         if val, ok := m[field]; ok {
             return val
         }
@@ -284,22 +284,22 @@ func __chester_field(obj interface{}, field string) interface{} {
     panic(fmt.Sprintf("unknown field %s on %T", field, obj))
 }
 
-var __chester_caps []map[string]interface{}
+var __chester_caps []map[string]any
 var __chester_frame_id int
 
 type __chesterHandled struct {
 	id     int
-	result interface{}
+	result any
 }
 
-func __chester_handle(label string, bodyFn func() interface{}, handlers map[string]interface{}) interface{} {
-	var run func(answers []interface{}) interface{}
-	run = func(answers []interface{}) (res interface{}) {
+func __chester_handle(label string, bodyFn func() any, handlers map[string]any) any {
+	var run func(answers []any) any
+	run = func(answers []any) (res any) {
 		ai := 0
 		__chester_frame_id++
 		fid := __chester_frame_id
-		frame := map[string]interface{}{"label": label, "handlers": handlers, "id": fid}
-		frame["take"] = func() (bool, interface{}) {
+		frame := map[string]any{"label": label, "handlers": handlers, "id": fid}
+		frame["take"] = func() (bool, any) {
 			if ai < len(answers) {
 				v := answers[ai]
 				ai++
@@ -307,8 +307,8 @@ func __chester_handle(label string, bodyFn func() interface{}, handlers map[stri
 			}
 			return false, nil
 		}
-		frame["fork"] = func(v interface{}) interface{} {
-			next := append(append([]interface{}{}, answers[:ai]...), v)
+		frame["fork"] = func(v any) any {
+			next := append(append([]any{}, answers[:ai]...), v)
 			return run(next)
 		}
 		__chester_caps = append(__chester_caps, frame)
@@ -327,38 +327,38 @@ func __chester_handle(label string, bodyFn func() interface{}, handlers map[stri
 	return run(nil)
 }
 
-func __chester_perform(op string, args []interface{}) interface{} {
+func __chester_perform(op string, args []any) any {
 	for i := len(__chester_caps) - 1; i >= 0; i-- {
 		frame := __chester_caps[i]
-		handlers := frame["handlers"].(map[string]interface{})
+		handlers := frame["handlers"].(map[string]any)
 		h, ok := handlers[op]
 		if !ok {
 			continue
 		}
-		take := frame["take"].(func() (bool, interface{}))
+		take := frame["take"].(func() (bool, any))
 		if ok2, v := take(); ok2 {
 			return v
 		}
-		resume := func(v interface{}) interface{} {
-			return frame["fork"].(func(interface{}) interface{})(v)
+		resume := func(v any) any {
+			return frame["fork"].(func(any) any)(v)
 		}
 		fn := h
 		for _, a := range args {
-			fn = fn.(func(interface{}) interface{})(a)
+			fn = fn.(func(any) any)(a)
 		}
-		result := fn.(func(interface{}) interface{})(resume)
+		result := fn.(func(any) any)(resume)
 		panic(__chesterHandled{id: frame["id"].(int), result: result})
 	}
 	panic("Unhandled effect operation: " + op)
 }
 
-func __chester_evidence(labels []interface{}) []map[string]interface{} {
-	var ev []map[string]interface{}
+func __chester_evidence(labels []any) []map[string]any {
+	var ev []map[string]any
 	for _, lab := range labels {
 		ls := lab.(string)
 		for i := len(__chester_caps) - 1; i >= 0; i-- {
 			if __chester_caps[i]["label"] == ls {
-				ev = append(ev, map[string]interface{}{
+				ev = append(ev, map[string]any{
 					"label":    ls,
 					"handlers": __chester_caps[i]["handlers"],
 				})
@@ -369,30 +369,30 @@ func __chester_evidence(labels []interface{}) []map[string]interface{} {
 	return ev
 }
 
-func __chester_with_evidence(ev []map[string]interface{}, bodyFn func() interface{}) interface{} {
-	var nest func(i int) interface{}
-	nest = func(i int) interface{} {
+func __chester_with_evidence(ev []map[string]any, bodyFn func() any) any {
+	var nest func(i int) any
+	nest = func(i int) any {
 		if i >= len(ev) {
 			return bodyFn()
 		}
 		lab := ev[i]["label"].(string)
-		handlers := ev[i]["handlers"].(map[string]interface{})
-		return __chester_handle(lab, func() interface{} { return nest(i + 1) }, handlers)
+		handlers := ev[i]["handlers"].(map[string]any)
+		return __chester_handle(lab, func() any { return nest(i + 1) }, handlers)
 	}
 	return nest(0)
 }
 
-func __chester_box(labels []interface{}, bodyFn func() interface{}) interface{} {
+func __chester_box(labels []any, bodyFn func() any) any {
 	ev := __chester_evidence(labels)
-	return func() interface{} { return __chester_with_evidence(ev, bodyFn) }
+	return func() any { return __chester_with_evidence(ev, bodyFn) }
 }
 
 var Unit = struct{}{}
 
 
-var _global_elab_state interface{}
-func prim__get_elab_state() interface{} { return _global_elab_state }
-func prim__put_elab_state(s interface{}) interface{} { _global_elab_state = s; return Unit }
+var _global_elab_state any
+func prim__get_elab_state() any { return _global_elab_state }
+func prim__put_elab_state(s any) any { _global_elab_state = s; return Unit }
 
 |}
 
@@ -412,20 +412,20 @@ let go_string_lit (s : string) : string =
 
 (* Fixed source of __chester_assemble_go for re-emission into stage2+. Uses strconv.Quote(pre) at runtime. *)
 let go_assemble_core_src =
-  "\nfunc __chester_assemble_go(body interface{}) interface{} {\n"
+  "\nfunc __chester_assemble_go(body any) any {\n"
   ^ "\tb := strings.Replace(body.(string), \"func main(\", \"func chester_main(\", 1)\n"
   ^ "\tif !strings.Contains(b, \"func chester_main(\") {\n"
-  ^ "\t\tb = b + \"\\nfunc chester_main() interface{} { return nil }\\n\"\n"
+  ^ "\t\tb = b + \"\\nfunc chester_main() any { return nil }\\n\"\n"
   ^ "\t}\n"
   ^ "\tpre := __chester_go_preamble().(string)\n"
-  ^ "\tgetter := \"\\nfunc __chester_go_preamble() interface{} { return \" + strconv.Quote(pre) + \" }\\n\"\n"
+  ^ "\tgetter := \"\\nfunc __chester_go_preamble() any { return \" + strconv.Quote(pre) + \" }\\n\"\n"
   ^ "\tsrc := __chester_assemble_go_src()\n"
   ^ "\tsrcFn := \"\\nfunc __chester_assemble_go_src() string { return \" + strconv.Quote(src) + \" }\\n\"\n"
   ^ "\treturn pre + getter + src + srcFn + b + \"\\nfunc main() {\\n\\tfmt.Println(chester_main())\\n}\\n\"\n"
   ^ "}\n"
 
 let go_assemble_helpers =
-  "\nfunc __chester_go_preamble() interface{} { return " ^ go_string_lit go_preamble_body ^ " }\n"
+  "\nfunc __chester_go_preamble() any { return " ^ go_string_lit go_preamble_body ^ " }\n"
   ^ go_assemble_core_src
   ^ "\nfunc __chester_assemble_go_src() string { return " ^ go_string_lit go_assemble_core_src ^ " }\n"
 
