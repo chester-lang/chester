@@ -576,7 +576,7 @@ Fixpoint elab_extern_decls (env : TypeEnv) (decls : list CST) : list string * Ty
 Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
   match body with
   | [] => []
-  | AstDef n tps params ret _ :: xs =>
+  | AstDef n tps params ret _ _ :: xs =>
       (n, AstFunTy tps params ret []) :: module_exports_of xs
   | AstSigVal n tps params ret effs :: xs =>
       (n, AstFunTy tps params ret effs) :: module_exports_of xs
@@ -588,7 +588,7 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
       (n, AstModTy []) :: module_exports_of xs
   | AstSignature n decls :: xs =>
       (n, AstSignature n decls) :: module_exports_of xs
-  | AstSpan _ (AstDef n tps params ret _) :: xs =>
+  | AstSpan _ (AstDef n tps params ret _ _) :: xs =>
       (n, AstFunTy tps params ret []) :: module_exports_of xs
   | AstSpan _ (AstSigVal n tps params ret effs) :: xs =>
       (n, AstFunTy tps params ret effs) :: module_exports_of xs
@@ -627,7 +627,7 @@ Fixpoint seal_exports_check (opaque : bool) (full : list (string * AST))
           end
       | None => inl ("signature requires missing value: " ++ n)
       end
-  | AstDef n _ _ _ _ :: rest =>
+  | AstDef n _ _ _ _ _ :: rest =>
       match find (fun p => String.eqb (fst p) n) full with
       | Some p =>
           match seal_exports_check opaque full rest with
@@ -668,7 +668,7 @@ Definition seal_exports (full : list (string * AST)) (sig_decls : list AST)
             | Some p => p :: go rest
             | None => go rest
             end
-        | AstDef n _ _ _ _ :: rest =>
+        | AstDef n _ _ _ _ _ :: rest =>
             match find (fun p => String.eqb (fst p) n) full with
             | Some p => p :: go rest
             | None => go rest
@@ -939,14 +939,14 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
              entry defs still see residual body effects via pending). *)
           set_pending (merge_effects old_pending body_effs) ;;
           let fun_ty := AstFunTy type_params paramsAst (fst retAst) open_effs in
-          ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
+          ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst) open_effs, fun_ty)
       | _ =>
           (* Annotated: effects are latent on the FunTy only — not performed
              at the definition site. *)
           set_pending old_pending ;;
           if effect_row_subsumes body_effs decl_effs then
             let fun_ty := AstFunTy type_params paramsAst (fst retAst) decl_effs in
-            ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst), fun_ty)
+            ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst) open_effs, fun_ty)
           else
             throw ("effect row too large for declared annotation on: " ++ name)
       end
@@ -1299,7 +1299,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             r <- elaborate fuel' benv c None ;
             let '(benv', acc_ex') :=
               match c, fst r, snd r with
-              | DefCST n _ _ _ _ sp, AstDef _ tps ps rt _, ty =>
+              | DefCST n _ _ _ _ sp, AstDef _ tps ps rt _ _, ty =>
                   (((n, context sp), ty) :: benv, (n, ty) :: acc_ex)
               | TypeDeclCST n _ sp, AstTypeDecl _ opt, _ =>
                   (((n, context sp), AstTypeDecl n opt) :: benv,
@@ -1323,9 +1323,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       let fix keep_sealed (sealed : list (string * AST)) (ls : list AST) : list AST :=
         match ls with
         | [] => []
-        | AstDef n tps ps rt b :: xs =>
+        | AstDef n tps ps rt b effs :: xs =>
             match lookup_export sealed n with
-            | Some _ => AstDef n tps ps rt b :: keep_sealed sealed xs
+            | Some _ => AstDef n tps ps rt b effs :: keep_sealed sealed xs
             | None => keep_sealed sealed xs
             end
         | AstTypeDecl n opt :: xs =>
@@ -1334,9 +1334,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             | Some _ => AstTypeDecl n opt :: keep_sealed sealed xs
             | None => keep_sealed sealed xs
             end
-        | AstSpan sp (AstDef n tps ps rt b) :: xs =>
+        | AstSpan sp (AstDef n tps ps rt b effs) :: xs =>
             match lookup_export sealed n with
-            | Some _ => AstSpan sp (AstDef n tps ps rt b) :: keep_sealed sealed xs
+            | Some _ => AstSpan sp (AstDef n tps ps rt b effs) :: keep_sealed sealed xs
             | None => keep_sealed sealed xs
             end
         | AstSpan sp (AstTypeDecl n opt) :: xs =>
@@ -1714,8 +1714,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 ast <- elaborate fuel' env m None ;
                 rest_ast <- elab_meths rest ;
                 let renamed_ast := match m, fst ast with
-                                   | DefCST n _ _ _ _ _, AstDef _ tps ps rt b =>
-                                       AstDef (append (append ext_name "_") n) tps ps rt b
+                                   | DefCST n _ _ _ _ _, AstDef _ tps ps rt b effs =>
+                                       AstDef (append (append ext_name "_") n) tps ps rt b effs
                                    | _, a => a
                                    end in
                 ret (renamed_ast :: rest_ast)

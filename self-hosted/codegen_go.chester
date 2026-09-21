@@ -148,7 +148,7 @@ def collect_go_sigs(asts: List(AST.AST)): List(Pair) = {
     let head = list_get(asts, 0);
     let rest = advance(asts);
     match head {
-      case AstDef(name, _, params, ret_ty, _) => {
+      case AstDef(name, _, params, ret_ty, _, _) => {
         let info = MkPair(map_param_go_tys(params), chester_to_go_type(ret_ty));
         list_insert_first(collect_go_sigs(rest), MkPair(name, info))
       };
@@ -782,7 +782,7 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
               else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), ret))
             }
           };
-          case AstDef(_, _, _, _, _) => {
+          case AstDef(_, _, _, _, _, _) => {
             let d = emit_go_stmt(next_fuel, sigs, tail_locals, go_iface(), tail);
             if int_eq(list_length(stmts), 0) then d
             else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
@@ -831,7 +831,7 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
         }
       };
       
-      case AstDef(name, _, params, ret_ann, body) => {
+      case AstDef(name, _, params, ret_ann, body, _) => {
         if go_preamble_surface(name) then ""
         else {
           let go_ret = chester_to_go_type(ret_ann);
@@ -884,7 +884,7 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
       };
       case AstSpan(_, inner) => emit_go_expr_stmt(next_fuel, sigs, locals, inner);
       case AstBlock(_, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
-      case AstDef(_, _, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstDef(_, _, _, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
       case AstEnum(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
       case AstExtension(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
       case AstImport(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);

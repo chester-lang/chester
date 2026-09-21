@@ -60,7 +60,7 @@ Fixpoint free_in (name : string) (t : AST) {struct t} : bool :=
   | AstBox e _ => free_in name e
   | AstUnbox e => free_in name e
   | AstIf c th el => orb (free_in name c) (orb (free_in name th) (free_in name el))
-  | AstDef _ _ params ret body =>
+  | AstDef _ _ params ret body effs =>
       orb (existsb (fun p => free_in name (snd p)) params)
         (orb (free_in name ret) (free_in name body))
   | AstFunTy _ params ret _ =>
@@ -136,10 +136,10 @@ Fixpoint rename_free (old new : string) (t : AST) {struct t} : AST :=
   | AstUnbox e => AstUnbox (rename_free old new e)
   | AstIf c th el =>
       AstIf (rename_free old new c) (rename_free old new th) (rename_free old new el)
-  | AstDef n tp params ret body =>
+  | AstDef n tp params ret body effs =>
       AstDef n tp
         (map (fun p => (fst p, rename_free old new (snd p))) params)
-        (rename_free old new ret) (rename_free old new body)
+        (rename_free old new ret) (rename_free old new body) effs
   | AstFunTy tp params ret effs =>
       AstFunTy tp
         (map (fun p => (fst p, rename_free old new (snd p))) params)
@@ -246,7 +246,7 @@ Fixpoint ast_size (t : AST) {struct t} : nat :=
   | AstLet _ val | AstVar _ val | AstAssign _ val => S (ast_size val)
   | AstBox e _ | AstUnbox e | AstFieldAccess e _ | AstSpan _ e => S (ast_size e)
   | AstIf c th el => S (ast_size c + ast_size th + ast_size el)
-  | AstDef _ _ params ret body =>
+  | AstDef _ _ params ret body effs =>
       S (sizes_paired params + ast_size ret + ast_size body)
   | AstFunTy _ params ret _ => S (sizes_paired params + ast_size ret)
   | AstMatch e cases => S (ast_size e + sizes_cases cases)
@@ -311,11 +311,11 @@ Fixpoint subst_ast_fuel (fuel : nat) (x : string) (v : AST) (body : AST) {struct
   | AstIf c t e =>
       AstIf (subst_ast_fuel fuel' x v c) (subst_ast_fuel fuel' x v t)
         (subst_ast_fuel fuel' x v e)
-  | AstDef n tp params ret b =>
+  | AstDef n tp params ret b effs =>
       let params' := map (fun p => (fst p, subst_ast_fuel fuel' x v (snd p))) params in
       let ret' := subst_ast_fuel fuel' x v ret in
       let bound := n :: map fst params in
-      if string_in_list x bound then AstDef n tp params' ret' b
+      if string_in_list x bound then AstDef n tp params' ret' b effs
       else
         let fix freshen_params (ps : list (string * AST)) (body0 : AST) {struct ps}
           : list (string * AST) * AST :=
@@ -333,7 +333,7 @@ Fixpoint subst_ast_fuel (fuel : nat) (x : string) (v : AST) (body : AST) {struct
           end
         in
         let (params'', b0) := freshen_params params' b in
-        AstDef n tp params'' ret' (subst_ast_fuel fuel' x v b0)
+        AstDef n tp params'' ret' (subst_ast_fuel fuel' x v b0) effs
   | AstFunTy tp params ret effs =>
       let params' := map (fun p => (fst p, subst_ast_fuel fuel' x v (snd p))) params in
       let fix go (ps : list (string * AST)) (r : AST) {struct ps}
@@ -480,7 +480,7 @@ Fixpoint strip_span (e : AST) : AST :=
   | AstHandle e eff hs => AstHandle (strip_span e) eff (map (fun p => (fst p, strip_span (snd p))) hs)
   | AstLet n val => AstLet n (strip_span val)
   | AstIf c t e => AstIf (strip_span c) (strip_span t) (strip_span e)
-  | AstDef n tp p r b => AstDef n tp p r b
+  | AstDef n tp p r b effs => AstDef n tp p r b effs
   | AstFunTy tp p r effs => AstFunTy tp p (strip_span r) effs
   | AstMatch expr cases => AstMatch (strip_span expr) cases
   | AstRecord n tp fields => AstRecord n tp fields
@@ -803,10 +803,10 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
         | [] => e
         | x :: xs =>
             match x with
-            | AstDef name tps params ret_ty _ =>
-                prebind xs ((name, AstFunTy tps params ret_ty []) :: e)
-            | AstSpan _ (AstDef name tps params ret_ty _) =>
-                prebind xs ((name, AstFunTy tps params ret_ty []) :: e)
+            | AstDef name tps params ret_ty _ effs =>
+                prebind xs ((name, AstFunTy tps params ret_ty effs) :: e)
+            | AstSpan _ (AstDef name tps params ret_ty _ effs) =>
+                prebind xs ((name, AstFunTy tps params ret_ty effs) :: e)
             | AstTypeDecl name opt =>
                 prebind xs ((name, AstTypeDecl name opt) :: e)
             | AstSpan _ (AstTypeDecl name opt) =>
@@ -815,14 +815,14 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 let fix exports_of (ls : list AST) : list (string * AST) :=
                   match ls with
                   | [] => []
-                  | AstDef n tps params ret_ty _ :: xs =>
-                      (n, AstFunTy tps params ret_ty []) :: exports_of xs
+                  | AstDef n tps params ret_ty _ effs :: xs =>
+                      (n, AstFunTy tps params ret_ty effs) :: exports_of xs
                   | AstSigVal n tps params ret_ty effs :: xs =>
                       (n, AstFunTy tps params ret_ty effs) :: exports_of xs
                   | AstTypeDecl n opt :: xs =>
                       (n, AstTypeDecl n opt) :: exports_of xs
-                  | AstSpan _ (AstDef n tps params ret_ty _) :: xs =>
-                      (n, AstFunTy tps params ret_ty []) :: exports_of xs
+                  | AstSpan _ (AstDef n tps params ret_ty _ effs) :: xs =>
+                      (n, AstFunTy tps params ret_ty effs) :: exports_of xs
                   | AstSpan _ (AstSigVal n tps params ret_ty effs) :: xs =>
                       (n, AstFunTy tps params ret_ty effs) :: exports_of xs
                   | AstSpan _ (AstTypeDecl n opt) :: xs =>
@@ -846,7 +846,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                             | Some p => p :: filter_sig rest
                             | None => filter_sig rest
                             end
-                        | AstDef n _ _ _ _ :: rest =>
+                        | AstDef n _ _ _ _ _ :: rest =>
                             match find (fun p => String.eqb (fst p) n) full with
                             | Some p => p :: filter_sig rest
                             | None => filter_sig rest
@@ -895,10 +895,10 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                   | [] => e0
                   | m :: ms' =>
                       match m with
-                      | AstDef name tps params ret_ty _ =>
-                          bind_meths ms' ((name, AstFunTy tps params ret_ty []) :: e0)
-                      | AstSpan _ (AstDef name tps params ret_ty _) =>
-                          bind_meths ms' ((name, AstFunTy tps params ret_ty []) :: e0)
+                      | AstDef name tps params ret_ty _ effs =>
+                          bind_meths ms' ((name, AstFunTy tps params ret_ty effs) :: e0)
+                      | AstSpan _ (AstDef name tps params ret_ty _ effs) =>
+                          bind_meths ms' ((name, AstFunTy tps params ret_ty effs) :: e0)
                       | _ => bind_meths ms' e0
                       end
                   end
@@ -962,19 +962,24 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       | TyErr e => TyErr e
       end
 
-  | AstDef name type_params params ret_ty body =>
+  | AstDef name type_params params ret_ty body effs =>
       let fix build_env (ps : list (string * AST)) (e : TypeEnv) : TypeEnv :=
         match ps with
         | [] => e
         | (pname, pty) :: rest => build_env rest ((pname, pty) :: e)
         end
       in
-      let fun_ty := AstFunTy type_params params ret_ty [] in
+      let fun_ty := AstFunTy type_params params ret_ty effs in
       let body_env := (name, fun_ty) :: build_env params env in
-      match infer_check body_env body (Some ret_ty) with
-      | TyOk _ => TyOk fun_ty
-      | TyErr e => TyErr e
-      end
+      let is_rec := free_in name body in
+      let is_div := effect_row_has (BuiltinEffect "div") effs in
+      if andb is_rec (negb is_div) then
+        TyErr ("Termination check failed: recursive function '" ++ name ++ "' must declare the 'div' effect")
+      else
+        match infer_check body_env body (Some ret_ty) with
+        | TyOk _ => TyOk fun_ty
+        | TyErr e => TyErr e
+        end
 
   | AstMatch expr cases =>
       match infer_check env expr None with
@@ -1082,12 +1087,12 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 let e' :=
                   match m with
                   | AstTypeDecl n opt => (n, AstTypeDecl n opt) :: e
-                  | AstDef n tps params ret_ty _ =>
-                      (n, AstFunTy tps params ret_ty []) :: e
+                  | AstDef n tps params ret_ty _ effs =>
+                      (n, AstFunTy tps params ret_ty effs) :: e
                   | AstSpan _ (AstTypeDecl n opt) =>
                       (n, AstTypeDecl n opt) :: e
-                  | AstSpan _ (AstDef n tps params ret_ty _) =>
-                      (n, AstFunTy tps params ret_ty []) :: e
+                  | AstSpan _ (AstDef n tps params ret_ty _ effs) =>
+                      (n, AstFunTy tps params ret_ty effs) :: e
                   | _ => e
                   end
                 in check_body e' ms'

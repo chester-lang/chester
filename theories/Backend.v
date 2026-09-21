@@ -101,7 +101,7 @@ Fixpoint collect_go_sigs_one (a : AST) {struct a} : GoSigEnv :=
     end
   in
   match a with
-  | AstDef name _ params ret_ty _ =>
+  | AstDef name _ params ret_ty _ _ =>
       [(name, (map (fun p => chester_to_go_type (snd p)) params, chester_to_go_type ret_ty))]
   | AstExtension _ _ _ meths => on_list meths
   | AstBlock stmts _ => on_list stmts
@@ -478,7 +478,7 @@ Fixpoint emit_ts_expr (ast : AST) {struct ast} : TypeScriptExpr :=
   | AstVar name value => TsIIFE [TsVar name (emit_ts_expr value)]
   | AstAssign name value => TsIIFE [TsAssign name (emit_ts_expr value)]
   | AstIf cond true_br false_br => TsIIFE [TsIfStmt (emit_ts_expr cond) (emit_ts_block true_br) (emit_ts_block false_br)]
-  | AstDef name _ params _ body => TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)]
+  | AstDef name _ params _ body _ => TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)]
   | AstEnum _ _ _ => TsIdentifier "null"
   | AstExtension _ _ _ _ => TsIdentifier "null"
   | AstBox e caps =>
@@ -546,7 +546,7 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstPack m _ => TsExprStmt (emit_ts_expr m)
   | AstUnpack x _ e body =>
       TsExprStmt (TsIIFE (TsLet x (emit_ts_expr e) :: emit_ts_block body))
-  | AstDef name _ params _ body => TsFunctionDecl name (map fst params) (emit_ts_block body)
+  | AstDef name _ params _ body _ => TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
   | AstExtension _ _ _ meths =>
       let fix map_meths (ls : list AST) : list TypeScriptStmt :=
@@ -750,7 +750,7 @@ with emit_ts_block (ast : AST) {struct ast} : list TypeScriptStmt :=
       [TsReturn (TsCall (TsIdentifier "__chester_box")
         [TsArray (effect_label_lits caps); TsArrow [] [TsReturn (emit_ts_expr e)]])]
   | AstUnbox e => [TsReturn (TsCall (emit_ts_expr e) [])]
-  | AstDef name _ params _ body => [TsReturn (TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)])]
+  | AstDef name _ params _ body _ => [TsReturn (TsIIFE [TsFunctionDecl name (map fst params) (emit_ts_block body)])]
   | AstEnum _ _ _ => [TsReturn (TsIdentifier "null")]
   | AstExtension _ _ _ _ => [TsReturn (TsIdentifier "null")]
   | AstRecord name _ _ => [TsReturn (TsIdentifier "null")]
@@ -800,7 +800,7 @@ Fixpoint emit_ts_top_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
       in TsNamespace name (emit_body body)
   | AstSignature name _ => TsInterface name
   | AstFunctorApp _ _ => TsEmpty
-  | AstDef name _ params _ body => TsExportFunction name (map fst params) (emit_ts_block body)
+  | AstDef name _ params _ body _ => TsExportFunction name (map fst params) (emit_ts_block body)
   | AstLet name value => TsConst name (emit_ts_expr value)
   | AstRef "Unit" => TsEmpty
   | AstSpan _ inner => emit_ts_top_stmt inner
@@ -899,7 +899,7 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
   | AstUnbox e =>
       go_call_emitted false (emit_go_expr sigs locals e) []
   | AstIf cond true_br false_br => GoCall (GoFuncLiteral [] go_iface [GoIfStmt (go_bool_cond sigs locals (emit_go_expr sigs locals cond)) (emit_go_block sigs locals true_br) (emit_go_block sigs locals false_br)]) []
-  | AstDef name _ params ret_ty body =>
+  | AstDef name _ params ret_ty body _ =>
       if go_preamble_surface name then GoIdentifier "nil"
       else
         let ps := go_params_of params in
@@ -962,7 +962,7 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
       let fix prefix_and_emit (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
-        | AstDef dname _ params ret_ty bd :: xs =>
+        | AstDef dname _ params ret_ty bd _ :: xs =>
             let ps := go_params_of params in
             let ret := chester_to_go_type ret_ty in
             let bls := go_bind_params [] ps in
@@ -993,7 +993,7 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
          :: emit_go_block sigs (go_bind_local locals x go_iface) body)) [])
   | AstLet name value =>
       GoBlock [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name]
-  | AstDef name _ params ret_ty body =>
+  | AstDef name _ params ret_ty body _ =>
       if go_preamble_surface name then GoEmpty
       else
         let ps := go_params_of params in
@@ -1254,7 +1254,7 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
         [GoArray (effect_label_go_lits caps);
          GoFuncLiteral [] go_iface [GoReturn (emit_go_expr sigs locals e)]])]
   | AstUnbox e => [GoReturn (go_call_emitted false (emit_go_expr sigs locals e) [])]
-  | AstDef name _ params ret_ty body =>
+  | AstDef name _ params ret_ty body _ =>
       if go_preamble_surface name then []
       else
         let ps := go_params_of params in
@@ -1276,7 +1276,7 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
       let fix prefix_decls (ls : list AST) : list GoStmt :=
         match ls with
         | [] => []
-        | AstDef dname _ params ret_ty bd :: xs =>
+        | AstDef dname _ params ret_ty bd _ :: xs =>
             let ps := go_params_of params in
             let ret := chester_to_go_type ret_ty in
             let bls := go_bind_params [] ps in
@@ -1336,7 +1336,7 @@ Definition emit_go (ast : AST) : GoStmt :=
 (* Top-level Go emit: keep declarations at package scope (no wrapping IIFE). *)
 Fixpoint go_is_top_decl (ast : AST) {struct ast} : bool :=
   match ast with
-  | AstDef _ _ _ _ _ => true
+  | AstDef _ _ _ _ _ _ => true
   | AstRecord _ _ _ => true
   | AstEnum _ _ _ => true
   | AstExtension _ _ _ _ => true

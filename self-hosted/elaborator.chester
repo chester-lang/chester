@@ -1411,7 +1411,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
           let retAst_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
           match retAst_res {
             case MkPair(rAst, _) => {
-              let fun_ty0 = AST.AstFunTy(type_params, paramsAst, rAst, list_empty[String]());
+              let fun_ty0 = AST.AstFunTy(type_params, paramsAst, rAst, list_insert_first(list_empty[String](), "div"));
               let body_env = list_insert_first(append_env(envItems, env), Pair.MkPair(Pair.MkPair(name, span_context(span)), fun_ty0));
               let s0 = get_elab_state();
               match s0 {
@@ -1426,7 +1426,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                           let open_effs = with_open_row(body_effs);
                           put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act1, merge_effects(pend0, body_effs)));
                           let fun_ty = AST.AstFunTy(type_params, paramsAst, rAst, open_effs);
-                          Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst), fun_ty)
+                          Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst, open_effs), fun_ty)
                         }
                       }
                     }

@@ -72,7 +72,7 @@ let rec collect_elab_env (ast : aST) : typeEnv0 =
   | _ -> []
 
 and collect_elab_stmt = function
-  | AstDef (name, tps, ps, rt, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
+  | AstDef (name, tps, ps, rt, _, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
   | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
   | AstSpan (_, inner) -> collect_elab_env inner
   | AstBlock _ as b -> collect_elab_env b
@@ -288,6 +288,7 @@ let parity_fixtures =
     ("tests/binders_shadow.chester", "3");
     ("tests/binders_shadow_restore.chester", "1");
     ("tests/binders_capture.chester", "11");
+    ("tests/termination.chester", "0");
   ]
 
 let check_rocq_selfhosted_parity () =
@@ -860,5 +861,6 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/binders_shadow.chester parity ok (3)
     tests/binders_shadow_restore.chester parity ok (1)
     tests/binders_capture.chester parity ok (11)
+    tests/termination.chester parity ok (0)
     |}]
 

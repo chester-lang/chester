@@ -112,7 +112,7 @@ Fixpoint emit_rocq_expr (ast : AST) {struct ast} : RocqExpr :=
                  (rocq_call (RocqIdentifier "chester_set")
                     [RocqString name; emit_rocq_expr value])
                  acc)
-        | AstDef name _ params _ body :: xs =>
+        | AstDef name _ params _ body _ :: xs =>
             fold_stmts xs
               (RocqLetIn name
                  (emit_rocq_lam_params (map fst params) (emit_rocq_expr body))
@@ -160,7 +160,7 @@ Fixpoint emit_rocq_expr (ast : AST) {struct ast} : RocqExpr :=
       RocqIf (rocq_bool_cond (emit_rocq_expr cond))
         (emit_rocq_expr true_br)
         (emit_rocq_expr false_br)
-  | AstDef _ _ params _ body =>
+  | AstDef _ _ params _ body _ =>
       emit_rocq_lam_params (map fst params) (emit_rocq_expr body)
   | AstEnum _ _ _ => RocqUnit
   | AstExtension _ _ _ _ => RocqUnit
@@ -189,7 +189,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
   | AstAssign name value =>
       RocqDefinition ("_assign_" ++ name) []
         (rocq_call (RocqIdentifier "chester_set") [RocqString name; emit_rocq_expr value])
-  | AstDef name _ params _ body =>
+  | AstDef name _ params _ body _ =>
       RocqDefinition name (map fst params) (emit_rocq_expr body)
   | AstRecord name _ _ => RocqInductive name
   | AstEnum _ _ _ => RocqEmpty
@@ -205,7 +205,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
       let fix prefix_defs (ls : list AST) : list RocqStmt :=
         match ls with
         | [] => []
-        | AstDef dname _ params _ bd :: xs =>
+        | AstDef dname _ params _ bd _ :: xs =>
             RocqDefinition dname (map fst params)
               (emit_rocq_lam_params (map fst params) (emit_rocq_expr bd))
               :: prefix_defs xs
@@ -213,7 +213,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
             RocqDefinition tname [] (emit_rocq_expr ty) :: prefix_defs xs
         | AstTypeDecl tname None :: xs =>
             RocqDefinition tname [] RocqUnit :: prefix_defs xs
-        | AstSpan _ (AstDef dname _ params _ bd) :: xs =>
+        | AstSpan _ (AstDef dname _ params _ bd _) :: xs =>
             RocqDefinition dname (map fst params)
               (emit_rocq_lam_params (map fst params) (emit_rocq_expr bd))
               :: prefix_defs xs
@@ -232,7 +232,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
         | [] => []
         | AstSigVal n _ params _ _ :: xs =>
             RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
-        | AstDef n _ params _ _ :: xs =>
+        | AstDef n _ params _ _ _ :: xs =>
             RocqDefinition n (map fst params) RocqUnit :: sig_defs xs
         | AstTypeDecl n _ :: xs =>
             RocqDefinition n [] RocqUnit :: sig_defs xs

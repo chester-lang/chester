@@ -32,3 +32,4 @@ def int_gt(a: Integer, b: Integer): Bool = prim__int_gt(a, b);
 def int_ge(a: Integer, b: Integer): Bool = prim__int_ge(a, b);
 def int_le(a: Integer, b: Integer): Bool = prim__int_le(a, b);
 def int_neg(a: Integer): Integer = prim__int_neg(a);
+effect div {};

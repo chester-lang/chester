@@ -73,7 +73,7 @@ def digit_char(d: Integer): String = {
   if int_eq(d, 7) then "7" else
   if int_eq(d, 8) then "8" else "9"
 };
-def int_to_string_helper(n: Integer, acc: String): String = {
+def int_to_string_helper(n: Integer, acc: String): String / [div] = {
   if int_eq(n, 0) then acc else {
     let d = int_mod(n, 10);
     let rest = int_div(n, 10);
@@ -105,7 +105,7 @@ def char_digit(c: String): Integer = {
   if string_eq(c, "8") then 8 else
   if string_eq(c, "9") then 9 else 0
 };
-def string_to_int_aux(s: String, idx: Integer, acc: Integer): Integer = {
+def string_to_int_aux(s: String, idx: Integer, acc: Integer): Integer / [div] = {
   if int_eq(idx, string_length(s)) then acc
   else string_to_int_aux(s, int_add(idx, 1), int_add(int_mul(acc, 10), char_digit(string_char_at(s, idx))))
 };
@@ -151,7 +151,7 @@ def list_map[A, B](list: List(A), f: (x: A) -> B): List(B) = {
   let len = list.length();
   list_make(len, \i => f(list.get(i)))
 };
-def find_matching_index[T](list: List(T), predicate: (x: T) -> Bool, target_match: Integer, current_idx: Integer, matches_found: Integer): Integer = {
+def find_matching_index[T](list: List(T), predicate: (x: T) -> Bool, target_match: Integer, current_idx: Integer, matches_found: Integer): Integer / [div] = {
   if int_eq(current_idx, list.length()) then {
     int_sub(0, 1)
   } else {
@@ -167,7 +167,7 @@ def find_matching_index[T](list: List(T), predicate: (x: T) -> Bool, target_matc
   }
 };
 def list_filter[T](list: List(T), predicate: (x: T) -> Bool): List(T) = prim__list_filter(list, predicate);
-def list_foldl_helper[A, B](list: List(A), init: B, f: (acc: B, elem: A) -> B, idx: Integer): B = {
+def list_foldl_helper[A, B](list: List(A), init: B, f: (acc: B, elem: A) -> B, idx: Integer): B / [div] = {
   if int_eq(idx, list.length()) then {
     init
   } else {
