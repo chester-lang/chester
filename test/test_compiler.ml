@@ -72,7 +72,8 @@ let rec collect_elab_env (ast : aST) : typeEnv0 =
   | _ -> []
 
 and collect_elab_stmt = function
-  | AstDef (name, tps, ps, rt, _, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
+  | AstDef (name, tps, ps, rt, _, _) ->
+      [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
   | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
   | AstSpan (_, inner) -> collect_elab_env inner
   | AstBlock _ as b -> collect_elab_env b
@@ -97,7 +98,9 @@ let check_selfhosted_sources () =
   let tenv = ref [] in
   let files =
     "stdlib/std.chester"
-    :: List.map (fun f -> Filename.concat "self-hosted" f) (list_selfhosted_sources ())
+    :: List.map
+         (fun f -> Filename.concat "self-hosted" f)
+         (list_selfhosted_sources ())
   in
   List.iter
     (fun path ->
@@ -106,8 +109,7 @@ let check_selfhosted_sources () =
       let cst = parse tokens in
       let expanded_cst = expand_cst_top cst in
       match elaborate_top !tenv expanded_cst None !state with
-      | Inr (msg, _) ->
-          failwith ("Type Error: " ^ string_of_char_list msg)
+      | Inr (msg, _) -> failwith ("Type Error: " ^ string_of_char_list msg)
       | Inl ((ast, _), state') ->
           state := state';
           tenv := collect_elab_env ast @ !tenv;
@@ -126,7 +128,8 @@ let run_fixture_main filename =
   close_out oc;
   let st =
     Sys.command
-      (Printf.sprintf "node %s > %s 2>&1" (Filename.quote tmp) (Filename.quote out))
+      (Printf.sprintf "node %s > %s 2>&1" (Filename.quote tmp)
+         (Filename.quote out))
   in
   let line =
     let ic = open_in out in
@@ -165,9 +168,11 @@ let rename_chester_main go_code =
 
 let assemble_go_program ast =
   let body =
-    rename_chester_main (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
+    rename_chester_main
+      (string_of_char_list (stringify_go_stmt (emit_go_top ast)))
   in
-  go_effects_preamble ^ "\n" ^ body ^ "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n"
+  go_effects_preamble ^ "\n" ^ body
+  ^ "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n"
 
 let first_line output =
   try
@@ -234,8 +239,8 @@ let build_stage1_compiler () =
   in
   let st =
     Sys.command
-      (Printf.sprintf "%s --go -o %s %s > %s 2>&1"
-         (Filename.quote main_bin) (Filename.quote go_out)
+      (Printf.sprintf "%s --go -o %s %s > %s 2>&1" (Filename.quote main_bin)
+         (Filename.quote go_out)
          (String.concat " " (List.map Filename.quote inputs))
          (Filename.quote log))
   in
@@ -244,8 +249,7 @@ let build_stage1_compiler () =
   Sys.mkdir gocache 0o755;
   let st =
     Sys.command
-      (Printf.sprintf
-         "cd %s && GOCACHE=%s go build -o %s %s > %s 2>&1"
+      (Printf.sprintf "cd %s && GOCACHE=%s go build -o %s %s > %s 2>&1"
          (Filename.quote dir) (Filename.quote gocache) (Filename.quote bin)
          (Filename.quote go_out) (Filename.quote log))
   in
@@ -263,8 +267,8 @@ let selfhosted_go_run_output stage1_bin filename =
   let st =
     Sys.command
       (Printf.sprintf "%s %s > %s 2> %s"
-         (Filename.quote stage1_bin) (Filename.quote src)
-         (Filename.quote go_path) (Filename.quote err))
+         (Filename.quote stage1_bin)
+         (Filename.quote src) (Filename.quote go_path) (Filename.quote err))
   in
   if st <> 0 then
     failwith
@@ -451,8 +455,7 @@ let%expect_test "fixture modules import" =
   Sys.remove out;
   if not (has_substr code "namespace Math") then
     failwith "expected Math namespace from file import";
-  if not (has_substr code "Math.add") then
-    failwith "expected Math.add call";
+  if not (has_substr code "Math.add") then failwith "expected Math.add call";
   print_endline "tests/modules_import.chester ok";
   [%expect {| tests/modules_import.chester ok |}]
 
@@ -521,13 +524,16 @@ let%expect_test "unbox without handler is rejected" =
   [%expect {| Unhandled effect: State |}]
 
 let%expect_test "go emit effects handle" =
-  let prog = assemble_go_program (compile_fixture_ast "tests/effects.chester") in
+  let prog =
+    assemble_go_program (compile_fixture_ast "tests/effects.chester")
+  in
   print_endline
-    (if has_substr prog "__chester_handle"
-        && has_substr prog "__chester_perform"
-        && has_substr prog "chester_main"
-        && has_substr prog "package main"
-        && has_substr prog "func main()"
+    (if
+       has_substr prog "__chester_handle"
+       && has_substr prog "__chester_perform"
+       && has_substr prog "chester_main"
+       && has_substr prog "package main"
+       && has_substr prog "func main()"
      then "go effects ok"
      else "go effects missing");
   [%expect {| go effects ok |}]
@@ -538,12 +544,15 @@ let assemble_rocq_program ast =
   ^ "\nDefinition chester_run := chester_main.\n"
 
 let%expect_test "rocq emit effects handle" =
-  let prog = assemble_rocq_program (compile_fixture_ast "tests/effects.chester") in
+  let prog =
+    assemble_rocq_program (compile_fixture_ast "tests/effects.chester")
+  in
   print_endline
-    (if has_substr prog "__chester_handle"
-        && has_substr prog "__chester_perform"
-        && has_substr prog "chester_main"
-        && has_substr prog "chester_dyn"
+    (if
+       has_substr prog "__chester_handle"
+       && has_substr prog "__chester_perform"
+       && has_substr prog "chester_main"
+       && has_substr prog "chester_dyn"
      then "rocq effects ok"
      else "rocq effects missing");
   [%expect {| rocq effects ok |}]
@@ -630,15 +639,18 @@ let%expect_test "stdlib elaborates" =
   [%expect {| stdlib/std.chester ok |}]
 
 let%expect_test "go typed emit params returns lets" =
-  let prog = assemble_go_program (compile_fixture_ast "tests/go_typed_emit.chester") in
+  let prog =
+    assemble_go_program (compile_fixture_ast "tests/go_typed_emit.chester")
+  in
   print_endline
-    (if has_substr prog "func id(x int) int"
-        && has_substr prog "var a int ="
-        && has_substr prog "var n int ="
-        && has_substr prog "var b bool ="
-        && has_substr prog "prim__string_length("
-        && (has_substr prog "if b {" || has_substr prog "if __chester_as_bool(b)")
-        && has_substr prog "id(a)"
+    (if
+       has_substr prog "func id(x int) int"
+       && has_substr prog "var a int ="
+       && has_substr prog "var n int ="
+       && has_substr prog "var b bool ="
+       && has_substr prog "prim__string_length("
+       && (has_substr prog "if b {" || has_substr prog "if __chester_as_bool(b)")
+       && has_substr prog "id(a)"
      then "go typed emit ok"
      else "go typed emit missing");
   [%expect {| go typed emit ok |}]
@@ -691,8 +703,7 @@ let%expect_test "cli prelude chains definitions" =
   let out = Filename.temp_file "chester_prelude_go" ".go" in
   let st =
     Sys.command
-      (Printf.sprintf
-         "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
+      (Printf.sprintf "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
          (Filename.quote main_bin) (Filename.quote prelude) (Filename.quote out)
          (Filename.quote src))
   in
@@ -700,8 +711,8 @@ let%expect_test "cli prelude chains definitions" =
   Sys.remove out;
   if st <> 0 then failwith "prelude compile failed";
   print_endline
-    (if has_substr code "int_add(" && has_substr code "forty()"
-     then "prelude ok"
+    (if has_substr code "int_add(" && has_substr code "forty()" then
+       "prelude ok"
      else "prelude missing");
   [%expect {| prelude ok |}]
 
@@ -713,8 +724,7 @@ let%expect_test "cli stdlib prelude provides int_add" =
   let out = Filename.temp_file "chester_stdlib_prelude_go" ".go" in
   let st =
     Sys.command
-      (Printf.sprintf
-         "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
+      (Printf.sprintf "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
          (Filename.quote main_bin) (Filename.quote prelude) (Filename.quote out)
          (Filename.quote src))
   in
@@ -722,7 +732,8 @@ let%expect_test "cli stdlib prelude provides int_add" =
   Sys.remove out;
   if st <> 0 then failwith "stdlib prelude compile failed";
   print_endline
-    (if has_substr code "int_add(40, 2)" then "stdlib prelude ok" else "stdlib prelude missing");
+    (if has_substr code "int_add(40, 2)" then "stdlib prelude ok"
+     else "stdlib prelude missing");
   [%expect {| stdlib prelude ok |}]
 
 let%expect_test "infix same_as left assoc" =
@@ -745,8 +756,7 @@ let%expect_test "cli minimal prelude provides int_add" =
   let out = Filename.temp_file "chester_minimal_prelude_go" ".go" in
   let st =
     Sys.command
-      (Printf.sprintf
-         "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
+      (Printf.sprintf "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
          (Filename.quote main_bin) (Filename.quote prelude) (Filename.quote out)
          (Filename.quote src))
   in
@@ -754,12 +764,14 @@ let%expect_test "cli minimal prelude provides int_add" =
   Sys.remove out;
   if st <> 0 then failwith "minimal prelude compile failed";
   print_endline
-    (if has_substr code "int_add(40, 2)" then "minimal prelude ok" else "minimal prelude missing");
+    (if has_substr code "int_add(40, 2)" then "minimal prelude ok"
+     else "minimal prelude missing");
   [%expect {| minimal prelude ok |}]
 
 let%expect_test "self-hosted sources elaborate" =
   check_selfhosted_sources ();
-  [%expect {|
+  [%expect
+    {|
     self-hosted/ast.chester ok
     self-hosted/cst.chester ok
     self-hosted/lexer.chester ok
@@ -775,9 +787,10 @@ let%expect_test "react mini ts emit" =
   let ast = compile_fixture_ast "tests/react_mini.chester" in
   let ts_code = string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) in
   print_endline
-    (if has_substr ts_code "import { createElement } from \"react\""
-        && has_substr ts_code "export function Counter"
-        && has_substr ts_code "export function main"
+    (if
+       has_substr ts_code "import { createElement } from \"react\""
+       && has_substr ts_code "export function Counter"
+       && has_substr ts_code "export function main"
      then "react mini ts ok"
      else "react mini ts missing");
   [%expect {| react mini ts ok |}]
@@ -792,7 +805,8 @@ let check_ts_typecheck emitted_ts =
   let st =
     Sys.command
       (Printf.sprintf
-         "cd %s && (test -d node_modules || npm install --silent) && npx tsc --noEmit > %s 2>&1"
+         "cd %s && (test -d node_modules || npm install --silent) && npx tsc \
+          --noEmit > %s 2>&1"
          (Filename.quote ts_dir) (Filename.quote out))
   in
   let msg = read_file out in
@@ -810,16 +824,19 @@ let%expect_test "bindgen react mini d.ts" =
   let root = repo_root (Sys.getcwd ()) in
   let scripts_dir = Filename.concat root "scripts" in
   let fixture = Filename.concat root "test/bindgen/fixtures/react_mini.d.ts" in
-  let expected_path = Filename.concat root "test/bindgen/expected/react_mini.chester" in
+  let expected_path =
+    Filename.concat root "test/bindgen/expected/react_mini.chester"
+  in
   let out = Filename.temp_file "chester_bg" ".chester" in
   let script = Filename.concat root "scripts/dts2chester.mjs" in
   let st =
     Sys.command
       (Printf.sprintf
          "cd %s && (test -d node_modules || npm install --silent) && node %s \
-          --package react --input %s --output %s --filter 'createElement|cloneElement'"
-         (Filename.quote scripts_dir) (Filename.quote script) (Filename.quote fixture)
-         (Filename.quote out))
+          --package react --input %s --output %s --filter \
+          'createElement|cloneElement'"
+         (Filename.quote scripts_dir)
+         (Filename.quote script) (Filename.quote fixture) (Filename.quote out))
   in
   if st <> 0 then failwith "bindgen failed";
   let got = read_file out in
@@ -837,9 +854,9 @@ let%expect_test "counter example vite build" =
   let st =
     Sys.command
       (Printf.sprintf
-         "cd %s && CHESTER_MAIN=%s bash examples/counter/build-chester.sh > %s 2>&1 && \
-          cd examples/counter && (test -d node_modules || npm install --silent) && \
-          npm run build:app >> %s 2>&1"
+         "cd %s && CHESTER_MAIN=%s bash examples/counter/build-chester.sh > %s \
+          2>&1 && cd examples/counter && (test -d node_modules || npm install \
+          --silent) && npm run build:app >> %s 2>&1"
          (Filename.quote root) (Filename.quote main_bin) (Filename.quote out)
          (Filename.quote out))
   in
@@ -851,7 +868,8 @@ let%expect_test "counter example vite build" =
 
 let%expect_test "rocq vs self-hosted go runtime parity" =
   check_rocq_selfhosted_parity ();
-  [%expect {|
+  [%expect
+    {|
     tests/macro_hygiene.chester parity ok (42)
     tests/effects.chester parity ok (42)
     tests/effects_box.chester parity ok (5)
@@ -864,3 +882,18 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/termination.chester parity ok (0)
     |}]
 
+let%expect_test "fixture dependent types" =
+  check_fixture "tests/dependent_types.chester";
+  [%expect {| tests/dependent_types.chester ok |}]
+
+let%expect_test "fixture math lib" =
+  check_fixture "tests/math_lib.chester";
+  [%expect {| tests/math_lib.chester ok |}]
+
+let%expect_test "fixture unification" =
+  check_fixture "tests/unification.chester";
+  [%expect {| tests/unification.chester ok |}]
+
+let%expect_test "fixture vector" =
+  check_fixture "tests/vector.chester";
+  [%expect {| tests/vector.chester ok |}]

@@ -37,6 +37,10 @@
               pkgs.ocamlPackages.ppx_expect
               pkgs.go
             ];
+            doCheck = true;
+            checkPhase = ''
+              dune runtest
+            '';
             buildPhase = ''
               # 0. Build Rocq implementation
               coq_makefile -f _CoqProject -o Makefile
