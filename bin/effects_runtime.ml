@@ -31,67 +31,67 @@ let ts_primitives =
 let ts_effects_runtime =
   "let __chester_caps = [];\n\
    const __chester_handle = (label, bodyFn, handlers) => {\n\
-     const run = (answers) => {\n\
-       let ai = 0;\n\
-       const frame = {\n\
-         label,\n\
-         handlers,\n\
-         take: () => {\n\
-           if (ai < answers.length) return { ok: true, v: answers[ai++] };\n\
-           return { ok: false };\n\
-         },\n\
-         fork: (v) => run(answers.slice(0, ai).concat([v]))\n\
-       };\n\
-       __chester_caps.push(frame);\n\
-       try { return bodyFn(); }\n\
-       catch (e) {\n\
-         if (e && e.__chester_handled === frame) return e.result;\n\
-         throw e;\n\
-       }\n\
-       finally { __chester_caps.pop(); }\n\
-     };\n\
-     return run([]);\n\
+   const run = (answers) => {\n\
+   let ai = 0;\n\
+   const frame = {\n\
+   label,\n\
+   handlers,\n\
+   take: () => {\n\
+   if (ai < answers.length) return { ok: true, v: answers[ai++] };\n\
+   return { ok: false };\n\
+   },\n\
+   fork: (v) => run(answers.slice(0, ai).concat([v]))\n\
+   };\n\
+   __chester_caps.push(frame);\n\
+   try { return bodyFn(); }\n\
+   catch (e) {\n\
+   if (e && e.__chester_handled === frame) return e.result;\n\
+   throw e;\n\
+   }\n\
+   finally { __chester_caps.pop(); }\n\
+   };\n\
+   return run([]);\n\
    };\n\
    const __chester_perform = (op, args) => {\n\
-     for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
-       const frame = __chester_caps[i];\n\
-       const h = frame.handlers[op];\n\
-       if (!h) continue;\n\
-       const got = frame.take();\n\
-       if (got.ok) return got.v;\n\
-       const resume = (v) => frame.fork(v);\n\
-       let fn = h;\n\
-       for (let j = 0; j < args.length; j++) fn = fn(args[j]);\n\
-       const result = fn(resume);\n\
-       throw { __chester_handled: frame, result };\n\
-     }\n\
-     throw new Error(\"Unhandled effect operation: \" + op);\n\
+   for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
+   const frame = __chester_caps[i];\n\
+   const h = frame.handlers[op];\n\
+   if (!h) continue;\n\
+   const got = frame.take();\n\
+   if (got.ok) return got.v;\n\
+   const resume = (v) => frame.fork(v);\n\
+   let fn = h;\n\
+   for (let j = 0; j < args.length; j++) fn = fn(args[j]);\n\
+   const result = fn(resume);\n\
+   throw { __chester_handled: frame, result };\n\
+   }\n\
+   throw new Error(\"Unhandled effect operation: \" + op);\n\
    };\n\
    const __chester_evidence = (labels) => {\n\
-     const ev = [];\n\
-     for (let li = 0; li < labels.length; li++) {\n\
-       const lab = labels[li];\n\
-       for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
-         if (__chester_caps[i].label === lab) {\n\
-           ev.push({ label: lab, handlers: __chester_caps[i].handlers });\n\
-           break;\n\
-         }\n\
-       }\n\
-     }\n\
-     return ev;\n\
+   const ev = [];\n\
+   for (let li = 0; li < labels.length; li++) {\n\
+   const lab = labels[li];\n\
+   for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
+   if (__chester_caps[i].label === lab) {\n\
+   ev.push({ label: lab, handlers: __chester_caps[i].handlers });\n\
+   break;\n\
+   }\n\
+   }\n\
+   }\n\
+   return ev;\n\
    };\n\
    const __chester_with_evidence = (ev, bodyFn) => {\n\
-     let i = 0;\n\
-     const go = () => {\n\
-       if (i >= ev.length) return bodyFn();\n\
-       const { label, handlers } = ev[i++];\n\
-       return __chester_handle(label, go, handlers);\n\
-     };\n\
-     return go();\n\
+   let i = 0;\n\
+   const go = () => {\n\
+   if (i >= ev.length) return bodyFn();\n\
+   const { label, handlers } = ev[i++];\n\
+   return __chester_handle(label, go, handlers);\n\
+   };\n\
+   return go();\n\
    };\n\
    const __chester_box = (labels, bodyFn) => {\n\
-     const ev = __chester_evidence(labels);\n\
-     return () => __chester_with_evidence(ev, bodyFn);\n\
+   const ev = __chester_evidence(labels);\n\
+   return () => __chester_with_evidence(ev, bodyFn);\n\
    };\n"
 
 let ts_runtime_file = ts_primitives ^ ts_effects_runtime
@@ -99,9 +99,8 @@ let ts_runtime_file = ts_primitives ^ ts_effects_runtime
 let ts_test_preamble =
   ts_primitives
   ^ "const int_add = prim__int_add;\n\
-   const int_mul = prim__int_mul;\n\
-   const int_sub = prim__int_sub;\n"
-  ^ ts_effects_runtime
+     const int_mul = prim__int_mul;\n\
+     const int_sub = prim__int_sub;\n" ^ ts_effects_runtime
 
 let go_preamble_body =
   {|
@@ -400,58 +399,63 @@ func prim__put_elab_state(s any) any { _global_elab_state = s; return Unit }
 let go_string_lit (s : string) : string =
   let buf = Buffer.create (String.length s * 2) in
   Buffer.add_char buf '"';
-  String.iter (function
-    | '"' -> Buffer.add_string buf "\\\""
-    | '\\' -> Buffer.add_string buf "\\\\"
-    | '\n' -> Buffer.add_string buf "\\n"
-    | '\t' -> Buffer.add_string buf "\\t"
-    | '\r' -> Buffer.add_string buf "\\r"
-    | c -> Buffer.add_char buf c) s;
+  String.iter
+    (function
+      | '"' -> Buffer.add_string buf "\\\""
+      | '\\' -> Buffer.add_string buf "\\\\"
+      | '\n' -> Buffer.add_string buf "\\n"
+      | '\t' -> Buffer.add_string buf "\\t"
+      | '\r' -> Buffer.add_string buf "\\r"
+      | c -> Buffer.add_char buf c)
+    s;
   Buffer.add_char buf '"';
   Buffer.contents buf
 
 (* Fixed source of __chester_assemble_go for re-emission into stage2+. Uses strconv.Quote(pre) at runtime. *)
 let go_assemble_core_src =
   "\nfunc __chester_assemble_go(body any) any {\n"
-  ^ "\tb := strings.Replace(body.(string), \"func main(\", \"func chester_main(\", 1)\n"
+  ^ "\tb := strings.Replace(body.(string), \"func main(\", \"func \
+     chester_main(\", 1)\n"
   ^ "\tif !strings.Contains(b, \"func chester_main(\") {\n"
-  ^ "\t\tb = b + \"\\nfunc chester_main() any { return nil }\\n\"\n"
-  ^ "\t}\n"
+  ^ "\t\tb = b + \"\\nfunc chester_main() any { return nil }\\n\"\n" ^ "\t}\n"
   ^ "\tpre := __chester_go_preamble().(string)\n"
-  ^ "\tgetter := \"\\nfunc __chester_go_preamble() any { return \" + strconv.Quote(pre) + \" }\\n\"\n"
+  ^ "\tgetter := \"\\nfunc __chester_go_preamble() any { return \" + \
+     strconv.Quote(pre) + \" }\\n\"\n"
   ^ "\tsrc := __chester_assemble_go_src()\n"
-  ^ "\tsrcFn := \"\\nfunc __chester_assemble_go_src() string { return \" + strconv.Quote(src) + \" }\\n\"\n"
-  ^ "\treturn pre + getter + src + srcFn + b + \"\\nfunc main() {\\n\\tfmt.Println(chester_main())\\n}\\n\"\n"
-  ^ "}\n"
+  ^ "\tsrcFn := \"\\nfunc __chester_assemble_go_src() string { return \" + \
+     strconv.Quote(src) + \" }\\n\"\n"
+  ^ "\treturn pre + getter + src + srcFn + b + \"\\nfunc main() \
+     {\\n\\tfmt.Println(chester_main())\\n}\\n\"\n" ^ "}\n"
 
 let go_assemble_helpers =
-  "\nfunc __chester_go_preamble() any { return " ^ go_string_lit go_preamble_body ^ " }\n"
-  ^ go_assemble_core_src
-  ^ "\nfunc __chester_assemble_go_src() string { return " ^ go_string_lit go_assemble_core_src ^ " }\n"
+  "\nfunc __chester_go_preamble() any { return "
+  ^ go_string_lit go_preamble_body
+  ^ " }\n" ^ go_assemble_core_src
+  ^ "\nfunc __chester_assemble_go_src() string { return "
+  ^ go_string_lit go_assemble_core_src
+  ^ " }\n"
 
 let go_effects_preamble = go_preamble_body ^ go_assemble_helpers
 
-
-
 let rocq_effects_preamble =
   "From Stdlib Require Import Strings.String.\n\
-   Open Scope string_scope.\n\
-   \n\
+   Open Scope string_scope.\n\n\
    Inductive chester_dyn : Type :=\n\
-     | chester_unit : chester_dyn\n\
-     | chester_nat : nat -> chester_dyn\n\
-     | chester_bool : bool -> chester_dyn\n\
-     | chester_str : string -> chester_dyn\n\
-     | chester_fun : (chester_dyn -> chester_dyn) -> chester_dyn.\n\
-   \n\
+   | chester_unit : chester_dyn\n\
+   | chester_nat : nat -> chester_dyn\n\
+   | chester_bool : bool -> chester_dyn\n\
+   | chester_str : string -> chester_dyn\n\
+   | chester_fun : (chester_dyn -> chester_dyn) -> chester_dyn.\n\n\
    Definition chester_var (v : chester_dyn) : chester_dyn := v.\n\
-   Definition chester_set (_ : string) (_ : chester_dyn) : chester_dyn := chester_unit.\n\
+   Definition chester_set (_ : string) (_ : chester_dyn) : chester_dyn := \
+   chester_unit.\n\
    Definition chester_expr_stmt (v : chester_dyn) : chester_dyn := v.\n\
-   Definition prim__int_add (a b : nat) : chester_dyn := chester_nat (a + b)%nat.\n\
+   Definition prim__int_add (a b : nat) : chester_dyn := chester_nat (a + \
+   b)%nat.\n\
    Definition int_add (a b : chester_dyn) : chester_dyn := a.\n\
-   Definition Unit : chester_dyn := chester_unit.\n\
-   \n\
+   Definition Unit : chester_dyn := chester_unit.\n\n\
    Parameter __chester_perform : string -> list chester_dyn -> chester_dyn.\n\
-   Parameter __chester_handle : string -> (unit -> chester_dyn) -> list (string * chester_dyn) -> chester_dyn.\n\
-   Parameter __chester_box : list string -> (unit -> chester_dyn) -> chester_dyn.\n\
-   \n"
+   Parameter __chester_handle : string -> (unit -> chester_dyn) -> list \
+   (string * chester_dyn) -> chester_dyn.\n\
+   Parameter __chester_box : list string -> (unit -> chester_dyn) -> \
+   chester_dyn.\n\n"

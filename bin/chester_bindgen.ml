@@ -14,27 +14,23 @@ let ensure_scripts_deps root =
   if not (Sys.file_exists node_modules) then
     let st =
       Sys.command
-        (Printf.sprintf "cd %s && npm install --silent" (Filename.quote scripts_dir))
+        (Printf.sprintf "cd %s && npm install --silent"
+           (Filename.quote scripts_dir))
     in
     if st <> 0 then failwith "npm install failed in scripts/"
 
 let () =
-  let args =
-    match Array.to_list Sys.argv with
-    | _ :: rest -> rest
-    | [] -> []
-  in
+  let args = match Array.to_list Sys.argv with _ :: rest -> rest | [] -> [] in
   if args = [] || List.mem "-h" args || List.mem "--help" args then (
     prerr_endline
-      "Usage: chester_bindgen.exe --package NAME --input FILE.d.ts \
-       [--output FILE.chester] [--filter REGEX]";
+      "Usage: chester_bindgen.exe --package NAME --input FILE.d.ts [--output \
+       FILE.chester] [--filter REGEX]";
     exit (if args = [] then 1 else 0));
   let root = repo_root (Sys.getcwd ()) in
   ensure_scripts_deps root;
   let script = Filename.concat root "scripts/dts2chester.mjs" in
   let cmd =
-    Printf.sprintf "node %s %s"
-      (Filename.quote script)
+    Printf.sprintf "node %s %s" (Filename.quote script)
       (String.concat " " (List.map quote args))
   in
   exit (Sys.command cmd)

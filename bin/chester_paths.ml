@@ -11,16 +11,16 @@ let chester_path_env () =
 
 let repo_root_from_file filename =
   let rec walk dir =
-    if Sys.file_exists (Filename.concat dir "dune-project")
-       || Sys.file_exists (Filename.concat dir "theories")
+    if
+      Sys.file_exists (Filename.concat dir "dune-project")
+      || Sys.file_exists (Filename.concat dir "theories")
     then Some dir
     else
       let parent = Filename.dirname dir in
       if parent = dir then None else walk parent
   in
-  walk (
-    if Sys.is_directory filename then filename
-    else Filename.dirname filename)
+  walk
+    (if Sys.is_directory filename then filename else Filename.dirname filename)
 
 let default_module_paths ~for_file extra =
   let cwd = Sys.getcwd () in
@@ -47,8 +47,8 @@ let ensure_exists label path =
     print_endline ("Error: " ^ label ^ " not found: " ^ path);
     exit 1)
 
-(** Resolve a Chester module file: [name] with empty path → Name.chester / name.chester;
-    otherwise resolve [path] on the search path. *)
+(** Resolve a Chester module file: [name] with empty path → Name.chester /
+    name.chester; otherwise resolve [path] on the search path. *)
 let resolve_chester_module ~search_paths name path =
   let candidates =
     if path = "" then
@@ -60,7 +60,11 @@ let resolve_chester_module ~search_paths name path =
             String.make 1 (Char.uppercase_ascii c0)
             ^ String.sub name 1 (String.length name - 1)
           in
-          [ upper ^ ".chester"; name ^ ".chester"; String.lowercase_ascii name ^ ".chester" ]
+          [
+            upper ^ ".chester";
+            name ^ ".chester";
+            String.lowercase_ascii name ^ ".chester";
+          ]
       in
       cap
     else [ path ]
@@ -74,11 +78,8 @@ let resolve_chester_module ~search_paths name path =
   try_one candidates
 
 let module_binder_from_path path name =
-  if
-    name <> ""
-    && (not (String.contains name '/' || String.contains name '.'))
+  if name <> "" && not (String.contains name '/' || String.contains name '.')
   then name
   else
     let base = Filename.basename path in
     try Filename.chop_extension base with Invalid_argument _ -> base
-

@@ -8,10 +8,7 @@ let string_of_char_list chars =
   Buffer.contents buf
 
 type emit_target = EmitTS | EmitGo | EmitRocq
-
-type ts_emit_mode =
-  | TsEmitScript
-  | TsEmitModule
+type ts_emit_mode = TsEmitScript | TsEmitModule
 
 type cli_options = {
   target : emit_target;
@@ -26,17 +23,16 @@ type cli_options = {
 }
 
 let preamble =
-  ts_primitives
-  ^ ts_effects_runtime
+  ts_primitives ^ ts_effects_runtime
   ^ "   const int_add = prim__int_add;\n\
-   const int_mul = prim__int_mul;\n\
-   const int_eq = prim__int_eq;\n\
-   let _elab_state = null;\n\
-   const prim__get_elab_state = () => _elab_state;\n\
-   const prim__put_elab_state = (s) => { _elab_state = s; return Unit; };\n\
-   const ParseResult = (result, rest) => ({result, rest});\n\
-   const Span = (start, end) => ({start, end});\n\
-   const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \"let\"}];\n"
+     const int_mul = prim__int_mul;\n\
+     const int_eq = prim__int_eq;\n\
+     let _elab_state = null;\n\
+     const prim__get_elab_state = () => _elab_state;\n\
+     const prim__put_elab_state = (s) => { _elab_state = s; return Unit; };\n\
+     const ParseResult = (result, rest) => ({result, rest});\n\
+     const Span = (start, end) => ({start, end});\n\
+     const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \"let\"}];\n"
 
 let rename_chester_main go_code =
   let needle = "func main(" in
@@ -65,7 +61,8 @@ let rec collect_elab_env (ast : aST) : typeEnv0 =
   | _ -> []
 
 and collect_elab_stmt = function
-  | AstDef (name, tps, ps, rt, _, _) -> [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
+  | AstDef (name, tps, ps, rt, _, _) ->
+      [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
   | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
   | AstModule (name, params, seal, body) ->
       let exports =
@@ -179,8 +176,8 @@ let compile_file ~verbose ~search_paths filename state op_env tenv =
   let expanded_cst, op_env' = expand_cst_top_env !op_env cst in
   op_env := op_env';
   let expanded_cst =
-    resolve_file_imports ~verbose ~search_paths ~visited:[ filename ]
-      state op_env tenv expanded_cst
+    resolve_file_imports ~verbose ~search_paths ~visited:[ filename ] state
+      op_env tenv expanded_cst
   in
   if verbose then (
     print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
@@ -207,13 +204,16 @@ let emit_ast ~target ~verbose ~go_prior filename oc ast =
       output_string oc (go_code ^ "\n")
   | EmitRocq ->
       if verbose then print_endline ("\n[Emitting Rocq for " ^ filename ^ "]");
-      output_string oc (string_of_char_list (stringify_rocq_stmt (emit_rocq_top ast)))
+      output_string oc
+        (string_of_char_list (stringify_rocq_stmt (emit_rocq_top ast)))
   | EmitTS ->
-      if verbose then print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
-      output_string oc (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) ^ "\n")
+      if verbose then
+        print_endline ("\n[Emitting TypeScript for " ^ filename ^ "]");
+      output_string oc
+        (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) ^ "\n")
 
-let process_file ~target ~verbose ~emit ~go_prior ~search_paths oc filename state
-    op_env tenv =
+let process_file ~target ~verbose ~emit ~go_prior ~search_paths oc filename
+    state op_env tenv =
   let ast, state' =
     compile_file ~verbose ~search_paths filename state op_env tenv
   in
@@ -259,9 +259,9 @@ let rec parse_opts acc = function
 let usage () =
   print_endline
     "Usage: main.exe [--go | --rocq | --ts-module | --emit-ts-runtime PATH] \\\n\
-     \       [--module-path DIR]... [--prelude FILE]... \\\n\
-     \       [--go-sigs FILE] [--list-go-sigs] \\\n\
-     \       [-o OUT] <file.chester> [file2.chester ...]"
+    \       [--module-path DIR]... [--prelude FILE]... \\\n\
+    \       [--go-sigs FILE] [--list-go-sigs] \\\n\
+    \       [-o OUT] <file.chester> [file2.chester ...]"
 
 let default_options =
   {
@@ -278,9 +278,7 @@ let default_options =
 
 let () =
   print_endline "Chester Bootstrapper";
-  let opts =
-    parse_opts default_options (List.tl (Array.to_list Sys.argv))
-  in
+  let opts = parse_opts default_options (List.tl (Array.to_list Sys.argv)) in
   let opts =
     {
       opts with
@@ -308,7 +306,8 @@ let () =
       let sigs = Go_signatures.load path in
       print_endline
         (Printf.sprintf "Loaded %d functions from %s: %s"
-           (Go_signatures.function_count sigs) path
+           (Go_signatures.function_count sigs)
+           path
            (Go_signatures.summary sigs));
       exit 0
   | [] when not opts.runtime_only ->
@@ -331,7 +330,7 @@ let () =
       List.iter (Chester_paths.ensure_exists "prelude file") prelude_paths;
       List.iter (Chester_paths.ensure_exists "input file") resolved_files;
       (match opts.target with
-      | EmitGo ->
+      | EmitGo -> (
           let go_sigs_path =
             match opts.go_sigs_path with
             | Some p -> Some (resolve p)
@@ -339,13 +338,13 @@ let () =
                 let default = Go_signatures.default_path repo_root in
                 if Sys.file_exists default then Some default else None
           in
-          (match go_sigs_path with
+          match go_sigs_path with
           | Some path -> (
               try
                 let sigs = Go_signatures.load path in
                 print_endline
-                  (Printf.sprintf "[go-sigs] %s (%s)"
-                     path (Go_signatures.summary sigs))
+                  (Printf.sprintf "[go-sigs] %s (%s)" path
+                     (Go_signatures.summary sigs))
               with Failure msg | Invalid_argument msg ->
                 print_endline ("Warning: go-sigs: " ^ msg))
           | None -> ())
@@ -389,8 +388,7 @@ let () =
       | EmitRocq ->
           output_string oc rocq_effects_preamble;
           output_string oc "\n"
-      | EmitTS ->
-          if opts.ts_mode = TsEmitScript then output_string oc preamble);
+      | EmitTS -> if opts.ts_mode = TsEmitScript then output_string oc preamble);
       let state =
         match go_sigs with
         | Some sigs -> init_elab_with_go (Go_signatures.to_elab_go_input sigs)
