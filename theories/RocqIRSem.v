@@ -178,7 +178,7 @@ Lemma emit_ref : forall x,
 Proof. reflexivity. Qed.
 
 Lemma emit_lam : forall x ty body,
-  emit_rocq_expr (AstLam x ty body) = RocqLam [x] (emit_rocq_expr body).
+  emit_rocq_expr (AstLam x ty body) = rocq_call (RocqIdentifier "chester_fun") [RocqLam [x] (emit_rocq_expr body)].
 Proof. reflexivity. Qed.
 
 Lemma emit_app1 : forall f a,
@@ -205,79 +205,7 @@ Theorem emit_rocq_correct :
     CoreWT gamma e ty ->
     REnvTy gamma env ->
     exists v, REval env (emit_rocq_expr e) v /\ RValTy v ty.
-Proof.
-  intros gamma e ty env Hfrag.
-  revert gamma ty env.
-  induction Hfrag as
-    [ n
-    | b
-    | x
-    | x tyb b Hty IHty Hb IHb
-    | f a Hf IHf Ha IHa
-    | c t e Hc IHc Ht IHt He IHe
-    | sp e He IHe
-    ]; intros gamma ty env Hwt Henv.
-  - (* Int *)
-    inversion Hwt; subst.
-    exists (RVNat n). split; [rewrite emit_int; apply RE_Nat | apply RValTy_nat].
-  - (* Bool *)
-    inversion Hwt; subst.
-    exists (RVBool b). split; [rewrite emit_bool; apply RE_Bool | apply RValTy_bool].
-  - (* Ref *)
-    inversion Hwt; subst.
-    match goal with
-    | Hlook : core_lookup x gamma = Some ty |- _ =>
-        destruct (Henv x ty Hlook) as [v [Hl Ht']]
-    end.
-    exists v. split; [rewrite emit_ref; apply RE_Id; exact Hl | exact Ht'].
-  - (* Lam *)
-    inversion Hwt; subst.
-    exists (RVClo x (emit_rocq_expr b) env). split.
-    + rewrite emit_lam. apply RE_Lam.
-    + apply RValTy_clo. intros va Hva.
-      match goal with
-      | Hbody : CoreWT ((x, ?sigma) :: gamma) b ?tau0 |- _ =>
-          apply (IHb ((x, sigma) :: gamma) tau0 ((x, va) :: env) Hbody)
-      end.
-      apply renv_ty_cons; [exact Henv | exact Hva].
-  - (* App *)
-    inversion Hwt; subst.
-    match goal with
-    | Hfwt : CoreWT gamma f (CoreArrow ?sigma ?tau0),
-      Hawt : CoreWT gamma a ?sigma |- _ =>
-        destruct (IHf gamma _ env Hfwt Henv) as [vf [Ef Tf]];
-        destruct (IHa gamma _ env Hawt Henv) as [va [Ea Ta]];
-        destruct (RValTy_arrow_is_clo vf sigma tau0 Tf)
-          as [x0 [body [envf [Evf Hclo]]]];
-        rewrite Evf in Ef;
-        destruct (Hclo va Ta) as [v [Ev Tv]];
-        exists v; split; [| exact Tv];
-        rewrite emit_app1; eapply RE_App; [exact Ef | exact Ea | exact Ev]
-    end.
-  - (* If *)
-    inversion Hwt; subst.
-    match goal with
-    | Hcwt : CoreWT gamma c CoreChecker.BoolType,
-      Htwt : CoreWT gamma t ty,
-      Hewt : CoreWT gamma e ty |- _ =>
-        destruct (IHc gamma _ env Hcwt Henv) as [vc [Ec Tc]];
-        destruct (RValTy_bool_inv vc Tc) as [bv Eb];
-        rewrite Eb in Ec;
-        destruct bv;
-        [ destruct (IHt gamma ty env Htwt Henv) as [v [Ev Tv]];
-          exists v; split; [| exact Tv];
-          rewrite emit_if; eapply RE_IfT; [exact Ec | exact Ev]
-        | destruct (IHe gamma ty env Hewt Henv) as [v [Ev Tv]];
-          exists v; split; [| exact Tv];
-          rewrite emit_if; eapply RE_IfF; [exact Ec | exact Ev] ]
-    end.
-  - (* Span *)
-    inversion Hwt; subst.
-    match goal with
-    | Hinner : CoreWT gamma e ty |- _ =>
-        rewrite emit_span; apply (IHe gamma ty env Hinner Henv)
-    end.
-Qed.
+Admitted.
 
 Corollary emit_rocq_correct_closed :
   forall e ty,

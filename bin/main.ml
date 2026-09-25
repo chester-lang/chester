@@ -414,7 +414,5 @@ let () =
         resolved_files;
       if opts.target = EmitGo then
         output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";
-      if opts.target = EmitRocq then
-        output_string oc "\nDefinition chester_run := chester_main.\n";
-      close_out oc;
+      if opts.target = EmitRocq then close_out oc;
       print_endline ("\nSuccessfully emitted to " ^ out_file)

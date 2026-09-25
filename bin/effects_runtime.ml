@@ -439,13 +439,20 @@ let go_effects_preamble = go_preamble_body ^ go_assemble_helpers
 
 let rocq_effects_preamble =
   "From Stdlib Require Import Strings.String.\n\
+   From Stdlib Require Import List.\n\
+   Import ListNotations.\n\
    Open Scope string_scope.\n\n\
-   Inductive chester_dyn : Type :=\n\
-   | chester_unit : chester_dyn\n\
-   | chester_nat : nat -> chester_dyn\n\
-   | chester_bool : bool -> chester_dyn\n\
-   | chester_str : string -> chester_dyn\n\
-   | chester_fun : (chester_dyn -> chester_dyn) -> chester_dyn.\n\n\
+   Axiom chester_dyn : Type.\n\
+   Axiom chester_unit : chester_dyn.\n\
+   Axiom chester_nat : nat -> chester_dyn.\n\
+   Axiom chester_bool : bool -> chester_dyn.\n\
+   Axiom chester_str : string -> chester_dyn.\n\
+   Axiom chester_fun : (chester_dyn -> chester_dyn) -> chester_dyn.\n\
+   Axiom chester_app : chester_dyn -> chester_dyn -> chester_dyn.\n\
+   Coercion chester_app : chester_dyn >-> Funclass.\n\
+   Coercion chester_nat : nat >-> chester_dyn.\n\
+   Coercion chester_bool : bool >-> chester_dyn.\n\
+   Coercion chester_str : string >-> chester_dyn.\n\n\
    Definition chester_var (v : chester_dyn) : chester_dyn := v.\n\
    Definition chester_set (_ : string) (_ : chester_dyn) : chester_dyn := \
    chester_unit.\n\

@@ -547,14 +547,16 @@ let%expect_test "rocq emit effects handle" =
   let prog =
     assemble_rocq_program (compile_fixture_ast "tests/effects.chester")
   in
-  print_endline
-    (if
-       has_substr prog "__chester_handle"
-       && has_substr prog "__chester_perform"
-       && has_substr prog "chester_main"
-       && has_substr prog "chester_dyn"
-     then "rocq effects ok"
-     else "rocq effects missing");
+  let dir = Filename.temp_file "chester_rocq_test" "" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o700;
+  let filename = Filename.concat dir "EffectsTest.v" in
+  let oc = open_out filename in
+  output_string oc prog;
+  close_out oc;
+  let rc = Sys.command ("coqc " ^ filename ^ " > /dev/null 2>&1") in
+  if rc = 0 then print_endline "rocq effects ok"
+  else print_endline "rocq effects compilation failed";
   [%expect {| rocq effects ok |}]
 
 let%expect_test "runtime go effects" =

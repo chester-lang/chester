@@ -92,44 +92,37 @@ Fixpoint emit_rocq_expr (ast : AST) {struct ast} : RocqExpr :=
   in
   match ast with
   | AstRef name => RocqIdentifier name
-  | AstTuple elems => RocqTuple (map_rocq_expr elems)
+  | AstTuple elems => match elems with [] => RocqIdentifier "chester_unit" | _ => RocqTuple (map_rocq_expr elems) end
   | AstStringLit s => RocqString s
   | AstIntLit n => RocqNat (nat_to_string n)
   | AstBlock stmts ret =>
-      let fix fold_stmts (ls : list AST) (acc : RocqExpr) {struct ls} : RocqExpr :=
+      let fix fold_stmts (ls : list AST) {struct ls} : RocqExpr :=
         match ls with
-        | [] => acc
+        | [] => emit_rocq_expr ret
         | AstLet name value :: xs =>
-            fold_stmts xs (RocqLetIn name (emit_rocq_expr value) acc)
+            RocqLetIn name (emit_rocq_expr value) (fold_stmts xs)
         | AstVar name value :: xs =>
-            fold_stmts xs
-              (RocqLetIn name
-                 (rocq_call (RocqIdentifier "chester_var") [emit_rocq_expr value])
-                 acc)
+            RocqLetIn name
+              (rocq_call (RocqIdentifier "chester_var") [emit_rocq_expr value])
+              (fold_stmts xs)
         | AstAssign name value :: xs =>
-            fold_stmts xs
-              (RocqLetIn "_"
-                 (rocq_call (RocqIdentifier "chester_set")
-                    [RocqString name; emit_rocq_expr value])
-                 acc)
-        | AstDef name _ params _ body _ :: xs =>
-            fold_stmts xs
-              (RocqLetIn name
-                 (emit_rocq_lam_params (map fst params) (emit_rocq_expr body))
-                 acc)
-        | s :: xs =>
-            fold_stmts xs
-              (RocqLetIn "_"
-                 (rocq_call (RocqIdentifier "chester_expr_stmt") [emit_rocq_expr s])
-                 acc)
+            RocqLetIn "_"
+              (rocq_call (RocqIdentifier "chester_set")
+                 [RocqString name; emit_rocq_expr value])
+              (fold_stmts xs)
+        | stmt :: xs =>
+            RocqLetIn "_"
+              (rocq_call (RocqIdentifier "chester_expr_stmt") [emit_rocq_expr stmt])
+              (fold_stmts xs)
         end
-      in fold_stmts stmts (emit_rocq_expr ret)
+      in
+      fold_stmts stmts
   | AstApp func args =>
       let direct := match func with AstRef n => rocq_direct_call n | _ => false end in
       rocq_call_emitted direct (emit_rocq_expr func) (map_rocq_expr args)
   | AstImplicitApp func _args => emit_rocq_expr func
   | AstFunTy _ _ _ _ => RocqIdentifier "chester_dyn"
-  | AstLam argName _ body => RocqLam [argName] (emit_rocq_expr body)
+  | AstLam argName _ body => rocq_call (RocqIdentifier "chester_fun") [RocqLam [argName] (emit_rocq_expr body)]
   | AstPi _ _ _ _ => RocqIdentifier "chester_dyn"
   | AstDo op args =>
       let op_name := match op with AstRef n => n | _ => "unknown" end in
@@ -271,8 +264,7 @@ Fixpoint emit_rocq_stmt (ast : AST) {struct ast} : RocqStmt :=
       RocqDefinition "_app" []
         (rocq_call_emitted direct (emit_rocq_expr func) (map_exprs args))
   | AstImplicitApp func _args => RocqDefinition "_app" [] (emit_rocq_expr func)
-  | AstLam argName _ body =>
-      RocqDefinition "_lam" [] (RocqLam [argName] (emit_rocq_expr body))
+  | AstLam argName _ body => RocqDefinition "_lam" [] (rocq_call (RocqIdentifier "chester_fun") [RocqLam [argName] (emit_rocq_expr body)])
   | AstFunTy _ _ _ _ => RocqEmpty
   | AstPi _ _ _ _ => RocqEmpty
   | AstDo op args =>
