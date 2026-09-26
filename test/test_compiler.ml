@@ -541,7 +541,6 @@ let%expect_test "go emit effects handle" =
 let assemble_rocq_program ast =
   rocq_effects_preamble ^ "\n"
   ^ string_of_char_list (stringify_rocq_stmt (emit_rocq_top ast))
-  ^ "\nDefinition chester_run := chester_main.\n"
 
 let%expect_test "rocq emit effects handle" =
   let prog =
