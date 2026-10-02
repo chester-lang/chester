@@ -37,10 +37,12 @@
               pkgs.ocamlPackages.ppx_expect
               pkgs.go
             ];
-            doCheck = true;
-            checkPhase = ''
-              dune runtest
-            '';
+            # NOTE: the OCaml test suite (dune runtest) is run in CI / on a dev
+            # machine. It is not run here: several tests need node/npm and network
+            # access (TS examples, tsc smoke, Vite counter build), which the
+            # hermetic Nix build sandbox does not provide. The Go bootstrap below
+            # (Rocq <-> stage1 <-> stage2 alpha-equality + runtime parity on the
+            # core fixtures) is the hermetic gate.
             buildPhase = ''
               # 0. Build Rocq implementation
               coq_makefile -f _CoqProject -o Makefile

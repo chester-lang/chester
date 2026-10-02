@@ -1,9 +1,11 @@
 
 def print_help(): Unit = {
-  __chester_write_stdout("Usage: chester [options] <input.chester>\n");
+  __chester_write_stdout("Usage: chester [options] [input.chester]\n");
+  __chester_write_stdout("Reads stdin when no input file is given.\n");
   __chester_write_stdout("Options:\n");
   __chester_write_stdout("  -o <file>   Specify output file\n");
   __chester_write_stdout("  --go        Emit Go (default)\n");
+  __chester_write_stdout("  -h, --help  Show this help\n");
 };
 
 def parse_args(args: List(String), idx: Integer, in_file: String, out_file: String): Pair = {
@@ -32,48 +34,47 @@ def parse_args(args: List(String), idx: Integer, in_file: String, out_file: Stri
   }
 };
 
+def compile_source(source: String, out_file: String): String = {
+  let tokens = lex(source);
+  match parse(tokens) {
+    case MkParseResult(cst, _) => {
+      let expanded_cst = expand_cst_top(cst);
+      let init_state = MkElabState(list_empty[Pair](), 1, list_empty[Pair](), list_empty[String](), list_empty[String](), list_empty[String](), list_empty[String]());
+      put_elab_state(init_state);
+      match elaborate_top(list_empty[Pair](), expanded_cst, OptionAST.NoneAST) {
+        case MkPair(ast, _) => {
+          let body = emit_go_top(ast);
+          let code = __chester_assemble_go(body);
+          if string_eq(out_file, "") then {
+            __chester_write_stdout(code);
+            ""
+          } else {
+            __chester_write_file(out_file, code);
+            __chester_write_stdout(string_concat("Successfully compiled to ", string_concat(out_file, "\n")));
+            ""
+          }
+        };
+        case _ => {
+          __chester_write_stdout("Elaboration error\n");
+          ""
+        }
+      }
+    };
+    case _ => {
+      __chester_write_stdout("Parse error\n");
+      ""
+    }
+  }
+};
+
 def chester_main(): String = {
   let args = __chester_get_args();
-  if int_eq(list_length(args), 0) then {
-    print_help();
-    ""
-  } else {
+  if int_eq(list_length(args), 0) then compile_source(__chester_read_stdin(), "")
+  else {
     match parse_args(args, 0, "", "") {
       case MkPair(in_file, out_file) => {
         if string_eq(in_file, "") then ""
-        else {
-          let source = __chester_read_file(in_file);
-          let tokens = lex(source);
-          match parse(tokens) {
-            case MkParseResult(cst, _) => {
-              let expanded_cst = expand_cst_top(cst);
-              let init_state = MkElabState(list_empty[Pair](), 1, list_empty[Pair](), list_empty[String](), list_empty[String](), list_empty[String](), list_empty[String]());
-              put_elab_state(init_state);
-              match elaborate_top(list_empty[Pair](), expanded_cst, OptionAST.NoneAST) {
-                case MkPair(ast, _) => {
-                  let body = emit_go_top(ast);
-                  let code = __chester_assemble_go(body);
-                  if string_eq(out_file, "") then {
-                    __chester_write_stdout(code);
-                    ""
-                  } else {
-                    __chester_write_file(out_file, code);
-                    __chester_write_stdout(string_concat("Successfully compiled to ", string_concat(out_file, "\n")));
-                    ""
-                  }
-                };
-                case _ => {
-                  __chester_write_stdout("Elaboration error\n");
-                  ""
-                }
-              }
-            };
-            case _ => {
-              __chester_write_stdout("Parse error\n");
-              ""
-            }
-          }
-        }
+        else compile_source(__chester_read_file(in_file), out_file)
       };
       case _ => ""
     }

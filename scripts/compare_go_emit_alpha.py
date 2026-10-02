@@ -103,14 +103,24 @@ def tokenize(src: str) -> list[str]:
 
 def alpha_tokens(toks: list[str]) -> list[str]:
     mapping: dict[str, str] = {}
-    empty_unit = ["[", "]", "interface", "{", "}", "{", "}"]
+    # Unit value spelling differs across backends/eras: `[]any{}`,
+    # `[]interface{}{}`, and `nil` all denote the unit / empty-argument value.
+    empty_units = (
+        ["[", "]", "any", "{", "}"],  # []any{}
+        ["[", "]", "interface", "{", "}", "{", "}"],  # []interface{}{}
+    )
     out: list[str] = []
     i = 0
     while i < len(toks):
         t = toks[i]
-        if t == "[" and toks[i : i + 7] == empty_unit:
-            out.append("__UNIT__")
-            i += 7
+        matched = False
+        for pat in empty_units:
+            if toks[i : i + len(pat)] == pat:
+                out.append("__UNIT__")
+                i += len(pat)
+                matched = True
+                break
+        if matched:
             continue
         if t == "nil":
             out.append("__UNIT__")

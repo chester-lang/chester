@@ -689,7 +689,7 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
         } else {
           // Match Rocq: leave unconsumed forms as SeqOf so process_stmts can
           // recognize def/let/enum/etc. Only commit to Pratt when it consumes all.
-          let pr = pratt_parse(1000, collapsed, "", op_env);
+          let pr = pratt_parse(int_add(list_length(collapsed), 1), collapsed, "", op_env);
           match pr {
             case Parsed(expr, rest) => {
               if int_eq(list_length(rest), 0) then expr else SeqOf(collapsed, span)
@@ -699,7 +699,7 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
 }
       };
       case _ => {
-        let pr = pratt_parse(1000, collapsed, "", op_env);
+        let pr = pratt_parse(int_add(list_length(collapsed), 1), collapsed, "", op_env);
         match pr {
           case Parsed(expr, rest) => {
             if int_eq(list_length(rest), 0) then expr else SeqOf(collapsed, span)
