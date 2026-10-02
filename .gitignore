@@ -38,3 +38,9 @@ test_regex*.py
 test2.v
 test_ast.ml
 test_expander.ml
+
+# Agent/local scratch (throwaway, not part of the language)
+parse_test.ml
+test.sh
+scripts/__pycache__/
+*.pyc

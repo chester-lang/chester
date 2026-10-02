@@ -25,7 +25,8 @@ let write_file filename contents =
 let format_source filename source =
   let tokens = Lexer.tokenize filename source in
   let cst = parse tokens in
-  string_of_char_list (format_program 1000 cst) ^ "\n"
+  (* Fuel derived from the CST measure, not a magic constant (AGENTS.md). *)
+  string_of_char_list (format_program (cst_fuel cst) cst) ^ "\n"
 
 let format_file filename =
   let source = read_file filename in

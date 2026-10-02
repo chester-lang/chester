@@ -180,12 +180,15 @@ let compile_file ~verbose ~search_paths filename state op_env tenv =
       op_env tenv expanded_cst
   in
   if verbose then (
-    print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
+    print_endline
+      (string_of_char_list (format_cst (cst_fuel expanded_cst) 0 expanded_cst));
     print_endline ("\n[Elaborating & TypeChecking " ^ filename ^ "]"));
   match elaborate_top !tenv expanded_cst None state with
   | Inr (msg, _) ->
       print_endline ("Type Error: " ^ string_of_char_list msg);
-      print_endline (string_of_char_list (format_cst 100 0 expanded_cst));
+      print_endline
+        (string_of_char_list
+           (format_cst (cst_fuel expanded_cst) 0 expanded_cst));
       exit 1
   | Inl ((ast, _), state') ->
       tenv := collect_elab_env ast @ !tenv;
@@ -414,5 +417,5 @@ let () =
         resolved_files;
       if opts.target = EmitGo then
         output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";
-      if opts.target = EmitRocq then close_out oc;
+      close_out oc;
       print_endline ("\nSuccessfully emitted to " ^ out_file)

@@ -553,7 +553,13 @@ let%expect_test "rocq emit effects handle" =
   let oc = open_out filename in
   output_string oc prog;
   close_out oc;
-  let rc = Sys.command ("coqc " ^ filename ^ " > /dev/null 2>&1") in
+  (* coqc must run where the file is and name the module after it, else the
+     emitted top-level definition is not compiled at all. *)
+  let rc =
+    Sys.command
+      (Printf.sprintf "cd %s && coqc -q EffectsTest.v > /dev/null 2>&1"
+         (Filename.quote dir))
+  in
   if rc = 0 then print_endline "rocq effects ok"
   else print_endline "rocq effects compilation failed";
   [%expect {| rocq effects ok |}]
