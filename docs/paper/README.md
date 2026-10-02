@@ -19,8 +19,14 @@ module sealing and the core fragment are split across:
 |--------|----------|
 | `theories/TypeSystemProps.v` | Effect-row lattice (`effect_row_subsumes_*`), binder/`free_in` lemmas, seal examples, subst capture-avoidance |
 | `theories/CoreTyping.v` | Declarative `CoreWT` / `CoreFrag`; `seal_exports_check_names_from_full`; `seal_sigval_requires_effect_subsumption` |
-| `theories/RocqIRSem.v` | Rocq IR values/`REval`; logical relation `RValTy`; `emit_rocq_correct` for the core fragment |
-| `theories/TypeScriptIRSem.v` | Tiny TS expression model; `emit_ts_lit_correct` for int/bool/ref (arrow/if need statement eval) |
+| `theories/RocqIRSem.v` | Rocq IR values/`REval`; logical relation `RValTy`; `emit_rocq_correct` for the full `CoreFrag` (proven, axiom-free) |
+| `theories/TypeScriptIRSem.v` | TS value/`TSEval`+`TSEvalBlock` model; `emit_ts_correct` for the full `CoreFrag` (expression and block forms, proven axiom-free); `emit_ts_expr_correct`/`emit_ts_lit_correct` corollaries |
+
+Both backend correctness theorems are checked with `Print Assumptions` and are
+closed under the global context (no `Admitted`, `Axiom`, or `Parameter`).
+Remaining `Admitted` lemmas live only in `theories/Parser.v` (fuel/measure
+stability and `ParserCST` well-formedness); `theories/test_proof.v` is an
+unwired scratch file ending in `Abort`.
 
 Formal definitions that *are* executable live in `theories/*.v` (AST, elaborator,
 core checker, backends). Treat those theories as the ground truth for semantics;

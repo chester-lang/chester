@@ -16,6 +16,25 @@ jobs:
         nix_path: nixpkgs=channel:nixos-unstable
     - name: Build and Test
       run: nix develop --command sh -c "coq_makefile -f _CoqProject -o Makefile && make && dune build && dune runtest"
+    - name: Backend correctness proofs are closed (no Admitted/Axiom)
+      run: |
+        cat > /tmp/chester_assumptions.v <<'EOF'
+        Require Import Chester.RocqIRSem.
+        Require Import Chester.TypeScriptIRSem.
+        Print Assumptions emit_rocq_correct.
+        Print Assumptions emit_rocq_correct_closed.
+        Print Assumptions emit_ts_correct.
+        Print Assumptions emit_ts_correct_closed.
+        EOF
+        nix develop --command sh -c '
+          coqc -Q theories Chester /tmp/chester_assumptions.v 2>&1 | tee /tmp/chester_assumptions.out
+          if grep -q "Axioms:" /tmp/chester_assumptions.out; then
+            echo "error: backend correctness depends on axioms/admits"; exit 1
+          fi
+          if ! grep -q "Closed under the global context" /tmp/chester_assumptions.out; then
+            echo "error: expected closed proofs"; exit 1
+          fi
+        '
 
   bootstrap:
     runs-on: ubuntu-latest

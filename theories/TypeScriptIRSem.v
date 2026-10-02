@@ -242,6 +242,36 @@ Lemma emit_ts_app1 : forall f a,
   emit_ts_expr (AstApp f [a]) = TsCall (emit_ts_expr f) [emit_ts_expr a].
 Proof. reflexivity. Qed.
 
+(** Shape lemmas for the block emitter. *)
+Lemma emit_ts_block_int : forall n,
+  emit_ts_block (AstIntLit n) = [TsReturn (TsNumberLiteral (nat_to_string n))].
+Proof. reflexivity. Qed.
+
+Lemma emit_ts_block_bool : forall b,
+  emit_ts_block (AstBoolLit b) = [TsReturn (TsBooleanLiteral b)].
+Proof. reflexivity. Qed.
+
+Lemma emit_ts_block_ref : forall x,
+  emit_ts_block (AstRef x) = [TsReturn (TsIdentifier x)].
+Proof. reflexivity. Qed.
+
+Lemma emit_ts_block_lam : forall x ty body,
+  emit_ts_block (AstLam x ty body) = [TsReturn (TsArrow [x] (emit_ts_block body))].
+Proof. reflexivity. Qed.
+
+Lemma emit_ts_block_app1 : forall f a,
+  emit_ts_block (AstApp f [a]) = [TsReturn (TsCall (emit_ts_expr f) [emit_ts_expr a])].
+Proof. reflexivity. Qed.
+
+Lemma emit_ts_block_if : forall c t e,
+  emit_ts_block (AstIf c t e) =
+  [TsIfStmt (emit_ts_expr c) (emit_ts_block t) (emit_ts_block e)].
+Proof. reflexivity. Qed.
+
+Lemma emit_ts_block_span : forall sp e,
+  emit_ts_block (AstSpan sp e) = emit_ts_block e.
+Proof. reflexivity. Qed.
+
 (* ------------------------------------------------------------ *)
 (* Emit correctness (literals + identifiers)                    *)
 (* ------------------------------------------------------------ *)
@@ -284,42 +314,22 @@ Proof.
 Qed.
 
 (* ------------------------------------------------------------ *)
-(* Block correctness helper                                     *)
-(* ------------------------------------------------------------ *)
-
-(** [emit_ts_block_correct] — if [e] is a [CoreFrag] expression with type [tau]
-    in context [gamma], and [env] models [gamma], then the emitted block
-    [emit_ts_block e] terminates with a value of type [tau].
-
-    This is stated as an axiom here: the induction requires simultaneous
-    coinduction over [emit_ts_correct] and block evaluation; a full proof
-    would proceed by structural induction on [e] following the cases in
-    [emit_ts_block].
-    TODO: replace Admitted with the full structural proof. *)
-Lemma emit_ts_block_correct :
-  forall gamma e tau env,
-    CoreFrag e ->
-    CoreWT gamma e tau ->
-    TSEnvTy gamma env ->
-    exists v, TSEvalBlock env (emit_ts_block e) v /\ TSValTy v tau.
-Admitted. (* TODO: prove by structural induction on CoreFrag e, matching emit_ts_block *)
-
 (* ------------------------------------------------------------ *)
 (* Full emit correctness for CoreFrag                           *)
 (* ------------------------------------------------------------ *)
 
-(** [emit_ts_correct] — the TypeScript emit function is correct with respect
-    to the semantic big-step relation and the logical-relation typing.
+(** Mutual (combined) correctness for the expression emitter and the block
+    emitter.  The two are structurally recursive on the term, so they are
+    proven together by a single induction on [e] with a generalised context
+    and environment; this avoids the simultaneous-induction obstruction. *)
 
-    For each [CoreFrag e] that is [CoreWT gamma e ty], and every environment
-    [env] that semantically models [gamma], the emitted expression
-    [emit_ts_expr e] evaluates to some value [v] with [TSValTy v ty]. *)
 Theorem emit_ts_correct :
   forall gamma e ty env,
     CoreFrag e ->
     CoreWT gamma e ty ->
     TSEnvTy gamma env ->
-    exists v, TSEval env (emit_ts_expr e) v /\ TSValTy v ty.
+    (exists v, TSEval env (emit_ts_expr e) v /\ TSValTy v ty) /\
+    (exists v, TSEvalBlock env (emit_ts_block e) v /\ TSValTy v ty).
 Proof.
   intros gamma e ty env Hfrag.
   revert gamma ty env.
@@ -335,11 +345,15 @@ Proof.
 
   (* Int *)
   - inversion Hwt; subst.
-    exists (TSVNum n). split; [rewrite emit_ts_int; apply TSE_Num | apply TSValTy_num].
+    split.
+    + exists (TSVNum n). split; [rewrite emit_ts_int; apply TSE_Num | apply TSValTy_num].
+    + exists (TSVNum n). split; [rewrite emit_ts_block_int; apply TSB_Return; apply TSE_Num | apply TSValTy_num].
 
   (* Bool *)
   - inversion Hwt; subst.
-    exists (TSVBool b). split; [rewrite emit_ts_bool; apply TSE_Bool | apply TSValTy_bool].
+    split.
+    + exists (TSVBool b). split; [rewrite emit_ts_bool; apply TSE_Bool | apply TSValTy_bool].
+    + exists (TSVBool b). split; [rewrite emit_ts_block_bool; apply TSB_Return; apply TSE_Bool | apply TSValTy_bool].
 
   (* Ref *)
   - inversion Hwt; subst.
@@ -347,65 +361,104 @@ Proof.
     | Hlook : core_lookup x gamma = Some ty |- _ =>
         destruct (Henv x ty Hlook) as [v [Hl Ht]]
     end.
-    exists v. split; [rewrite emit_ts_ref; apply TSE_Id; exact Hl | exact Ht].
-
-  (* Lam: emit_ts_expr (AstLam x tyb body) = TsArrow [x] (emit_ts_block body) *)
-  - inversion Hwt; subst.
-    (* The emitted arrow evaluates to TSVClo x (emit_ts_block body) env *)
-    exists (TSVClo x (emit_ts_block body) env).
     split.
-    + rewrite emit_ts_lam. apply TSE_Arrow.
-    + (* TSValTy (TSVClo ...) (CoreArrow sigma tau) *)
-      apply TSValTy_clo.
-      intros va Hva.
-      (* Need to evaluate the body block in the extended env.
-         Delegate to emit_ts_block_correct on the body. *)
-      match goal with
-      | Hbwt : CoreWT ((?x0, ?sigma) :: gamma) body ?tau0 |- _ =>
-          apply (emit_ts_block_correct ((x0, sigma) :: gamma) body tau0 ((x0, va) :: env)
-                   Hbody Hbwt)
-      end.
-      apply tsenv_ty_cons; [exact Henv | exact Hva].
+    + exists v. split; [rewrite emit_ts_ref; apply TSE_Id; exact Hl | exact Ht].
+    + exists v. split; [rewrite emit_ts_block_ref; apply TSB_Return; apply TSE_Id; exact Hl | exact Ht].
 
-  (* App: emit_ts_expr (AstApp f [a]) = TsCall (emit_ts_expr f) [emit_ts_expr a] *)
+  (* Lam *)
+  - inversion Hwt; subst.
+    split.
+    + exists (TSVClo x (emit_ts_block body) env).
+      split.
+      * rewrite emit_ts_lam. apply TSE_Arrow.
+      * apply TSValTy_clo. intros va Hva.
+        match goal with
+        | Hbwt : CoreWT ((?x0, ?sigma) :: gamma) body ?tau0 |- _ =>
+            exact (proj2 (IHbody ((x0, sigma) :: gamma) tau0 ((x0, va) :: env) Hbwt
+                            (tsenv_ty_cons gamma env x0 sigma va Henv Hva)))
+        end.
+    + exists (TSVClo x (emit_ts_block body) env).
+      split.
+      * rewrite emit_ts_block_lam. apply TSB_Return. apply TSE_Arrow.
+      * apply TSValTy_clo. intros va Hva.
+        match goal with
+        | Hbwt : CoreWT ((?x0, ?sigma) :: gamma) body ?tau0 |- _ =>
+            exact (proj2 (IHbody ((x0, sigma) :: gamma) tau0 ((x0, va) :: env) Hbwt
+                            (tsenv_ty_cons gamma env x0 sigma va Henv Hva)))
+        end.
+
+  (* App *)
   - inversion Hwt; subst.
     match goal with
     | Hfwt : CoreWT gamma f (CoreArrow ?sigma ?tau0),
       Hawt : CoreWT gamma a ?sigma |- _ =>
-        destruct (IHf gamma _ env Hfwt Henv) as [vf [Ef Tf]];
-        destruct (IHa gamma _ env Hawt Henv) as [va [Ea Ta]];
+        destruct (IHf gamma _ env Hfwt Henv) as [[vf [Ef Tf]] _];
+        destruct (IHa gamma _ env Hawt Henv) as [[va [Ea Ta]] _];
         destruct (TSValTy_arrow_is_clo vf sigma tau0 Tf)
           as [x0 [body [envf [Evf Hclo]]]];
         rewrite Evf in Ef;
-        destruct (Hclo va Ta) as [v [Ev Tv]];
-        exists v; split; [| exact Tv];
-        rewrite emit_ts_app1; eapply TSE_Call; [exact Ef | exact Ea | exact Ev]
+        destruct (Hclo va Ta) as [v [Ev Tv]]
     end.
+    split.
+    + exists v. split; [| exact Tv].
+      rewrite emit_ts_app1; apply TSE_Call with (x := x0) (body := body) (envf := envf) (va := va); [exact Ef | exact Ea | exact Ev].
+    + exists v. split; [| exact Tv].
+      rewrite emit_ts_block_app1. apply TSB_Return.
+      apply TSE_Call with (x := x0) (body := body) (envf := envf) (va := va); [exact Ef | exact Ea | exact Ev].
 
-  (* If: emit_ts_expr (AstIf c t e) = TsIIFE [TsIfStmt ...] *)
+  (* If *)
   - inversion Hwt; subst.
     match goal with
     | Hcwt : CoreWT gamma c CoreChecker.BoolType,
       Htwt : CoreWT gamma t ty,
       Hewt : CoreWT gamma e ty |- _ =>
-        destruct (IHc gamma _ env Hcwt Henv) as [vc [Ec Tc]];
+        destruct (IHc gamma _ env Hcwt Henv) as [[vc [Ec Tc]] _];
         destruct (TSValTy_bool_inv vc Tc) as [bv Eb];
         rewrite Eb in Ec;
-        destruct bv;
-        [ destruct (emit_ts_block_correct gamma t ty env Ht Htwt Henv) as [v [Ev Tv]];
-          exists v; split; [| exact Tv];
-          rewrite emit_ts_if; apply TSE_IIFE; eapply TSB_IfT; [exact Ec | exact Ev]
-        | destruct (emit_ts_block_correct gamma e ty env He Hewt Henv) as [v [Ev Tv]];
-          exists v; split; [| exact Tv];
-          rewrite emit_ts_if; apply TSE_IIFE; eapply TSB_IfF; [exact Ec | exact Ev] ]
+        destruct bv
     end.
+    + (* c = true *)
+      match goal with
+      | Htwt : CoreWT gamma t ty |- _ =>
+          destruct (IHt gamma ty env Htwt Henv) as [_ [vb [Ebblk Tb]]]
+      end.
+      split.
+      * exists vb. split; [| exact Tb].
+        rewrite emit_ts_if. apply TSE_IIFE. eapply TSB_IfT; [exact Ec | exact Ebblk].
+      * exists vb. split; [| exact Tb].
+        rewrite emit_ts_block_if. eapply TSB_IfT; [exact Ec | exact Ebblk].
+    + (* c = false *)
+      match goal with
+      | Hewt : CoreWT gamma e ty |- _ =>
+          destruct (IHe gamma ty env Hewt Henv) as [_ [vb [Ebblk Tb]]]
+      end.
+      split.
+      * exists vb. split; [| exact Tb].
+        rewrite emit_ts_if. apply TSE_IIFE. eapply TSB_IfF; [exact Ec | exact Ebblk].
+      * exists vb. split; [| exact Tb].
+        rewrite emit_ts_block_if. eapply TSB_IfF; [exact Ec | exact Ebblk].
 
   (* Span *)
   - inversion Hwt; subst.
     match goal with
     | Hinner : CoreWT gamma e ty |- _ =>
-        rewrite emit_ts_span; apply (IHe gamma ty env Hinner Henv)
+        destruct (IHe gamma ty env Hinner Henv) as [[ve [Ee Te]] [vb [Eb Tb]]]
     end.
+    split.
+    + exists ve. split; [rewrite emit_ts_span; exact Ee | exact Te].
+    + exists vb. split; [rewrite emit_ts_block_span; exact Eb | exact Tb].
+Qed.
+
+(** Expression-only corollary, matching the original statement. *)
+Corollary emit_ts_expr_correct :
+  forall gamma e ty env,
+    CoreFrag e ->
+    CoreWT gamma e ty ->
+    TSEnvTy gamma env ->
+    exists v, TSEval env (emit_ts_expr e) v /\ TSValTy v ty.
+Proof.
+  intros gamma e ty env Hf Hw Henv.
+  exact (proj1 (emit_ts_correct gamma e ty env Hf Hw Henv)).
 Qed.
 
 Corollary emit_ts_correct_closed :
@@ -415,5 +468,5 @@ Corollary emit_ts_correct_closed :
     exists v, TSEval [] (emit_ts_expr e) v /\ TSValTy v ty.
 Proof.
   intros e ty Hf Hw.
-  eapply emit_ts_correct; [exact Hf | exact Hw | exact tsenv_ty_nil].
+  eapply emit_ts_expr_correct; [exact Hf | exact Hw | exact tsenv_ty_nil].
 Qed.
