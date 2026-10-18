@@ -17,7 +17,7 @@ Fixpoint chester_to_go_type (ty : AST) {struct ty} : string :=
   | AstRef name =>
       if orb (go_str_eq name "Int") (go_str_eq name "Integer") then "int"
       else if go_str_eq name "String" then "string"
-      else if go_str_eq name "Bool" then "bool"
+      else if orb (go_str_eq name "Bool") (go_str_eq name "Boolean") then "bool"
       else if go_str_eq name "Unit" then go_iface
       else if go_str_eq name "Any" then go_iface
       else if go_str_eq name "Type" then go_iface
@@ -63,7 +63,10 @@ Definition go_scalar_ret_ty (name : string) : option string :=
     then Some "bool"
   else if orb (go_str_eq name "string_concat") (orb (go_str_eq name "string_substring")
         (orb (go_str_eq name "int_to_string") (orb (go_str_eq name "prim__string_concat")
-        (orb (go_str_eq name "prim__string_substring") (go_str_eq name "prim__int_to_string")))))
+        (orb (go_str_eq name "prim__string_substring")
+        (orb (go_str_eq name "prim__int_to_string")
+        (orb (go_str_eq name "__chester_read_stdin")
+             (go_str_eq name "__chester_read_file")))))))
     then Some "string"
   else None.
 
@@ -195,7 +198,7 @@ Fixpoint go_type_of_ast_value (sigs : GoSigEnv) (locals : GoLocalEnv) (e : AST) 
 Fixpoint go_extend_from_ast (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct ast} : GoLocalEnv :=
   match ast with
   | AstLet name value => go_bind_local locals name (go_type_of_ast_value sigs locals value)
-  | AstVar name _ => go_bind_local locals name go_iface
+  | AstVar name value => go_bind_local locals name (go_type_of_ast_value sigs locals value)
   | AstSpan _ inner => go_extend_from_ast sigs locals inner
   | _ => locals
   end.
@@ -292,6 +295,10 @@ Definition go_builtin_param_tys (name : string) (nargs : nat) : option (list str
   else if go_str_eq name "prim__string_substring" then Some ["string"; "int"; "int"]
   else if orb (go_str_eq name "prim__bool_or") (orb (go_str_eq name "prim__bool_and") (go_str_eq name "prim__bool_not"))
     then Some (reps "bool" nargs)
+  else if go_str_eq name "__chester_read_file" then Some ["string"]
+  else if go_str_eq name "__chester_write_file" then Some ["string"; "string"]
+  else if go_str_eq name "__chester_write_stdout" then Some ["string"]
+  else if go_str_eq name "__chester_read_stdin" then Some []
   else None.
 
 Fixpoint go_call_args (sigs : GoSigEnv) (locals : GoLocalEnv) (func : AST) (args : list GoExpr) {struct func} : list GoExpr :=
@@ -1107,8 +1114,15 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
          GoFuncLiteral [] go_iface (emit_go_block sigs locals action);
          GoMapLiteral (emit_hs handlers)])
   | AstBoolLit b => GoExprStmt (GoBoolLiteral b)
-  | AstVar name value => GoLet name go_iface (emit_go_expr sigs locals value)
-  | AstAssign name value => GoAssign name (emit_go_expr sigs locals value)
+  | AstVar name value => GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value)
+  | AstAssign name value =>
+      let target_ty :=
+        match go_lookup_local locals name with
+        | Some ty => ty
+        | None => go_iface
+        end
+      in
+      GoAssign name (go_coerce_arg sigs locals target_ty (emit_go_expr sigs locals value))
   | AstBox e caps =>
       GoExprStmt (GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);
@@ -1173,7 +1187,22 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
         | AstRef "Unit" :: xs => fold_locals xs loc
         | x :: xs => fold_locals xs (go_extend_from_ast sigs loc x)
         end
-      in map_go_stmt stmts locals ++ [GoReturn (emit_go_expr sigs (fold_locals stmts locals) ret)]
+      in
+      let end_locals := fold_locals stmts locals in
+      match ret with
+      | AstIf cond true_br false_br =>
+          map_go_stmt stmts locals ++
+          [GoIfStmt (go_bool_cond sigs end_locals (emit_go_expr sigs end_locals cond))
+                    (emit_go_block sigs end_locals true_br)
+                    (emit_go_block sigs end_locals false_br)]
+      | AstSpan _ (AstIf cond true_br false_br) =>
+          map_go_stmt stmts locals ++
+          [GoIfStmt (go_bool_cond sigs end_locals (emit_go_expr sigs end_locals cond))
+                    (emit_go_block sigs end_locals true_br)
+                    (emit_go_block sigs end_locals false_br)]
+      | _ =>
+          map_go_stmt stmts locals ++ [GoReturn (emit_go_expr sigs end_locals ret)]
+      end
   | AstIf cond true_br false_br => [GoIfStmt (go_bool_cond sigs locals (emit_go_expr sigs locals cond)) (emit_go_block sigs locals true_br) (emit_go_block sigs locals false_br)]
   | AstMatch expr cases => 
       let fix emit_cases (cs : list (PatternAST * AST)) : list GoStmt :=
@@ -1247,8 +1276,15 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
   | AstBoolLit b => [GoReturn (GoBoolLiteral b)]
   | AstLet name value =>
       [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name; GoReturn (GoIdentifier "nil")]) [])]
-  | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name go_iface (emit_go_expr sigs locals value); GoReturn (GoIdentifier "nil")]) [])]
-  | AstAssign name value => [GoAssign name (emit_go_expr sigs locals value)]
+  | AstVar name value => [GoReturn (GoCall (GoFuncLiteral [] go_iface [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoReturn (GoIdentifier "nil")]) [])]
+  | AstAssign name value =>
+      let target_ty :=
+        match go_lookup_local locals name with
+        | Some ty => ty
+        | None => go_iface
+        end
+      in
+      [GoAssign name (go_coerce_arg sigs locals target_ty (emit_go_expr sigs locals value))]
   | AstBox e caps =>
       [GoReturn (GoCall (GoIdentifier "__chester_box")
         [GoArray (effect_label_go_lits caps);

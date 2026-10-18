@@ -21,6 +21,7 @@ def chester_to_go_type(ty: AST.AST): String = {
       else if string_eq(name, "Integer") then "int"
       else if string_eq(name, "String") then "string"
       else if string_eq(name, "Bool") then "bool"
+      else if string_eq(name, "Boolean") then "bool"
       else if string_eq(name, "Unit") then go_iface()
       else if string_eq(name, "Any") then go_iface()
       else if string_eq(name, "Type") then go_iface()
@@ -100,6 +101,8 @@ def go_scalar_ret_ty(name: String): String = {
   else if string_eq(name, "prim__string_concat") then "string"
   else if string_eq(name, "prim__string_substring") then "string"
   else if string_eq(name, "prim__int_to_string") then "string"
+  else if string_eq(name, "__chester_read_stdin") then "string"
+  else if string_eq(name, "__chester_read_file") then "string"
   else ""
 };
 
@@ -211,7 +214,7 @@ def go_type_of_ast_value(sigs: List(Pair), locals: List(Pair), e: AST.AST): Stri
 def go_extend_from_ast(sigs: List(Pair), locals: List(Pair), ast: AST.AST): List(Pair) = {
   match ast {
     case AstLet(name, value) => list_insert_first(locals, MkPair(name, go_type_of_ast_value(sigs, locals, value)));
-    case AstVar(name, _) => list_insert_first(locals, MkPair(name, go_iface()));
+    case AstVar(name, val) => list_insert_first(locals, MkPair(name, go_type_of_ast_value(sigs, locals, val)));
     case AstSpan(_, inner) => go_extend_from_ast(sigs, locals, inner);
     case _ => locals
   }
@@ -324,6 +327,10 @@ def go_builtin_param_tys(name: String, nargs: Integer): List(String) = {
   else if string_eq(name, "prim__bool_or") then go_reps("bool", nargs)
   else if string_eq(name, "prim__bool_and") then go_reps("bool", nargs)
   else if string_eq(name, "prim__bool_not") then go_reps("bool", nargs)
+  else if string_eq(name, "__chester_read_file") then list_insert_first(list_empty[String](), "string")
+  else if string_eq(name, "__chester_write_file") then list_insert_first(list_insert_first(list_empty[String](), "string"), "string")
+  else if string_eq(name, "__chester_write_stdout") then list_insert_first(list_empty[String](), "string")
+  else if string_eq(name, "__chester_read_stdin") then list_empty[String]()
   else list_empty[String]()
 };
 
@@ -638,8 +645,10 @@ def emit_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.A
         }
       };
       case AstError(msg) => string_concat("panic(", string_concat(go_q(), string_concat(escape_go_string(msg, 0, ""), string_concat(go_q(), ")"))));
-      case AstSpan(_, inner) => emit_go_expr(next_fuel, sigs, locals, inner);
-      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" ", string_concat(go_iface(), string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val))))));
+      case AstVar(name, val) => {
+        let ty = go_type_of_ast_value(sigs, locals, val);
+        string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val))))))
+      };
       case AstLet(name, val) => {
         let ty = go_type_of_ast_value(sigs, locals, val);
         let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), string_concat(";", go_nl())))))));
@@ -747,8 +756,13 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
         else string_concat("type ", string_concat(name, string_concat(" struct{ ", string_concat(go_record_field_decls(fields), " };"))))
       };
       case AstBox(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
-      case AstUnbox(_) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
-      case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val)));
+      case AstAssign(name, val) => {
+        let target_ty = go_lookup_local(locals, name);
+        let val_str = emit_go_expr(next_fuel, sigs, locals, val);
+        let val_coerced = if string_eq(target_ty, "") then val_str
+                          else go_coerce_arg(sigs, locals, target_ty, val, val_str);
+        string_concat(name, string_concat(" = ", val_coerced))
+      };
       case AstVar(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstLet(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstIf(cond, then_b, else_b) => {
@@ -823,6 +837,15 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
             if int_eq(list_length(stmts), 0) then d
             else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
           };
+          case AstIf(cond, true_br, false_br) => {
+            let c_str = emit_go_expr(next_fuel, sigs, tail_locals, cond);
+            let c_bool = go_bool_cond(sigs, tail_locals, cond, c_str);
+            let t_str = emit_go_stmt(next_fuel, sigs, tail_locals, ret_ty, true_br);
+            let e_str = emit_go_stmt(next_fuel, sigs, tail_locals, ret_ty, false_br);
+            let if_stmt = string_concat("if ", string_concat(c_bool, string_concat(" { ", string_concat(t_str, string_concat("} else { ", string_concat(e_str, "}"))))));
+            if int_eq(list_length(stmts), 0) then if_stmt
+            else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), if_stmt))
+          };
           case _ => {
             let ret = go_return(sigs, tail_locals, ret_ty, tail, emit_go_expr(next_fuel, sigs, tail_locals, tail));
             if int_eq(list_length(stmts), 0) then ret
@@ -865,8 +888,17 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
   if int_eq(fuel, 0) then "/* OUT OF FUEL */" else {
     let next_fuel = int_sub(fuel, 1);
     match ast {
-      case AstAssign(name, val) => string_concat(name, string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val)));
-      case AstVar(name, val) => string_concat("var ", string_concat(name, string_concat(" any = ", emit_go_expr(next_fuel, sigs, locals, val))));
+      case AstAssign(name, val) => {
+        let target_ty = go_lookup_local(locals, name);
+        let val_str = emit_go_expr(next_fuel, sigs, locals, val);
+        let val_coerced = if string_eq(target_ty, "") then val_str
+                          else go_coerce_arg(sigs, locals, target_ty, val, val_str);
+        string_concat(name, string_concat(" = ", val_coerced))
+      };
+      case AstVar(name, val) => {
+        let ty = go_type_of_ast_value(sigs, locals, val);
+        string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", emit_go_expr(next_fuel, sigs, locals, val))))))
+      };
       case AstLet(name, val) => {
         let ty = go_type_of_ast_value(sigs, locals, val);
         let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), ";"))))));

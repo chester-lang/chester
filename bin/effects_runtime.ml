@@ -237,7 +237,7 @@ func prim__list_drop_last(l any) any {
 }
 
 
-func __chester_get_args() any {
+func __chester_get_args() []any {
     args := os.Args[1:]
     res := make([]any, len(args))
     for i, a := range args {
@@ -247,29 +247,29 @@ func __chester_get_args() any {
 }
 
 
-func __chester_write_file(path any, data any) any {
-    err := os.WriteFile(path.(string), []byte(data.(string)), 0644)
+func __chester_write_file(path string, data string) any {
+    err := os.WriteFile(path, []byte(data), 0644)
     if err != nil {
         panic(fmt.Sprintf("Failed to write file: %v", err))
     }
     return nil
 }
 
-func __chester_read_file(path any) any {
-    bytes, err := os.ReadFile(path.(string))
+func __chester_read_file(path string) string {
+    bytes, err := os.ReadFile(path)
     if err != nil {
         panic(fmt.Sprintf("Failed to read file: %v", err))
     }
     return string(bytes)
 }
 
-func __chester_read_stdin() any {
+func __chester_read_stdin() string {
     bytes, _ := io.ReadAll(os.Stdin)
     return string(bytes)
 }
 
-func __chester_write_stdout(s any) any {
-    fmt.Print(s.(string))
+func __chester_write_stdout(s string) any {
+    fmt.Print(s)
     return nil
 }
 
