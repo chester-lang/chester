@@ -10,17 +10,19 @@ let chester_path_env () =
   | Some value -> split_search_path value
 
 let repo_root_from_file filename =
-  let rec walk dir =
-    if
-      Sys.file_exists (Filename.concat dir "dune-project")
-      || Sys.file_exists (Filename.concat dir "theories")
-    then Some dir
-    else
-      let parent = Filename.dirname dir in
-      if parent = dir then None else walk parent
-  in
-  walk
-    (if Sys.is_directory filename then filename else Filename.dirname filename)
+  if filename = "-" || not (Sys.file_exists filename) then None
+  else
+    let rec walk dir =
+      if
+        Sys.file_exists (Filename.concat dir "dune-project")
+        || Sys.file_exists (Filename.concat dir "theories")
+      then Some dir
+      else
+        let parent = Filename.dirname dir in
+        if parent = dir then None else walk parent
+    in
+    walk
+      (if Sys.is_directory filename then filename else Filename.dirname filename)
 
 let default_module_paths ~for_file extra =
   let cwd = Sys.getcwd () in

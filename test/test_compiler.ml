@@ -781,6 +781,38 @@ let%expect_test "stdlib functional runs go" =
   print_endline line;
   [%expect {| 352 |}]
 
+let%expect_test "cli help flag prints usage" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let out = Filename.temp_file "chester_cli_help" ".txt" in
+  let st =
+    Sys.command (Printf.sprintf "%s --help > %s 2>&1" (Filename.quote main_bin) (Filename.quote out))
+  in
+  let text = read_file out in
+  Sys.remove out;
+  if st <> 0 then failwith "--help failed";
+  print_endline (if has_substr text "Usage: main.exe" then "help ok" else "help missing");
+  [%expect {| help ok |}]
+
+let%expect_test "cli stdin compilation" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let dir = Filename.temp_file "chester_cli_stdin_go" "" in
+  Sys.remove dir;
+  Sys.mkdir dir 0o755;
+  let out_go = Filename.concat dir "main.go" in
+  let st =
+    Sys.command
+      (Printf.sprintf
+         "echo 'def main(): Integer = 42;' | %s --go -o %s - > /dev/null 2>&1"
+         (Filename.quote main_bin) (Filename.quote out_go))
+  in
+  if st <> 0 then failwith "cli stdin compile failed";
+  let line = go_run_program_in dir in
+  let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+  print_endline line;
+  [%expect {| 42 |}]
+
 let%expect_test "infix same_as left assoc" =
   run_fixture_main "tests/infix_same_as.chester";
   [%expect {| 5 |}]

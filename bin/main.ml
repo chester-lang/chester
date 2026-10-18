@@ -97,14 +97,23 @@ and collect_elab_stmt = function
   | _ -> []
 
 let read_file filename =
-  let ch = open_in filename in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ch)
-    (fun () ->
-      let len = in_channel_length ch in
-      let buf = Bytes.create len in
-      really_input ch buf 0 len;
-      Bytes.to_string buf)
+  if filename = "-" then
+    let buf = Buffer.create 1024 in
+    (try
+       while true do
+         Buffer.add_channel buf stdin 1024
+       done
+     with End_of_file -> ());
+    Buffer.contents buf
+  else
+    let ch = open_in filename in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ch)
+      (fun () ->
+        let len = in_channel_length ch in
+        let buf = Bytes.create len in
+        really_input ch buf 0 len;
+        Bytes.to_string buf)
 
 let char_list_of_string s =
   let rec aux i acc = if i < 0 then acc else aux (i - 1) (s.[i] :: acc) in
@@ -232,6 +241,14 @@ let process_file ~target ~verbose ~emit ~go_prior ~search_paths oc filename
   if emit then emit_ast ~target ~verbose ~go_prior filename oc ast;
   state'
 
+let usage () =
+  print_endline
+    "Usage: main.exe [--go | --rocq | --ts | --ts-module | --emit-ts-runtime PATH] \\\n\
+    \       [--module-path DIR]... [--prelude FILE]... \\\n\
+    \       [--go-sigs FILE] [--list-go-sigs] \\\n\
+    \       [-h | --help] \\\n\
+    \       [-o OUT] <file.chester | -> [file2.chester ...]"
+
 let rec parse_opts acc = function
   | [] -> acc
   | "--go" :: rest -> parse_opts { acc with target = EmitGo } rest
@@ -261,19 +278,16 @@ let rec parse_opts acc = function
       close_out oc;
       print_endline ("Wrote TypeScript runtime to " ^ path);
       parse_opts { acc with runtime_only = true } rest
+  | ("-h" | "--help") :: _ ->
+      usage ();
+      exit 0
+  | "--ts" :: rest -> parse_opts { acc with target = EmitTS; ts_mode = TsEmitScript } rest
   | ("-o" | "--output") :: path :: rest ->
       parse_opts { acc with out_file = Some path } rest
   | ("-o" | "--output") :: [] ->
       print_endline "Error: --output requires a path argument";
       exit 1
   | f :: rest -> parse_opts { acc with files = f :: acc.files } rest
-
-let usage () =
-  print_endline
-    "Usage: main.exe [--go | --rocq | --ts-module | --emit-ts-runtime PATH] \\\n\
-    \       [--module-path DIR]... [--prelude FILE]... \\\n\
-    \       [--go-sigs FILE] [--list-go-sigs] \\\n\
-    \       [-o OUT] <file.chester> [file2.chester ...]"
 
 let default_options =
   {
@@ -327,7 +341,11 @@ let () =
       exit 1
   | [] -> exit 0
   | files ->
-      let anchor = List.hd files in
+      let anchor =
+        match List.find_opt (fun f -> f <> "-") files with
+        | Some f -> f
+        | None -> Sys.getcwd ()
+      in
       let search_paths =
         Chester_paths.default_module_paths ~for_file:anchor opts.module_paths
       in
@@ -340,7 +358,9 @@ let () =
       let resolved_files = List.map resolve files in
       let prelude_paths = List.map resolve opts.prelude_paths in
       List.iter (Chester_paths.ensure_exists "prelude file") prelude_paths;
-      List.iter (Chester_paths.ensure_exists "input file") resolved_files;
+      List.iter
+        (fun f -> if f <> "-" then Chester_paths.ensure_exists "input file" f)
+        resolved_files;
       (match opts.target with
       | EmitGo -> (
           let go_sigs_path =

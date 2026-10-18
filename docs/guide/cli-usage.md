@@ -21,6 +21,7 @@ nix develop --command ./_build/default/bin/main.exe [options] file.chester
 
 | Flag | Description |
 |------|-------------|
+| `--ts` | Emit TypeScript script (default) |
 | `--go` | Emit Go instead of TypeScript |
 | `--rocq` | Emit Rocq |
 | `--ts-module` | Emit TypeScript as an ES module (no script preamble) |
@@ -30,6 +31,8 @@ nix develop --command ./_build/default/bin/main.exe [options] file.chester
 | `--prelude FILE` | Elaborate a prelude file before inputs (repeatable; emitted for Go only) |
 | `--go-sigs FILE` | Load Go package signatures JSON (Go emit; validates file) |
 | `--list-go-sigs` | Print loaded packages from `--go-sigs` (or default) and exit |
+| `-h` / `--help` | Show usage options and exit |
+| `-` | Read source code from standard input |
 
 ### Search paths
 
