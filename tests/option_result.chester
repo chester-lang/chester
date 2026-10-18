@@ -1,0 +1,84 @@
+enum Option[T] {
+  case None;
+  case Some(value: T)
+};
+
+enum Result[T, E] {
+  case Ok(value: T);
+  case Err(err: E)
+};
+
+def option_is_some[T](opt: Option[T]): Bool = {
+  match opt {
+    case Some(x) => true;
+    case _ => false
+  }
+};
+
+def option_is_none[T](opt: Option[T]): Bool = {
+  match opt {
+    case Some(x) => false;
+    case _ => true
+  }
+};
+
+def option_unwrap_or[T](opt: Option[T], default_val: T): T = {
+  match opt {
+    case Some(x) => x;
+    case _ => default_val
+  }
+};
+
+def result_is_ok[T, E](res: Result[T, E]): Bool = {
+  match res {
+    case Ok(x) => true;
+    case _ => false
+  }
+};
+
+def result_is_err[T, E](res: Result[T, E]): Bool = {
+  match res {
+    case Ok(x) => false;
+    case _ => true
+  }
+};
+
+def result_unwrap_or[T, E](res: Result[T, E], default_val: T): T = {
+  match res {
+    case Ok(x) => x;
+    case _ => default_val
+  }
+};
+
+def main(): Integer = {
+  let s = Some(42);
+  let n = None;
+  let r_ok = Ok(100);
+  let r_err = Err("fail");
+
+  let a = option_unwrap_or(s, 0);
+  let b = option_unwrap_or(n, 10);
+  let c = result_unwrap_or(r_ok, 0);
+  let d = result_unwrap_or(r_err, 5);
+
+  let ok_flag = if option_is_some(s) then {
+    if option_is_none(n) then {
+      if result_is_ok(r_ok) then {
+        if result_is_err(r_err) then {
+          1
+        } else {
+          0
+        }
+      } else {
+        0
+      }
+    } else {
+      0
+    }
+  } else {
+    0
+  };
+
+  // 42 + 10 + 100 + 5 + 1 = 158
+  int_add(int_add(int_add(a, b), int_add(c, d)), ok_flag)
+};

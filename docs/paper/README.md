@@ -21,8 +21,9 @@ module sealing and the core fragment are split across:
 | `theories/CoreTyping.v` | Declarative `CoreWT` / `CoreFrag`; `seal_exports_check_names_from_full`; `seal_sigval_requires_effect_subsumption` |
 | `theories/RocqIRSem.v` | Rocq IR values/`REval`; logical relation `RValTy`; `emit_rocq_correct` for the full `CoreFrag` (proven, axiom-free) |
 | `theories/TypeScriptIRSem.v` | TS value/`TSEval`+`TSEvalBlock` model; `emit_ts_correct` for the full `CoreFrag` (expression and block forms, proven axiom-free); `emit_ts_expr_correct`/`emit_ts_lit_correct` corollaries |
+| `theories/GoIRSem.v` | Go value/`GoEval`+`GoEvalBlock` model; `emit_go_correct` for the full `CoreFrag` (expression and block forms across local environments, proven axiom-free); `emit_go_expr_correct`/`emit_go_correct_closed` corollaries |
 
-Both backend correctness theorems are checked with `Print Assumptions` and are
+All three backend correctness theorems are checked with `Print Assumptions` and are
 closed under the global context (no `Admitted`, `Axiom`, or `Parameter`).
 Remaining `Admitted` lemmas live only in `theories/Parser.v` (fuel/measure
 stability and `ParserCST` well-formedness); `theories/test_proof.v` is an

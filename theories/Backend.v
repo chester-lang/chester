@@ -924,15 +924,19 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
             | PatConstructor cname vars =>
                 let cond := GoCall (GoIdentifier "_match_val.(map[string]any)[""_tag""] ==") [GoStringLiteral cname] in
                 let body_go := emit_go_block sigs locals body in
-                let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
+                let fix bind_vars (vs : list string) (idx : nat) : list GoStmt :=
                   match vs with
-                  | [] => acc
-                  | v :: vs' => bind_vars vs' (S idx) (GoLet v go_iface (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]any") (GoStringLiteral "args")) "[]any") (GoIntLiteral (nat_to_string idx))) :: acc)
+                  | [] => []
+                  | v :: vs' =>
+                      let disc := if go_str_eq v "_" then [] else [GoDiscardBinding v] in
+                      GoLet v go_iface (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]any") (GoStringLiteral "args")) "[]any") (GoIntLiteral (nat_to_string idx))) :: disc ++ bind_vars vs' (S idx)
                   end
                 in
-                [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
+                [GoIfStmt cond (bind_vars vars 0 ++ body_go) (emit_cases rest)]
             | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block sigs locals body) (emit_cases rest)]
-            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block sigs locals body
+            | PatVar v =>
+                let disc := if go_str_eq v "_" then [] else [GoDiscardBinding v] in
+                GoLet v go_iface (GoIdentifier "_match_val") :: disc ++ emit_go_block sigs locals body
             end
         end
       in GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs locals expr) :: emit_cases cases)) []
@@ -1138,15 +1142,19 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
             | PatConstructor cname vars =>
                 let cond := GoCall (GoIdentifier "_match_val.(map[string]any)[""_tag""] ==") [GoStringLiteral cname] in
                 let body_go := emit_go_block sigs locals body in
-                let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
+                let fix bind_vars (vs : list string) (idx : nat) : list GoStmt :=
                   match vs with
-                  | [] => acc
-                  | v :: vs' => bind_vars vs' (S idx) (GoLet v go_iface (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]any") (GoStringLiteral "args")) "[]any") (GoIntLiteral (nat_to_string idx))) :: acc)
+                  | [] => []
+                  | v :: vs' =>
+                      let disc := if go_str_eq v "_" then [] else [GoDiscardBinding v] in
+                      GoLet v go_iface (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]any") (GoStringLiteral "args")) "[]any") (GoIntLiteral (nat_to_string idx))) :: disc ++ bind_vars vs' (S idx)
                   end
                 in
-                [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
+                [GoIfStmt cond (bind_vars vars 0 ++ body_go) (emit_cases rest)]
             | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block sigs locals body) (emit_cases rest)]
-            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block sigs locals body
+            | PatVar v =>
+                let disc := if go_str_eq v "_" then [] else [GoDiscardBinding v] in
+                GoLet v go_iface (GoIdentifier "_match_val") :: disc ++ emit_go_block sigs locals body
             end
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs locals expr) :: emit_cases cases)) [])
@@ -1213,15 +1221,19 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
             | PatConstructor cname vars =>
                 let cond := GoCall (GoIdentifier "_match_val.(map[string]any)[""_tag""] ==") [GoStringLiteral cname] in
                 let body_go := emit_go_block sigs locals body in
-                let fix bind_vars (vs : list string) (idx : nat) (acc : list GoStmt) : list GoStmt :=
+                let fix bind_vars (vs : list string) (idx : nat) : list GoStmt :=
                   match vs with
-                  | [] => acc
-                  | v :: vs' => bind_vars vs' (S idx) (GoLet v go_iface (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]any") (GoStringLiteral "args")) "[]any") (GoIntLiteral (nat_to_string idx))) :: acc)
+                  | [] => []
+                  | v :: vs' =>
+                      let disc := if go_str_eq v "_" then [] else [GoDiscardBinding v] in
+                      GoLet v go_iface (GoIndex (GoTypeAssert (GoIndex (GoTypeAssert (GoIdentifier "_match_val") "map[string]any") (GoStringLiteral "args")) "[]any") (GoIntLiteral (nat_to_string idx))) :: disc ++ bind_vars vs' (S idx)
                   end
                 in
-                [GoIfStmt cond (bind_vars vars 0 [] ++ body_go) (emit_cases rest)]
+                [GoIfStmt cond (bind_vars vars 0 ++ body_go) (emit_cases rest)]
             | PatWildcard => [GoIfStmt (GoBoolLiteral true) (emit_go_block sigs locals body) (emit_cases rest)]
-            | PatVar v => GoLet v go_iface (GoIdentifier "_match_val") :: emit_go_block sigs locals body
+            | PatVar v =>
+                let disc := if go_str_eq v "_" then [] else [GoDiscardBinding v] in
+                GoLet v go_iface (GoIdentifier "_match_val") :: disc ++ emit_go_block sigs locals body
             end
         end
       in GoLet "_match_val" go_iface (emit_go_expr sigs locals expr) :: emit_cases cases

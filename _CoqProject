@@ -19,3 +19,4 @@ theories/TypeSystemProps.v
 theories/CoreTyping.v
 theories/RocqIRSem.v
 theories/TypeScriptIRSem.v
+theories/GoIRSem.v

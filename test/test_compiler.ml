@@ -702,6 +702,14 @@ let%expect_test "macro hygiene runs tmp stays 42" =
   run_fixture_go "tests/macro_hygiene.chester";
   [%expect {| 42 |}]
 
+let%expect_test "fixture option result" =
+  check_fixture "tests/option_result.chester";
+  [%expect {| tests/option_result.chester ok |}]
+
+let%expect_test "option result runs go" =
+  run_fixture_go "tests/option_result.chester";
+  [%expect {| 158 |}]
+
 let%expect_test "cli prelude chains definitions" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in

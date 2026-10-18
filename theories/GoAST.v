@@ -72,7 +72,7 @@ Fixpoint stringify_go_stmt (stmt : GoStmt) {struct stmt} : string :=
   | GoExprStmt expr => stringify_go_expr expr ++ "; "
   | GoLet name ty val =>
       "var " ++ name ++ " " ++ ty ++ " = " ++ stringify_go_expr val ++ "; "
-  | GoDiscardBinding name => "_ = " ++ name ++ "; "
+  | GoDiscardBinding name => if String.eqb name "_" then "" else "_ = " ++ name ++ "; "
   | GoAssign name val => name ++ " = " ++ stringify_go_expr val ++ "; "
   | GoIfStmt cond thenB elseB =>
       let thenStr := concat_strings " " (map_go_stmt thenB) in

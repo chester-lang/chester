@@ -27,6 +27,42 @@ enum Result[T, E] {
   case Ok(value: T);
   case Err(err: E)
 };
+def option_is_some[T](opt: Option[T]): Bool = {
+  match opt {
+    case Some(x) => true;
+    case _ => false
+  }
+};
+def option_is_none[T](opt: Option[T]): Bool = {
+  match opt {
+    case Some(x) => false;
+    case _ => true
+  }
+};
+def option_unwrap_or[T](opt: Option[T], default_val: T): T = {
+  match opt {
+    case Some(x) => x;
+    case _ => default_val
+  }
+};
+def result_is_ok[T, E](res: Result[T, E]): Bool = {
+  match res {
+    case Ok(x) => true;
+    case _ => false
+  }
+};
+def result_is_err[T, E](res: Result[T, E]): Bool = {
+  match res {
+    case Ok(x) => false;
+    case _ => true
+  }
+};
+def result_unwrap_or[T, E](res: Result[T, E], default_val: T): T = {
+  match res {
+    case Ok(x) => x;
+    case _ => default_val
+  }
+};
 // Arithmetic operators
 infixl "+";
 infixl "-" same_as "+";
