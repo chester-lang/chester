@@ -845,6 +845,25 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 let (syms, new_env) := elab_extern_decls current_env decls in
                 rest <- map_elabs new_env xs ;
                 ret (AstImport lang "" modp syms :: fst rest, snd rest)
+            | EnumCST name type_params variants span =>
+                res <- elaborate fuel' current_env x None ;
+                let ctors :=
+                  match fst res with
+                  | AstEnum _ _ vars =>
+                      map (fun v =>
+                        let '((vname, fields), _) := v in
+                        match fields with
+                        | [] => ((vname, context span), AstRef name)
+                        | _ =>
+                            let ps := map (fun ty => ("_", ty)) fields in
+                            ((vname, context span), AstFunTy type_params ps (AstRef name) [])
+                        end) vars
+                  | _ => []
+                  end
+                in
+                let new_env := (ctors ++ current_env)%list in
+                rest <- map_elabs new_env xs ;
+                ret (fst res :: fst rest, snd rest)
             | _ =>
                 res <- elaborate fuel' current_env x None ;
                 rest <- map_elabs current_env xs ;
@@ -1050,7 +1069,11 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           funcAst <- elaborate fuel' env inner_func None ;
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
-            | [] => ret ([], fs)
+            | [] =>
+                match fs with
+                | AstFunTy _ [] ret_ty _ => ret ([], ret_ty)
+                | _ => ret ([], fs)
+                end
             | a :: rest =>
                 match fs with
                 | AstFunTy _tparams params ret_ty _ =>
@@ -1058,7 +1081,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                     match params with
                     | (_, arg_ty) :: _rest_params =>
                         aAst <- elaborate fuel' env a (Some arg_ty) ;
-                        restAst <- check_args (AstFunTy _tparams _rest_params ret_ty []) rest ;
+                        let next_fs := match _rest_params with [] => ret_ty | _ => AstFunTy _tparams _rest_params ret_ty [] end in
+                        restAst <- check_args next_fs rest ;
                         ret (fst aAst :: fst restAst, snd restAst)
                     | [] =>
                         aAst <- elaborate fuel' env a None ;
@@ -1090,14 +1114,19 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           funcAst <- elaborate fuel' env func None ;
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
-            | [] => ret ([], fs)
+            | [] =>
+                match fs with
+                | AstFunTy _ [] ret_ty _ => ret ([], ret_ty)
+                | _ => ret ([], fs)
+                end
             | a :: rest =>
                 match fs with
                 | AstFunTy _tparams params ret_ty _ =>
                     match params with
                     | (_, arg_ty) :: _rest_params =>
                         aAst <- elaborate fuel' env a (Some arg_ty) ;
-                        restAst <- check_args (AstFunTy _tparams _rest_params ret_ty []) rest ;
+                        let next_fs := match _rest_params with [] => ret_ty | _ => AstFunTy _tparams _rest_params ret_ty [] end in
+                        restAst <- check_args next_fs rest ;
                         ret (fst aAst :: fst restAst, snd restAst)
                     | [] =>
                         aAst <- elaborate fuel' env a None ;

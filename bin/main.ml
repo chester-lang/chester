@@ -83,6 +83,15 @@ and collect_elab_stmt = function
       in
       [ ((name, []), ty) ]
   | AstSignature (name, decls) -> [ ((name, []), AstSignature (name, decls)) ]
+  | AstEnum (name, tps, variants) ->
+      List.map
+        (fun ((vname, fields), _) ->
+          match fields with
+          | [] -> ((vname, []), AstRef name)
+          | _ ->
+              let ps = List.map (fun ty -> (['_'], ty)) fields in
+              ((vname, []), AstFunTy (tps, ps, AstRef name, [])))
+        variants
   | AstSpan (_, inner) -> collect_elab_env inner
   | AstBlock _ as b -> collect_elab_env b
   | _ -> []

@@ -554,14 +554,19 @@ def effect_op_name(op: AST.AST): String = {
 };
 
 // Rocq go_app_direct: any callees need a type assert before calling.
-def go_app_direct(fn_expr: AST.AST): Bool = {
+def go_app_direct(locals: List(Pair), fn_expr: AST.AST): Bool = {
   match fn_expr {
-    case AstImplicitApp(inner, _) => go_app_direct(inner);
+    case AstImplicitApp(inner, _) => go_app_direct(locals, inner);
     case AstRef(name) => {
       if string_eq(name, "resume") then false
-      else if string_eq(name, "f") then false
-      else if string_eq(name, "predicate") then false
-      else true
+      else {
+        let loc = go_lookup_local(locals, name);
+        if bool_not(string_eq(loc, "")) then false
+        else if string_eq(name, "f") then false
+        else if string_eq(name, "predicate") then false
+        else if string_eq(name, "pred") then false
+        else true
+      }
     };
     case AstFieldAccess(_, _) => true;
     case _ => false
@@ -633,7 +638,7 @@ def emit_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.A
         let func_str = emit_go_expr(next_fuel, sigs, locals, fn_expr);
         let args_strs = map_go_expr(next_fuel, sigs, locals, args);
         let coerced = go_call_args(sigs, locals, fn_expr, args, args_strs);
-        go_call_emitted(go_app_direct(fn_expr), func_str, coerced)
+        go_call_emitted(go_app_direct(locals, fn_expr), func_str, coerced)
       };
       case AstImplicitApp(fn_expr, _) => emit_go_expr(next_fuel, sigs, locals, fn_expr);
       case AstFieldAccess(expr, field) => {

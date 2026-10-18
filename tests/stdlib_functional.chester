@@ -1,0 +1,105 @@
+def main(): Integer = {
+  // --- Option tests ---
+  let some10 = Some(10);
+  let none_val = None;
+
+  // map: 10 * 2 = 20
+  let opt_mapped = some10.map(\x => int_mul(x, 2));
+  let v1 = opt_mapped.unwrap_or(0); // 20
+
+  // and_then on Some: Some(20) -> Some(25)
+  let opt_bound = opt_mapped.and_then(\x => Some(int_add(x, 5)));
+  let v2 = opt_bound.unwrap_or(0); // 25
+
+  // and_then on None: None -> None
+  let opt_bound_none = none_val.and_then(\x => Some(int_add(x, 5)));
+  let v3 = opt_bound_none.unwrap_or(7); // 7
+
+  // or_else: None.or_else(Some(99)) = Some(99)
+  let opt_recovered = none_val.or_else(Some(99));
+  let v4 = opt_recovered.unwrap_or(0); // 99
+
+  // is_some & is_none flags: 1 if true, 0 if false
+  let opt_flags = if some10.is_some() then {
+    if none_val.is_none() then {
+      1
+    } else {
+      0
+    }
+  } else {
+    0
+  }; // 1
+
+  // --- Result tests ---
+  let ok50 = Ok(50);
+  let err_val = Err("initial error");
+
+  // map: 50 + 10 = 60
+  let res_mapped = ok50.map(\x => int_add(x, 10));
+  let r1 = res_mapped.unwrap_or(0); // 60
+
+  // map on Err preserves error
+  let res_err_mapped = err_val.map(\x => int_add(x, 10));
+  let r2 = res_err_mapped.unwrap_or(13); // 13
+
+  // map_err: transforms error
+  let res_mapped_err = err_val.map_err(\e => string_concat(e, " transformed"));
+  let r3 = if res_mapped_err.is_err() then { 4 } else { 0 }; // 4
+
+  // and_then on Ok: Ok(60) -> Ok(70)
+  let res_bound = res_mapped.and_then(\x => Ok(int_add(x, 10)));
+  let r4 = res_bound.unwrap_or(0); // 70
+
+  // is_ok flag
+  let res_flag = if ok50.is_ok() then {
+    if err_val.is_err() then {
+      1
+    } else {
+      0
+    }
+  } else {
+    0
+  }; // 1
+
+  // --- List tests ---
+  let xs = [1, 2, 3, 4, 5];
+
+  // length: 5
+  let l_len = xs.length(); // 5
+
+  // reverse: [5, 4, 3, 2, 1], get(0) is 5
+  let xs_rev = xs.reverse();
+  let l_first_rev = xs_rev.get(0); // 5
+
+  // map: [2, 4, 6, 8, 10]
+  let xs_doubled = xs.map(\x => int_mul(x, 2));
+
+  // foldl sum: 2 + 4 + 6 + 8 + 10 = 30
+  def add_step(acc: Any, x: Any): Any = int_add(acc, x);
+  let l_sum = xs_doubled.foldl(0, add_step); // 30
+
+  // any: contains element == 3? true -> 2
+  let l_any_flag = if xs.any(\x => int_eq(x, 3)) then { 2 } else { 0 }; // 2
+
+  // all: all elements > 0? true -> 3
+  let l_all_flag = if xs.all(\x => int_gt(x, 0)) then { 3 } else { 0 }; // 3
+
+  // find: find element == 4 -> Some(4) -> 4
+  let opt_found = xs.find(\x => int_eq(x, 4));
+  let l_found_val = opt_found.unwrap_or(0); // 4
+
+  // concat: [1, 2] concat [3] -> length 3
+  let l_cat = [1, 2].concat([3]);
+  let l_cat_len = l_cat.length(); // 3
+
+  // Total sum:
+  // v1(20) + v2(25) + v3(7) + v4(99) + opt_flags(1) = 152
+  // r1(60) + r2(13) + r3(4) + r4(70) + res_flag(1) = 148
+  // l_len(5) + l_first_rev(5) + l_sum(30) + l_any_flag(2) + l_all_flag(3) + l_found_val(4) + l_cat_len(3) = 52
+  // Total: 152 + 148 + 52 = 352
+  let opt_total = int_add(int_add(int_add(v1, v2), int_add(v3, v4)), opt_flags);
+  let res_total = int_add(int_add(int_add(r1, r2), int_add(r3, r4)), res_flag);
+  let list_total = int_add(int_add(int_add(l_len, l_first_rev), int_add(l_sum, l_any_flag)), int_add(int_add(l_all_flag, l_found_val), l_cat_len));
+
+  int_add(int_add(opt_total, res_total), list_total)
+};

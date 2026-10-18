@@ -75,6 +75,15 @@ and collect_elab_stmt = function
   | AstDef (name, tps, ps, rt, _, _) ->
       [ ((name, []), AstFunTy (tps, ps, rt, [])) ]
   | AstExtension (_, _, _, meths) -> List.concat_map collect_elab_stmt meths
+  | AstEnum (name, tps, variants) ->
+      List.map
+        (fun ((vname, fields), _) ->
+          match fields with
+          | [] -> ((vname, []), AstRef name)
+          | _ ->
+              let ps = List.map (fun ty -> (['_'], ty)) fields in
+              ((vname, []), AstFunTy (tps, ps, AstRef name, [])))
+        variants
   | AstSpan (_, inner) -> collect_elab_env inner
   | AstBlock _ as b -> collect_elab_env b
   | _ -> []
@@ -750,6 +759,27 @@ let%expect_test "cli stdlib prelude provides int_add" =
     (if has_substr code "int_add(40, 2)" then "stdlib prelude ok"
      else "stdlib prelude missing");
   [%expect {| stdlib prelude ok |}]
+
+let%expect_test "stdlib functional runs go" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let prelude = Filename.concat root "stdlib/std.chester" in
+  let src = Filename.concat root "tests/stdlib_functional.chester" in
+  let dir = Filename.temp_file "chester_stdlib_fn_go" "" in
+  Sys.remove dir;
+  Sys.mkdir dir 0o755;
+  let out_go = Filename.concat dir "main.go" in
+  let st =
+    Sys.command
+      (Printf.sprintf "%s --go --prelude %s -o %s %s > /dev/null 2>&1"
+         (Filename.quote main_bin) (Filename.quote prelude)
+         (Filename.quote out_go) (Filename.quote src))
+  in
+  if st <> 0 then failwith "stdlib functional compile failed";
+  let line = go_run_program_in dir in
+  let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+  print_endline line;
+  [%expect {| 352 |}]
 
 let%expect_test "infix same_as left assoc" =
   run_fixture_main "tests/infix_same_as.chester";

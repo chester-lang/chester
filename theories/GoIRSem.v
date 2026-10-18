@@ -266,12 +266,12 @@ Proof. reflexivity. Qed.
 
 Lemma emit_go_app1 : forall loc f a,
   emit_go_expr [] loc (AstApp f [a]) =
-  go_call_emitted (go_app_direct f) (emit_go_expr [] loc f) (go_call_args [] loc f [emit_go_expr [] loc a]).
+  go_call_emitted (go_app_direct loc f) (emit_go_expr [] loc f) (go_call_args [] loc f [emit_go_expr [] loc a]).
 Proof. reflexivity. Qed.
 
 Lemma emit_go_block_app1 : forall loc f a,
   emit_go_block [] loc (AstApp f [a]) =
-  [GoReturn (go_call_emitted (go_app_direct f) (emit_go_expr [] loc f) (go_call_args [] loc f [emit_go_expr [] loc a]))].
+  [GoReturn (go_call_emitted (go_app_direct loc f) (emit_go_expr [] loc f) (go_call_args [] loc f [emit_go_expr [] loc a]))].
 Proof. reflexivity. Qed.
 
 (* ------------------------------------------------------------ *)

@@ -382,16 +382,21 @@ Definition is_upper (s : string) : bool :=
       (PeanoNat.Nat.leb 65 n) && (PeanoNat.Nat.leb n 90)
   end.
 
-Fixpoint go_app_direct (func : AST) {struct func} : bool :=
+Fixpoint go_app_direct (locals : GoLocalEnv) (func : AST) {struct func} : bool :=
   match func with
   | AstRef name => 
       if string_dec name "resume" then false else
-      if string_dec name "f" then false else
-      if string_dec name "predicate" then false else
-      true
+      match go_lookup_local locals name with
+      | Some _ => false
+      | None =>
+          if string_dec name "f" then false else
+          if string_dec name "predicate" then false else
+          if string_dec name "pred" then false else
+          true
+      end
   | AstFieldAccess _ _ => true
-  | AstImplicitApp inner _ => go_app_direct inner
-  | AstSpan _ inner => go_app_direct inner
+  | AstImplicitApp inner _ => go_app_direct locals inner
+  | AstSpan _ inner => go_app_direct locals inner
   | _ => false
   end.
 
@@ -872,7 +877,7 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
         end
       in GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts locals ++ [GoReturn (emit_go_expr sigs (fold_locals stmts locals) ret)])) []
   | AstApp func args =>
-      let direct := go_app_direct func in
+      let direct := go_app_direct locals func in
       let raw_args := map_go_expr args in
       go_call_emitted direct (emit_go_expr sigs locals func) (go_call_args sigs locals func raw_args)
   | AstImplicitApp func _args => emit_go_expr sigs locals func  (* type args erased *)
@@ -1083,7 +1088,7 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (map_go_stmt stmts locals ++ [GoReturn (emit_go_expr sigs (fold_locals stmts locals) ret)])) [])
   | AstApp func args =>
-      let direct := go_app_direct func in
+      let direct := go_app_direct locals func in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
@@ -1251,7 +1256,7 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
   | AstStringLit s => [GoReturn (GoStringLiteral s)]
   | AstIntLit n => [GoReturn (GoIntLiteral (nat_to_string n))]
   | AstApp func args =>
-      let direct := go_app_direct func in
+      let direct := go_app_direct locals func in
       let fix map_go_expr (ls : list AST) : list GoExpr :=
         match ls with
         | [] => []
