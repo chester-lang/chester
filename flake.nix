@@ -175,8 +175,7 @@
           export PATH=${formatterPath}:$PATH
           nixfmt flake.nix
           ocamlformat -i $(find bin test -name "*.ml" -o -name "*.mli")
-          # WARNING: chester_fmt.exe currently has bugs that generate invalid syntax
-          # dune exec bin/chester_fmt.exe -- $(find self-hosted stdlib tests -name "*.chester")
+          dune exec bin/chester_fmt.exe -- $(find self-hosted stdlib tests -name "*.chester")
         ''
       );
     };

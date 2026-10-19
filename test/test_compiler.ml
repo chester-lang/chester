@@ -287,9 +287,7 @@ let selfhosted_go_run_output stage1_bin filename =
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
   line
 
-(** Fixtures where Rocq and self-hosted Go backends must agree at runtime.
-    [tests/macro_hygiene.chester] is Rocq-only for now: self-hosted block/let
-    emit still mishandles the expanded swap block return. *)
+(** Fixtures where Rocq and self-hosted Go backends must agree at runtime. *)
 let parity_fixtures =
   [
     ("tests/macro_hygiene.chester", "42");
@@ -329,7 +327,7 @@ let check_rocq_selfhosted_parity () =
 let format_source source =
   let tokens = Lexer.tokenize "test.chester" source in
   let cst = parse tokens in
-  string_of_char_list (format_program 100 cst)
+  string_of_char_list (format_program (cst_fuel cst) cst)
 
 let check_format source =
   let formatted = format_source source in
@@ -341,7 +339,7 @@ let%expect_test "parse block" =
   let source = "let x = 5;" in
   let tokens = Lexer.tokenize "test.chester" source in
   let cst = parse tokens in
-  print_endline (string_of_char_list (format_cst 100 0 cst));
+  print_endline (string_of_char_list (format_cst (cst_fuel cst) 0 cst));
   [%expect {|
     {
       let x = 5;
@@ -352,7 +350,7 @@ let%expect_test "parse shape recovery" =
   let source = "def foo(a, b) = { a + b; @@; Unit }; [1, 2, 3];" in
   let tokens = Lexer.tokenize "test.chester" source in
   let cst = parse tokens in
-  print_endline (string_of_char_list (format_cst 100 0 cst));
+  print_endline (string_of_char_list (format_cst (cst_fuel cst) 0 cst));
   [%expect
     {|
     {

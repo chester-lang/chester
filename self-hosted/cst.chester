@@ -2,10 +2,15 @@
 enum Span {
   case Span(start: Integer, end_idx: Integer, context: List(Integer))
 };
-def Span_start(sp: Span): Integer = match sp { case Span(st, _, _) => st };
-def Span_end(sp: Span): Integer = match sp { case Span(_, en, _) => en };
-def Span_context(sp: Span): List(Integer) = match sp { case Span(_, _, ctx) => ctx };
-
+def Span_start(sp: Span): Integer = match sp {
+  case Span(st, _, _) => st
+};
+def Span_end(sp: Span): Integer = match sp {
+  case Span(_, en, _) => en
+};
+def Span_context(sp: Span): List(Integer) = match sp {
+  case Span(_, _, ctx) => ctx
+};
 enum CST {
   case Symbol(name: String, span: Span);
   case Tuple(elements: List(CST), span: Span);
@@ -49,4 +54,56 @@ enum CST {
   case SigWithCST(base: CST, eqs: List(Pair), span: Span);
   case PackCST(mod_expr: CST, sig_expr: CST, span: Span);
   case UnpackCST(name: String, sig_expr: CST, packed: CST, body: CST, span: Span)
+};
+
+def cst_list_size(ls: List(CST)): Integer = {
+  if int_eq(list_length(ls), 0) then 0 else int_add(cst_size(list_get(ls, 0)), cst_list_size(advance(ls)))
+};
+
+def cst_size(c: CST): Integer = match c {
+  case Symbol(_, _) => 1;
+  case StringLiteral(_, _) => 1;
+  case IntegerLiteral(_, _) => 1;
+  case BoolLiteral(_, _) => 1;
+  case Comment(_, _) => 1;
+  case Error(_, _) => 1;
+  case Tuple(es, _) => int_add(1, cst_list_size(es));
+  case ListLiteral(es, _) => int_add(1, cst_list_size(es));
+  case SeqOf(es, _) => int_add(1, cst_list_size(es));
+  case Block(stmts, tail, _) => int_add(1, int_add(cst_list_size(stmts), cst_size(tail)));
+  case LetCST(_, v, b, _) => int_add(1, int_add(cst_size(v), cst_size(b)));
+  case VarCST(_, v, b, _) => int_add(1, int_add(cst_size(v), cst_size(b)));
+  case AssignCST(_, v, _) => int_add(1, cst_size(v));
+  case IfCST(c0, t, e, _) => int_add(1, int_add(cst_size(c0), int_add(cst_size(t), cst_size(e))));
+  case DefCST(_, _, params, ret, body, _) => int_add(1, int_add(cst_list_size(params), int_add(cst_size(ret), cst_size(body))));
+  case LamCST(_, opt_ty, body, _) => int_add(1, int_add(cst_size(opt_ty), cst_size(body)));
+  case AppCST(f, args, _) => int_add(1, int_add(cst_size(f), cst_list_size(args)));
+  case ImplicitAppCST(f, targs, _) => int_add(1, int_add(cst_size(f), cst_list_size(targs)));
+  case EnumCST(_, _, vs, _) => int_add(1, cst_list_size(vs));
+  case MatchCST(e, cases, _) => int_add(1, int_add(cst_size(e), cst_list_size(cases)));
+  case RecordCST(_, _, fs, _) => int_add(1, cst_list_size(fs));
+  case MacroDefCST(_, cases, _) => int_add(1, cst_list_size(cases));
+  case ExtensionCST(_, _, target, meths, _) => int_add(1, int_add(cst_size(target), cst_list_size(meths)));
+  case EffectCST(_, _, decls, _) => int_add(1, cst_list_size(decls));
+  case DoCST(op, args, _) => int_add(1, int_add(cst_size(op), cst_list_size(args)));
+  case HandleCST(body, _, hs, _) => int_add(1, int_add(cst_size(body), cst_list_size(hs)));
+  case BoxCST(e, _) => int_add(1, cst_size(e));
+  case UnboxCST(e, _) => int_add(1, cst_size(e));
+  case FieldAccess(e, _, _) => int_add(1, cst_size(e));
+  case ImportCST(_, _, _, _, _) => 1;
+  case ExternCST(_, _, decls, _) => int_add(1, cst_list_size(decls));
+  case ModuleCST(_, _, _, body, _) => int_add(1, cst_list_size(body));
+  case SignatureCST(_, b, _) => int_add(1, cst_list_size(b));
+  case FunctorAppCST(f, args, _) => int_add(1, int_add(cst_size(f), cst_list_size(args)));
+  case ModuleAliasCST(_, rhs, _) => int_add(1, cst_size(rhs));
+  case SigValCST(_, _, _, ret, _) => int_add(1, cst_size(ret));
+  case TypeDeclCST(_, defs, _) => int_add(1, cst_list_size(defs));
+  case FileImportCST(_, _, _) => 1;
+  case SigWithCST(base, _, _) => int_add(1, cst_size(base));
+  case PackCST(m, s, _) => int_add(1, int_add(cst_size(m), cst_size(s)));
+  case UnpackCST(_, s, p, b, _) => int_add(1, int_add(cst_size(s), int_add(cst_size(p), cst_size(b))))
+};
+
+def cst_fuel(c: CST): Integer = {
+  int_mul(int_add(cst_size(c), 1), 16)
 };

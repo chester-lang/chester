@@ -23,11 +23,10 @@ module sealing and the core fragment are split across:
 | `theories/TypeScriptIRSem.v` | TS value/`TSEval`+`TSEvalBlock` model; `emit_ts_correct` for the full `CoreFrag` (expression and block forms, proven axiom-free); `emit_ts_expr_correct`/`emit_ts_lit_correct` corollaries |
 | `theories/GoIRSem.v` | Go value/`GoEval`+`GoEvalBlock` model; `emit_go_correct` for the full `CoreFrag` (expression and block forms across local environments, proven axiom-free); `emit_go_expr_correct`/`emit_go_correct_closed` corollaries |
 
-All three backend correctness theorems are checked with `Print Assumptions` and are
-closed under the global context (no `Admitted`, `Axiom`, or `Parameter`).
-Remaining `Admitted` lemmas live only in `theories/Parser.v` (fuel/measure
-stability and `ParserCST` well-formedness); `theories/test_proof.v` is an
-unwired scratch file ending in `Abort`.
+All three backend correctness theorems (`emit_rocq_correct`, `emit_ts_correct`, `emit_go_correct`)
+as well as CST parser well-formedness (`parse_produces_ParserCST`) are checked with `Print Assumptions`
+and are closed under the global context (no `Admitted`, `Axiom`, or `Parameter`).
+The only remaining `Admitted` lemma is `parse_loop_fuel_stable` in `theories/Parser.v`.
 
 Formal definitions that *are* executable live in `theories/*.v` (AST, elaborator,
 core checker, backends). Treat those theories as the ground truth for semantics;

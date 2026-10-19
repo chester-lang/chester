@@ -95,6 +95,19 @@ Definition append_body_tail (stmts : list CST) (tail : CST) : list CST :=
   | _ => List.app stmts [tail]
   end.
 
+Definition is_block_continue (toks : list Token) : bool :=
+  match toks with
+  | TokId s _ :: _ =>
+      if string_dec s "else" then true
+      else if string_dec s "catch" then true
+      else if string_dec s "same_as" then true
+      else if string_dec s "tighter_than" then true
+      else if string_dec s "for" then true
+      else if string_dec s "with" then true
+      else false
+  | _ => false
+  end.
+
 Fixpoint parse_loop_fuel (fuel : nat) (mode : ParseMode) (toks : list Token)
     {struct fuel} : (list CST * list Token) :=
   match fuel with
@@ -121,27 +134,10 @@ Fixpoint parse_loop_fuel (fuel : nat) (mode : ParseMode) (toks : list Token)
                   let rest1 := snd (snd body) in
                   let rest2 := match rest1 with TokSym s2 _ :: r => if string_dec s2 "}" then r else rest1 | _ => rest1 end in
                   let block_cst := Block block_stmts block_tail span in
-                  match rest2 with
-                  | TokId "else"%string _ :: _ =>
-                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
-                      (block_cst :: seq_csts, rest3)
-                  | TokId "catch"%string _ :: _ =>
-                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
-                      (block_cst :: seq_csts, rest3)
-                  | TokId "same_as"%string _ :: _ =>
-                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
-                      (block_cst :: seq_csts, rest3)
-                  | TokId "tighter_than"%string _ :: _ =>
-                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
-                      (block_cst :: seq_csts, rest3)
-                  | TokId "for"%string _ :: _ =>
-                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
-                      (block_cst :: seq_csts, rest3)
-                  | TokId "with"%string _ :: _ =>
-                      let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
-                      (block_cst :: seq_csts, rest3)
-                  | _ => ([block_cst], rest2)
-                  end
+                  if is_block_continue rest2 then
+                    let (seq_csts, rest3) := parse_loop_fuel fuel' mode rest2 in
+                    (block_cst :: seq_csts, rest3)
+                  else ([block_cst], rest2)
                 else if string_dec s "(" then
                   let (tuple_elems, rest1) := parse_loop_fuel fuel' (ModeComma ")") rest in
                   let rest2 := match rest1 with TokSym s2 _ :: r => if string_dec s2 ")" then r else rest1 | _ => rest1 end in
@@ -321,10 +317,210 @@ Proof.
   destruct (string_dec sym close); simpl; lia.
 Qed.
 
+Ltac solve_body_case sc1 r1 fuel' term IHbody :=
+  destruct r1 as [| t1 rest1];
+  [ simpl; destruct (ends_with_block (make_seq_or_single sc1)); simpl; lia
+  | destruct t1 as [t1name t1sp | t1val t1sp | t1val t1sp | t1sym t1sp | t1text t1sp | t1sp];
+    [ (* TokId *)
+      simpl; destruct (ends_with_block (make_seq_or_single sc1));
+      [ pose proof (IHbody term (TokId t1name t1sp :: rest1));
+        destruct (parse_body_fuel fuel' term (TokId t1name t1sp :: rest1)) as [b2 [tail2 r2]];
+        simpl in *; lia
+      | simpl in *; lia ]
+    | (* TokInt *)
+      simpl; destruct (ends_with_block (make_seq_or_single sc1));
+      [ pose proof (IHbody term (TokInt t1val t1sp :: rest1));
+        destruct (parse_body_fuel fuel' term (TokInt t1val t1sp :: rest1)) as [b2 [tail2 r2]];
+        simpl in *; lia
+      | simpl in *; lia ]
+    | (* TokStr *)
+      simpl; destruct (ends_with_block (make_seq_or_single sc1));
+      [ pose proof (IHbody term (TokStr t1val t1sp :: rest1));
+        destruct (parse_body_fuel fuel' term (TokStr t1val t1sp :: rest1)) as [b2 [tail2 r2]];
+        simpl in *; lia
+      | simpl in *; lia ]
+    | (* TokSym *)
+      simpl; destruct (string_dec t1sym ";");
+      [ pose proof (IHbody term rest1);
+        destruct (parse_body_fuel fuel' term rest1) as [b2 [tail2 r2]];
+        simpl in *; lia
+      | destruct (string_dec t1sym ",");
+        [ pose proof (IHbody term rest1);
+          destruct (parse_body_fuel fuel' term rest1) as [b2 [tail2 r2]];
+          simpl in *; lia
+        | destruct (ends_with_block (make_seq_or_single sc1));
+          [ destruct (string_dec t1sym term);
+            [ simpl in *; lia
+            | pose proof (IHbody term (TokSym t1sym t1sp :: rest1));
+              destruct (parse_body_fuel fuel' term (TokSym t1sym t1sp :: rest1)) as [b2 [tail2 r2]];
+              simpl in *; lia ]
+          | simpl in *; lia ] ] ]
+    | (* TokComment *)
+      simpl; destruct (ends_with_block (make_seq_or_single sc1));
+      [ pose proof (IHbody term (TokComment t1text t1sp :: rest1));
+        destruct (parse_body_fuel fuel' term (TokComment t1text t1sp :: rest1)) as [b2 [tail2 r2]];
+        simpl in *; lia
+      | simpl in *; lia ]
+    | (* TokEOF *)
+      simpl; destruct (ends_with_block (make_seq_or_single sc1)); simpl in *; lia
+    ]
+  ].
+
+Lemma parse_fuel_non_increasing :
+  forall (fuel : nat),
+    (forall (mode : ParseMode) (toks : list Token),
+      length (snd (parse_loop_fuel fuel mode toks)) <= length toks) /\
+    (forall (term : string) (toks : list Token),
+      length (snd (snd (parse_body_fuel fuel term toks))) <= length toks).
+Proof.
+  induction fuel as [| fuel' [IHloop IHbody]].
+  - split; intros; simpl; lia.
+  - split.
+    + intros mode toks.
+      destruct toks as [| tok rest]; [simpl; lia |].
+      destruct tok as [name sp | val sp | val sp | sym sp | text sp | sp].
+      * (* TokId *)
+        destruct mode as [term | term | term]; simpl.
+        -- pose proof (IHloop (ModeSeq term) rest).
+           destruct (parse_loop_fuel fuel' (ModeSeq term) rest) as [c1 r1].
+           simpl in *. lia.
+        -- pose proof (IHbody term (TokId name sp :: rest)).
+           destruct (parse_body_fuel fuel' term (TokId name sp :: rest)) as [b1 [t1 r1]].
+           simpl in *. lia.
+        -- pose proof (IHloop (ModeSeq term) (TokId name sp :: rest)).
+           destruct (parse_loop_fuel fuel' (ModeSeq term) (TokId name sp :: rest)) as [sc1 r1].
+           pose proof (IHloop (ModeComma term) r1).
+           destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2].
+           simpl in *. lia.
+      * (* TokInt *)
+        destruct mode as [term | term | term]; simpl.
+        -- pose proof (IHloop (ModeSeq term) rest).
+           destruct (parse_loop_fuel fuel' (ModeSeq term) rest) as [c1 r1].
+           simpl in *. lia.
+        -- pose proof (IHbody term (TokInt val sp :: rest)).
+           destruct (parse_body_fuel fuel' term (TokInt val sp :: rest)) as [b1 [t1 r1]].
+           simpl in *. lia.
+        -- pose proof (IHloop (ModeSeq term) (TokInt val sp :: rest)).
+           destruct (parse_loop_fuel fuel' (ModeSeq term) (TokInt val sp :: rest)) as [sc1 r1].
+           pose proof (IHloop (ModeComma term) r1).
+           destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2].
+           simpl in *. lia.
+      * (* TokStr *)
+        destruct mode as [term | term | term]; simpl.
+        -- pose proof (IHloop (ModeSeq term) rest).
+           destruct (parse_loop_fuel fuel' (ModeSeq term) rest) as [c1 r1].
+           simpl in *. lia.
+        -- pose proof (IHbody term (TokStr val sp :: rest)).
+           destruct (parse_body_fuel fuel' term (TokStr val sp :: rest)) as [b1 [t1 r1]].
+           simpl in *. lia.
+        -- pose proof (IHloop (ModeSeq term) (TokStr val sp :: rest)).
+           destruct (parse_loop_fuel fuel' (ModeSeq term) (TokStr val sp :: rest)) as [sc1 r1].
+           pose proof (IHloop (ModeComma term) r1).
+           destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2].
+           simpl in *. lia.
+      * (* TokSym *)
+        destruct mode as [term | term | term]; simpl.
+        -- destruct (string_dec sym term); [simpl; lia |].
+           destruct (string_dec sym ";"); [simpl; lia |].
+           destruct (string_dec sym ","); [simpl; lia |].
+           destruct (string_dec sym "{").
+           ++ pose proof (IHbody "}"%string rest).
+              destruct (parse_body_fuel fuel' "}"%string rest) as [b1 [tail1 r1]].
+              simpl in *.
+              pose proof (consume_closed_bound r1 "}"%string) as Hc.
+              remember (match r1 with | TokSym s2 _ :: r => if string_dec s2 "}"%string then r else r1 | _ => r1 end) as r2 eqn:Heqr2.
+              destruct (is_block_continue r2) eqn:Ebc.
+              ** pose proof (IHloop (ModeSeq term) r2).
+                 destruct (parse_loop_fuel fuel' (ModeSeq term) r2) as [sc3 r3].
+                 simpl in *. lia.
+              ** simpl. lia.
+           ++ destruct (string_dec sym "(").
+              ** pose proof (IHloop (ModeComma ")"%string) rest).
+                 destruct (parse_loop_fuel fuel' (ModeComma ")"%string) rest) as [t1 r1].
+                 simpl in *.
+                 pose proof (consume_closed_bound r1 ")"%string) as Hc.
+                 remember (match r1 with | TokSym s2 _ :: r => if string_dec s2 ")"%string then r else r1 | _ => r1 end) as r2 eqn:Heqr2.
+                 pose proof (IHloop (ModeSeq term) r2).
+                 destruct (parse_loop_fuel fuel' (ModeSeq term) r2) as [sc2 r3].
+                 simpl in *. lia.
+              ** destruct (string_dec sym "[").
+                 --- pose proof (IHloop (ModeComma "]"%string) rest).
+                     destruct (parse_loop_fuel fuel' (ModeComma "]"%string) rest) as [t1 r1].
+                     simpl in *.
+                     pose proof (consume_closed_bound r1 "]"%string) as Hc.
+                     remember (match r1 with | TokSym s2 _ :: r => if string_dec s2 "]"%string then r else r1 | _ => r1 end) as r2 eqn:Heqr2.
+                     pose proof (IHloop (ModeSeq term) r2).
+                     destruct (parse_loop_fuel fuel' (ModeSeq term) r2) as [sc2 r3].
+                     simpl in *. lia.
+                 --- pose proof (IHloop (ModeSeq term) rest).
+                     destruct (parse_loop_fuel fuel' (ModeSeq term) rest) as [sc1 r1].
+                     simpl in *. lia.
+        -- destruct (string_dec sym term); [simpl; lia |].
+           pose proof (IHbody term (TokSym sym sp :: rest)).
+           destruct (parse_body_fuel fuel' term (TokSym sym sp :: rest)) as [b1 [t1 r1]].
+           simpl in *. lia.
+        -- destruct (string_dec sym term); [simpl; lia |].
+           destruct (string_dec sym ",").
+           ++ pose proof (IHloop (ModeComma term) rest). lia.
+           ++ pose proof (IHloop (ModeSeq term) (TokSym sym sp :: rest)).
+              destruct (parse_loop_fuel fuel' (ModeSeq term) (TokSym sym sp :: rest)) as [sc1 r1].
+              pose proof (IHloop (ModeComma term) r1).
+              destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2].
+              simpl in *. lia.
+      * (* TokComment *)
+        simpl.
+        pose proof (IHloop mode rest).
+        destruct (parse_loop_fuel fuel' mode rest) as [c1 r1].
+        simpl in *. lia.
+      * (* TokEOF *)
+        simpl. lia.
+    + intros term toks.
+      destruct toks as [| tok rest]; [simpl; lia |].
+      destruct tok as [name sp | val sp | val sp | sym sp | text sp | sp].
+      * (* TokId in parse_body_fuel *)
+        simpl.
+        pose proof (IHloop (ModeSeq term) (TokId name sp :: rest)).
+        destruct (parse_loop_fuel fuel' (ModeSeq term) (TokId name sp :: rest)) as [sc1 r1].
+        solve_body_case sc1 r1 fuel' term IHbody.
+      * (* TokInt in parse_body_fuel *)
+        simpl.
+        pose proof (IHloop (ModeSeq term) (TokInt val sp :: rest)).
+        destruct (parse_loop_fuel fuel' (ModeSeq term) (TokInt val sp :: rest)) as [sc1 r1].
+        solve_body_case sc1 r1 fuel' term IHbody.
+      * (* TokStr in parse_body_fuel *)
+        simpl.
+        pose proof (IHloop (ModeSeq term) (TokStr val sp :: rest)).
+        destruct (parse_loop_fuel fuel' (ModeSeq term) (TokStr val sp :: rest)) as [sc1 r1].
+        solve_body_case sc1 r1 fuel' term IHbody.
+      * (* TokSym in parse_body_fuel *)
+        simpl.
+        destruct (string_dec sym term); [simpl; lia |].
+        destruct (string_dec sym ";").
+        { pose proof (IHbody term rest).
+          destruct (parse_body_fuel fuel' term rest) as [b2 [tail2 r2]].
+          simpl in *. lia. }
+        destruct (string_dec sym ",").
+        { pose proof (IHbody term rest).
+          destruct (parse_body_fuel fuel' term rest) as [b2 [tail2 r2]].
+          simpl in *. lia. }
+        pose proof (IHloop (ModeSeq term) (TokSym sym sp :: rest)).
+        destruct (parse_loop_fuel fuel' (ModeSeq term) (TokSym sym sp :: rest)) as [sc1 r1].
+        solve_body_case sc1 r1 fuel' term IHbody.
+      * (* TokComment in parse_body_fuel *)
+        simpl.
+        pose proof (IHbody term rest).
+        destruct (parse_body_fuel fuel' term rest) as [b1 [t1 r1]].
+        simpl in *. lia.
+      * (* TokEOF in parse_body_fuel *)
+        simpl. lia.
+Qed.
+
 Lemma parse_loop_fuel_non_increasing :
   forall (fuel : nat) (mode : ParseMode) (toks : list Token),
   length (snd (parse_loop_fuel fuel mode toks)) <= length toks.
-Admitted.
+Proof.
+  intros. apply (proj1 (parse_fuel_non_increasing fuel)).
+Qed.
 
 
 Definition parse_measure (mode : ParseMode) (toks : list Token) : nat :=
@@ -407,50 +603,243 @@ Definition parse (toks : list Token) : CST :=
 
 
 
-Ltac solve_parser_cst H_ind :=
-  repeat match goal with
-         | [ H : (match ?X with _ => _ end) = (_, _) |- _ ] => destruct X eqn:?
-         | [ H : (if ?X then _ else _) = (_, _) |- _ ] => destruct X eqn:?
-         | [ H : (let (a, b) := ?X in _) = (_, _) |- _ ] => destruct X eqn:?
-         end;
-  repeat match goal with
-         | [ H : parse_loop_fuel _ _ _ = (_, _) |- _ ] => apply H_ind in H
-         end;
-  match goal with
-  | [ H : (_, _) = (_, _) |- _ ] => inversion H; subst; clear H
-  | [ H : ?X = ?X |- _ ] => clear H
-  | _ => idtac
-  end;
-  try apply Forall_cons; auto;
-  try match goal with
-  | |- ParserCST (match ?L with _ => _ end) =>
-      destruct L as [|h t];
-      [ apply ParserSymbol 
-      | destruct t; 
-        [ match goal with | H : Forall ParserCST _ |- _ => inversion H; subst; assumption end
-        | apply ParserSeq; match goal with | H : Forall ParserCST _ |- _ => exact H end ]
-      ]
-  end;
-  try apply ParserSymbol;
-  try apply ParserString;
-  try apply ParserInt;
-  try apply ParserBool;
-  try apply ParserTuple;
-  try apply ParserList;
-  try apply ParserSeq;
-  try apply ParserBlock;
-  try apply ParserComment;
-  try assumption.
+Lemma parser_cst_unit : ParserCST unit_cst.
+Proof.
+  unfold unit_cst. apply ParserSymbol.
+Qed.
+
+Lemma parser_cst_make_seq : forall csts,
+  Forall ParserCST csts ->
+  ParserCST (make_seq_or_single csts).
+Proof.
+  intros csts H. unfold make_seq_or_single.
+  destruct csts as [| x [| y rest]].
+  - apply ParserSymbol.
+  - inversion H; subst; assumption.
+  - apply ParserSeq. assumption.
+Qed.
+
+Lemma parser_cst_append_tail : forall stmts tail,
+  Forall ParserCST stmts ->
+  ParserCST tail ->
+  Forall ParserCST (append_body_tail stmts tail).
+Proof.
+  intros stmts tail Hstmts Htail.
+  unfold append_body_tail.
+  destruct tail; try (apply Forall_app; split; [assumption | constructor; [assumption | constructor]]).
+  destruct (string_dec s "Unit"); [assumption |].
+  apply Forall_app. split; [assumption | constructor; [assumption | constructor]].
+Qed.
+
+Ltac solve_body_cst_branch IHloop IHbody sc1 r1 fuel' term H :=
+  destruct r1 as [| t1 rest1];
+  [ simpl in H;
+    destruct (ends_with_block (make_seq_or_single sc1));
+    inversion H; subst;
+    try (split; [ constructor; [ apply parser_cst_make_seq; eapply IHloop; eassumption | constructor ]
+                | apply parser_cst_unit ]);
+    try (split; [ constructor | apply parser_cst_make_seq; eapply IHloop; eassumption ])
+  | destruct t1 as [t1name t1sp | t1val t1sp | t1val t1sp | t1sym t1sp | t1text t1sp | t1sp];
+    simpl in H;
+    repeat match type of H with
+           | context [if string_dec ?s ?t then _ else _] => destruct (string_dec s t)
+           | context [ends_with_block (make_seq_or_single sc1)] => destruct (ends_with_block (make_seq_or_single sc1))
+           | context [parse_body_fuel fuel' term ?toks] =>
+               let Hrec := fresh "Hrec" in
+               pose proof (IHbody term toks) as Hrec;
+               let b2 := fresh "b" in
+               let tail2 := fresh "tail" in
+               let r2 := fresh "r" in
+               destruct (parse_body_fuel fuel' term toks) as [b2 [tail2 r2]];
+               destruct (Hrec b2 tail2 r2 eq_refl)
+           end;
+    inversion H; subst;
+    try (split; [ constructor; [ apply parser_cst_make_seq; eapply IHloop; eassumption | constructor ]
+                | apply parser_cst_unit ]);
+    try (split; [ constructor | apply parser_cst_make_seq; eapply IHloop; eassumption ]);
+    try (split; [ constructor; [ apply parser_cst_make_seq; eapply IHloop; eassumption | assumption ]
+                | assumption ])
+  ].
+
+Lemma parse_fuel_produces_ParserCST :
+  forall fuel,
+    (forall mode toks csts rest,
+      parse_loop_fuel fuel mode toks = (csts, rest) ->
+      Forall ParserCST csts) /\
+    (forall term toks stmts tail rest,
+      parse_body_fuel fuel term toks = (stmts, (tail, rest)) ->
+      Forall ParserCST stmts /\ ParserCST tail).
+Proof.
+  induction fuel as [| fuel' [IHloop IHbody]].
+  - split.
+    + intros mode toks csts rest H.
+      simpl in H. inversion H; subst. constructor.
+    + intros term toks stmts tail rest H.
+      simpl in H. inversion H; subst.
+      split; [constructor | apply parser_cst_unit].
+  - split.
+    + intros mode toks.
+      destruct toks as [| tok rest_toks].
+      * intros csts rest H. simpl in H. inversion H; subst. constructor.
+      * destruct tok as [name sp | val sp | val sp | sym sp | text sp | sp].
+        -- (* TokId *)
+           intros csts rest H.
+           destruct mode as [term | term | term]; simpl in H.
+           ++ destruct (parse_loop_fuel fuel' (ModeSeq term) rest_toks) as [c1 r1] eqn:E1.
+              inversion H; subst.
+              constructor; [apply ParserSymbol | eapply IHloop; eassumption].
+           ++ pose proof (IHbody term (TokId name sp :: rest_toks)) as Hrec.
+              destruct (parse_body_fuel fuel' term (TokId name sp :: rest_toks)) as [b1 [t1 r1]].
+              destruct (Hrec b1 t1 r1 eq_refl) as [Hb1 Ht1].
+              inversion H; subst.
+              apply parser_cst_append_tail; assumption.
+           ++ destruct (parse_loop_fuel fuel' (ModeSeq term) (TokId name sp :: rest_toks)) as [sc1 r1] eqn:E1.
+              destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2] eqn:E2.
+              inversion H; subst.
+              constructor.
+              ** apply parser_cst_make_seq. eapply IHloop; eassumption.
+              ** eapply IHloop; eassumption.
+        -- (* TokInt *)
+           intros csts rest H.
+           destruct mode as [term | term | term]; simpl in H.
+           ++ destruct (parse_loop_fuel fuel' (ModeSeq term) rest_toks) as [c1 r1] eqn:E1.
+              inversion H; subst.
+              constructor; [apply ParserInt | eapply IHloop; eassumption].
+           ++ pose proof (IHbody term (TokInt val sp :: rest_toks)) as Hrec.
+              destruct (parse_body_fuel fuel' term (TokInt val sp :: rest_toks)) as [b1 [t1 r1]].
+              destruct (Hrec b1 t1 r1 eq_refl) as [Hb1 Ht1].
+              inversion H; subst.
+              apply parser_cst_append_tail; assumption.
+           ++ destruct (parse_loop_fuel fuel' (ModeSeq term) (TokInt val sp :: rest_toks)) as [sc1 r1] eqn:E1.
+              destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2] eqn:E2.
+              inversion H; subst.
+              constructor.
+              ** apply parser_cst_make_seq. eapply IHloop; eassumption.
+              ** eapply IHloop; eassumption.
+        -- (* TokStr *)
+           intros csts rest H.
+           destruct mode as [term | term | term]; simpl in H.
+           ++ destruct (parse_loop_fuel fuel' (ModeSeq term) rest_toks) as [c1 r1] eqn:E1.
+              inversion H; subst.
+              constructor; [apply ParserString | eapply IHloop; eassumption].
+           ++ pose proof (IHbody term (TokStr val sp :: rest_toks)) as Hrec.
+              destruct (parse_body_fuel fuel' term (TokStr val sp :: rest_toks)) as [b1 [t1 r1]].
+              destruct (Hrec b1 t1 r1 eq_refl) as [Hb1 Ht1].
+              inversion H; subst.
+              apply parser_cst_append_tail; assumption.
+           ++ destruct (parse_loop_fuel fuel' (ModeSeq term) (TokStr val sp :: rest_toks)) as [sc1 r1] eqn:E1.
+              destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2] eqn:E2.
+              inversion H; subst.
+              constructor.
+              ** apply parser_cst_make_seq. eapply IHloop; eassumption.
+              ** eapply IHloop; eassumption.
+        -- (* TokSym *)
+           intros csts rest H.
+           destruct mode as [term | term | term]; simpl in H.
+           ++ destruct (string_dec sym term); [inversion H; subst; constructor |].
+              destruct (string_dec sym ";"); [inversion H; subst; constructor |].
+              destruct (string_dec sym ","); [inversion H; subst; constructor |].
+              destruct (string_dec sym "{").
+              ** pose proof (IHbody "}"%string rest_toks) as Hrec.
+                 destruct (parse_body_fuel fuel' "}"%string rest_toks) as [b1 [tail1 r1]].
+                 destruct (Hrec b1 tail1 r1 eq_refl) as [Hb1 Htail1].
+                 destruct (is_block_continue _) eqn:Ebc;
+                 [ destruct (parse_loop_fuel fuel' (ModeSeq term) _) as [sc3 r3] eqn:Esc3;
+                   inversion H; subst;
+                   constructor; [apply ParserBlock; assumption | eapply IHloop; eassumption]
+                 | inversion H; subst;
+                   constructor; [apply ParserBlock; assumption | constructor] ].
+              ** destruct (string_dec sym "(").
+                 --- destruct (parse_loop_fuel fuel' (ModeComma ")"%string) rest_toks) as [t1 r1] eqn:Et1.
+                     pose proof (IHloop (ModeComma ")"%string) rest_toks t1 r1 Et1) as Ht1.
+                     destruct (parse_loop_fuel fuel' (ModeSeq term) _) as [sc2 r3] eqn:Esc2.
+                     inversion H; subst.
+                     constructor; [apply ParserTuple; assumption | eapply IHloop; eassumption].
+                 --- destruct (string_dec sym "[").
+                     +++ destruct (parse_loop_fuel fuel' (ModeComma "]"%string) rest_toks) as [t1 r1] eqn:Et1.
+                         pose proof (IHloop (ModeComma "]"%string) rest_toks t1 r1 Et1) as Ht1.
+                         destruct (parse_loop_fuel fuel' (ModeSeq term) _) as [sc2 r3] eqn:Esc2.
+                         inversion H; subst.
+                         constructor; [apply ParserList; assumption | eapply IHloop; eassumption].
+                     +++ destruct (parse_loop_fuel fuel' (ModeSeq term) rest_toks) as [sc1 r1] eqn:Esc1.
+                         inversion H; subst.
+                         constructor; [apply ParserSymbol | eapply IHloop; eassumption].
+           ++ destruct (string_dec sym term); [inversion H; subst; constructor |].
+              pose proof (IHbody term (TokSym sym sp :: rest_toks)) as Hrec.
+              destruct (parse_body_fuel fuel' term (TokSym sym sp :: rest_toks)) as [b1 [t1 r1]].
+              destruct (Hrec b1 t1 r1 eq_refl) as [Hb1 Ht1].
+              inversion H; subst.
+              apply parser_cst_append_tail; assumption.
+           ++ destruct (string_dec sym term); [inversion H; subst; constructor |].
+              destruct (string_dec sym ",").
+              ** eapply IHloop. eassumption.
+              ** destruct (parse_loop_fuel fuel' (ModeSeq term) (TokSym sym sp :: rest_toks)) as [sc1 r1] eqn:Esc1.
+                 destruct (parse_loop_fuel fuel' (ModeComma term) r1) as [sc2 r2] eqn:Esc2.
+                 inversion H; subst.
+                 constructor.
+                 --- apply parser_cst_make_seq. eapply IHloop; eassumption.
+                 --- eapply IHloop; eassumption.
+        -- (* TokComment *)
+           intros csts rest H.
+           simpl in H.
+           destruct (parse_loop_fuel fuel' mode rest_toks) as [c1 r1] eqn:E1.
+           inversion H; subst.
+           constructor; [apply ParserComment | eapply IHloop; eassumption].
+        -- (* TokEOF *)
+           intros csts rest H.
+           simpl in H. inversion H; subst. constructor.
+    + intros term toks stmts tail rest H.
+      destruct toks as [| tok rest_toks].
+      * simpl in H. inversion H; subst.
+        split; [constructor | apply parser_cst_unit].
+      * destruct tok as [name sp | val sp | val sp | sym sp | text sp | sp].
+        -- (* TokId in body *)
+           simpl in H.
+           destruct (parse_loop_fuel fuel' (ModeSeq term) (TokId name sp :: rest_toks)) as [sc1 r1] eqn:Esc1.
+           solve_body_cst_branch IHloop IHbody sc1 r1 fuel' term H.
+        -- (* TokInt in body *)
+           simpl in H.
+           destruct (parse_loop_fuel fuel' (ModeSeq term) (TokInt val sp :: rest_toks)) as [sc1 r1] eqn:Esc1.
+           solve_body_cst_branch IHloop IHbody sc1 r1 fuel' term H.
+        -- (* TokStr in body *)
+           simpl in H.
+           destruct (parse_loop_fuel fuel' (ModeSeq term) (TokStr val sp :: rest_toks)) as [sc1 r1] eqn:Esc1.
+           solve_body_cst_branch IHloop IHbody sc1 r1 fuel' term H.
+        -- (* TokSym in body *)
+           simpl in H.
+           destruct (string_dec sym term).
+           ++ inversion H; subst. split; [constructor | apply parser_cst_unit].
+           ++ destruct (string_dec sym ";").
+              ** eapply IHbody; eassumption.
+              ** destruct (string_dec sym ",").
+                 --- eapply IHbody; eassumption.
+                 --- destruct (parse_loop_fuel fuel' (ModeSeq term) (TokSym sym sp :: rest_toks)) as [sc1 r1] eqn:Esc1.
+                     solve_body_cst_branch IHloop IHbody sc1 r1 fuel' term H.
+        -- (* TokComment in body *)
+           simpl in H.
+           pose proof (IHbody term rest_toks) as Hrec.
+           destruct (parse_body_fuel fuel' term rest_toks) as [b1 [t1 r1]].
+           destruct (Hrec b1 t1 r1 eq_refl) as [Hb1 Ht1].
+           inversion H; subst.
+           split; [constructor; [apply ParserComment | assumption] | assumption].
+        -- (* TokEOF in body *)
+           simpl in H. inversion H; subst.
+           split; [constructor | apply parser_cst_unit].
+Qed.
 
 Lemma parse_loop_fuel_produces_ParserCST : forall fuel mode toks csts rest,
   parse_loop_fuel fuel mode toks = (csts, rest) ->
   Forall ParserCST csts.
-Admitted.
+Proof.
+  intros. eapply (proj1 (parse_fuel_produces_ParserCST fuel)). eassumption.
+Qed.
 
 Lemma parse_body_fuel_produces_ParserCST : forall fuel term toks stmts tail rest,
   parse_body_fuel fuel term toks = (stmts, (tail, rest)) ->
   Forall ParserCST stmts /\ ParserCST tail.
-Admitted.
+Proof.
+  intros. eapply (proj2 (parse_fuel_produces_ParserCST fuel)). eassumption.
+Qed.
 
 Theorem parse_produces_ParserCST : forall toks,
   ParserCST (parse toks).

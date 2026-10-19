@@ -1878,7 +1878,7 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
   }
 };
 def expand_cst_top(c: CST): CST = {
-  let res = expand_cst(100000, list_empty[MacroEnvEntry](), list_empty[OpEnvEntry](), 0, c);
+  let res = expand_cst(cst_fuel(c), list_empty[MacroEnvEntry](), list_empty[OpEnvEntry](), 0, c);
   match res {
     case Res(cst, _) => cst
   }

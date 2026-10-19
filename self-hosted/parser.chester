@@ -141,6 +141,20 @@ def parse_list_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
 def parse_list(tokens: List(Token)): ParseResult(CST) = {
   parse_list_helper(tokens, list_empty[CST]())
 };
+def ends_with_block_cst(c: CST): Bool = {
+  match c {
+    case Block(_, _, _) => true;
+    case SeqOf(elems, _) => {
+      if int_eq(list_length(elems), 0) then false else {
+        match list_get(elems, int_sub(list_length(elems), 1)) {
+          case Block(_, _, _) => true;
+          case _ => false
+        }
+      }
+    };
+    case _ => false
+  }
+};
 def parse_block_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = {
   if int_eq(list_length(tokens), 0) then {
     ParseResult.MkParseResult(CST.Error("Unexpected EOF", Span(0, 0, list_empty[Integer]())), tokens)
@@ -166,11 +180,19 @@ def parse_block_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = 
                     } else if string_eq(s2, "}") then {
                       // tail expression!
                       ParseResult.MkParseResult(CST.Block(acc, ParseResult_result(p), Span(0, 0, list_empty[Integer]())), advance(ParseResult_remaining(p)))
+                    } else if ends_with_block_cst(ParseResult_result(p)) then {
+                      parse_block_helper(ParseResult_remaining(p), list_append(acc, ParseResult_result(p)))
                     } else {
                       ParseResult.MkParseResult(CST.Error("Expected ';' or '}'", Token_span(next_tok)), ParseResult_remaining(p))
                     }
                   };
-                  case _ => ParseResult.MkParseResult(CST.Error("Expected ';' or '}'", Token_span(next_tok)), ParseResult_remaining(p))
+                  case _ => {
+                    if ends_with_block_cst(ParseResult_result(p)) then {
+                      parse_block_helper(ParseResult_remaining(p), list_append(acc, ParseResult_result(p)))
+                    } else {
+                      ParseResult.MkParseResult(CST.Error("Expected ';' or '}'", Token_span(next_tok)), ParseResult_remaining(p))
+                    }
+                  }
                 }
               }
             }
@@ -193,11 +215,19 @@ def parse_block_helper(tokens: List(Token), acc: List(CST)): ParseResult(CST) = 
                   } else if string_eq(s2, "}") then {
                     // tail expression!
                     ParseResult.MkParseResult(CST.Block(acc, ParseResult_result(p), Span(0, 0, list_empty[Integer]())), advance(ParseResult_remaining(p)))
+                  } else if ends_with_block_cst(ParseResult_result(p)) then {
+                    parse_block_helper(ParseResult_remaining(p), list_append(acc, ParseResult_result(p)))
                   } else {
                     ParseResult.MkParseResult(CST.Error("Expected ';' or '}'", Token_span(next_tok)), ParseResult_remaining(p))
                   }
                 };
-                case _ => ParseResult.MkParseResult(CST.Error("Expected ';' or '}'", Token_span(next_tok)), ParseResult_remaining(p))
+                case _ => {
+                  if ends_with_block_cst(ParseResult_result(p)) then {
+                    parse_block_helper(ParseResult_remaining(p), list_append(acc, ParseResult_result(p)))
+                  } else {
+                    ParseResult.MkParseResult(CST.Error("Expected ';' or '}'", Token_span(next_tok)), ParseResult_remaining(p))
+                  }
+                }
               }
             }
           }
@@ -231,20 +261,6 @@ def is_block_continue_kw(s: String): Bool = {
   else if string_eq(s, "same_as") then true
   else if string_eq(s, "tighter_than") then true
   else false
-};
-def ends_with_block_cst(c: CST): Bool = {
-  match c {
-    case Block(_, _, _) => true;
-    case SeqOf(elems, _) => {
-      if int_eq(list_length(elems), 0) then false else {
-        match list_get(elems, int_sub(list_length(elems), 1)) {
-          case Block(_, _, _) => true;
-          case _ => false
-        }
-      }
-    };
-    case _ => false
-  }
 };
 def finish_atom_seq(acc: List(CST), tokens: List(Token)): ParseResult(CST) = {
   let len = list_length(acc);

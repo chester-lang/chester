@@ -21,10 +21,16 @@ jobs:
         cat > /tmp/chester_assumptions.v <<'EOF'
         Require Import Chester.RocqIRSem.
         Require Import Chester.TypeScriptIRSem.
+        Require Import Chester.GoIRSem.
+        Require Import Chester.Parser.
         Print Assumptions emit_rocq_correct.
         Print Assumptions emit_rocq_correct_closed.
         Print Assumptions emit_ts_correct.
         Print Assumptions emit_ts_correct_closed.
+        Print Assumptions emit_go_correct.
+        Print Assumptions emit_go_expr_correct.
+        Print Assumptions emit_go_correct_closed.
+        Print Assumptions parse_produces_ParserCST.
         EOF
         nix develop --command sh -c '
           coqc -Q theories Chester /tmp/chester_assumptions.v 2>&1 | tee /tmp/chester_assumptions.out

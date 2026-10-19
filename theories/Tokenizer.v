@@ -7,15 +7,11 @@ Open Scope string_scope.
 Require Import Chester.CST.
 Require Import Chester.Parser.
 
-Fixpoint tokenize (fuel : nat) (input : string) (current_pos : Pos) : list Token :=
-  match fuel with
-  | 0 => []
-  | S fuel' => 
-      match input with
-      | "" => []
-      | String c rest => 
-          if (Ascii.eqb c "{"%char) then TokSym "{" empty_span :: tokenize fuel' rest current_pos
-          else if (Ascii.eqb c "}"%char) then TokSym "}" empty_span :: tokenize fuel' rest current_pos
-          else tokenize fuel' rest current_pos
-      end
+Fixpoint tokenize (input : string) (current_pos : Pos) {struct input} : list Token :=
+  match input with
+  | "" => []
+  | String c rest => 
+      if (Ascii.eqb c "{"%char) then TokSym "{" empty_span :: tokenize rest current_pos
+      else if (Ascii.eqb c "}"%char) then TokSym "}" empty_span :: tokenize rest current_pos
+      else tokenize rest current_pos
   end.

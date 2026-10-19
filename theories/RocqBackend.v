@@ -22,7 +22,7 @@ Fixpoint nat_to_string_fuel (fuel n : nat) (acc : string) : string :=
   end.
 
 Definition nat_to_string (n : nat) : string :=
-  if Nat.eqb n 0 then "0" else nat_to_string_fuel 20 n "".
+  if Nat.eqb n 0 then "0" else nat_to_string_fuel (S n) n "".
 
 Definition effect_label (eff : EffectRef) : string :=
   match eff with
