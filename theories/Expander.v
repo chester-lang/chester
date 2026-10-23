@@ -1587,6 +1587,14 @@ Fixpoint apply_macros_fuel (fuel : nat) (env : MacroEnv) (c : CST) {struct fuel}
       | SeqOf elems sp => SeqOf (on_list env elems) sp
       | LetCST n v next sp =>
           LetCST n (apply_macros_fuel fuel' env v) (apply_macros_fuel fuel' env next) sp
+      | VarCST n v next sp =>
+          VarCST n (apply_macros_fuel fuel' env v) (apply_macros_fuel fuel' env next) sp
+      | AssignCST n v sp =>
+          AssignCST n (apply_macros_fuel fuel' env v) sp
+      | AppCST f args asp =>
+          AppCST (apply_macros_fuel fuel' env f) (on_list env args) asp
+      | ImplicitAppCST f args asp =>
+          ImplicitAppCST (apply_macros_fuel fuel' env f) (on_list env args) asp
       | IfCST c0 t e sp =>
           IfCST (apply_macros_fuel fuel' env c0) (apply_macros_fuel fuel' env t)
             (apply_macros_fuel fuel' env e) sp
@@ -1605,6 +1613,25 @@ Fixpoint apply_macros_fuel (fuel : nat) (env : MacroEnv) (c : CST) {struct fuel}
       | MatchCST e cases sp =>
           MatchCST (apply_macros_fuel fuel' env e)
             (map (fun p => (fst p, apply_macros_fuel fuel' env (snd p))) cases) sp
+      | DoCST op args sp =>
+          DoCST (apply_macros_fuel fuel' env op) (on_list env args) sp
+      | HandleCST body eff hs sp =>
+          HandleCST (apply_macros_fuel fuel' env body) eff (on_list env hs) sp
+      | BoxCST inner sp => BoxCST (apply_macros_fuel fuel' env inner) sp
+      | UnboxCST inner sp => UnboxCST (apply_macros_fuel fuel' env inner) sp
+      | ExtensionCST n tps tgt meths sp =>
+          ExtensionCST n tps (apply_macros_fuel fuel' env tgt) (on_list env meths) sp
+      | ModuleCST n ps seal body sp =>
+          let (env', kept) := collect_macros_stmts body env in
+          ModuleCST n ps seal (on_list env' kept) sp
+      | FunctorAppCST f args sp =>
+          FunctorAppCST (apply_macros_fuel fuel' env f) (on_list env args) sp
+      | PackCST m sig sp =>
+          PackCST (apply_macros_fuel fuel' env m) (apply_macros_fuel fuel' env sig) sp
+      | UnpackCST n sig e body sp =>
+          UnpackCST n (apply_macros_fuel fuel' env sig)
+            (apply_macros_fuel fuel' env e)
+            (apply_macros_fuel fuel' env body) sp
       | _ => c
       end
   end.

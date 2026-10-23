@@ -43,6 +43,20 @@ def do_io(): Unit / [io] = {
 }
 ```
 
+## Termination and `div`
+
+A recursive function is accepted when every self-call passes a strictly smaller argument: `int_sub` / `prim__int_sub` of a parameter by a positive literal, `advance` / `prim__list_tail` of a parameter, or a field bound by matching on that parameter. `let` names bound to such a decrease count as smaller too.
+
+Any other recursion must carry the `div` effect. An unannotated definition gets `div` inferred. A written row such as `/ [io]` that omits `div` is rejected. `div` is a classifier, not a capability: it does not need a `handle`.
+
+```chester
+def fact(n: Integer): Integer = {
+  if int_eq(n, 0) then 1 else fact(int_sub(n, 1))
+};
+
+def loop(): Integer / [div] = loop();
+```
+
 ## See also
 
 - [Getting Started](getting-started.md)

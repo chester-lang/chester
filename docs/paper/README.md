@@ -24,9 +24,9 @@ module sealing and the core fragment are split across:
 | `theories/GoIRSem.v` | Go value/`GoEval`+`GoEvalBlock` model; `emit_go_correct` for the full `CoreFrag` (expression and block forms across local environments, proven axiom-free); `emit_go_expr_correct`/`emit_go_correct_closed` corollaries |
 
 All three backend correctness theorems (`emit_rocq_correct`, `emit_ts_correct`, `emit_go_correct`)
-as well as CST parser well-formedness (`parse_produces_ParserCST`) are checked with `Print Assumptions`
+as well as CST parser fuel stability and well-formedness (`parse_loop_fuel_stable`,
+`parse_loop_fuel_never_runs_out`, `parse_produces_ParserCST`) are checked with `Print Assumptions`
 and are closed under the global context (no `Admitted`, `Axiom`, or `Parameter`).
-The only remaining `Admitted` lemma is `parse_loop_fuel_stable` in `theories/Parser.v`.
 
 Formal definitions that *are* executable live in `theories/*.v` (AST, elaborator,
 core checker, backends). Treat those theories as the ground truth for semantics;

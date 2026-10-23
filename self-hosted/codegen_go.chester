@@ -937,15 +937,14 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
 };
 
 // Top-level: collect GoSigEnv from AstBlock stmts, then emit.
-// Emit fuel scales with top-level stmt count (mirrors Rocq measure-derived fuel).
+// Emit fuel is derived from the AST size measure (mirrors Rocq measure-derived fuel).
 def emit_go_top(ast: AST.AST): String = {
   match ast {
     case AstBlock(stmts, _) => {
       let sigs = collect_go_sigs(stmts);
-      let fuel = int_mul(256, int_add(1, list_length(stmts)));
-      emit_go_stmt(fuel, sigs, list_empty[Pair](), "", ast)
+      emit_go_stmt(ast_fuel(ast), sigs, list_empty[Pair](), "", ast)
     };
     case AstSpan(_, inner) => emit_go_top(inner);
-    case _ => emit_go_stmt(256, list_empty[Pair](), list_empty[Pair](), "", ast)
+    case _ => emit_go_stmt(ast_fuel(ast), list_empty[Pair](), list_empty[Pair](), "", ast)
   }
 };

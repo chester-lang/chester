@@ -30,6 +30,8 @@ jobs:
         Print Assumptions emit_go_correct.
         Print Assumptions emit_go_expr_correct.
         Print Assumptions emit_go_correct_closed.
+        Print Assumptions parse_loop_fuel_stable.
+        Print Assumptions parse_loop_fuel_never_runs_out.
         Print Assumptions parse_produces_ParserCST.
         EOF
         nix develop --command sh -c '

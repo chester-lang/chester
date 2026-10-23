@@ -201,7 +201,7 @@ Definition fresh_name (base : string) (avoid : list string) : string :=
         if string_in_list cand avoid then go (append cand "'") fuel' else cand
     end
   in
-  go (append base "'") 256.
+  go (append base "'") (S (length avoid)).
 
 Definition pat_bound_names (p : PatternAST) : list string :=
   match p with
@@ -643,6 +643,152 @@ Definition meet_expected (got : AST) (expected : option AST) : TyResult AST :=
   Core bidirectional checker for elaborated ASTs (post-elaborator).
   Metas are treated as Any until zonk covers all constructors.
 *)
+(* Concrete [div] only. An open row variable does not count: [effect_row_has]
+   treats a row variable as every label, which made this check vacuously true
+   on every unannotated elaborated definition. *)
+Fixpoint effect_has_div (ps : EffectSet) : bool :=
+  match ps with
+  | [] => false
+  | EffectRowVar _ :: rest => effect_has_div rest
+  | BuiltinEffect n :: rest =>
+      if String.eqb n "div" then true else effect_has_div rest
+  | UserEffect n :: rest =>
+      if String.eqb n "div" then true else effect_has_div rest
+  end.
+
+(* [arg] is strictly smaller than some parameter (or a name already known to be). *)
+Definition is_decreasing_arg (params smaller : list string) (arg : AST) : bool :=
+  let known (n : string) : bool :=
+    orb (string_in_list n params) (string_in_list n smaller)
+  in
+  match strip_span arg with
+  | AstRef n => string_in_list n smaller
+  | AstApp f args =>
+      match strip_span f, map strip_span args with
+      | AstRef op, [AstRef p; AstIntLit k] =>
+          if orb (String.eqb op "int_sub") (String.eqb op "prim__int_sub") then
+            andb (Nat.ltb 0 k) (known p)
+          else false
+      | AstRef op, [AstRef p] =>
+          if orb (String.eqb op "advance") (String.eqb op "prim__list_tail") then
+            known p
+          else false
+      | _, _ => false
+      end
+  | _ => false
+  end.
+
+(* Every self-call passes a strictly smaller argument. A bare use of [fn] is not
+   a decreasing call. Constructor fields of a match on a parameter (or on a
+   name already smaller) count as smaller, as do [let]-bound decreases. *)
+Fixpoint rec_calls_ok (fn : string) (params smaller : list string) (t : AST) {struct t} : bool :=
+  match t with
+  | AstSpan _ inner => rec_calls_ok fn params smaller inner
+  | AstRef n => negb (String.eqb n fn)
+  | AstUniverse _ | AstStringLit _ | AstIntLit _ | AstBoolLit _
+  | AstMeta _ | AstError _ | AstImport _ _ _ _ | AstEnum _ _ _ | AstRecord _ _ _
+  | AstFileImport _ _ =>
+      true
+  | AstTuple elems => forallb (rec_calls_ok fn params smaller) elems
+  | AstBlock stmts tail =>
+      let fix go (sm : list string) (ls : list AST) : bool :=
+        match ls with
+        | [] => rec_calls_ok fn params sm tail
+        | s :: rest =>
+            let sm' :=
+              match strip_span s with
+              | AstLet n v =>
+                  if is_decreasing_arg params sm v then n :: sm else sm
+              | _ => sm
+              end
+            in
+            andb (rec_calls_ok fn params sm s) (go sm' rest)
+        end
+      in go smaller stmts
+  | AstApp f args =>
+      let args_ok := forallb (rec_calls_ok fn params smaller) args in
+      match strip_span f with
+      | AstRef n =>
+          if String.eqb n fn then
+            andb args_ok (existsb (is_decreasing_arg params smaller) args)
+          else andb (rec_calls_ok fn params smaller f) args_ok
+      | _ => andb (rec_calls_ok fn params smaller f) args_ok
+      end
+  | AstImplicitApp f args =>
+      andb (rec_calls_ok fn params smaller f) (forallb (rec_calls_ok fn params smaller) args)
+  | AstLam n ty body =>
+      andb (rec_calls_ok fn params smaller ty)
+        (if String.eqb n fn then true else rec_calls_ok fn params smaller body)
+  | AstPi n ty ret _ =>
+      andb (rec_calls_ok fn params smaller ty)
+        (if String.eqb n fn then true else rec_calls_ok fn params smaller ret)
+  | AstDo e args =>
+      andb (rec_calls_ok fn params smaller e) (forallb (rec_calls_ok fn params smaller) args)
+  | AstHandle e _ hs =>
+      andb (rec_calls_ok fn params smaller e)
+        (forallb (fun p => rec_calls_ok fn params smaller (snd p)) hs)
+  | AstLet _ v | AstVar _ v | AstAssign _ v => rec_calls_ok fn params smaller v
+  | AstBox e _ | AstUnbox e | AstFieldAccess e _ => rec_calls_ok fn params smaller e
+  | AstIf c th el =>
+      andb (rec_calls_ok fn params smaller c)
+        (andb (rec_calls_ok fn params smaller th) (rec_calls_ok fn params smaller el))
+  | AstDef n _ ps ret body _ =>
+      let in_ps := forallb (fun p => rec_calls_ok fn params smaller (snd p)) ps in
+      let in_ret := rec_calls_ok fn params smaller ret in
+      if String.eqb n fn then andb in_ps in_ret
+      else andb in_ps (andb in_ret (rec_calls_ok fn params smaller body))
+  | AstFunTy _ ps ret _ =>
+      andb (forallb (fun p => rec_calls_ok fn params smaller (snd p)) ps)
+        (rec_calls_ok fn params smaller ret)
+  | AstMatch scrut cases =>
+      let scrut_ok := rec_calls_ok fn params smaller scrut in
+      let scrut_dec :=
+        match strip_span scrut with
+        | AstRef n => orb (string_in_list n params) (string_in_list n smaller)
+        | _ => false
+        end
+      in
+      let case_ok :=
+        forallb
+          (fun c =>
+             let sm' :=
+               match fst c with
+               | PatConstructor _ vs => if scrut_dec then app vs smaller else smaller
+               | _ => smaller
+               end
+             in rec_calls_ok fn params sm' (snd c))
+          cases
+      in andb scrut_ok case_ok
+  | AstExtension _ _ tgt meths =>
+      andb (rec_calls_ok fn params smaller tgt) (forallb (rec_calls_ok fn params smaller) meths)
+  | AstModule _ ps seal body =>
+      andb (forallb (fun p => rec_calls_ok fn params smaller (snd p)) ps)
+        (andb (match seal with Some s => rec_calls_ok fn params smaller s | None => true end)
+           (forallb (rec_calls_ok fn params smaller) body))
+  | AstSignature _ decls => forallb (rec_calls_ok fn params smaller) decls
+  | AstFunctorApp f args =>
+      andb (rec_calls_ok fn params smaller f) (forallb (rec_calls_ok fn params smaller) args)
+  | AstModTy exports => forallb (fun p => rec_calls_ok fn params smaller (snd p)) exports
+  | AstSigVal _ _ ps ret _ =>
+      andb (forallb (fun p => rec_calls_ok fn params smaller (snd p)) ps)
+        (rec_calls_ok fn params smaller ret)
+  | AstTypeDecl _ (Some ty) => rec_calls_ok fn params smaller ty
+  | AstTypeDecl _ None => true
+  | AstSigWith s eqs =>
+      andb (rec_calls_ok fn params smaller s)
+        (forallb (fun p => rec_calls_ok fn params smaller (snd p)) eqs)
+  | AstPack m s =>
+      andb (rec_calls_ok fn params smaller m) (rec_calls_ok fn params smaller s)
+  | AstUnpack n s e b =>
+      andb (rec_calls_ok fn params smaller s)
+        (andb (rec_calls_ok fn params smaller e)
+           (if String.eqb n fn then true else rec_calls_ok fn params smaller b))
+  end.
+
+Definition check_terminates (fn : string) (ps : list (string * AST)) (body : AST) : bool :=
+  if negb (free_in fn body) then true
+  else rec_calls_ok fn (map fst ps) [] body.
+
 Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struct expr} : TyResult AST :=
   match expr with
   | AstSpan _ inner => infer_check env inner expected
@@ -971,9 +1117,9 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       in
       let fun_ty := AstFunTy type_params params ret_ty effs in
       let body_env := (name, fun_ty) :: build_env params env in
-      let is_rec := free_in name body in
-      let is_div := effect_row_has (BuiltinEffect "div") effs in
-      if andb is_rec (negb is_div) then
+      (* Structurally decreasing recursion is total. Anything else needs a
+         concrete [div] label ([UserEffect] from [/ [div]], or [BuiltinEffect]). *)
+      if negb (orb (check_terminates name params body) (effect_has_div effs)) then
         TyErr ("Termination check failed: recursive function '" ++ name ++ "' must declare the 'div' effect")
       else
         match infer_check body_env body (Some ret_ty) with
@@ -1184,11 +1330,34 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
           end
       | TyErr err => TyErr err
       end
-  | AstUnpack _ s e b =>
+  | AstUnpack x s e b =>
       match infer_check env s None with
       | TyOk sty =>
           match infer_check env e (Some sty) with
-          | TyOk _ => infer_check env b expected
+          | TyOk _ =>
+              let mod_ty :=
+                match sty with
+                | AstSignature _ decls =>
+                    let fix sig_one (a : AST) : list (string * AST) :=
+                      match a with
+                      | AstSigVal n tps params ret_ty effs =>
+                          [(n, AstFunTy tps params ret_ty effs)]
+                      | AstTypeDecl n opt => [(n, AstTypeDecl n opt)]
+                      | AstSpan _ inner => sig_one inner
+                      | _ => []
+                      end
+                    in
+                    let fix sig_exports (ds : list AST) : list (string * AST) :=
+                      match ds with
+                      | [] => []
+                      | a :: rest => app (sig_one a) (sig_exports rest)
+                      end
+                    in AstModTy (sig_exports decls)
+                | AstModTy _ as m => m
+                | _ => AnyType
+                end
+              in
+              infer_check ((x, mod_ty) :: env) b expected
           | TyErr err => TyErr err
           end
       | TyErr err => TyErr err

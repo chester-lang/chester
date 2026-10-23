@@ -223,6 +223,149 @@ def free_in(name: String, t: AST): Bool = {
     case _ => false
   }
 };
+def is_decr_arg(params: List(String), smaller: List(String), arg: AST): Bool = {
+  match arg {
+    case AstSpan(_, inner) => is_decr_arg(params, smaller, inner);
+    case AstRef(n) => string_in_list(n, smaller);
+    case AstApp(fn, args) => {
+      match fn {
+        case AstSpan(_, inner) => is_decr_arg(params, smaller, AST.AstApp(inner, args));
+        case AstRef(op) => {
+          if bool_or(string_eq(op, "int_sub"), string_eq(op, "prim__int_sub")) then {
+            if int_eq(list_length(args), 2) then {
+              let p0 = list_get(args, 0);
+              let p1 = list_get(args, 1);
+              match p0 {
+                case AstSpan(_, inner) => is_decr_arg(params, smaller, AST.AstApp(AST.AstRef(op), list_insert_first(advance(args), inner)));
+                case AstRef(p) => {
+                  match p1 {
+                    case AstSpan(_, inner) => is_decr_arg(params, smaller, AST.AstApp(AST.AstRef(op), list_insert_first(list_insert_first(list_empty[AST](), inner), AST.AstRef(p))));
+                    case AstIntLit(k) => {
+                      if int_lt(0, k) then bool_or(string_in_list(p, params), string_in_list(p, smaller)) else false
+                    };
+                    case _ => false
+                  }
+                };
+                case _ => false
+              }
+            } else false
+          } else if bool_or(string_eq(op, "advance"), string_eq(op, "prim__list_tail")) then {
+            if int_eq(list_length(args), 1) then {
+              match list_get(args, 0) {
+                case AstSpan(_, inner) => is_decr_arg(params, smaller, AST.AstApp(AST.AstRef(op), list_insert_first(list_empty[AST](), inner)));
+                case AstRef(p) => bool_or(string_in_list(p, params), string_in_list(p, smaller));
+                case _ => false
+              }
+            } else false
+          } else false
+        };
+        case _ => false
+      }
+    };
+    case _ => false
+  }
+};
+def any_decr(params: List(String), smaller: List(String), args: List(AST)): Bool = {
+  if int_eq(list_length(args), 0) then false else {
+    if is_decr_arg(params, smaller, list_get(args, 0)) then true else any_decr(params, smaller, advance(args))
+  }
+};
+def calls_ok_list(fn: String, params: List(String), smaller: List(String), ls: List(AST)): Bool = {
+  if int_eq(list_length(ls), 0) then true else {
+    if calls_ok(fn, params, smaller, list_get(ls, 0)) then calls_ok_list(fn, params, smaller, advance(ls)) else false
+  }
+};
+def calls_ok_block(fn: String, params: List(String), smaller: List(String), stmts: List(AST), tail: AST): Bool = {
+  if int_eq(list_length(stmts), 0) then calls_ok(fn, params, smaller, tail) else {
+    let s = list_get(stmts, 0);
+    let rest = advance(stmts);
+    let smaller2 = match s {
+      case AstLet(n, v) => {
+        if is_decr_arg(params, smaller, v) then list_insert_first(smaller, n) else smaller
+      };
+      case _ => smaller
+    };
+    if calls_ok(fn, params, smaller, s) then calls_ok_block(fn, params, smaller2, rest, tail) else false
+  }
+};
+def calls_ok(fn: String, params: List(String), smaller: List(String), t: AST): Bool = {
+  match t {
+    case AstSpan(_, inner) => calls_ok(fn, params, smaller, inner);
+    case AstRef(n) => bool_not(string_eq(n, fn));
+    case AstTuple(es) => calls_ok_list(fn, params, smaller, es);
+    case AstBlock(stmts, tail) => calls_ok_block(fn, params, smaller, stmts, tail);
+    case AstApp(f, args) => {
+      match f {
+        case AstRef(n) => {
+          if string_eq(n, fn) then {
+            if calls_ok_list(fn, params, smaller, args) then any_decr(params, smaller, args) else false
+          } else {
+            if calls_ok(fn, params, smaller, f) then calls_ok_list(fn, params, smaller, args) else false
+          }
+        };
+        case _ => {
+          if calls_ok(fn, params, smaller, f) then calls_ok_list(fn, params, smaller, args) else false
+        }
+      }
+    };
+    case AstIf(c, th, el) => {
+      if calls_ok(fn, params, smaller, c) then {
+        if calls_ok(fn, params, smaller, th) then calls_ok(fn, params, smaller, el) else false
+      } else false
+    };
+    case AstLet(_, v) => calls_ok(fn, params, smaller, v);
+    case AstLam(n, ty, body) => {
+      if calls_ok(fn, params, smaller, ty) then {
+        if string_eq(n, fn) then true else calls_ok(fn, params, smaller, body)
+      } else false
+    };
+    case AstMatch(scrut, cases) => {
+      if calls_ok(fn, params, smaller, scrut) then calls_ok_cases(fn, params, smaller, scrut, cases) else false
+    };
+    case _ => true
+  }
+};
+def calls_ok_cases(fn: String, params: List(String), smaller: List(String), scrut: AST, cases: List(Pair)): Bool = {
+  if int_eq(list_length(cases), 0) then true else {
+    let c = list_get(cases, 0);
+    let scrut_dec = match scrut {
+      case AstSpan(_, inner) => {
+        match inner {
+          case AstRef(n) => bool_or(string_in_list(n, params), string_in_list(n, smaller));
+          case _ => false
+        }
+      };
+      case AstRef(n) => bool_or(string_in_list(n, params), string_in_list(n, smaller));
+      case _ => false
+    };
+    match c {
+      case MkPair(pat, body) => {
+        let smaller2 = match pat {
+          case PatConstructor(_, vs) => {
+            if scrut_dec then append_strings(vs, smaller) else smaller
+          };
+          case _ => smaller
+        };
+        if calls_ok(fn, params, smaller2, body) then calls_ok_cases(fn, params, smaller, scrut, advance(cases)) else false
+      };
+      case _ => calls_ok_cases(fn, params, smaller, scrut, advance(cases))
+    }
+  }
+};
+def append_strings(a: List(String), b: List(String)): List(String) = {
+  if int_eq(list_length(a), 0) then b else list_insert_first(append_strings(advance(a), b), list_get(a, 0))
+};
+def param_names(ps: List(Pair)): List(String) = {
+  if int_eq(list_length(ps), 0) then list_empty[String]() else {
+    match list_get(ps, 0) {
+      case MkPair(n, _) => list_insert_first(param_names(advance(ps)), n);
+      case _ => param_names(advance(ps))
+    }
+  }
+};
+def check_terminates(fn: String, params: List(String), body: AST): Bool = {
+  if free_in(fn, body) then calls_ok(fn, params, list_empty[String](), body) else true
+};
 def rename_free(old: String, new_name: String, t: AST): AST = {
   match t {
     case AstRef(n) => {
@@ -371,6 +514,68 @@ def fresh_meta(): AST = {
     }
   }
 };
+def ast_list_size(ls: List(AST)): Integer = {
+  if int_eq(list_length(ls), 0) then 0 else int_add(ast_size(list_get(ls, 0)), ast_list_size(advance(ls)))
+};
+def ast_paired_size(ls: List(Pair)): Integer = {
+  if int_eq(list_length(ls), 0) then 0 else {
+    match list_get(ls, 0) {
+      case MkPair(_, a) => int_add(ast_size(a), ast_paired_size(advance(ls)));
+      case _ => ast_paired_size(advance(ls))
+    }
+  }
+};
+def ast_size(t: AST): Integer = match t {
+  case AstRef(_) => 1;
+  case AstMeta(_) => 1;
+  case AstUniverse(_) => 1;
+  case AstStringLit(_) => 1;
+  case AstIntLit(_) => 1;
+  case AstBoolLit(_) => 1;
+  case AstError(_) => 1;
+  case AstImport(_, _, _, _) => 1;
+  case AstEnum(_, _, _) => 1;
+  case AstRecord(_, _, _) => 1;
+  case AstFileImport(_, _) => 1;
+  case AstTuple(es) => int_add(1, ast_list_size(es));
+  case AstBlock(stmts, tail) => int_add(1, int_add(ast_list_size(stmts), ast_size(tail)));
+  case AstApp(f, args) => int_add(1, int_add(ast_size(f), ast_list_size(args)));
+  case AstImplicitApp(f, args) => int_add(1, int_add(ast_size(f), ast_list_size(args)));
+  case AstLam(_, ty, body) => int_add(1, int_add(ast_size(ty), ast_size(body)));
+  case AstPi(_, ty, ret, _) => int_add(1, int_add(ast_size(ty), ast_size(ret)));
+  case AstLet(_, val) => int_add(1, ast_size(val));
+  case AstVar(_, val) => int_add(1, ast_size(val));
+  case AstAssign(_, val) => int_add(1, ast_size(val));
+  case AstIf(c, th, el) => int_add(1, int_add(ast_size(c), int_add(ast_size(th), ast_size(el))));
+  case AstDef(_, _, ps, ret, body, _) => int_add(1, int_add(ast_paired_size(ps), int_add(ast_size(ret), ast_size(body))));
+  case AstFunTy(_, ps, ret, _) => int_add(1, int_add(ast_paired_size(ps), ast_size(ret)));
+  case AstMatch(e, cases) => int_add(1, int_add(ast_size(e), ast_paired_size(cases)));
+  case AstFieldAccess(e, _) => int_add(1, ast_size(e));
+  case AstExtension(_, _, tgt, meths) => int_add(1, int_add(ast_size(tgt), ast_list_size(meths)));
+  case AstSpan(_, inner) => int_add(1, ast_size(inner));
+  case AstDo(op, args) => int_add(1, int_add(ast_size(op), ast_list_size(args)));
+  case AstHandle(body, _, hs) => int_add(1, int_add(ast_size(body), ast_paired_size(hs)));
+  case AstBox(e, _) => int_add(1, ast_size(e));
+  case AstUnbox(e) => int_add(1, ast_size(e));
+  case AstModule(_, ps, seal, body) => int_add(1, int_add(ast_paired_size(ps), int_add(ast_list_size(seal), ast_list_size(body))));
+  case AstSignature(_, decls) => int_add(1, ast_list_size(decls));
+  case AstFunctorApp(f, args) => int_add(1, int_add(ast_size(f), ast_list_size(args)));
+  case AstModTy(ex) => int_add(1, ast_paired_size(ex));
+  case AstSigVal(_, _, ps, ret, _) => int_add(1, int_add(ast_paired_size(ps), ast_size(ret)));
+  case AstTypeDecl(_, defs) => int_add(1, ast_list_size(defs));
+  case AstSigWith(s, eqs) => int_add(1, int_add(ast_size(s), ast_paired_size(eqs)));
+  case AstPack(m, s) => int_add(1, int_add(ast_size(m), ast_size(s)));
+  case AstUnpack(_, s, e, b) => int_add(1, int_add(ast_size(s), int_add(ast_size(e), ast_size(b))))
+};
+def ast_fuel(t: AST): Integer = int_mul(int_add(ast_size(t), 1), 16);
+def unify_fuel(t1: AST, t2: AST): Integer = {
+  let s = get_elab_state();
+  let subst_len = match s {
+    case MkElabState(_, _, subst, _, _, _, _) => list_length(subst)
+  };
+  int_add(ast_size(t1), int_add(ast_size(t2), int_add(subst_len, 2)))
+};
+def unify_top(t1: AST, t2: AST): Unit = unify(unify_fuel(t1, t2), t1, t2);
 def unify_list(fuel: Integer, l1: List(AST), l2: List(AST)): Unit = {
   if int_eq(list_length(l1), 0) then () else {
     if int_eq(list_length(l2), 0) then () else {
@@ -711,7 +916,7 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
         } else {
           let argTyM = fresh_meta();
           let retTyM = fresh_meta();
-          unify(100, fs, AST.AstPi("x", argTyM, retTyM, list_empty[String]()));
+          unify_top(fs, AST.AstPi("x", argTyM, retTyM, list_empty[String]()));
           let aAst_res = elaborate(env, a, OptionAST.SomeAST(argTyM));
           match aAst_res {
             case MkPair(aAst_expr, _) => {
@@ -728,7 +933,7 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
       case _ => {
         let argTyM = fresh_meta();
         let retTyM = fresh_meta();
-        unify(100, fs, AST.AstPi("x", argTyM, retTyM, list_empty[String]()));
+        unify_top(fs, AST.AstPi("x", argTyM, retTyM, list_empty[String]()));
         let aAst_res = elaborate(env, a, OptionAST.SomeAST(argTyM));
         match aAst_res {
           case MkPair(aAst_expr, _) => {
@@ -1050,7 +1255,7 @@ def elab_cases(env: List(Pair), expected: OptionAST, cs: List(CST), expr_ty: AST
             case PatConstructor(cname, _) => {
               let ctor_ty = resolve_hygiene(env, cname, list_empty[Integer]());
               match ctor_ty {
-                case MkPair(ty, _) => unify(100, expr_ty, ty);
+                case MkPair(ty, _) => unify_top(expr_ty, ty);
                 case _ => ()
               }
             };
@@ -1235,7 +1440,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
             case _ => {
               match expected {
                 case SomeAST(exp) => {
-                  unify(100, ty, exp);
+                  unify_top(ty, exp);
                   Pair.MkPair(AST.AstRef(mangle_name(name, resolved_ctx)), ty)
                 };
                 case OptionAST.NoneAST => Pair.MkPair(AST.AstRef(mangle_name(name, resolved_ctx)), ty)
@@ -1248,7 +1453,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
     case StringLiteral(s, _) => {
       let str_ty = AST.AstRef("String");
       match expected {
-        case SomeAST(exp) => unify(100, str_ty, exp);
+        case SomeAST(exp) => unify_top(str_ty, exp);
         case OptionAST.NoneAST => ()
       };
       Pair.MkPair(AST.AstStringLit(s), str_ty)
@@ -1256,7 +1461,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
     case IntegerLiteral(s, _) => {
       let int_ty = AST.AstRef("Int");
       match expected {
-        case SomeAST(exp) => unify(100, int_ty, exp);
+        case SomeAST(exp) => unify_top(int_ty, exp);
         case OptionAST.NoneAST => ()
       };
       Pair.MkPair(AST.AstIntLit(string_to_int(s)), int_ty)
@@ -1264,7 +1469,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
     case BoolLiteral(b, _) => {
       let bool_ty = AST.AstRef("Bool");
       match expected {
-        case SomeAST(exp) => unify(100, bool_ty, exp);
+        case SomeAST(exp) => unify_top(bool_ty, exp);
         case OptionAST.NoneAST => ()
       };
       Pair.MkPair(AST.AstBoolLit(b), bool_ty)
@@ -1280,7 +1485,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
             match args_res {
               case MkPair(argsAst, argsTy) => {
                 match expected {
-                  case SomeAST(exp) => unify(100, argsTy, exp);
+                  case SomeAST(exp) => unify_top(argsTy, exp);
                   case OptionAST.NoneAST => ()
                 };
                 Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
@@ -1411,7 +1616,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
           let retAst_res = elaborate(env, ret_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
           match retAst_res {
             case MkPair(rAst, _) => {
-              let fun_ty0 = AST.AstFunTy(type_params, paramsAst, rAst, list_insert_first(list_empty[String](), "div"));
+              let fun_ty0 = AST.AstFunTy(type_params, paramsAst, rAst, list_empty[String]());
               let body_env = list_insert_first(append_env(envItems, env), Pair.MkPair(Pair.MkPair(name, span_context(span)), fun_ty0));
               let s0 = get_elab_state();
               match s0 {
@@ -1424,9 +1629,12 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                       match s1 {
                         case MkElabState(e1, nv1, sub1, ex1, ef1, act1, body_effs) => {
                           let open_effs = with_open_row(body_effs);
+                          let recursive = free_in(name, bAst);
+                          let total = check_terminates(name, param_names(paramsAst), bAst);
+                          let effs = if bool_and(recursive, bool_not(total)) then add_effect("div", open_effs) else open_effs;
                           put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act1, merge_effects(pend0, body_effs)));
-                          let fun_ty = AST.AstFunTy(type_params, paramsAst, rAst, open_effs);
-                          Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst, open_effs), fun_ty)
+                          let fun_ty = AST.AstFunTy(type_params, paramsAst, rAst, effs);
+                          Pair.MkPair(AST.AstDef(name, type_params, paramsAst, rAst, bAst, effs), fun_ty)
                         }
                       }
                     }
@@ -1515,7 +1723,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               match args_res {
                 case MkPair(argsAst, argsTy) => {
                   match expected {
-                    case SomeAST(exp) => unify(100, argsTy, exp);
+                    case SomeAST(exp) => unify_top(argsTy, exp);
                     case OptionAST.NoneAST => ()
                   };
                   Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
@@ -1532,7 +1740,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               match args_res {
                 case MkPair(argsAst, argsTy) => {
                   match expected {
-                    case SomeAST(exp) => unify(100, argsTy, exp);
+                    case SomeAST(exp) => unify_top(argsTy, exp);
                     case OptionAST.NoneAST => ()
                   };
                   Pair.MkPair(AST.AstApp(fAst, argsAst), argsTy)
@@ -1680,7 +1888,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
 def check_pending(ps: List(String), res: Pair): Pair = {
   if int_eq(list_length(ps), 0) then res else {
     let e = list_get(ps, 0);
-    if is_row_var(e) then check_pending(advance(ps), res) else {
+    if bool_or(is_row_var(e), string_eq(e, "div")) then check_pending(advance(ps), res) else {
       Pair.MkPair(AST.AstError(string_concat("Unhandled effect: ", e)), AST.AstRef("Any"))
     }
 }

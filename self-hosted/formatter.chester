@@ -46,6 +46,56 @@ def needs_semicolon(stmt: CST): Bool = {
   }
 };
 
+def is_case_stmt(stmt: CST): Bool = {
+  match stmt {
+    case SeqOf(elems, _) => {
+      if int_eq(list_length(elems), 0) then false else {
+        match list_get(elems, 0) {
+          case Symbol(s, _) => string_eq(s, "case");
+          case _ => false
+        }
+      }
+    };
+    case _ => false
+  }
+};
+
+def block_looks_like_match_cases(elements: List(CST)): Bool = {
+  list_any(elements, \stmt => is_case_stmt(stmt))
+};
+
+def stmt_ends_with_match_block(stmt: CST): Bool = {
+  match stmt {
+    case SeqOf(elements, _) => {
+      if int_eq(list_length(elements), 0) then false else {
+        match list_get(elements, 0) {
+          case Symbol(s, _) => {
+            if string_eq(s, "match") then {
+              match last_elem(advance(elements)) {
+                case SomeCST(inner) => {
+                  match inner {
+                    case Block(elements2, _, _) => block_looks_like_match_cases(elements2);
+                    case _ => false
+                  }
+                };
+                case _ => false
+              }
+            } else false
+          };
+          case _ => false
+        }
+      }
+    };
+    case _ => false
+  }
+};
+
+def trailing_semicolon(stmt: CST, in_match_block: Bool): String = {
+  if bool_not(needs_semicolon(stmt)) then ""
+  else if bool_or(bool_and(in_match_block, ends_with_block(stmt)), stmt_ends_with_match_block(stmt)) then ""
+  else ";"
+};
+
 def is_unit_tail(expr: CST): Bool = {
   match expr {
     case Symbol(n, sp) => {
@@ -174,7 +224,17 @@ def get_span(c: CST): Span = {
     case BoxCST(_, s) => s;
     case UnboxCST(_, s) => s;
     case ImportCST(_, _, _, _, s) => s;
-    case ExternCST(_, _, _, s) => s
+    case ExternCST(_, _, _, s) => s;
+    case ModuleCST(_, _, _, _, s) => s;
+    case SignatureCST(_, _, s) => s;
+    case FunctorAppCST(_, _, s) => s;
+    case ModuleAliasCST(_, _, s) => s;
+    case SigValCST(_, _, _, _, s) => s;
+    case TypeDeclCST(_, _, s) => s;
+    case FileImportCST(_, _, s) => s;
+    case SigWithCST(_, _, s) => s;
+    case PackCST(_, _, s) => s;
+    case UnpackCST(_, _, _, _, s) => s
   }
 };
 
@@ -255,10 +315,10 @@ def map_format_csts(fuel: Integer, indent: Integer, ls: List(CST)): List(String)
   }
 };
 
-def map_stmt_line_helper(fuel: Integer, indent: Integer, ls: List(CST)): List(String) = {
+def map_stmt_line_helper(fuel: Integer, indent: Integer, in_match_block: Bool, ls: List(CST)): List(String) = {
   if int_eq(list_length(ls), 0) then list_empty[String]() else {
     let stmt = list_get(ls, 0);
-    let rest_lines = map_stmt_line_helper(fuel, indent, advance(ls));
+    let rest_lines = map_stmt_line_helper(fuel, indent, in_match_block, advance(ls));
     let curr_lines = match stmt {
       case Comment(text, _) => list_insert_first(list_empty[String](), format_comment(text));
       case SeqOf(elems, _) => {
@@ -266,7 +326,7 @@ def map_stmt_line_helper(fuel: Integer, indent: Integer, ls: List(CST)): List(St
         match split_res {
           case MkPair(body, comments) => {
             let body_cst = stmt_from_seq(body);
-            let semi = if needs_semicolon(body_cst) then ";" else "";
+            let semi = trailing_semicolon(body_cst, in_match_block);
             let body_lines = if int_eq(list_length(body), 0) then list_empty[String]() else {
               list_insert_first(list_empty[String](), string_concat(format_cst(fuel, indent, body_cst), semi))
             };
@@ -276,7 +336,7 @@ def map_stmt_line_helper(fuel: Integer, indent: Integer, ls: List(CST)): List(St
         }
       };
       case _ => {
-        let semi = if needs_semicolon(stmt) then ";" else "";
+        let semi = trailing_semicolon(stmt, in_match_block);
         list_insert_first(list_empty[String](), string_concat(format_cst(fuel, indent, stmt), semi))
       }
     };
@@ -309,7 +369,9 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
       case Symbol(name, _) => name;
       case StringLiteral(val, _) => string_concat("\"", string_concat(val, "\""));
       case IntegerLiteral(val, _) => val;
+      case BoolLiteral(b, _) => { if b then "true" else "false" };
       case Comment(text, _) => format_comment(text);
+      case Error(msg, _) => string_concat("/* ERROR: ", string_concat(msg, " */"));
       
       case Tuple(elements, _) => {
         string_concat("(", string_concat(join_strings(", ", map_format_csts(next_fuel, indent, elements)), ")"))
@@ -322,8 +384,9 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
       case Block(elements, tail, _) => {
         let next_indent = int_add(indent, 2);
         let line_prefix = string_concat("\n", gen_spaces(next_indent));
+        let in_match_block = block_looks_like_match_cases(elements);
         
-        let stmt_lines = map_stmt_line_helper(next_fuel, next_indent, elements);
+        let stmt_lines = map_stmt_line_helper(next_fuel, next_indent, in_match_block, elements);
         let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, next_indent, tail));
         let lines = append_string_lists(stmt_lines, tail_lines);
         
@@ -344,7 +407,8 @@ def format_cst(fuel: Integer, indent: Integer, expr: CST): String = {
 def format_program_body(fuel: Integer, indent: Integer, stmts: List(CST), tail: CST): String = {
   if int_eq(fuel, 0) then "/* ERROR: formatter out of fuel */" else {
     let next_fuel = int_sub(fuel, 1);
-    let stmt_lines = map_stmt_line_helper(next_fuel, indent, stmts);
+    let in_match_block = block_looks_like_match_cases(stmts);
+    let stmt_lines = map_stmt_line_helper(next_fuel, indent, in_match_block, stmts);
     let tail_lines = if is_unit_tail(tail) then list_empty[String]() else list_insert_first(list_empty[String](), format_cst(next_fuel, indent, tail));
     let lines = append_string_lists(stmt_lines, tail_lines);
     let line_prefix = string_concat("\n", gen_spaces(indent));

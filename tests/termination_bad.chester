@@ -1,0 +1,4 @@
+// Closed row omits div, and the self-call does not decrease.
+def loop(): Integer / [io] = loop();
+
+def main(): Integer = 0;

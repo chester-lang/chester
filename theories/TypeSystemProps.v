@@ -225,3 +225,28 @@ Example termination_check_passes_with_div :
   infer_check [] (AstDef "loop" [] [] (AstRef "Int") (AstApp (AstRef "loop") []) [BuiltinEffect "div"]) None
   = TyOk (AstFunTy [] [] (AstRef "Int") [BuiltinEffect "div"]).
 Proof. reflexivity. Qed.
+
+Example termination_check_passes_with_user_div :
+  infer_check [] (AstDef "loop" [] [] (AstRef "Int") (AstApp (AstRef "loop") []) [UserEffect "div"]) None
+  = TyOk (AstFunTy [] [] (AstRef "Int") [UserEffect "div"]).
+Proof. reflexivity. Qed.
+
+(* An open row used to satisfy [effect_row_has], so this definition was accepted. *)
+Example termination_check_open_row_is_not_div :
+  infer_check []
+    (AstDef "loop" [] [] (AstRef "Int") (AstApp (AstRef "loop") []) [EffectRowVar "μ"])
+    None
+  = TyErr "Termination check failed: recursive function 'loop' must declare the 'div' effect".
+Proof. reflexivity. Qed.
+
+Example termination_check_accepts_structural :
+  infer_check []
+    (AstDef "fact" [] [("n", AstRef "Integer")] (AstRef "Integer")
+       (AstIf (AstApp (AstRef "int_eq") [AstRef "n"; AstIntLit 0])
+          (AstIntLit 1)
+          (AstApp (AstRef "fact")
+             [AstApp (AstRef "int_sub") [AstRef "n"; AstIntLit 1]]))
+       [])
+    None
+  = TyOk (AstFunTy [] [("n", AstRef "Integer")] (AstRef "Integer") []).
+Proof. reflexivity. Qed.

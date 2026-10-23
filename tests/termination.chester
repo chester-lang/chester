@@ -1,5 +1,4 @@
-// This tests Koka-style implicit 'div' effect inference for recursive functions.
-// 'loop' is directly recursive, so it gets the 'div' effect automatically.
+// Structural decrease on n (int_sub by a positive literal) is accepted without div.
 
 def loop(n: Integer): Integer = {
   if int_eq(n, 0) then 0 else loop(int_sub(n, 1))

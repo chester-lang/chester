@@ -952,20 +952,33 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       bodyAst <- elaborate fuel' body_env body (Some (fst retAst)) ;
       body_effs <- get_pending ;
       open_effs <- with_open_row body_effs ;
+      let body_term := fst bodyAst in
+      let needs_div :=
+        andb (Chester.CoreChecker.free_in name body_term)
+          (negb (Chester.CoreChecker.check_terminates name paramsAst body_term))
+      in
+      let ensure_div (es : EffectSet) : EffectSet :=
+        if needs_div then add_effect (UserEffect "div") es else es
+      in
       match decl_effs with
       | [] =>
-          (* Unannotated: keep prior pending discipline (callers of top-level
-             entry defs still see residual body effects via pending). *)
+          (* Unannotated: infer [div] for recursion that is not structurally
+             decreasing. Callers still see other body effects via pending. *)
           set_pending (merge_effects old_pending body_effs) ;;
-          let fun_ty := AstFunTy type_params paramsAst (fst retAst) open_effs in
-          ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst) open_effs, fun_ty)
+          let effs := ensure_div open_effs in
+          let fun_ty := AstFunTy type_params paramsAst (fst retAst) effs in
+          ret (AstDef name type_params paramsAst (fst retAst) body_term effs, fun_ty)
       | _ =>
           (* Annotated: effects are latent on the FunTy only — not performed
-             at the definition site. *)
+             at the definition site. A closed row must mention [div] when the
+             body is recursive and not structurally decreasing. *)
           set_pending old_pending ;;
-          if effect_row_subsumes body_effs decl_effs then
+          if andb needs_div (negb (Chester.CoreChecker.effect_has_div decl_effs)) then
+            throw ("Termination check failed: recursive function '" ++ name ++ "' must declare the 'div' effect")
+          else if effect_row_subsumes body_effs decl_effs then
             let fun_ty := AstFunTy type_params paramsAst (fst retAst) decl_effs in
-            ret (AstDef name type_params paramsAst (fst retAst) (fst bodyAst) open_effs, fun_ty)
+            let node_effs := if needs_div then decl_effs else open_effs in
+            ret (AstDef name type_params paramsAst (fst retAst) body_term node_effs, fun_ty)
           else
             throw ("effect row too large for declared annotation on: " ++ name)
       end
@@ -1764,10 +1777,11 @@ Definition test_unify_env := mkElabState 0 empty_state [] [] [] [] [].
 Definition meta1 := AstMeta 1.
 Definition int_ty := AstRef "Int"%string.
 
-Definition test_unify_run : ElabM unit := unify 100 meta1 int_ty.
+Definition test_unify_run : ElabM unit :=
+  unify (Chester.CoreChecker.ast_size meta1 + Chester.CoreChecker.ast_size int_ty) meta1 int_ty.
 
 Definition test_zonk_run : ElabM AST :=
-  bind test_unify_run (fun _ => zonk 100 meta1).
+  bind test_unify_run (fun _ => zonk (S (Chester.CoreChecker.ast_size meta1)) meta1).
 
 Eval compute in test_zonk_run test_unify_env.
 
@@ -1786,7 +1800,12 @@ Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : 
         | TyErr msg => throw (append "Core check: " msg)
         end
     | EffectRowVar _ :: rest => check_pending rest
-    | UserEffect e :: _ => throw (append "Unhandled effect: " e)
-    | BuiltinEffect e :: _ => throw (append "Unhandled effect: " e)
+    (* [div] is a termination classifier, not a capability that needs a handler. *)
+    | UserEffect e :: rest =>
+        if string_dec e "div" then check_pending rest
+        else throw (append "Unhandled effect: " e)
+    | BuiltinEffect e :: rest =>
+        if string_dec e "div" then check_pending rest
+        else throw (append "Unhandled effect: " e)
     end
   in check_pending pending.

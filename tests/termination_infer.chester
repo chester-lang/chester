@@ -1,0 +1,4 @@
+// Not structurally decreasing, and unannotated: elaborator infers div.
+def loop(): Integer = loop();
+
+def main(): Integer = 0;

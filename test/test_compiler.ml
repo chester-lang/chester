@@ -445,6 +445,14 @@ let%expect_test "modules_effects_bad rejects oversized row" =
   expect_type_error "tests/modules_effects_bad.chester";
   [%expect {| effect row too large for signature member: go |}]
 
+let%expect_test "fixture termination infer div" =
+  check_fixture "tests/termination_infer.chester";
+  [%expect {| tests/termination_infer.chester ok |}]
+
+let%expect_test "termination_bad rejects closed row without div" =
+  expect_type_error "tests/termination_bad.chester";
+  [%expect {| Termination check failed: recursive function 'loop' must declare the 'div' effect |}]
+
 let%expect_test "fixture modules import" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
