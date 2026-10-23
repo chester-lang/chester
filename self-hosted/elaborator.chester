@@ -194,33 +194,108 @@ def elab_hs(env: List(Pair), hs: List(CST)): List(Pair) = {
     }
   }
 };
+def free_in_asts(name: String, ls: List(AST)): Bool = {
+  if int_eq(list_length(ls), 0) then false else {
+    if free_in(name, list_get(ls, 0)) then true else free_in_asts(name, advance(ls))
+  }
+};
+def free_in_snd(name: String, ls: List(Pair)): Bool = {
+  if int_eq(list_length(ls), 0) then false else {
+    match list_get(ls, 0) {
+      case MkPair(_, v) => {
+        if free_in(name, v) then true else free_in_snd(name, advance(ls))
+      };
+      case _ => free_in_snd(name, advance(ls))
+    }
+  }
+};
+def pat_binds(name: String, pat: PatternAST): Bool = {
+  match pat {
+    case PatVar(n) => string_eq(n, name);
+    case PatConstructor(_, vs) => string_in_list(name, vs);
+    case PatWildcard => false
+  }
+};
+def free_in_cases(name: String, cases: List(Pair)): Bool = {
+  if int_eq(list_length(cases), 0) then false else {
+    match list_get(cases, 0) {
+      case MkPair(pat, body) => {
+        if pat_binds(name, pat) then free_in_cases(name, advance(cases)) else {
+          if free_in(name, body) then true else free_in_cases(name, advance(cases))
+        }
+      };
+      case _ => free_in_cases(name, advance(cases))
+    }
+  }
+};
 def free_in(name: String, t: AST): Bool = {
   match t {
     case AstRef(n) => string_eq(n, name);
-    case AstTuple(elems) => {
-      if int_eq(list_length(elems), 0) then false
-      else bool_or(free_in(name, list_get(elems, 0)), free_in(name, AST.AstTuple(advance(elems))))
-    };
-    case AstBlock(stmts, tail) =>
-      bool_or(free_in(name, AST.AstTuple(stmts)), free_in(name, tail));
-    case AstApp(f, args) =>
-      bool_or(free_in(name, f), free_in(name, AST.AstTuple(args)));
+    case AstMeta(_) => false;
+    case AstUniverse(_) => false;
+    case AstTuple(elems) => free_in_asts(name, elems);
+    case AstStringLit(_) => false;
+    case AstIntLit(_) => false;
+    case AstBoolLit(_) => false;
+    case AstBlock(stmts, tail) => bool_or(free_in_asts(name, stmts), free_in(name, tail));
+    case AstApp(f, args) => bool_or(free_in(name, f), free_in_asts(name, args));
+    case AstImplicitApp(f, args) => bool_or(free_in(name, f), free_in_asts(name, args));
     case AstLam(argName, argTy, argBody) => {
-      let in_ty = free_in(name, argTy);
-      let shadowed = string_eq(argName, name);
-      let in_body = if shadowed then false else free_in(name, argBody);
-      bool_or(in_ty, in_body)
+      if free_in(name, argTy) then true else {
+        if string_eq(argName, name) then false else free_in(name, argBody)
+      }
     };
     case AstPi(argName, argTy, retTy, _) => {
-      let in_ty = free_in(name, argTy);
-      let shadowed = string_eq(argName, name);
-      let in_ret = if shadowed then false else free_in(name, retTy);
-      bool_or(in_ty, in_ret)
+      if free_in(name, argTy) then true else {
+        if string_eq(argName, name) then false else free_in(name, retTy)
+      }
     };
     case AstLet(_, val) => free_in(name, val);
+    case AstVar(_, val) => free_in(name, val);
+    case AstAssign(_, val) => free_in(name, val);
     case AstIf(c, th, el) => bool_or(free_in(name, c), bool_or(free_in(name, th), free_in(name, el)));
+    case AstDef(_, _, params, ret, body, _) => {
+      if free_in_snd(name, params) then true else {
+        if free_in(name, ret) then true else free_in(name, body)
+      }
+    };
+    case AstFunTy(_, params, ret, _) => {
+      if free_in_snd(name, params) then true else free_in(name, ret)
+    };
+    case AstEnum(_, _, _) => false;
+    case AstMatch(scrut, cases) => bool_or(free_in(name, scrut), free_in_cases(name, cases));
+    case AstRecord(_, _, _) => false;
+    case AstFieldAccess(e, _) => free_in(name, e);
+    case AstExtension(_, _, tgt, meths) => bool_or(free_in(name, tgt), free_in_asts(name, meths));
     case AstSpan(_, inner) => free_in(name, inner);
-    case _ => false
+    case AstError(_) => false;
+    case AstDo(op, args) => bool_or(free_in(name, op), free_in_asts(name, args));
+    case AstHandle(body, _, hs) => bool_or(free_in(name, body), free_in_snd(name, hs));
+    case AstBox(inner, _) => free_in(name, inner);
+    case AstUnbox(inner) => free_in(name, inner);
+    case AstImport(_, _, _, _) => false;
+    case AstModule(_, params, seal, body) => {
+      if free_in_snd(name, params) then true else {
+        if free_in_asts(name, seal) then true else free_in_asts(name, body)
+      }
+    };
+    case AstSignature(_, decls) => free_in_asts(name, decls);
+    case AstFunctorApp(f, args) => bool_or(free_in(name, f), free_in_asts(name, args));
+    case AstModTy(exports) => free_in_snd(name, exports);
+    case AstSigVal(_, _, params, ret, _) => {
+      if free_in_snd(name, params) then true else free_in(name, ret)
+    };
+    case AstTypeDecl(_, def) => free_in_asts(name, def);
+    case AstSigWith(base, eqs) => bool_or(free_in(name, base), free_in_snd(name, eqs));
+    case AstPack(m, s) => bool_or(free_in(name, m), free_in(name, s));
+    case AstUnpack(n, s, e, b) => {
+      if free_in(name, s) then true else {
+        if free_in(name, e) then true else {
+          if string_eq(n, name) then false else free_in(name, b)
+        }
+      }
+    };
+    case AstFileImport(_, _) => false
   }
 };
 def is_decr_arg(params: List(String), smaller: List(String), arg: AST): Bool = {
@@ -295,16 +370,17 @@ def calls_ok(fn: String, params: List(String), smaller: List(String), t: AST): B
     case AstTuple(es) => calls_ok_list(fn, params, smaller, es);
     case AstBlock(stmts, tail) => calls_ok_block(fn, params, smaller, stmts, tail);
     case AstApp(f, args) => {
-      match f {
+      let f2 = unwrap_span(f);
+      match f2 {
         case AstRef(n) => {
           if string_eq(n, fn) then {
             if calls_ok_list(fn, params, smaller, args) then any_decr(params, smaller, args) else false
           } else {
-            if calls_ok(fn, params, smaller, f) then calls_ok_list(fn, params, smaller, args) else false
+            if calls_ok(fn, params, smaller, f2) then calls_ok_list(fn, params, smaller, args) else false
           }
         };
         case _ => {
-          if calls_ok(fn, params, smaller, f) then calls_ok_list(fn, params, smaller, args) else false
+          if calls_ok(fn, params, smaller, f2) then calls_ok_list(fn, params, smaller, args) else false
         }
       }
     };
@@ -322,19 +398,19 @@ def calls_ok(fn: String, params: List(String), smaller: List(String), t: AST): B
     case AstMatch(scrut, cases) => {
       if calls_ok(fn, params, smaller, scrut) then calls_ok_cases(fn, params, smaller, scrut, cases) else false
     };
-    case _ => true
+    case _ => bool_not(free_in(fn, t))
+  }
+};
+def unwrap_span(t: AST): AST = {
+  match t {
+    case AstSpan(_, inner) => unwrap_span(inner);
+    case _ => t
   }
 };
 def calls_ok_cases(fn: String, params: List(String), smaller: List(String), scrut: AST, cases: List(Pair)): Bool = {
   if int_eq(list_length(cases), 0) then true else {
     let c = list_get(cases, 0);
-    let scrut_dec = match scrut {
-      case AstSpan(_, inner) => {
-        match inner {
-          case AstRef(n) => bool_or(string_in_list(n, params), string_in_list(n, smaller));
-          case _ => false
-        }
-      };
+    let scrut_dec = match unwrap_span(scrut) {
       case AstRef(n) => bool_or(string_in_list(n, params), string_in_list(n, smaller));
       case _ => false
     };
