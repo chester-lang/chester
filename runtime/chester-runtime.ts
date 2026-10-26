@@ -1,4 +1,9 @@
 const Unit = {};
+const Int = "Int";
+const Integer = "Integer";
+const String = "String";
+const Bool = "Bool";
+const Type = "Type";
 const prim__string_eq = (a, b) => a === b;
 const prim__list_length = (l) => l.length;
 const prim__int_eq = (a, b) => a === b;

@@ -81,7 +81,7 @@ and collect_elab_stmt = function
           match fields with
           | [] -> ((vname, []), AstRef name)
           | _ ->
-              let ps = List.map (fun ty -> (['_'], ty)) fields in
+              let ps = List.map (fun ty -> ([ '_' ], ty)) fields in
               ((vname, []), AstFunTy (tps, ps, AstRef name, [])))
         variants
   | AstSpan (_, inner) -> collect_elab_env inner
@@ -169,11 +169,20 @@ let rename_chester_main go_code =
     else if String.sub go_code i n = needle then Some i
     else find (i + 1)
   in
-  match find 0 with
-  | None -> go_code
-  | Some i ->
-      String.sub go_code 0 i ^ repl
-      ^ String.sub go_code (i + n) (String.length go_code - i - n)
+  let b =
+    match find 0 with
+    | None -> go_code
+    | Some i ->
+        String.sub go_code 0 i ^ repl
+        ^ String.sub go_code (i + n) (String.length go_code - i - n)
+  in
+  let mn = String.length repl in
+  let rec find_m i =
+    if i + mn > String.length b then false
+    else if String.sub b i mn = repl then true
+    else find_m (i + 1)
+  in
+  if not (find_m 0) then b ^ "\nfunc chester_main() any { return nil }\n" else b
 
 let assemble_go_program ast =
   let body =
@@ -300,6 +309,14 @@ let parity_fixtures =
     ("tests/binders_shadow_restore.chester", "1");
     ("tests/binders_capture.chester", "11");
     ("tests/termination.chester", "0");
+    ("tests/effects_evidence.chester", "7");
+    ("tests/effects_multishot.chester", "11");
+    ("tests/effects_rows.chester", "15");
+    ("tests/effects_nested.chester", "10");
+    ("tests/binders_param_shadow.chester", "7");
+    ("tests/binders_pattern_shadow.chester", "9");
+    ("tests/binders_rec_def.chester", "6");
+    ("tests/option_result.chester", "158");
   ]
 
 let check_rocq_selfhosted_parity () =
@@ -451,7 +468,8 @@ let%expect_test "fixture termination infer div" =
 
 let%expect_test "termination_bad rejects closed row without div" =
   expect_type_error "tests/termination_bad.chester";
-  [%expect {| Termination check failed: recursive function 'loop' must declare the 'div' effect |}]
+  [%expect
+    {| Termination check failed: recursive function 'loop' must declare the 'div' effect |}]
 
 let%expect_test "fixture modules import" =
   let root = repo_root (Sys.getcwd ()) in
@@ -785,19 +803,22 @@ let%expect_test "stdlib functional runs go" =
   let line = go_run_program_in dir in
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
   print_endline line;
-  [%expect {| 352 |}]
+  [%expect {| 421 |}]
 
 let%expect_test "cli help flag prints usage" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
   let out = Filename.temp_file "chester_cli_help" ".txt" in
   let st =
-    Sys.command (Printf.sprintf "%s --help > %s 2>&1" (Filename.quote main_bin) (Filename.quote out))
+    Sys.command
+      (Printf.sprintf "%s --help > %s 2>&1" (Filename.quote main_bin)
+         (Filename.quote out))
   in
   let text = read_file out in
   Sys.remove out;
   if st <> 0 then failwith "--help failed";
-  print_endline (if has_substr text "Usage: main.exe" then "help ok" else "help missing");
+  print_endline
+    (if has_substr text "Usage: main.exe" then "help ok" else "help missing");
   [%expect {| help ok |}]
 
 let%expect_test "cli stdin compilation" =
@@ -963,6 +984,14 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/binders_shadow_restore.chester parity ok (1)
     tests/binders_capture.chester parity ok (11)
     tests/termination.chester parity ok (0)
+    tests/effects_evidence.chester parity ok (7)
+    tests/effects_multishot.chester parity ok (11)
+    tests/effects_rows.chester parity ok (15)
+    tests/effects_nested.chester parity ok (10)
+    tests/binders_param_shadow.chester parity ok (7)
+    tests/binders_pattern_shadow.chester parity ok (9)
+    tests/binders_rec_def.chester parity ok (6)
+    tests/option_result.chester parity ok (158)
     |}]
 
 let%expect_test "fixture dependent types" =

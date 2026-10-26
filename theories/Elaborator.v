@@ -520,6 +520,7 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
 
 Fixpoint get_base_type (t : AST) : AST :=
   match t with
+  | AstSpan _ inner => get_base_type inner
   | AstApp f _ => get_base_type f
   | AstImplicitApp f _ => get_base_type f
   | _ => t

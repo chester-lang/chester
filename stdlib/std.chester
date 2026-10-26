@@ -1,3 +1,4 @@
+effect div {};
 effect State {
   def get(): Integer;
   def put(s: Integer): Unit
@@ -63,13 +64,20 @@ def option_or_else[T](opt: Option[T], default_opt: Option[T]): Option[T] = {
     case _ => default_opt
   }
 };
+def option_to_result[T, E](opt: Option[T], err: E): Result[T, E] = {
+  match opt {
+    case Some(x) => Ok(x);
+    case _ => Err(err)
+  }
+};
 extension OptionOps[T] for Option[T] {
   def is_some(self: Option[T]): Bool = option_is_some(self);
   def is_none(self: Option[T]): Bool = option_is_none(self);
   def unwrap_or(self: Option[T], default_val: T): T = option_unwrap_or(self, default_val);
   def map[U](self: Option[T], f: (x: T) -> U): Option[U] = option_map(self, f);
   def and_then[U](self: Option[T], f: (x: T) -> Option[U]): Option[U] = option_and_then(self, f);
-  def or_else(self: Option[T], default_opt: Option[T]): Option[T] = option_or_else(self, default_opt)
+  def or_else(self: Option[T], default_opt: Option[T]): Option[T] = option_or_else(self, default_opt);
+  def to_result[E](self: Option[T], err: E): Result[T, E] = option_to_result(self, err)
 };
 
 def result_is_ok[T, E](res: Result[T, E]): Bool = {
@@ -108,13 +116,20 @@ def result_and_then[T, E, U](res: Result[T, E], f: (x: T) -> Result[U, E]): Resu
     case Err(e) => Err(e)
   }
 };
+def result_to_option[T, E](res: Result[T, E]): Option[T] = {
+  match res {
+    case Ok(x) => Some(x);
+    case _ => None
+  }
+};
 extension ResultOps[T, E] for Result[T, E] {
   def is_ok(self: Result[T, E]): Bool = result_is_ok(self);
   def is_err(self: Result[T, E]): Bool = result_is_err(self);
   def unwrap_or(self: Result[T, E], default_val: T): T = result_unwrap_or(self, default_val);
   def map[U](self: Result[T, E], f: (x: T) -> U): Result[U, E] = result_map(self, f);
   def map_err[F](self: Result[T, E], f: (err: E) -> F): Result[T, F] = result_map_err(self, f);
-  def and_then[U](self: Result[T, E], f: (x: T) -> Result[U, E]): Result[U, E] = result_and_then(self, f)
+  def and_then[U](self: Result[T, E], f: (x: T) -> Result[U, E]): Result[U, E] = result_and_then(self, f);
+  def to_option(self: Result[T, E]): Option[T] = result_to_option(self)
 };
 // Arithmetic operators
 infixl "+";
@@ -203,10 +218,22 @@ def string_to_int(s: String): Integer = {
   else if string_eq(string_char_at(s, 0), "-") then int_neg(string_to_int_aux(s, 1, 0))
   else string_to_int_aux(s, 0, 0)
 };
+def list_is_empty[T](list: List(T)): Bool = int_eq(list_length(list), 0);
+def list_head[T](list: List(T)): Option[T] = {
+  if int_eq(list_length(list), 0) then None
+  else Some(list_get(list, 0))
+};
+def list_tail[T](list: List(T)): Option[List(T)] = {
+  if int_eq(list_length(list), 0) then None
+  else Some(advance(list))
+};
 // Named extensions: method-call form can overload; ListOps.get / StringOps.length stay unique.
 extension ListOps[T] for List(T) {
   def length(self: List(T)): Integer = list_length(self);
   def get(self: List(T), index: Integer): T = list_get(self, index);
+  def is_empty(self: List(T)): Bool = list_is_empty(self);
+  def head(self: List(T)): Option[T] = list_head(self);
+  def tail(self: List(T)): Option[List(T)] = list_tail(self);
   def reverse(self: List(T)): List(T) = list_reverse(self);
   def append(self: List(T), elem: T): List(T) = list_append(self, elem);
   def map[B](self: List(T), f: (x: T) -> B): List(B) = list_map(self, f);

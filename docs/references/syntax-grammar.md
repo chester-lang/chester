@@ -1,103 +1,187 @@
-# Chester Syntax Grammar (BNF-like)
+# Chester Syntax Grammar
 
-**IMPORTANT NOTE:** This document provides only a rough description of the Chester language syntax and might be highly incorrect or not fully aligned with the current implementation. It should be used as a general guide rather than a precise specification.
+This reference documents the Concrete Syntax Tree (CST) and surface grammar implemented by Chester's verified front end (`theories/Parser.v`, `theories/Expander.v`, `theories/Elaborator.v`) and self-hosted compiler (`self-hosted/*.chester`).
 
-This document attempts to describe the Chester language syntax using a BNF-like notation.
+Chester uses **Universal Parsed Syntax (UPS)**: parsing is keyword-free and delimiter-driven into a generic CST (Symbols, Tuples, Lists, Blocks), while the expander and elaborator recognize constructs and bind semantic forms.
 
-**Note:** Whitespace and comments (`// ...`) are generally allowed between tokens and are not explicitly shown in the grammar rules unless significant (like newlines in blocks).
+---
 
-## Top Level
-
-```bnf
-Toplevel ::= Statement* (Expr | ';')?
-
-Statement ::= Expr (';' | Newline)
-```
-*Note: In many contexts (like blocks or top-level), newlines can act as statement separators similar to semicolons. The last expression in a block acts as its return value unless followed by a semicolon.*
-
-## Expressions
+## 1. Top Level & Declarations
 
 ```bnf
-Expr ::= Atom | Expr Operator Expr | Operator Expr | Expr Operator
+Program       ::= Statement*
 
-Atom ::= ID
-       | Literal
-       | Tuple
-       | List
-       | Block
-       | Object
-       | Application
-       | MethodCall
-       | SymbolLookup
-       | Keyword
-
-Tuple ::= '(' ExprList? ')'
-List  ::= '[' ExprList? ']'
-Block ::= '{' Statement* Expr? '}'
-
-ExprList ::= Expr (',' Expr)* ','?
-
-Application ::= GenericApplication | FunctionCall | BlockApplication | CombinedApplication
-GenericApplication ::= Atom '[' ExprList ']'
-FunctionCall ::= Atom '(' ExprList? ')'
-BlockApplication ::= Atom Block
-CombinedApplication ::= GenericApplication FunctionCall
-                      | GenericApplication BlockApplication
-                      | FunctionCall BlockApplication
-                      | GenericApplication FunctionCall BlockApplication
-
-MethodCall   ::= Atom '.' ID ('(' ExprList? ')')?  // Parentheses are optional for field access
-Attribute ::= '@' ID // NOT IMPLEMENTED YET
-Keyword      ::= '#' ID (GenericApplication | FunctionCall)*
+Statement     ::= DefDecl
+                | LetBinding
+                | VarBinding
+                | AssignStmt
+                | EffectDecl
+                | EnumDecl
+                | ExtensionDecl
+                | ModuleDecl
+                | SignatureDecl
+                | ImportDecl
+                | ExternDecl
+                | InfixDecl
+                | Expr (';' | Newline)?
 ```
 
-*Note: All identifiers are treated uniformly at the syntax level, with no distinction between different kinds of identifiers. Operator precedence and associativity are handled during semantic analysis, not in the grammar.*
-
-## Object Literals
-
+### Definitions (`def`)
 ```bnf
-Object ::= '{' ObjectClauseList? '}'
-
-ObjectClauseList ::= ObjectClause (',' ObjectClause)* ','?
-
-ObjectClause ::= ObjectKey ('=' | '=>') Expr
-
-ObjectKey ::= ID
-            | QualifiedName
-            | STRING_LITERAL
-            | SYMBOL_LITERAL
-
-QualifiedName ::= ID ('.' ID)*
+DefDecl       ::= 'def' ID TypeParams? '(' ParamList? ')' (':' TypeAnnotation)? ('/' EffectRow)? '=' Expr ';'?
+TypeParams    ::= '[' ID (',' ID)* ']'
+ParamList     ::= Param (',' Param)*
+Param         ::= ID (':' TypeAnnotation)?
+EffectRow     ::= '[' ID (',' ID)* ']'
 ```
 
-## Literals
-
+### Bindings & Assignments
 ```bnf
-Literal ::= INT_LITERAL
-          | RAT_LITERAL
-          | STRING_LITERAL
-          | SYMBOL_LITERAL
-
-SYMBOL_LITERAL ::= "'" ID
+LetBinding    ::= 'let' (ID | Pattern) (':' TypeAnnotation)? '=' Expr ';'?
+VarBinding    ::= 'var' ID (':' TypeAnnotation)? '=' Expr ';'?
+AssignStmt    ::= ID '=' Expr ';'?
 ```
 
-## Terminals
-
+### Algebraic Effects (`effect`, `handle`)
 ```bnf
-ID             ::= /* Starts with letter, _, or emoji; contains letters, digits, _, emoji */
-Operator       ::= /* Sequence of operator symbols like +, -, *, /, =, ->, =>, :, ., etc. */
-INT_LITERAL    ::= /* Integer in decimal, hex (0x...), or binary (0b...) format */
-RAT_LITERAL    ::= /* Rational/float literal (e.g., 1.2, 3.14e-5) */
-STRING_LITERAL ::= /* Double-quoted string "..." with escapes */
-Newline        ::= /* \n or \r\n */
+EffectDecl    ::= 'effect' ID TypeParams? '{' EffectOp* '}' ';'?
+EffectOp      ::= 'def' ID '(' ParamList? ')' ':' TypeAnnotation ';'?
+
+HandleExpr    ::= 'handle' Block 'with' ID '{' HandlerCase* '}'
+HandlerCase   ::= 'case' ID '(' ParamList? ')' '=>' Expr ';'?
+PerformExpr   ::= 'perform' ID '(' ExprList? ')'
+ResumeExpr    ::= 'resume' '(' Expr ')'
+BoxExpr       ::= 'box' '(' Expr ')'
+UnboxExpr     ::= 'unbox' '(' Expr ')'
 ```
 
-## Punctuation and Symbols (Terminals)
+### Enums & Pattern Matching
+```bnf
+EnumDecl      ::= 'enum' ID TypeParams? '{' EnumVariant (';' EnumVariant)* ';'? '}' ';'?
+EnumVariant   ::= 'case' ID ('(' RecordFields? ')')?
+RecordFields  ::= RecordField (',' RecordField)*
+RecordField   ::= ID ':' TypeAnnotation
+
+MatchExpr     ::= 'match' Expr '{' MatchArm* '}'
+MatchArm      ::= 'case' Pattern '=>' Expr ';'?
+Pattern       ::= '_'
+                | ID
+                | ID '(' (ID (',' ID)*)? ')'
+                | QualifiedName ('(' (ID (',' ID)*)? ')')?
+```
+
+### Modules & Signatures (SML-Core)
+```bnf
+ModuleDecl    ::= 'module' 'app'? ID FunctorParam? ModuleSeal? '{' Statement* '}' ';'?
+                | 'module' ID '=' FunctorApp ';'?
+FunctorParam  ::= '(' ID ':' ID ')'
+ModuleSeal    ::= ':>' ID           /* Opaque sealing */
+                | ':' ID            /* Transparent sealing */
+FunctorApp    ::= ID '(' ID ')'
+
+SignatureDecl ::= 'signature' ID SignatureWith? '{' SigMember* '}' ';'?
+SignatureWith ::= 'with' 'type' ID '=' TypeAnnotation
+SigMember     ::= 'def' ID TypeParams? '(' ParamList? ')' ':' TypeAnnotation ('/' EffectRow)? ';'?
+                | 'type' ID ('=' TypeAnnotation)? ';'?
+
+FirstClassMod ::= 'pack' ID 'as' ID
+                | 'unpack' '(' ID ':' ID ')' '=' Expr 'in' Expr
+```
+
+### Extensions & Methods
+```bnf
+ExtensionDecl ::= 'extension' ID TypeParams? ('on' | 'for') TypeAnnotation '{' DefDecl* '}' ';'?
+```
+
+### Imports & Foreign Function Interface (FFI)
+```bnf
+ImportDecl    ::= 'import' ID ('from' STRING_LITERAL)? ';'?
+ExternDecl    ::= 'extern' 'ts' STRING_LITERAL '{' ExternDef* '}' ';'?
+ExternDef     ::= 'def' ID '(' ParamList? ')' ':' TypeAnnotation ';'?
+```
+
+### Operator Declarations
+```bnf
+InfixDecl     ::= ('infixl' | 'infixr') STRING_LITERAL InfixRel? ';'?
+InfixRel      ::= 'same_as' STRING_LITERAL
+                | 'tighter_than' STRING_LITERAL
+                | 'looser_than' STRING_LITERAL
+```
+
+---
+
+## 2. Expressions
 
 ```bnf
-'(' | ')' | '{' | '}' | '[' | ']' | ',' | ';' | ':' | '.' | '=' | '=>' | '->' | '@' | '#'
-``` 
-## See also
+Expr          ::= Atom
+                | Expr InfixOp Expr
+                | PrefixOp Expr
+                | Expr PostfixOp
+                | IfExpr
+                | MatchExpr
+                | HandleExpr
+
+Atom          ::= Literal
+                | ID
+                | QualifiedName
+                | TupleExpr
+                | ListLiteral
+                | Block
+                | LambdaExpr
+                | FunctionCall
+                | MethodCall
+                | PerformExpr
+                | ResumeExpr
+                | BoxExpr
+                | UnboxExpr
+
+TupleExpr     ::= '(' ExprList? ')'
+ListLiteral   ::= '[' ExprList? ']'
+Block         ::= '{' Statement* Expr? '}'
+ExprList      ::= Expr (',' Expr)* ','?
+
+LambdaExpr    ::= '\' ID '=>' Expr
+                | '\' '(' ParamList? ')' '=>' Expr
+
+FunctionCall  ::= Atom '(' ExprList? ')'
+MethodCall    ::= Atom '.' ID ('(' ExprList? ')')?
+QualifiedName ::= ID '.' ID
+
+IfExpr        ::= 'if' Expr 'then' Block 'else' (Block | IfExpr)
+```
+
+---
+
+## 3. Lexical Structure & Literals
+
+```bnf
+Literal       ::= INT_LITERAL
+                | STRING_LITERAL
+                | BOOL_LITERAL
+                | UNIT_LITERAL
+
+UNIT_LITERAL   ::= '()'
+BOOL_LITERAL   ::= 'true' | 'false'
+INT_LITERAL    ::= [0-9]+ | '0x'[0-9a-fA-F]+ | '0b'[01]+
+STRING_LITERAL ::= '"' [^"\\]* '"'
+ID             ::= [a-zA-Z_][a-zA-Z0-9_]*
+InfixOp        ::= '+' | '-' | '*' | '/' | '%' | '==' | '<' | '<=' | '>' | '>=' | ID
+```
+
+---
+
+## 4. Key Semantic Notes
+
+- **Unit Type vs Value**: `Unit` is the unit **type**; `()` is the unit **value**.
+- **First-Class Types**: Types like `Int`, `String`, `Bool`, `Unit`, `Type` can be passed as values.
+- **Effect Annotations**: Written `/ [eff1, eff2]`. Non-structural recursion requires `/ [div]` (or is inferred as `div`).
+- **Punctuation Independence**: Token delimiters `()`, `[]`, `{}` are parsed prior to semantic keyword analysis.
+
+---
+
+## See Also
 
 - [Guide: Universal Parsed Syntax](../guide/universal-syntax.md)
-- [Docs hub](../README.md)
+- [Guide: Effects & Handlers](../guide/effects.md)
+- [Guide: Modules & Functors](../guide/modules.md)
+- [Guide: Getting Started](../guide/getting-started.md)

@@ -9,6 +9,7 @@ Practical documentation for people writing and running Chester programs.
 | [Effects](effects.md) | `effect` / `handle` / `perform` / `resume`, effect rows |
 | [Statements & scoping](statements.md) | `let` vs `def`, blocks |
 | [Universal Parsed Syntax](universal-syntax.md) | How CST → expander → elaborator works (conceptual) |
+| [Modules & Functors](modules.md) | Structures, signatures, sealing, functors, imports |
 | [Go backend](go-backend.md) | `--go` emission and FFI style |
 
 For exhaustive grammar, see the [Reference](../references/README.md). For papers and

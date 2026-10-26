@@ -213,7 +213,7 @@ def pat_binds(name: String, pat: PatternAST): Bool = {
   match pat {
     case PatVar(n) => string_eq(n, name);
     case PatConstructor(_, vs) => string_in_list(name, vs);
-    case PatWildcard => false
+    case _ => false
   }
 };
 def free_in_cases(name: String, cases: List(Pair)): Bool = {
@@ -1382,6 +1382,7 @@ def elab_tuple_elems(env: List(Pair), es: List(CST)): Pair = {
 };
 def get_base_type(t: AST): AST = {
   match t {
+    case AstSpan(_, inner) => get_base_type(inner);
     case AstApp(f, _) => get_base_type(f);
     case AstImplicitApp(f, _) => get_base_type(f);
     case _ => t

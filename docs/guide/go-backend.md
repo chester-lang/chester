@@ -13,7 +13,7 @@ The emitter maps Chester types to concrete Go types where it can:
 | `Integer` / `Int` | `int` |
 | `String` | `string` |
 | `Bool` | `bool` |
-| records / enums / typarams / `List(_)` / `Any` / `Unit` | `interface{}` |
+| records / enums / typarams / `List(_)` / `Any` / `Unit` | `any` |
 
 Record **declarations** still emit `type Point struct{ x int; y int }` from field
 types; using `Point` as a Go nominal type in signatures is deferred until a
@@ -25,13 +25,13 @@ Applied today (Rocq / `main.exe --go` and self-hosted `codegen_go.chester`):
 - **`def` params / returns** — `func add(a int, b int) int`
 - **`let` bindings** — inferred from literals, scalar ops, known def returns, and
   prior locals
-- **`var` bindings** — stay `interface{}` (mutable / effect-friendly)
-- **Lambdas / handlers** — stay `interface{}` (effects runtime)
+- **`var` bindings** — stay `any` (mutable / effect-friendly)
+- **Lambdas / handlers** — stay `any` (effects runtime)
 - **Lists, enums, effects maps** — still dynamic (`list_length` returns `int`)
 - **Call / return boundaries** — top-level def and extension-method signatures are
   collected structurally (no fuel) and **accumulated across multi-file `--go`
   inputs** so later units coerce calls into earlier ones (stdlib → self-hosted).
-  Args and returns use `__chester_as_*` when the value may still be `interface{}`.
+  Args and returns use `__chester_as_*` when the value may still be `any`.
   Known-typed locals skip redundant coerces. `AstImplicitApp` / `AstSpan` callees
   are unwrapped for sig lookup.
 - **Bool conditions** — skip `__chester_as_bool` when the cond is already `bool`
@@ -58,7 +58,7 @@ Scalar primitives in the Go preamble take/return concrete types
 (`prim__int_add(a, b int) int`) and expose surface aliases (`var int_add = …`).
 The emitter skips re-declaring those alias names when compiling stdlib/prelude.
 Rocq/self-hosted call sites coerce with `__chester_as_*` so both concrete and
-`interface{}` arguments work. With `--prelude`, Go also emits non-alias prelude
+`any` arguments work. With `--prelude`, Go also emits non-alias prelude
 defs (e.g. `forty`) into the package.
 
 ## Current behavior

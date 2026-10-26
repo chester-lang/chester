@@ -434,7 +434,10 @@ def emit_go_(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: String
           let body_str = emit_go_stmt(int_sub(fuel, 1), sigs, locals, ret_ty, body);
           match pat {
             case PatWildcard() => string_concat(string_concat("if true {", go_nl()), string_concat(body_str, string_concat(string_concat(string_concat(go_nl(), "}"), go_nl()), rest)));
-            case PatVar(v) => string_concat(string_concat("{", go_nl()), string_concat("var ", string_concat(v, string_concat(" any = _match_val;", string_concat(go_nl(), string_concat(body_str, string_concat(string_concat(string_concat(go_nl(), "}"), go_nl()), rest)))))));
+            case PatVar(v) => {
+              let discard = if string_eq(v, "_") then "" else string_concat("_ = ", string_concat(v, string_concat(";", go_nl())));
+              string_concat(string_concat("{", go_nl()), string_concat("var ", string_concat(v, string_concat(" any = _match_val;", string_concat(go_nl(), string_concat(discard, string_concat(body_str, string_concat(string_concat(string_concat(go_nl(), "}"), go_nl()), rest))))))))
+            };
             case PatConstructor(cname, vars) => string_concat(pat_ctor_cond(cname), string_concat(bind_vars(int_sub(fuel, 1), vars, 0), string_concat(body_str, string_concat(string_concat(string_concat(go_nl(), "}"), go_nl()), rest))));
             case _ => "/* bad pat */"
           }

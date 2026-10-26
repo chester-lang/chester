@@ -404,6 +404,35 @@ def split_at_eq(acc: List(CST), ls: List(CST)): List(List(CST)) = {
     }
 }
 };
+def is_collapse_skip_kw(kw: String): Bool = {
+  if string_eq(kw, "then") then true
+  else if string_eq(kw, "else") then true
+  else if string_eq(kw, "case") then true
+  else if string_eq(kw, "if") then true
+  else if string_eq(kw, "match") then true
+  else if string_eq(kw, "=>") then true
+  else if string_eq(kw, "=") then true
+  else if string_eq(kw, ":") then true
+  else if string_eq(kw, "->") then true
+  else if string_eq(kw, "unpack") then true
+  else if string_eq(kw, "pack") then true
+  else false
+};
+def is_collapse_skip_list_lit(name: String): Bool = {
+  if string_eq(name, "=") then true
+  else if string_eq(name, ":") then true
+  else if string_eq(name, "/") then true
+  else if string_eq(name, "return") then true
+  else if string_eq(name, "=>") then true
+  else if string_eq(name, ",") then true
+  else if string_eq(name, ";") then true
+  else if string_eq(name, "then") then true
+  else if string_eq(name, "else") then true
+  else if string_eq(name, "if") then true
+  else if string_eq(name, "match") then true
+  else if string_eq(name, "case") then true
+  else false
+};
 def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
   if int_eq(list_length(elems), 0) then acc else {
     let x = list_get(elems, 0);
@@ -437,9 +466,7 @@ def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
         if int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x)) else {
           let func_val = list_get(acc, int_sub(acc_len, 1));
           let skip = match func_val {
-            case Symbol(kw, _) => {
-              bool_or(string_eq(kw, "then"), bool_or(string_eq(kw, "else"), bool_or(string_eq(kw, "case"), bool_or(string_eq(kw, "if"), bool_or(string_eq(kw, "match"), bool_or(string_eq(kw, "=>"), bool_or(string_eq(kw, "="), bool_or(string_eq(kw, ":"), string_eq(kw, "->")))))))))
-            };
+            case Symbol(kw, _) => is_collapse_skip_kw(kw);
             case _ => false
           };
           if skip then collapse_apps(rest, list_append(acc, x)) else {
@@ -453,11 +480,17 @@ def collapse_apps(elems: List(CST), acc: List(CST)): List(CST) = {
         let acc_len = list_length(acc);
         if int_eq(acc_len, 0) then collapse_apps(rest, list_append(acc, x)) else {
           let func_val = list_get(acc, int_sub(acc_len, 1));
-          let new_acc = list_drop_last(acc);
-          let node = ImplicitAppCST(func_val, targs, sp);
-          collapse_apps(rest, list_append(new_acc, node))
+          let skip = match func_val {
+            case Symbol(name, _) => is_collapse_skip_list_lit(name);
+            case _ => false
+          };
+          if skip then collapse_apps(rest, list_append(acc, x)) else {
+            let new_acc = list_drop_last(acc);
+            let node = ImplicitAppCST(func_val, targs, sp);
+            collapse_apps(rest, list_append(new_acc, node))
+          }
         }
-};
+      };
       case _ => collapse_apps(rest, list_append(acc, x))
     }
 }

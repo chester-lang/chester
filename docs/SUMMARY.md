@@ -10,6 +10,7 @@
   - [Effects](guide/effects.md)
   - [Statements & scoping](guide/statements.md)
   - [Universal Parsed Syntax](guide/universal-syntax.md)
+  - [Modules & Functors](guide/modules.md)
   - [Go backend](guide/go-backend.md)
 
 # Reference

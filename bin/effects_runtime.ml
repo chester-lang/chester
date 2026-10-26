@@ -2,6 +2,11 @@
 
 let ts_primitives =
   "const Unit = {};\n\
+   const Int = \"Int\";\n\
+   const Integer = \"Integer\";\n\
+   const String = \"String\";\n\
+   const Bool = \"Bool\";\n\
+   const Type = \"Type\";\n\
    const prim__string_eq = (a, b) => a === b;\n\
    const prim__list_length = (l) => l.length;\n\
    const prim__int_eq = (a, b) => a === b;\n\
@@ -387,6 +392,11 @@ func __chester_box(labels []any, bodyFn func() any) any {
 }
 
 var Unit = struct{}{}
+var Int any = "Int"
+var Integer any = "Integer"
+var String any = "String"
+var Bool any = "Bool"
+var Type any = "Type"
 
 
 var _global_elab_state any

@@ -34,7 +34,7 @@ let preamble =
      const Span = (start, end) => ({start, end});\n\
      const lex = (s) => [{kind: \"Whitespace\"}, {kind: \"Id\", text: \"let\"}];\n"
 
-let rename_chester_main go_code =
+let rename_chester_main had_main go_code =
   let needle = "func main(" in
   let repl = "func chester_main(" in
   let n = String.length needle in
@@ -44,8 +44,17 @@ let rename_chester_main go_code =
     else find (i + 1)
   in
   match find 0 with
-  | None -> go_code
+  | None ->
+      let mn = String.length repl in
+      let rec find_m i =
+        if i + mn > String.length go_code then false
+        else if String.sub go_code i mn = repl then true
+        else find_m (i + 1)
+      in
+      if find_m 0 then had_main := true;
+      go_code
   | Some i ->
+      had_main := true;
       String.sub go_code 0 i ^ repl
       ^ String.sub go_code (i + n) (String.length go_code - i - n)
 
@@ -89,7 +98,7 @@ and collect_elab_stmt = function
           match fields with
           | [] -> ((vname, []), AstRef name)
           | _ ->
-              let ps = List.map (fun ty -> (['_'], ty)) fields in
+              let ps = List.map (fun ty -> ([ '_' ], ty)) fields in
               ((vname, []), AstFunTy (tps, ps, AstRef name, [])))
         variants
   | AstSpan (_, inner) -> collect_elab_env inner
@@ -97,14 +106,14 @@ and collect_elab_stmt = function
   | _ -> []
 
 let read_file filename =
-  if filename = "-" then
+  if filename = "-" then (
     let buf = Buffer.create 1024 in
     (try
        while true do
          Buffer.add_channel buf stdin 1024
        done
      with End_of_file -> ());
-    Buffer.contents buf
+    Buffer.contents buf)
   else
     let ch = open_in filename in
     Fun.protect
@@ -212,12 +221,12 @@ let compile_file ~verbose ~search_paths filename state op_env tenv =
       tenv := collect_elab_env ast @ !tenv;
       (ast, state')
 
-let emit_ast ~target ~verbose ~go_prior filename oc ast =
+let emit_ast ~target ~verbose ~had_main ~go_prior filename oc ast =
   match target with
   | EmitGo ->
       if verbose then print_endline ("\n[Emitting Go for " ^ filename ^ "]");
       let go_code =
-        rename_chester_main
+        rename_chester_main had_main
           (string_of_char_list
              (stringify_go_stmt (emit_go_top_with !go_prior ast)))
       in
@@ -233,17 +242,18 @@ let emit_ast ~target ~verbose ~go_prior filename oc ast =
       output_string oc
         (string_of_char_list (stringify_ts_stmt (emit_ts_top ast)) ^ "\n")
 
-let process_file ~target ~verbose ~emit ~go_prior ~search_paths oc filename
-    state op_env tenv =
+let process_file ~target ~verbose ~emit ~had_main ~go_prior ~search_paths oc
+    filename state op_env tenv =
   let ast, state' =
     compile_file ~verbose ~search_paths filename state op_env tenv
   in
-  if emit then emit_ast ~target ~verbose ~go_prior filename oc ast;
+  if emit then emit_ast ~target ~verbose ~had_main ~go_prior filename oc ast;
   state'
 
 let usage () =
   print_endline
-    "Usage: main.exe [--go | --rocq | --ts | --ts-module | --emit-ts-runtime PATH] \\\n\
+    "Usage: main.exe [--go | --rocq | --ts | --ts-module | --emit-ts-runtime \
+     PATH] \\\n\
     \       [--module-path DIR]... [--prelude FILE]... \\\n\
     \       [--go-sigs FILE] [--list-go-sigs] \\\n\
     \       [-h | --help] \\\n\
@@ -281,7 +291,8 @@ let rec parse_opts acc = function
   | ("-h" | "--help") :: _ ->
       usage ();
       exit 0
-  | "--ts" :: rest -> parse_opts { acc with target = EmitTS; ts_mode = TsEmitScript } rest
+  | "--ts" :: rest ->
+      parse_opts { acc with target = EmitTS; ts_mode = TsEmitScript } rest
   | ("-o" | "--output") :: path :: rest ->
       parse_opts { acc with out_file = Some path } rest
   | ("-o" | "--output") :: [] ->
@@ -429,6 +440,7 @@ let () =
       let state = ref state in
       let op_env = ref [] in
       let go_prior = ref [] in
+      let had_main = ref false in
       let tenv = ref [] in
       List.iter
         (fun f ->
@@ -436,15 +448,17 @@ let () =
           let emit_prelude = opts.target = EmitGo in
           state :=
             process_file ~target:opts.target ~verbose:false ~emit:emit_prelude
-              ~go_prior ~search_paths oc f !state op_env tenv)
+              ~had_main ~go_prior ~search_paths oc f !state op_env tenv)
         prelude_paths;
       List.iter
         (fun f ->
           state :=
-            process_file ~target:opts.target ~verbose:true ~emit:true ~go_prior
-              ~search_paths oc f !state op_env tenv)
+            process_file ~target:opts.target ~verbose:true ~emit:true ~had_main
+              ~go_prior ~search_paths oc f !state op_env tenv)
         resolved_files;
-      if opts.target = EmitGo then
-        output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n";
+      if opts.target = EmitGo then (
+        if not !had_main then
+          output_string oc "\nfunc chester_main() any { return nil }\n";
+        output_string oc "\nfunc main() {\n\tfmt.Println(chester_main())\n}\n");
       close_out oc;
       print_endline ("\nSuccessfully emitted to " ^ out_file)

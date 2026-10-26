@@ -30,6 +30,11 @@ def main(): Integer = {
     0
   }; // 1
 
+  // to_result: Some(10) -> Ok(10) -> 10, None -> Err -> 1
+  let opt_res = some10.to_result("missing");
+  let v5 = opt_res.unwrap_or(0); // 10
+  let v6 = if none_val.to_result("err").is_err() then { 1 } else { 0 }; // 1
+
   // --- Result tests ---
   let ok50 = Ok(50);
   let err_val = Err("initial error");
@@ -61,6 +66,11 @@ def main(): Integer = {
     0
   }; // 1
 
+  // to_option: Ok(50) -> Some(50) -> 50, Err -> None -> 1
+  let res_opt = ok50.to_option();
+  let r5 = res_opt.unwrap_or(0); // 50
+  let r6 = if err_val.to_option().is_none() then { 1 } else { 0 }; // 1
+
   // --- List tests ---
   let xs = [1, 2, 3, 4, 5];
 
@@ -70,6 +80,13 @@ def main(): Integer = {
   // reverse: [5, 4, 3, 2, 1], get(0) is 5
   let xs_rev = xs.reverse();
   let l_first_rev = xs_rev.get(0); // 5
+
+  // head, tail, is_empty
+  let l_head = xs.head().unwrap_or(0); // 1
+  let opt_tail = xs.tail();
+  let l_tail = opt_tail.unwrap_or(list_empty[Integer]());
+  let l_tail_len = list_length(l_tail); // 4
+  let l_empty_flag = if xs.is_empty() then { 0 } else { if list_empty[Integer]().is_empty() then { 2 } else { 0 } }; // 2
 
   // map: [2, 4, 6, 8, 10]
   let xs_doubled = xs.map(\x => int_mul(x, 2));
@@ -93,13 +110,13 @@ def main(): Integer = {
   let l_cat_len = l_cat.length(); // 3
 
   // Total sum:
-  // v1(20) + v2(25) + v3(7) + v4(99) + opt_flags(1) = 152
-  // r1(60) + r2(13) + r3(4) + r4(70) + res_flag(1) = 148
-  // l_len(5) + l_first_rev(5) + l_sum(30) + l_any_flag(2) + l_all_flag(3) + l_found_val(4) + l_cat_len(3) = 52
-  // Total: 152 + 148 + 52 = 352
-  let opt_total = int_add(int_add(int_add(v1, v2), int_add(v3, v4)), opt_flags);
-  let res_total = int_add(int_add(int_add(r1, r2), int_add(r3, r4)), res_flag);
-  let list_total = int_add(int_add(int_add(l_len, l_first_rev), int_add(l_sum, l_any_flag)), int_add(int_add(l_all_flag, l_found_val), l_cat_len));
+  // opt_total: 152 + v5(10) + v6(1) = 163
+  // res_total: 148 + r5(50) + r6(1) = 199
+  // list_total: 52 + l_head(1) + l_tail_len(4) + l_empty_flag(2) = 59
+  // Total: 163 + 199 + 59 = 421
+  let opt_total = int_add(int_add(int_add(v1, v2), int_add(v3, v4)), int_add(opt_flags, int_add(v5, v6)));
+  let res_total = int_add(int_add(int_add(r1, r2), int_add(r3, r4)), int_add(res_flag, int_add(r5, r6)));
+  let list_total = int_add(int_add(int_add(l_len, l_first_rev), int_add(l_sum, l_any_flag)), int_add(int_add(l_all_flag, l_found_val), int_add(l_cat_len, int_add(l_head, int_add(l_tail_len, l_empty_flag)))));
 
   int_add(int_add(opt_total, res_total), list_total)
 };
