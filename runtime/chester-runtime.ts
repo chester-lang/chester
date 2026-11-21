@@ -73,7 +73,10 @@ catch (e) {
 if (e && e.__chester_handled === frame) return e.result;
 throw e;
 }
-finally { __chester_caps.pop(); }
+finally {
+if (__chester_caps.length && __chester_caps[__chester_caps.length-1] === frame)
+__chester_caps.pop();
+}
 };
 return run([]);
 };
@@ -85,6 +88,7 @@ if (!h) continue;
 const got = frame.take();
 if (got.ok) return got.v;
 const resume = (v) => frame.fork(v);
+__chester_caps.length = i;
 let fn = h;
 for (let j = 0; j < args.length; j++) fn = fn(args[j]);
 const result = fn(resume);
@@ -96,12 +100,15 @@ const __chester_evidence = (labels) => {
 const ev = [];
 for (let li = 0; li < labels.length; li++) {
 const lab = labels[li];
+let found = false;
 for (let i = __chester_caps.length - 1; i >= 0; i--) {
 if (__chester_caps[i].label === lab) {
 ev.push({ label: lab, handlers: __chester_caps[i].handlers });
+found = true;
 break;
 }
 }
+if (!found) throw new Error("Missing capability for box: " + lab);
 }
 return ev;
 };

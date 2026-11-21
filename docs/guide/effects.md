@@ -1,10 +1,15 @@
 # Chester Effects Guide
 
-Chester supports algebraic effects and handlers. Effects allow you to write pure functions that can perform side effects (like state, I/O, or exceptions) which are then implemented by a handler.
+Chester supports a practical subset of algebraic effects and handlers. Effects let you
+write computations that `perform` operations; a lexical `handle` supplies capabilities.
+This is **not** a full Plotkin/Pretnar or Effekt implementation — see caveats below and
+`docs/paper/LITERATURE.md`.
 
 ## Declaring Effects
 
-Effects are declared using the `effect` keyword:
+Effects are declared with the `effect` keyword. Type parameters (e.g. `State[T]`) may
+appear in operation signatures; the elaborator instantiates them at use sites where
+supported by the registry.
 
 ```chester
 effect State[T] {
@@ -14,8 +19,6 @@ effect State[T] {
 ```
 
 ## Performing and Handling Effects
-
-To use an effect, you `perform` it. The surrounding `handle` block specifies how to execute those effects.
 
 ```chester
 def main() = {
@@ -30,13 +33,43 @@ def main() = {
 }
 ```
 
-Notice that inside the handler cases, you use `resume(value)` to return control to the point where the effect was performed. For effects that don't return a meaningful value, use `resume(())` instead of `resume(Unit)` (where `()` is the unit value).
+Inside handler cases, `resume(value)` returns to the perform site. Prefer `resume(())`
+for the unit value (legacy bare `Unit` is still accepted).
+
+### Incomplete handlers
+
+The elaborator rejects a `handle` that omits any operation declared on the effect
+(`incomplete handler for effect: …`). The core checker also rejects a handle with an
+empty clause list. At runtime, a perform with no matching capability still throws /
+panics (`Unhandled effect operation`).
+
+### Deep handlers
+
+Before a handler clause runs, the matched capability frame (and anything above it) is
+**truncated** from the stack so effects performed inside the clause escape to outer
+handlers (Plotkin/Pretnar deep semantics). The `handle` `finally` only pops if that
+frame is still on top (compare by identity / frame id).
+
+### Multi-shot resume (answer-stream)
+
+`resume` may be called more than once. The TS/Go runtime implements multi-shot via an
+**answer stream**: each `resume(v)` forks a replay of the body from the perform, feeding
+prior answers then `v`. Limitation: this replays a **prefix** of the body stream; it is
+not a full delimited-continuation capture.
+
+## `box` / `unbox`
+
+`box { … }` captures the currently active capabilities listed for the boxed thunk
+(evidence). `unbox` reinstalls that evidence and runs the body. If a claimed label is
+missing at the box site, the runtime throws / panics (`Missing capability for box`) —
+silent dropping is not allowed.
 
 ## Effect Rows in Signatures
 
-Functions may also carry effect rows indicating which effects they perform, using the `/ [effect_name]` syntax.
+Functions may carry effect rows with `/ [label]` syntax. Stdlib I/O uses lowercase
+**`io`** (e.g. `Unit / [io]` in `stdlib/*/std.chester`), not `IO`. Labels are
+case-sensitive strings in the effect registry.
 
-Example:
 ```chester
 def do_io(): Unit / [io] = {
   // perform IO operations

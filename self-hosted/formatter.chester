@@ -116,7 +116,7 @@ def stmt_from_seq(elements: List(CST)): CST = {
 };
 
 def format_comment(text: String): String = {
-  if int_lt(list_length(text), 2) then string_concat("// ", text) else {
+  if int_lt(string_length(text), 2) then string_concat("// ", text) else {
     let prefix = string_substring(text, 0, 2);
     if string_eq(prefix, "//") then text else string_concat("// ", text)
   }

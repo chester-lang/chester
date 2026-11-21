@@ -4,15 +4,22 @@ Foundational reading for Chester's design. This repo implements a verified compi
 (Coq/Rocq theories in `theories/`, extracted OCaml in `extraction/`). The Scala drafts in
 sibling directories explored many of the same ideas in a product/tooling stack.
 
+**Honesty note:** Chester takes inspiration from these papers; it does **not** claim full
+literature fidelity. Deviations are called out below and in the guides
+([effects](../guide/effects.md), [modules](../guide/modules.md)).
+
 Some papers are behind anti-bot protections or institutional firewalls (ACM Digital Library,
 MIT DSpace, etc.) and cannot be fetched automatically. Use the direct links below, or the
 local PDF copies in the sibling `chester-references` repository (`../../chester-references/`).
+Where earlier local copies were corrupted or wrong papers, they were replaced when a
+verified mirror was available.
 
 ## 1. Elaboration & extensibility
 
 - **"ExEl: Building an Elaborator Using Extensible Constraints"** (Bohdan Liesnikov, Jesper Cockx)
-  - *Significance:* Modern elaborator framework; maps to Chester's UPS/CST phase (`theories/CST.v`,
-    `theories/Expander.v`) and semantic AST (`theories/AST.v`, `theories/Elaborator.v`).
+  - *Significance:* Inspiration for Chester's UPS → CST → elaborator pipeline
+    (`theories/CST.v`, `theories/Expander.v`, `theories/Elaborator.v`). Chester does **not**
+    implement ExEl-style extensible constraint plugins.
   - [ACM Digital Library (DOI: 10.1145/3652561.3652565)](https://dl.acm.org/doi/pdf/10.1145/3652561.3652565)
   - Local PDF: `../../chester-references/3652561.3652565.pdf`
 
@@ -25,49 +32,57 @@ background if incremental or constraint-propagation elaboration returns.
 - **"The Art of the Propagator"** (Alexey Radul, Gerald Jay Sussman)
   - *Significance:* Propagator networks for incremental computation; explored in Scala drafts, not the current verified elaborator.
   - [MIT DSpace (Handle: 1721.1/44215)](https://dspace.mit.edu/handle/1721.1/44215)
-  - [Direct PDF (requires manual download due to DSpace bot protection)](https://dspace.mit.edu/bitstream/handle/1721.1/44215/MIT-CSAIL-TR-2009-002.pdf)
+  - [Direct PDF (CSAIL TR; DSpace may block bots)](https://dspace.mit.edu/bitstream/handle/1721.1/44215/MIT-CSAIL-TR-2009-002.pdf)
+  - Local PDF: `../../chester-references/The-Art-of-the-Propagator-Radul-Sussman.pdf`
+    (recovered via Wayback when live mirrors blocked automated download)
 - **"Propagation Networks: A Flexible and Expressive Substrate for Computation"** (Alexey Radul, Ph.D. thesis)
   - *Significance:* Comprehensive foundation of the propagator model.
   - [MIT DSpace (Handle: 1721.1/49525)](https://dspace.mit.edu/handle/1721.1/49525)
   - [Author mirror](http://web.mit.edu/~axch/www/phd-thesis.pdf)
+  - Local PDF: `../../chester-references/Propagation-Networks-Radul-thesis.pdf`
+    (kept when Art-of-the-Propagator mirrors fail)
 
-## 3. Algebraic effects & capabilities (implemented in Chester)
+## 3. Algebraic effects & capabilities (partial in Chester)
 
-Chester's effect system (`effect` / `handle` / `perform` / `resume`, `box` / `unbox`) follows
-the algebraic-effects line of work. See `stdlib/std.chester`, `tests/effects*.chester`, and
-`bin/effects_runtime.ml`.
+Chester's surface (`effect` / `handle` / `perform` / `resume`, `box` / `unbox`) follows the
+algebraic-effects / capability line. Runtime deep handlers + answer-stream multi-shot live in
+`bin/effects_runtime.ml`. **Partial vs literature:** no return/value clauses; multi-shot is
+answer-stream prefix replay (not full delimited continuations); CoreFrag / emit proofs exclude
+handlers. See `docs/guide/effects.md`.
 
-- **"Effect Handlers for Algol-Like Languages"** / handling algebraic effects (Plotkin & Pretnar, 2013)
+- **"Handling Algebraic Effects"** (Plotkin & Pretnar, 2013)
   - Local PDF: `../../chester-references/handling-algebraic-effects-plotkin-pretnar-2013.pdf`
-- **"Effekt: Capability-Passing Style for Extensible Algebraic Effects"** (Brachthäuser et al., 2017)
+- **"Effekt: Extensible Algebraic Effects in Scala"** (Brachthäuser & Schuster, Scala'17 short paper)
   - Local PDF: `../../chester-references/effekt-2017.pdf`
 - **"Effects as Capabilities: Effect Handlers and Lightweight Effect Polymorphism"** (Brachthäuser et al., 2020)
   - [ACM PACMPL (DOI: 10.1145/3428194)](https://dl.acm.org/doi/pdf/10.1145/3428194)
+  - [EPFL Infoscience mirror](http://infoscience.epfl.ch/record/288487)
   - Local PDF: `../../chester-references/Effects-as-Capabilities-2020.pdf`
 
-## 4. Dependent types (partial support)
+## 4. Dependent types (citation only / partial surface)
 
-Chester has basic dependent features (`Type` as a kind, indexed `enum`, `tests/dependent_types.chester`).
+Chester has basic dependent features (`Type` as a kind, polymorphic `enum` field
+types, `tests/dependent_types.chester`). Length-indexed enums are **not** implemented
+(`tests/vector.chester` is a non-indexed `Vector[T]`). **Two-Level Type Theory is
+citation-only** — not implemented as a 2LTT system in the theories.
 
 - **"Two-Level Type Theory"** (Annenkov, Capriotti, Kraus, Sattler, 2017)
   - Local PDF: `../../chester-references/two-level-type-theory-annenkov-2017.pdf`
 
-## 5. Module systems (SML-core in Chester)
+## 5. Module systems (SML-core sketch in Chester)
 
-Chester supports ML-style structures, signatures, opaque (`:>`) and transparent
-(`:`) sealing, generative and applicative (`module app`) functors, first-class
-`pack`/`unpack`, type components (`type t` / `type t = T`, paths `M.t`),
-`with type` sharing constraints, Rocq `Module`/`Module Type` emit, and
-file-as-module import via `--module-path` / `CHESTER_PATH`
-(`tests/modules.chester`, `tests/modules_ext.chester`, `tests/modules_types.chester`,
-`tests/modules_import.chester`, `tests/modules_effects.chester`).
-Effect rows on `def` / signature members (`/ [e]`) are preserved in module
-types and checked under sealing (implementation ⊆ declared).
-Functor parameters are first-order (signature-typed); full higher-order functor
-types are not implemented.
+Chester supports ML-style structures, signatures, opaque (`:>`) and transparent (`:`) sealing,
+generative and applicative (`module app`) functors, first-class `pack`/`unpack`, type components,
+`with type` sharing (now applied in elaboration), Rocq `Module`/`Module Type` emit, and
+file-as-module import via `--module-path` / `CHESTER_PATH`.
+
+**Deviations from F-ing modules:** no System Fω packaging; applicative identity is **name-based**,
+not F-ing generative stamps; higher-order functors are absent; sealing is a shallow export-list
+filter with effect-row checks, not full signature matching. See `docs/guide/modules.md`.
 
 - **"F-ing modules"** (Rossberg, Russo, Dreyer)
   - [Journal PDF](https://people.mpi-sws.org/~dreyer/papers/f-ing/firstview-journal.pdf)
+  - Local PDF: `../../chester-references/f-ing-modules.pdf`
 - OCaml module manual — [structures, signatures, functors](https://ocaml.org/manual/5.1/moduleexamples.html)
 
 ## See also

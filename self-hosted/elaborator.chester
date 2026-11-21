@@ -194,6 +194,34 @@ def elab_hs(env: List(Pair), hs: List(CST)): List(Pair) = {
     }
   }
 };
+def lookup_effect_ops(name: String, reg: List(EffectDecl)): List(EffectOp) = {
+  if int_eq(list_length(reg), 0) then list_empty[EffectOp]() else {
+    match list_get(reg, 0) {
+      case MkEffectDecl(n, ops) => {
+        if string_eq(n, name) then ops else lookup_effect_ops(name, advance(reg))
+      }
+    }
+  }
+};
+def hs_has_op(op: String, hs: List(Pair)): Bool = {
+  if int_eq(list_length(hs), 0) then false else {
+    match list_get(hs, 0) {
+      case MkPair(n, _) => {
+        if string_eq(n, op) then true else hs_has_op(op, advance(hs))
+      }
+    }
+  }
+};
+def check_handler_complete(eff: String, ops: List(EffectOp), hs: List(Pair)): String = {
+  if int_eq(list_length(ops), 0) then "ok" else {
+    match list_get(ops, 0) {
+      case MkEffectOp(op, _, _) => {
+        if hs_has_op(op, hs) then check_handler_complete(eff, advance(ops), hs)
+        else string_concat("incomplete handler for effect: ", eff)
+      }
+    }
+  }
+};
 def free_in_asts(name: String, ls: List(AST)): Bool = {
   if int_eq(list_length(ls), 0) then false else {
     if free_in(name, list_get(ls, 0)) then true else free_in_asts(name, advance(ls))
@@ -1634,9 +1662,11 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               match s1 {
                 case MkElabState(e1, nv1, sub1, ex1, ef1, act1, caps) => {
                   put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act1, pend0));
-                  let ty_effs = if effects_covered_by(caps, act1) then list_empty[String]() else caps;
+                  let sealed = effects_covered_by(caps, act1);
+                  let box_caps = if sealed then caps else list_empty[String]();
+                  let ty_effs = if sealed then list_empty[String]() else caps;
                   let box_ty = AST.AstPi("x", AST.AstRef("Unit"), innerTy, ty_effs);
-                  Pair.MkPair(AST.AstBox(iAst, caps), box_ty)
+                  Pair.MkPair(AST.AstBox(iAst, box_caps), box_ty)
                 }
               }
             }
@@ -1946,15 +1976,16 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
           let s1 = get_elab_state();
           match s1 {
             case MkElabState(e1, nv1, sub1, ex1, ef1, _, pend1) => {
-
-
               put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act0, merge_pending(pend0, filter_pending(eff, pend1))));
-
-
               match body_elab {
-                case MkPair(body_ast, body_ty) => Pair.MkPair(AST.AstHandle(body_ast, eff, elab_hs(env, handlers)), body_ty)
+                case MkPair(body_ast, body_ty) => {
+                  let hs = elab_hs(env, handlers);
+                  let msg = check_handler_complete(eff, lookup_effect_ops(eff, ef1), hs);
+                  if string_eq(msg, "ok") then Pair.MkPair(AST.AstHandle(body_ast, eff, hs), body_ty)
+                  else Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"))
+                }
               }
-}
+            }
           }
         }
       }

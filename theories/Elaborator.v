@@ -361,10 +361,14 @@ Definition parse_handler_case (h : CST)
   | _ => None
   end.
 
-Fixpoint build_handler_lam (binders : list string) (body : AST) : AST :=
-  match binders with
-  | [] => AstLam "resume" (AstRef "Any") body
-  | b :: rest => AstLam b (AstRef "Any") (build_handler_lam rest body)
+Fixpoint build_handler_lam (binders : list string) (tys : list AST)
+    (resume_ty : AST) (body : AST) : AST :=
+  match binders, tys with
+  | [], _ => AstLam "resume" resume_ty body
+  | b :: rest, ty :: tys' =>
+      AstLam b ty (build_handler_lam rest tys' resume_ty body)
+  | b :: rest, [] =>
+      AstLam b (AstRef "Any") (build_handler_lam rest [] resume_ty body)
   end.
 
 Fixpoint list_nat_eq (l1 l2 : list nat) : bool :=
@@ -412,15 +416,106 @@ Definition is_type_expected (expected : option AST) : bool :=
   | _ => false
   end.
 
+(** True if meta [m] occurs in [t] (occurs-check for unification). *)
+Fixpoint occurs_meta (m : nat) (t : AST) {struct t} : bool :=
+  match t with
+  | AstMeta m' => Nat.eqb m m'
+  | AstRef _ | AstUniverse _ | AstStringLit _ | AstIntLit _ | AstBoolLit _
+  | AstError _ | AstImport _ _ _ _ | AstFileImport _ _ => false
+  | AstTuple elems => existsb (occurs_meta m) elems
+  | AstBlock stmts tail =>
+      orb (existsb (occurs_meta m) stmts) (occurs_meta m tail)
+  | AstApp f args => orb (occurs_meta m f) (existsb (occurs_meta m) args)
+  | AstImplicitApp f args =>
+      orb (occurs_meta m f) (existsb (occurs_meta m) args)
+  | AstLam _ ty body => orb (occurs_meta m ty) (occurs_meta m body)
+  | AstPi _ ty ret _ => orb (occurs_meta m ty) (occurs_meta m ret)
+  | AstDo e args => orb (occurs_meta m e) (existsb (occurs_meta m) args)
+  | AstHandle e _ hs =>
+      orb (occurs_meta m e) (existsb (fun p => occurs_meta m (snd p)) hs)
+  | AstLet _ val => occurs_meta m val
+  | AstVar _ val => occurs_meta m val
+  | AstAssign _ val => occurs_meta m val
+  | AstIf c th el =>
+      orb (occurs_meta m c) (orb (occurs_meta m th) (occurs_meta m el))
+  | AstDef _ _ params ret body _ =>
+      orb (existsb (fun p => occurs_meta m (snd p)) params)
+        (orb (occurs_meta m ret) (occurs_meta m body))
+  | AstFunTy _ params ret _ =>
+      orb (existsb (fun p => occurs_meta m (snd p)) params) (occurs_meta m ret)
+  | AstEnum _ _ variants =>
+      existsb
+        (fun v =>
+           match v with
+           | (_, fields, ret) =>
+               orb (existsb (occurs_meta m) fields) (occurs_meta m ret)
+           end)
+        variants
+  | AstMatch e cases =>
+      orb (occurs_meta m e) (existsb (fun c => occurs_meta m (snd c)) cases)
+  | AstRecord _ _ fields =>
+      existsb (fun p => occurs_meta m (snd p)) fields
+  | AstFieldAccess e _ => occurs_meta m e
+  | AstExtension _ _ tgt meths =>
+      orb (occurs_meta m tgt) (existsb (occurs_meta m) meths)
+  | AstBox e _ => occurs_meta m e
+  | AstUnbox e => occurs_meta m e
+  | AstModule _ params seal body =>
+      orb (existsb (fun p => occurs_meta m (snd p)) params)
+        (orb (match seal with Some s => occurs_meta m s | None => false end)
+           (existsb (occurs_meta m) body))
+  | AstSignature _ decls => existsb (occurs_meta m) decls
+  | AstFunctorApp f args =>
+      orb (occurs_meta m f) (existsb (occurs_meta m) args)
+  | AstModTy exports => existsb (fun p => occurs_meta m (snd p)) exports
+  | AstSigVal _ _ params ret _ =>
+      orb (existsb (fun p => occurs_meta m (snd p)) params) (occurs_meta m ret)
+  | AstTypeDecl _ (Some ty) => occurs_meta m ty
+  | AstTypeDecl _ None => false
+  | AstSigWith s eqs =>
+      orb (occurs_meta m s) (existsb (fun p => occurs_meta m (snd p)) eqs)
+  | AstPack m' s => orb (occurs_meta m m') (occurs_meta m s)
+  | AstUnpack _ s e b =>
+      orb (occurs_meta m s) (orb (occurs_meta m e) (occurs_meta m b))
+  | AstSpan _ inner => occurs_meta m inner
+  end.
+
+(** Soft name aliases matching CoreChecker int/bool/universe helpers. *)
+Definition refs_compat (n1 n2 : string) : bool :=
+  orb (String.eqb n1 n2)
+    (orb (andb (is_int_ty (AstRef n1)) (is_int_ty (AstRef n2)))
+      (orb (andb (is_bool_ty (AstRef n1)) (is_bool_ty (AstRef n2)))
+        (andb (is_universe_ty (AstRef n1)) (is_universe_ty (AstRef n2))))).
+
+Definition assign_meta (m : nat) (t : AST) : ElabM unit :=
+  if occurs_meta m t then throw "Occurs check failed"
+  else
+    s <- get_state ;
+    match s with
+    | mkElabState n sol exts effs caps pending go_pkgs =>
+        set_state (mkElabState n (update_type_state m (Solved t) sol)
+                     exts effs caps pending go_pkgs)
+    end.
+
+
+
+(** Collapse multi-arg [AstFunTy] into a curried [AstPi] telescope for unify. *)
+Fixpoint funty_as_pi (params : list (string * AST)) (ret : AST) (effs : EffectSet) : AST :=
+  match params with
+  | [] => ret
+  | (n, ty) :: rest =>
+      AstPi n ty (funty_as_pi rest ret effs) effs
+  end.
+
 Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
   match fuel with
-  | 0 => ret tt
-  | S fuel' => 
+  | 0 => throw "Unification fuel exhausted"
+  | S fuel' =>
       let fix unify_list (l1 l2 : list AST) : ElabM unit :=
         match l1, l2 with
         | [], [] => ret tt
         | x :: xs, y :: ys => unify fuel' x y ;; unify_list xs ys
-        | _, _ => ret tt
+        | _, _ => throw "Unification arity mismatch"
         end in
       let t1' := strip_span (whnf t1) in
       let t2' := strip_span (whnf t2) in
@@ -434,43 +529,51 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
               | Solved v1 => unify fuel' v1 t2'
               | _ => match type_metas sol m2 with
                      | Solved v2 => unify fuel' t1' v2
-                     | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts effs caps pending go_pkgs)
+                     | _ => assign_meta m1 t2'
                      end
               end
           end
       | AstMeta m1, _ =>
           s <- get_state ;
           match s with
-          | mkElabState n sol exts effs caps pending go_pkgs =>
+          | mkElabState _ sol _ _ _ _ _ =>
               match type_metas sol m1 with
               | Solved v1 => unify fuel' v1 t2'
-              | _ => set_state (mkElabState n (update_type_state m1 (Solved t2') sol) exts effs caps pending go_pkgs)
+              | _ => assign_meta m1 t2'
               end
           end
       | _, AstMeta m2 =>
           s <- get_state ;
           match s with
-          | mkElabState n sol exts effs caps pending go_pkgs =>
+          | mkElabState _ sol _ _ _ _ _ =>
               match type_metas sol m2 with
               | Solved v2 => unify fuel' t1' v2
-              | _ => set_state (mkElabState n (update_type_state m2 (Solved t1') sol) exts effs caps pending go_pkgs)
+              | _ => assign_meta m2 t1'
               end
           end
       | AstApp f1 a1, AstApp f2 a2 =>
           unify fuel' f1 f2 ;; unify_list a1 a2
-      | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 =>
+      | AstTypeDecl n1 o1, AstTypeDecl n2 o2 =>
+          if negb (String.eqb n1 n2) then throw "Type mismatch"
+          else
+            match o1, o2 with
+            | Some a, Some b => unify fuel' a b
+            | None, None => ret tt
+            | _, _ => throw "Type mismatch"
+            end
+      | AstPi _n1 ty1 ret1 eff1, AstPi _n2 ty2 ret2 eff2 =>
           unify fuel' ty1 ty2 ;;
           unify fuel' ret1 ret2 ;;
           (* Koka-lite: rows compatible if either subsumes the other (open tails). *)
           if orb (effect_row_subsumes eff1 eff2) (effect_row_subsumes eff2 eff1)
           then ret tt
           else throw "Effect row mismatch"
-      | AstFunTy tp1 p1 r1 e1, AstFunTy tp2 p2 r2 e2 =>
+      | AstFunTy _tp1 p1 r1 e1, AstFunTy _tp2 p2 r2 e2 =>
           let fix unify_params (a b : list (string * AST)) : ElabM unit :=
             match a, b with
             | [], [] => ret tt
             | (_, t) :: xs, (_, u) :: ys => unify fuel' t u ;; unify_params xs ys
-            | _, _ => ret tt
+            | _, _ => throw "Unification arity mismatch"
             end
           in
           unify_params p1 p2 ;;
@@ -478,7 +581,42 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
           if orb (effect_row_subsumes e1 e2) (effect_row_subsumes e2 e1)
           then ret tt
           else throw "Effect row mismatch"
-      | _, _ => ret tt
+      (* Named defs are FunTy; lambdas / arrow types are Pi — unify via currying. *)
+      | AstFunTy _ p1 r1 e1, AstPi _ _ _ _ =>
+          unify fuel' (funty_as_pi p1 r1 e1) t2'
+      | AstPi _ _ _ _, AstFunTy _ p2 r2 e2 =>
+          unify fuel' t1' (funty_as_pi p2 r2 e2)
+      | AstTuple xs, AstTuple ys => unify_list xs ys
+      | AstUniverse l1, AstUniverse l2 =>
+          if Nat.eqb l1 l2 then ret tt else throw "Type mismatch"
+      | AstStringLit s1, AstStringLit s2 =>
+          if string_dec s1 s2 then ret tt else throw "Type mismatch"
+      | AstIntLit n1, AstIntLit n2 =>
+          if Nat.eqb n1 n2 then ret tt else throw "Type mismatch"
+      | AstBoolLit b1, AstBoolLit b2 =>
+          match b1, b2 with
+          | true, true | false, false => ret tt
+          | _, _ => throw "Type mismatch"
+          end
+      | AstRef n1, AstRef n2 =>
+          (* [Any]/[Unknown] are AstRef, so check soft aliases before reject. *)
+          if orb (refs_compat n1 n2)
+               (orb (is_any_ty t1') (is_any_ty t2'))
+          then ret tt else throw "Type mismatch"
+      | AstFieldAccess e1 f1, AstFieldAccess e2 f2 =>
+          if negb (String.eqb f1 f2) then throw "Type mismatch"
+          else unify fuel' e1 e2
+      | AstFieldAccess _ f, AstRef n =>
+          if orb (String.eqb f n) (is_any_ty t2') then ret tt
+          else throw "Type mismatch"
+      | AstRef n, AstFieldAccess _ f =>
+          if orb (String.eqb f n) (is_any_ty t1') then ret tt
+          else throw "Type mismatch"
+      | _, _ =>
+          (* Any / unsolved-looking metas that slipped past whnf: soft allow. *)
+          if orb (is_any_ty t1') (is_any_ty t2') then ret tt
+          else if types_compat t1' t2' then ret tt
+          else throw "Type mismatch"
       end
   end.
 
@@ -577,8 +715,8 @@ Fixpoint elab_extern_decls (env : TypeEnv) (decls : list CST) : list string * Ty
 Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
   match body with
   | [] => []
-  | AstDef n tps params ret _ _ :: xs =>
-      (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstDef n tps params ret _ effs :: xs =>
+      (n, AstFunTy tps params ret effs) :: module_exports_of xs
   | AstSigVal n tps params ret effs :: xs =>
       (n, AstFunTy tps params ret effs) :: module_exports_of xs
   | AstTypeDecl n opt :: xs =>
@@ -589,8 +727,8 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
       (n, AstModTy []) :: module_exports_of xs
   | AstSignature n decls :: xs =>
       (n, AstSignature n decls) :: module_exports_of xs
-  | AstSpan _ (AstDef n tps params ret _ _) :: xs =>
-      (n, AstFunTy tps params ret []) :: module_exports_of xs
+  | AstSpan _ (AstDef n tps params ret _ effs) :: xs =>
+      (n, AstFunTy tps params ret effs) :: module_exports_of xs
   | AstSpan _ (AstSigVal n tps params ret effs) :: xs =>
       (n, AstFunTy tps params ret effs) :: module_exports_of xs
   | AstSpan _ (AstTypeDecl n opt) :: xs =>
@@ -604,34 +742,247 @@ Fixpoint module_exports_of (body : list AST) : list (string * AST) :=
   | _ :: xs => module_exports_of xs
   end.
 
+(** Pure structural type matching for sealing (ElabM unify is unavailable here).
+    [types_compat] already treats [Any] and soft aliases; we also accept equal
+    [AstRef] names after strip (same component, pre- or post-resolve). *)
+Fixpoint types_match_seal (t1 t2 : AST) {struct t1} : bool :=
+  match t1 with
+  | AstSpan _ i1 => types_match_seal i1 t2
+  | _ =>
+      let t2' := strip_span t2 in
+      if types_compat t1 t2' then true
+      else
+        match t1, t2' with
+        | AstFunTy _ p1 r1 _, AstFunTy _ p2 r2 _ =>
+            let fix params_ok (a b : list (string * AST)) : bool :=
+              match a, b with
+              | [], [] => true
+              | (_, t) :: xs, (_, u) :: ys =>
+                  andb (types_match_seal t u) (params_ok xs ys)
+              | _, _ => false
+              end
+            in
+            andb (params_ok p1 p2) (types_match_seal r1 r2)
+        | AstPi _ a1 r1 _, AstPi _ a2 r2 _ =>
+            andb (types_match_seal a1 a2) (types_match_seal r1 r2)
+        | AstApp f1 a1, AstApp f2 a2 =>
+            let fix args_ok (xs ys : list AST) : bool :=
+              match xs, ys with
+              | [], [] => true
+              | x :: xs', y :: ys' =>
+                  andb (types_match_seal x y) (args_ok xs' ys')
+              | _, _ => false
+              end
+            in
+            andb (types_match_seal f1 f2) (args_ok a1 a2)
+        | AstTuple xs, AstTuple ys =>
+            let fix elems_ok (a b : list AST) : bool :=
+              match a, b with
+              | [], [] => true
+              | x :: xs', y :: ys' =>
+                  andb (types_match_seal x y) (elems_ok xs' ys')
+              | _, _ => false
+              end
+            in
+            elems_ok xs ys
+        | AstTypeDecl n1 o1, AstTypeDecl n2 o2 =>
+            if negb (String.eqb n1 n2) then false
+            else
+              match o1, o2 with
+              | Some a, Some b => types_match_seal a b
+              | None, None => true
+              | _, _ => false
+              end
+        | AstRef n1, AstRef n2 => refs_compat n1 n2
+        | AstRef n1, _ => String.eqb n1 "Any"
+        | _, AstRef n2 => String.eqb n2 "Any"
+        | AstUniverse l1, AstUniverse l2 => Nat.eqb l1 l2
+        | _, _ => false
+        end
+  end.
+
+(** Collect impl type-component definitions for seal matching:
+    signature [type t] / [type t = _] checked against [full]'s concrete def. *)
+Fixpoint seal_type_substs_fuel (fuel : nat) (sig_decls : list AST)
+    (full : list (string * AST)) {struct fuel} : list (string * AST) :=
+  match fuel with
+  | 0 => []
+  | S fuel' =>
+      match sig_decls with
+      | [] => []
+      | AstTypeDecl n _ :: rest =>
+          match find (fun p => String.eqb (fst p) n) full with
+          | Some (_, AstTypeDecl _ (Some def)) =>
+              (n, def) :: seal_type_substs_fuel fuel' rest full
+          | _ => seal_type_substs_fuel fuel' rest full
+          end
+      | AstSpan _ inner :: rest =>
+          seal_type_substs_fuel fuel' (inner :: rest) full
+      | _ :: rest => seal_type_substs_fuel fuel' rest full
+      end
+  end.
+
+Definition seal_type_substs (sig_decls : list AST) (full : list (string * AST))
+  : list (string * AST) :=
+  seal_type_substs_fuel
+    (Nat.mul (S (fold_left (fun n d => n + ast_size d) sig_decls 0)) 2)
+    sig_decls full.
+
+Fixpoint apply_seal_subst_fuel (fuel : nat) (subs : list (string * AST)) (t : AST)
+  {struct fuel} : AST :=
+  match fuel with
+  | 0 => t
+  | S fuel' =>
+      match t with
+      | AstRef n =>
+          match find (fun p => String.eqb (fst p) n) subs with
+          | Some (_, def) => def
+          | None => t
+          end
+      | AstFunTy tps params ret effs =>
+          AstFunTy tps
+            (map (fun p => (fst p, apply_seal_subst_fuel fuel' subs (snd p))) params)
+            (apply_seal_subst_fuel fuel' subs ret) effs
+      | AstPi n a r e =>
+          AstPi n (apply_seal_subst_fuel fuel' subs a)
+            (apply_seal_subst_fuel fuel' subs r) e
+      | AstApp f args =>
+          AstApp (apply_seal_subst_fuel fuel' subs f)
+            (map (apply_seal_subst_fuel fuel' subs) args)
+      | AstTuple xs => AstTuple (map (apply_seal_subst_fuel fuel' subs) xs)
+      | AstSpan sp i => AstSpan sp (apply_seal_subst_fuel fuel' subs i)
+      | AstTypeDecl n (Some ty) =>
+          AstTypeDecl n (Some (apply_seal_subst_fuel fuel' subs ty))
+      | AstModTy ex =>
+          AstModTy
+            (map (fun p => (fst p, apply_seal_subst_fuel fuel' subs (snd p))) ex)
+      | other => other
+      end
+  end.
+
+Definition apply_seal_subst (subs : list (string * AST)) (t : AST) : AST :=
+  apply_seal_subst_fuel (S (ast_size t)) subs t.
+
+Definition apply_seal_subst_params (subs : list (string * AST))
+    (params : list (string * AST)) : list (string * AST) :=
+  map (fun p => (fst p, apply_seal_subst subs (snd p))) params.
+
+(** Apply `with type t = T` sharing equations to signature decls. *)
+Fixpoint apply_type_eqs (decls : list AST) (eqs : list (string * AST))
+  : list AST :=
+  match decls with
+  | [] => []
+  | AstTypeDecl n opt :: rest =>
+      match find (fun p => String.eqb (fst p) n) eqs with
+      | Some (_, ty) => AstTypeDecl n (Some ty) :: apply_type_eqs rest eqs
+      | None => AstTypeDecl n opt :: apply_type_eqs rest eqs
+      end
+  | AstSpan sp (AstTypeDecl n opt) :: rest =>
+      match find (fun p => String.eqb (fst p) n) eqs with
+      | Some (_, ty) =>
+          AstSpan sp (AstTypeDecl n (Some ty)) :: apply_type_eqs rest eqs
+      | None => AstSpan sp (AstTypeDecl n opt) :: apply_type_eqs rest eqs
+      end
+  | x :: rest => x :: apply_type_eqs rest eqs
+  end.
+
+Fixpoint apply_sig_with (base : AST) (eqs : list (string * AST)) {struct base}
+  : AST :=
+  match base with
+  | AstSignature name decls => AstSignature name (apply_type_eqs decls eqs)
+  | AstSigWith b eqs2 => apply_sig_with b (app eqs2 eqs)
+  | AstSpan _ inner => apply_sig_with inner eqs
+  | other => AstSigWith other eqs
+  end.
+
+(** Flatten spans / `with type` enrichments before sealing (fuel from AST size). *)
+Fixpoint flatten_sig_decls (fuel : nat) (ds : list AST) : list AST :=
+  match fuel with
+  | 0 => ds
+  | S fuel' =>
+      match ds with
+      | [] => []
+      | AstSpan _ inner :: rest => flatten_sig_decls fuel' (inner :: rest)
+      | AstSigWith base eqs :: rest =>
+          match apply_sig_with base eqs with
+          | AstSignature _ decls => flatten_sig_decls fuel' (app decls rest)
+          | other => other :: flatten_sig_decls fuel' rest
+          end
+      | x :: rest => x :: flatten_sig_decls fuel' rest
+      end
+  end.
+
+Definition sig_decls_fuel (ds : list AST) : nat :=
+  Nat.mul (S (fold_left (fun n d => n + ast_size d) ds 0)) 4.
+
+Fixpoint seal_params_ok (a b : list (string * AST)) : bool :=
+  match a, b with
+  | [], [] => true
+  | (_, t) :: xs, (_, u) :: ys =>
+      andb (types_match_seal t u) (seal_params_ok xs ys)
+  | _, _ => false
+  end.
+
+Definition seal_cons_export (n : string) (ty : AST)
+    (rest_res : sum string (list (string * AST)))
+  : sum string (list (string * AST)) :=
+  match rest_res with
+  | inl err => inl err
+  | inr xs => inr ((n, ty) :: xs)
+  end.
+
+(** Check one signature value member against [found] export and recursive result.
+    [subs] maps signature type-component names to impl definitions from [full]. *)
+Definition seal_sigval_member (n : string) (tps : list string)
+    (params : list (string * AST)) (ret : AST) (effs : EffectSet)
+    (subs : list (string * AST))
+    (found : option (string * AST))
+    (rest_res : sum string (list (string * AST)))
+  : sum string (list (string * AST)) :=
+  let params' := apply_seal_subst_params subs params in
+  let ret' := apply_seal_subst subs ret in
+  (* Export the substituted view so clients see concrete types after sealing
+     (e.g. id: Int → Int when [type t = Int] in the impl). *)
+  let exported := AstFunTy tps params' ret' effs in
+  match found with
+  | Some (_, AstFunTy _ impl_params impl_ret impl_effs) =>
+      if effect_row_subsumes impl_effs effs then
+        if andb (seal_params_ok params' impl_params) (types_match_seal ret' impl_ret)
+        then seal_cons_export n exported rest_res
+        else inl ("type mismatch for signature member: " ++ n)
+      else inl ("effect row too large for signature member: " ++ n)
+  | Some (_, AstPi _ impl_arg impl_ret impl_effs) =>
+      if effect_row_subsumes impl_effs effs then
+        match params' with
+        | [(_, sig_arg)] =>
+            if andb (types_match_seal sig_arg impl_arg)
+                    (types_match_seal ret' impl_ret)
+            then seal_cons_export n exported rest_res
+            else inl ("type mismatch for signature member: " ++ n)
+        | _ => inl ("type mismatch for signature member: " ++ n)
+        end
+      else inl ("effect row too large for signature member: " ++ n)
+  | Some (fn, fty) => seal_cons_export fn fty rest_res
+  | None => inl ("signature requires missing value: " ++ n)
+  end.
+
 (** Seal exports against signature specs. Missing required members are an error
     (returned as inl err); opaque abstracts type components; value specs require
-    implementation effects ⊆ declared signature effects. *)
-Fixpoint seal_exports_check (opaque : bool) (full : list (string * AST))
+    implementation effects ⊆ declared signature effects and matching param/ret types.
+    [subs] is the type-component substitution built from [full] (see [seal_type_substs]). *)
+Fixpoint seal_exports_check_flat (opaque : bool) (full : list (string * AST))
+    (subs : list (string * AST))
     (sig_decls : list AST) : sum string (list (string * AST)) :=
   match sig_decls with
   | [] => inr []
   | AstSigVal n tps params ret effs :: rest =>
-      match find (fun p => String.eqb (fst p) n) full with
-      | Some (_, AstFunTy _ _ _ impl_effs) =>
-          if effect_row_subsumes impl_effs effs then
-            match seal_exports_check opaque full rest with
-            | inl err => inl err
-            | inr xs =>
-                inr ((n, AstFunTy tps params ret effs) :: xs)
-            end
-          else inl ("effect row too large for signature member: " ++ n)
-      | Some p =>
-          match seal_exports_check opaque full rest with
-          | inl err => inl err
-          | inr xs => inr (p :: xs)
-          end
-      | None => inl ("signature requires missing value: " ++ n)
-      end
+      seal_sigval_member n tps params ret effs subs
+        (find (fun p => String.eqb (fst p) n) full)
+        (seal_exports_check_flat opaque full subs rest)
   | AstDef n _ _ _ _ _ :: rest =>
       match find (fun p => String.eqb (fst p) n) full with
       | Some p =>
-          match seal_exports_check opaque full rest with
+          match seal_exports_check_flat opaque full subs rest with
           | inl err => inl err
           | inr xs => inr (p :: xs)
           end
@@ -644,7 +995,7 @@ Fixpoint seal_exports_check (opaque : bool) (full : list (string * AST))
             if opaque then AstTypeDecl n None
             else AstTypeDecl n opt
           in
-          match seal_exports_check opaque full rest with
+          match seal_exports_check_flat opaque full subs rest with
           | inl err => inl err
           | inr xs => inr ((n, exported) :: xs)
           end
@@ -652,8 +1003,14 @@ Fixpoint seal_exports_check (opaque : bool) (full : list (string * AST))
           inl ("signature type component is not a type: " ++ n)
       | None => inl ("signature requires missing type: " ++ n)
       end
-  | _ :: rest => seal_exports_check opaque full rest
+  | _ :: rest => seal_exports_check_flat opaque full subs rest
   end.
+
+Definition seal_exports_check (opaque : bool) (full : list (string * AST))
+    (sig_decls : list AST) : sum string (list (string * AST)) :=
+  let flat := flatten_sig_decls (sig_decls_fuel sig_decls) sig_decls in
+  let subs := seal_type_substs flat full in
+  seal_exports_check_flat opaque full subs flat.
 
 (** Legacy name filter (CoreChecker / callers that ignore errors). *)
 Definition seal_exports (full : list (string * AST)) (sig_decls : list AST)
@@ -707,6 +1064,18 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               if is_type_expected expected then
                 ret (AstRef (mangle_name name resolved_ctx), TypeUniverse)
               else throw ("type component used as value: " ++ name)
+          | AstFunTy _ _ _ _ | AstPi _ _ _ _ =>
+              (* Ctor / value may share the enum type name; in type position
+                 use the name as a type ref (e.g. [sp: Span] after [case Span]). *)
+              if is_type_expected expected then
+                ret (AstRef name, TypeUniverse)
+              else
+                match expected with
+                | Some exp =>
+                    unify fuel' ty exp ;;
+                    ret (AstRef (mangle_name name resolved_ctx), ty)
+                | None => ret (AstRef (mangle_name name resolved_ctx), ty)
+                end
           | _ =>
               match expected with
               | Some exp => unify fuel' ty exp ;; ret (AstRef (mangle_name name resolved_ctx), ty)
@@ -741,17 +1110,56 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               | [], AstFunTy _ _ ret_ty effs => ret ([], (ret_ty, effs))
               | [], AstPi _ _ ret_ty effs => ret ([], (ret_ty, effs))
               | [], ty => ret ([], (ty, []))
-              | a :: rest, AstFunTy tps ((_, arg_ty) :: params) ret_ty effs =>
+              | a :: rest, AstFunTy tps ((pn, arg_ty) :: params) ret_ty effs =>
                   aAst <- elaborate fuel' env a (Some arg_ty);
-                  restAst <- check_args (AstFunTy tps params ret_ty effs) rest;
+                  (* Dependent params (e.g. my_id(T: Type, x: T)): always subst
+                     the bound name into remaining param/ret types, like AstPi. *)
+                  let params' :=
+                    map (fun p => (fst p, subst_ast pn (fst aAst) (snd p))) params
+                  in
+                  let ret' := subst_ast pn (fst aAst) ret_ty in
+                  (* Discharge a leading FunTy type_param when the arg is a type. *)
+                  let tps' :=
+                    match tps with
+                    | tp :: tps0 =>
+                        if is_universe_ty arg_ty then tps0 else tps
+                    | [] => []
+                    end
+                  in
+                  let params'' :=
+                    match tps with
+                    | tp :: _ =>
+                        if is_universe_ty arg_ty then
+                          map (fun p => (fst p, subst_ast tp (fst aAst) (snd p)))
+                            params'
+                        else params'
+                    | [] => params'
+                    end
+                  in
+                  let ret'' :=
+                    match tps with
+                    | tp :: _ =>
+                        if is_universe_ty arg_ty then subst_ast tp (fst aAst) ret'
+                        else ret'
+                    | [] => ret'
+                    end
+                  in
+                  restAst <- check_args (AstFunTy tps' params'' ret'' effs) rest;
                   ret (fst aAst :: fst restAst, snd restAst)
-              | a :: rest, AstFunTy tps [] ret_ty effs =>
+              | a :: rest, AstFunTy (tp :: tps) [] ret_ty effs =>
+                  (* Type argument when value params are exhausted. *)
+                  aAst <- elaborate fuel' env a (Some TypeUniverse);
+                  let ret' := subst_ast tp (fst aAst) ret_ty in
+                  restAst <- check_args (AstFunTy tps [] ret' effs) rest;
+                  ret (fst aAst :: fst restAst, snd restAst)
+              | a :: rest, AstFunTy [] [] ret_ty effs =>
                   aAst <- elaborate fuel' env a None;
-                  restAst <- check_args (AstFunTy tps [] ret_ty effs) rest;
+                  restAst <- check_args (AstFunTy [] [] ret_ty effs) rest;
                   ret (fst aAst :: fst restAst, snd restAst)
-              | a :: rest, AstPi _ arg_ty ret_ty effs =>
+              | a :: rest, AstPi n arg_ty ret_ty effs =>
                   aAst <- elaborate fuel' env a (Some arg_ty);
-                  restAst <- check_args ret_ty rest;
+                  let ret' := subst_ast n (fst aAst) ret_ty in
+                  restAst <- check_args ret' rest;
                   match snd restAst with
                   | (rty, e) => ret (fst aAst :: fst restAst, (rty, merge_effects effs e))
                   end
@@ -848,16 +1256,23 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 ret (AstImport lang "" modp syms :: fst rest, snd rest)
             | EnumCST name type_params variants span =>
                 res <- elaborate fuel' current_env x None ;
+                let enum_ret :=
+                  match type_params with
+                  | [] => AstRef name
+                  | _ => AstApp (AstRef name) (map (fun tp => AstRef tp) type_params)
+                  end
+                in
                 let ctors :=
                   match fst res with
                   | AstEnum _ _ vars =>
                       map (fun v =>
                         let '((vname, fields), _) := v in
                         match fields with
-                        | [] => ((vname, context span), AstRef name)
+                        | [] => ((vname, context span), enum_ret)
                         | _ =>
                             let ps := map (fun ty => ("_", ty)) fields in
-                            ((vname, context span), AstFunTy type_params ps (AstRef name) [])
+                            ((vname, context span),
+                             AstFunTy type_params ps enum_ret [])
                         end) vars
                   | _ => []
                   end
@@ -900,10 +1315,13 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       set_pending old_pending ;;
       active <- get_active_caps ;
       (* Seal when all required caps are on the lexical stack: evidence is
-         captured at runtime and the box type is pure. Otherwise the box
-         type retains caps and unbox re-requires them. *)
-      let ty_effs := if effects_covered_by caps active then [] else caps in
-      ret (AstBox (fst eAst) caps, AstPi "x" (AstRef "Unit") (snd eAst) ty_effs)
+         captured at runtime and the box type is pure. Otherwise defer:
+         store no capture labels (empty) so box construction succeeds outside
+         the handler; the box type retains caps and unbox re-requires them. *)
+      let sealed := effects_covered_by caps active in
+      let box_caps := if sealed then caps else [] in
+      let ty_effs := if sealed then [] else caps in
+      ret (AstBox (fst eAst) box_caps, AstPi "x" (AstRef "Unit") (snd eAst) ty_effs)
 
   | UnboxCST e span =>
       eAst <- elaborate fuel' env e None ;
@@ -1019,6 +1437,31 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 ret (fst aAst :: restAst)
             end
           in
+          let fix check_mod_args (fs : AST) (as_ : list CST)
+              : ElabM (list AST * AST) :=
+            match as_, fs with
+            | [], AstFunTy _ _ ret_ty _ => ret ([], ret_ty)
+            | [], AstPi _ _ ret_ty _ => ret ([], ret_ty)
+            | [], ty => ret ([], ty)
+            | a :: rest, AstFunTy tps ((pn, arg_ty) :: params) ret_ty effs =>
+                aAst <- elaborate fuel' env a (Some arg_ty) ;
+                let params' :=
+                  map (fun p => (fst p, subst_ast pn (fst aAst) (snd p))) params
+                in
+                let ret' := subst_ast pn (fst aAst) ret_ty in
+                restAst <- check_mod_args (AstFunTy tps params' ret' effs) rest ;
+                ret (fst aAst :: fst restAst, snd restAst)
+            | a :: rest, AstPi n arg_ty ret_ty _ =>
+                aAst <- elaborate fuel' env a (Some arg_ty) ;
+                let ret' := subst_ast n (fst aAst) ret_ty in
+                restAst <- check_mod_args ret' rest ;
+                ret (fst aAst :: fst restAst, snd restAst)
+            | a :: rest, _ =>
+                aAst <- elaborate fuel' env a None ;
+                restAst <- check_mod_args (AstRef "Any") rest ;
+                ret (fst aAst :: fst restAst, AstRef "Any")
+            end
+          in
           match expr with
           | Symbol pkg_name _ =>
               match lookup_go_method pkg_name field go_pkgs with
@@ -1030,15 +1473,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   | AstModTy exports =>
                       match lookup_export exports field with
                       | Some ty =>
-                          argsAst <- elab_args args ;
-                          let ret_ty :=
-                            match ty with
-                            | AstFunTy _ _ r _ => r
-                            | AstPi _ _ r _ => r
-                            | _ => AstRef "Any"
-                            end
-                          in
-                          ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, ret_ty)
+                          argsRes <- check_mod_args ty args ;
+                          ret (AstApp (AstFieldAccess (fst exprAst) field)
+                                (fst argsRes), snd argsRes)
                       | None => throw ("module has no export: " ++ field)
                       end
                   | _ =>
@@ -1056,15 +1493,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               | AstModTy exports =>
                   match lookup_export exports field with
                   | Some ty =>
-                      argsAst <- elab_args args ;
-                      let ret_ty :=
-                        match ty with
-                        | AstFunTy _ _ r _ => r
-                        | AstPi _ _ r _ => r
-                        | _ => AstRef "Any"
-                        end
-                      in
-                      ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, ret_ty)
+                      argsRes <- check_mod_args ty args ;
+                      ret (AstApp (AstFieldAccess (fst exprAst) field)
+                            (fst argsRes), snd argsRes)
                   | None => throw ("module has no export: " ++ field)
                   end
               | _ =>
@@ -1081,6 +1512,18 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       | ImplicitAppCST inner_func _targs _tspan =>
           (* Erase the implicit [A,B] telescope; elaborate fuel' only the inner function and explicit args *)
           funcAst <- elaborate fuel' env inner_func None ;
+          let fix freshen_fun_tps (tps : list string) (params : list (string * AST))
+              (rty : AST) : ElabM (list (string * AST) * AST) :=
+            match tps with
+            | [] => ret (params, rty)
+            | tp :: tps' =>
+                m <- fresh_meta ;
+                let params' :=
+                  map (fun p => (fst p, subst_ast tp m (snd p))) params
+                in
+                freshen_fun_tps tps' params' (subst_ast tp m rty)
+            end
+          in
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] =>
@@ -1090,12 +1533,22 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 end
             | a :: rest =>
                 match fs with
-                | AstFunTy _tparams params ret_ty _ =>
-                    (* Non-curried: elaborate fuel' all explicit args against the param list *)
+                | AstFunTy _params params ret_ty _ =>
+                    (* Non-curried: elaborate all explicit args against the param list *)
                     match params with
-                    | (_, arg_ty) :: _rest_params =>
+                    | (pn, arg_ty) :: _rest_params =>
                         aAst <- elaborate fuel' env a (Some arg_ty) ;
-                        let next_fs := match _rest_params with [] => ret_ty | _ => AstFunTy _tparams _rest_params ret_ty [] end in
+                        let rest_params' :=
+                          map (fun p => (fst p, subst_ast pn (fst aAst) (snd p)))
+                            _rest_params
+                        in
+                        let ret' := subst_ast pn (fst aAst) ret_ty in
+                        let next_fs :=
+                          match rest_params' with
+                          | [] => ret'
+                          | _ => AstFunTy [] rest_params' ret' []
+                          end
+                        in
                         restAst <- check_args next_fs rest ;
                         ret (fst aAst :: fst restAst, snd restAst)
                     | [] =>
@@ -1103,9 +1556,10 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                         restAst <- check_args (AstRef "Any") rest ;
                         ret (fst aAst :: fst restAst, AstRef "Any")
                     end
-                | AstPi _ arg_ty ret_ty _ =>
+                | AstPi n arg_ty ret_ty _ =>
                     aAst <- elaborate fuel' env a (Some arg_ty) ;
-                    restAst <- check_args ret_ty rest ;
+                    let ret' := subst_ast n (fst aAst) ret_ty in
+                    restAst <- check_args ret' rest ;
                     ret (fst aAst :: fst restAst, snd restAst)
                 | AstRef _ =>
                     aAst <- elaborate fuel' env a None ;
@@ -1118,14 +1572,34 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 end
             end
           in
-          argsRes <- check_args (snd funcAst) args ;
+          fs0 <-
+            match snd funcAst with
+            | AstFunTy tps params ret_ty effs =>
+                fr <- freshen_fun_tps tps params ret_ty ;
+                ret (AstFunTy [] (fst fr) (snd fr) effs)
+            | other => ret other
+            end ;
+          argsRes <- check_args fs0 args ;
+          retTyZ <- zonk (S (ast_size (snd argsRes))) (snd argsRes) ;
           match expected with
-          | Some exp => unify fuel' (snd argsRes) exp
+          | Some exp => unify fuel' retTyZ exp
           | None => ret tt
           end ;;
-          ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+          ret (AstApp (fst funcAst) (fst argsRes), retTyZ)
       | _ =>
           funcAst <- elaborate fuel' env func None ;
+          let fix freshen_fun_tps (tps : list string) (params : list (string * AST))
+              (rty : AST) : ElabM (list (string * AST) * AST) :=
+            match tps with
+            | [] => ret (params, rty)
+            | tp :: tps' =>
+                m <- fresh_meta ;
+                let params' :=
+                  map (fun p => (fst p, subst_ast tp m (snd p))) params
+                in
+                freshen_fun_tps tps' params' (subst_ast tp m rty)
+            end
+          in
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] =>
@@ -1135,11 +1609,21 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 end
             | a :: rest =>
                 match fs with
-                | AstFunTy _tparams params ret_ty _ =>
+                | AstFunTy _params params ret_ty _ =>
                     match params with
-                    | (_, arg_ty) :: _rest_params =>
+                    | (pn, arg_ty) :: _rest_params =>
                         aAst <- elaborate fuel' env a (Some arg_ty) ;
-                        let next_fs := match _rest_params with [] => ret_ty | _ => AstFunTy _tparams _rest_params ret_ty [] end in
+                        let rest_params' :=
+                          map (fun p => (fst p, subst_ast pn (fst aAst) (snd p)))
+                            _rest_params
+                        in
+                        let ret' := subst_ast pn (fst aAst) ret_ty in
+                        let next_fs :=
+                          match rest_params' with
+                          | [] => ret'
+                          | _ => AstFunTy [] rest_params' ret' []
+                          end
+                        in
                         restAst <- check_args next_fs rest ;
                         ret (fst aAst :: fst restAst, snd restAst)
                     | [] =>
@@ -1147,9 +1631,10 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                         restAst <- check_args (AstRef "Any") rest ;
                         ret (fst aAst :: fst restAst, AstRef "Any")
                     end
-                | AstPi _ arg_ty ret_ty _ =>
+                | AstPi n arg_ty ret_ty _ =>
                     aAst <- elaborate fuel' env a (Some arg_ty) ;
-                    restAst <- check_args ret_ty rest ;
+                    let ret' := subst_ast n (fst aAst) ret_ty in
+                    restAst <- check_args ret' rest ;
                     ret (fst aAst :: fst restAst, snd restAst)
                 | AstMeta _ =>
                     argTyM <- fresh_meta ;
@@ -1169,16 +1654,25 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 end
             end
           in
-          argsRes <- check_args (snd funcAst) args ;
+          fs0 <-
+            match snd funcAst with
+            | AstFunTy tps params ret_ty effs =>
+                fr <- freshen_fun_tps tps params ret_ty ;
+                ret (AstFunTy [] (fst fr) (snd fr) effs)
+            | other => ret other
+            end ;
+          argsRes <- check_args fs0 args ;
+          retTyZ <- zonk (S (ast_size (snd argsRes))) (snd argsRes) ;
           match expected with
-          | Some exp => unify fuel' (snd argsRes) exp
+          | Some exp => unify fuel' retTyZ exp
           | None => ret tt
           end ;;
-          ret (AstApp (fst funcAst) (fst argsRes), snd argsRes)
+          ret (AstApp (fst funcAst) (fst argsRes), retTyZ)
       end
 
   | ImplicitAppCST func args _ =>
-      (* Standalone implicit application f[A,B] without explicit args — used in type position *)
+      (* Standalone implicit application f[A,B]. In type position this is the
+         applied type AstApp f args (e.g. Option[Int]); otherwise keep ImplicitApp. *)
       funcAst <- elaborate fuel' env func None ;
       let fix check_targs (as_ : list CST) : ElabM (list AST) :=
         match as_ with
@@ -1190,40 +1684,72 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         end
       in
       argsRes <- check_targs args ;
-      ret (AstImplicitApp (fst funcAst) argsRes, AstRef "TypeUniverse")
+      let app_ty := AstApp (fst funcAst) argsRes in
+      if is_type_expected expected then
+        ret (app_ty, TypeUniverse)
+      else
+        ret (AstImplicitApp (fst funcAst) argsRes, app_ty)
 
   | EnumCST name type_params variants _ =>
-      let fix elab_variant (v : CST) : string * list AST * AST :=
+      let env_enum :=
+        let fix bind_tps (tps : list string) (e0 : TypeEnv) : TypeEnv :=
+          match tps with
+          | [] => e0
+          | tp :: rest => bind_tps rest (((tp, []), TypeUniverse) :: e0)
+          end
+        in
+        bind_tps type_params env
+      in
+      let enum_ret :=
+        match type_params with
+        | [] => AstRef name
+        | _ => AstApp (AstRef name) (map (fun tp => AstRef tp) type_params)
+        end
+      in
+      let fix elab_fields (fs : list CST) : ElabM (list AST) :=
+        match fs with
+        | [] => ret []
+        | f :: rest =>
+            let fty :=
+              match f with
+              | SeqOf (Symbol _ _ :: Symbol ":" _ :: ty :: _) _ => ty
+              | SeqOf (_ :: Symbol ":" _ :: ty :: _) _ => ty
+              | other => other
+              end
+            in
+            tyAst <- elaborate fuel' env_enum fty (Some TypeUniverse) ;
+            restFs <- elab_fields rest ;
+            ret (fst tyAst :: restFs)
+        end
+      in
+      let fix elab_variant (v : CST) : ElabM (string * list AST * AST) :=
         match v with
         | AppCST (Symbol ":" _) (AppCST (Symbol vname _) args _ :: ret_ty :: []) _ =>
-            let fix elab_fields (fs : list CST) : list AST :=
-              match fs with
-              | [] => []
-              | _ :: rest => AstRef "Any" :: elab_fields rest
-              end
-            in
-            ((vname, elab_fields args), AstRef "Any")
+            fields <- elab_fields args ;
+            retAst <- elaborate fuel' env_enum ret_ty (Some TypeUniverse) ;
+            ret ((vname, fields), fst retAst)
         | AppCST (Symbol ":" _) (Symbol vname _ :: ret_ty :: []) _ =>
-            ((vname, []), AstRef "Any")
+            retAst <- elaborate fuel' env_enum ret_ty (Some TypeUniverse) ;
+            ret ((vname, []), fst retAst)
         | AppCST (Symbol vname _) args _ =>
-            let fix elab_fields (fs : list CST) : list AST :=
-              match fs with
-              | [] => []
-              | _ :: rest => AstRef "Any" :: elab_fields rest
-              end
-            in
-            ((vname, elab_fields args), AstRef "Any")
-        | Symbol vname _ => ((vname, []), AstRef "Any")
-        | _ => (("unknown", []), AstRef "Any")
+            fields <- elab_fields args ;
+            ret ((vname, fields), enum_ret)
+        | Symbol vname _ => ret ((vname, []), enum_ret)
+        | _ => throw "malformed enum variant"
         end
       in
-      let fix elab_variants (vs : list CST) : list (string * list AST * AST) :=
+      let fix elab_variants (vs : list CST)
+          : ElabM (list (string * list AST * AST)) :=
         match vs with
-        | [] => []
-        | v :: rest => elab_variant v :: elab_variants rest
+        | [] => ret []
+        | v :: rest =>
+            vAst <- elab_variant v ;
+            restVs <- elab_variants rest ;
+            ret (vAst :: restVs)
         end
       in
-      ret (AstEnum name type_params (elab_variants variants), AstRef "Unit")
+      variantsAst <- elab_variants variants ;
+      ret (AstEnum name type_params variantsAst, AstRef "Unit")
 
   | MatchCST expr cases _ =>
       exprAst <- elaborate fuel' env expr None ;
@@ -1410,6 +1936,17 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                    and drops extra body defs. *)
                 ret (Some seal_node, AstModTy sealed, body', false)
             end
+        | AstSigWith base eqs =>
+            match apply_sig_with base eqs with
+            | AstSignature _ decls =>
+                match seal_exports_check opaque full_ex decls with
+                | inl err => throw err
+                | inr sealed =>
+                    let body' := if opaque then keep_sealed sealed body_ast else body_ast in
+                    ret (Some seal_node, AstModTy sealed, body', false)
+                end
+            | _ => throw "invalid signature enrichment for sealing"
+            end
         | AstModTy ex =>
             ret (Some seal_node, AstModTy ex, body_ast, false)
         | _ => ret (Some seal_node, AstModTy full_ex, body_ast, false)
@@ -1483,33 +2020,80 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       in
       eqsAst <- elab_eqs eqs ;
       let with_ast := AstSigWith (fst baseAst) eqsAst in
-      ret (with_ast, with_ast)
+      let enriched := apply_sig_with (snd baseAst) eqsAst in
+      ret (with_ast, enriched)
   | FileImportCST name path span =>
       (* Host CLI rewrites these to ModuleCST before elaborate; leftover is an error. *)
       throw ("unresolved file import: " ++ name ++ " " ++ path)
   | PackCST m sig span =>
       mAst <- elaborate fuel' env m None ;
       sigAst <- elaborate fuel' env sig None ;
-      let sty :=
-        match snd sigAst with
-        | AstSignature _ _ as s => s
+      let mex :=
+        match strip_span (snd mAst) with
+        | AstModTy ex => ex
+        | AstModule _ _ _ body => module_exports_of body
+        | _ => module_exports_of [fst mAst]
+        end
+      in
+      let sig_view :=
+        match strip_span (snd sigAst) with
+        | AstSigWith base eqs => apply_sig_with base eqs
         | other => other
         end
       in
-      ret (AstPack (fst mAst) (fst sigAst), sty)
+      match sig_view with
+      | AstSignature _ decls =>
+          match seal_exports_check true mex decls with
+          | inl err => throw err
+          | inr sealed =>
+              ret (AstPack (fst mAst) (fst sigAst), AstModTy sealed)
+          end
+      | AstModTy ex =>
+          ret (AstPack (fst mAst) (fst sigAst), AstModTy ex)
+      | other =>
+          ret (AstPack (fst mAst) (fst sigAst), other)
+      end
   | UnpackCST x sig e body span =>
       sigAst <- elaborate fuel' env sig None ;
       eAst <- elaborate fuel' env e None ;
-      let sty := snd sigAst in
-      let modty :=
-        match sty with
-        | AstSignature _ decls => AstModTy (module_exports_of decls)
-        | AstModTy _ as m => m
-        | _ => AstModTy []
+      let sig_view :=
+        match strip_span (snd sigAst) with
+        | AstSigWith base eqs => apply_sig_with base eqs
+        | other => other
         end
       in
-      bodyAst <- elaborate fuel' (((x, context span), modty) :: env) body expected ;
-      ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst), snd bodyAst)
+      match sig_view with
+      | AstSignature _ decls =>
+          match strip_span (snd eAst) with
+          | AstModTy ex =>
+              match seal_exports_check true ex decls with
+              | inl err => throw err
+              | inr sealed =>
+                  let modty := AstModTy sealed in
+                  bodyAst <- elaborate fuel'
+                               (((x, context span), modty) :: env) body expected ;
+                  ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst),
+                       snd bodyAst)
+              end
+          | other =>
+              let expected_mod := AstModTy (module_exports_of decls) in
+              if types_compat other expected_mod then
+                bodyAst <- elaborate fuel'
+                             (((x, context span), expected_mod) :: env)
+                             body expected ;
+                ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst),
+                     snd bodyAst)
+              else throw "unpack value does not match signature"
+          end
+      | AstModTy ex =>
+          bodyAst <- elaborate fuel'
+                       (((x, context span), AstModTy ex) :: env) body expected ;
+          ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst), snd bodyAst)
+      | _ =>
+          bodyAst <- elaborate fuel'
+                       (((x, context span), AstModTy []) :: env) body expected ;
+          ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst), snd bodyAst)
+      end
   | ModuleAliasCST name rhs span =>
       rhsAst <- elaborate fuel' env rhs None ;
       ret (AstModule name [] None
@@ -1531,12 +2115,151 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       in
       argsRes <- elab_args args ;
       match snd funcAst with
-      | AstModule fname ((_ :: _) as _params) seal body =>
+      | AstModule fname ((_ :: _) as fparams) seal body =>
           let is_app :=
             match seal with
             | Some (AstRef "#applicative") => true
             | Some (AstApp (AstRef "#applicative") _) => true
             | _ => false
+            end
+          in
+          let fix arg_exports (aty : AST) : list (string * AST) :=
+            match strip_span aty with
+            | AstModTy ex => ex
+            | AstModule _ _ _ b => module_exports_of b
+            | AstSignature _ decls => module_exports_of decls
+            | _ => []
+            end
+          in
+          (* Functor formals are often stored as AstRef "Printable"; resolve
+             signature / ModTy names from the elaborator env. *)
+          let resolve_formal (psig : AST) : AST :=
+            let p0 :=
+              match strip_span psig with
+              | AstSigWith base eqs => apply_sig_with base eqs
+              | other => other
+              end
+            in
+            match strip_span p0 with
+            | AstRef n =>
+                match resolve_hygiene env n [] with
+                | Some (ty, _) =>
+                    match strip_span ty with
+                    | AstSignature _ _ as s => s
+                    | AstSigWith base eqs => apply_sig_with base eqs
+                    | AstModTy _ as m => m
+                    | _ => p0
+                    end
+                | None => p0
+                end
+            | other => other
+            end
+          in
+          let fix check_fargs (ps : list (string * AST)) (arg_tys : list AST)
+              : ElabM unit :=
+            match ps, arg_tys with
+            | [], [] => ret tt
+            | [], _ => throw "functor arity mismatch"
+            | _, [] => throw "functor arity mismatch"
+            | (pn, psig) :: ps', aty :: atys' =>
+                let psig' := resolve_formal psig in
+                let aty' := strip_span aty in
+                match psig', aty' with
+                | AstSignature _ decls, AstModTy ex =>
+                    match seal_exports_check true ex decls with
+                    | inl err => throw err
+                    | inr _ => check_fargs ps' atys'
+                    end
+                | AstSignature _ decls, AstModule _ _ _ b =>
+                    match seal_exports_check true (module_exports_of b) decls with
+                    | inl err => throw err
+                    | inr _ => check_fargs ps' atys'
+                    end
+                | AstSignature _ decls, _ =>
+                    let ex := arg_exports aty in
+                    match seal_exports_check true ex decls with
+                    | inl err => throw err
+                    | inr _ => check_fargs ps' atys'
+                    end
+                | AstModTy sex, AstModTy aex =>
+                    (* Require arg exports to cover the formal ModTy view. *)
+                    let fake_decls :=
+                      map
+                        (fun p =>
+                           match snd p with
+                           | AstFunTy tps params ret effs =>
+                               AstSigVal (fst p) tps params ret effs
+                           | AstTypeDecl n opt => AstTypeDecl n opt
+                           | other => other
+                           end)
+                        sex
+                    in
+                    match seal_exports_check true aex fake_decls with
+                    | inl err => throw err
+                    | inr _ => check_fargs ps' atys'
+                    end
+                | AstModTy sex, AstModule _ _ _ b =>
+                    let aex := module_exports_of b in
+                    let fake_decls :=
+                      map
+                        (fun p =>
+                           match snd p with
+                           | AstFunTy tps params ret effs =>
+                               AstSigVal (fst p) tps params ret effs
+                           | AstTypeDecl n opt => AstTypeDecl n opt
+                           | other => other
+                           end)
+                        sex
+                    in
+                    match seal_exports_check true aex fake_decls with
+                    | inl err => throw err
+                    | inr _ => check_fargs ps' atys'
+                    end
+                | _, _ =>
+                    if types_compat psig' aty then check_fargs ps' atys'
+                    else throw ("functor argument mismatch for parameter: " ++ pn)
+                end
+            end
+          in
+          check_fargs fparams (snd argsRes) ;;
+          let fix subst_ref (old new_name : string) (t : AST) {struct t} : AST :=
+            match t with
+            | AstRef n => if string_dec n old then AstRef new_name else t
+            | AstFunTy tps params ret effs =>
+                AstFunTy tps
+                  (map (fun p => (fst p, subst_ref old new_name (snd p))) params)
+                  (subst_ref old new_name ret) effs
+            | AstPi n a r e =>
+                AstPi n (subst_ref old new_name a) (subst_ref old new_name r) e
+            | AstTypeDecl n (Some ty) =>
+                AstTypeDecl n (Some (subst_ref old new_name ty))
+            | AstApp f args' =>
+                AstApp (subst_ref old new_name f)
+                  (map (subst_ref old new_name) args')
+            | AstSpan sp i => AstSpan sp (subst_ref old new_name i)
+            | AstModTy ex =>
+                AstModTy
+                  (map (fun p => (fst p, subst_ref old new_name (snd p))) ex)
+            | _ => t
+            end
+          in
+          let fix subst_exports (ps : list (string * AST)) (arg_asts : list AST)
+              (ex : list (string * AST)) : list (string * AST) :=
+            match ps, arg_asts with
+            | [], _ => ex
+            | _, [] => ex
+            | (pn, _) :: ps', a :: as' =>
+                let new_name :=
+                  match a with
+                  | AstModule an _ _ _ => an
+                  | AstRef an => an
+                  | _ => pn
+                  end
+                in
+                let ex' :=
+                  map (fun p => (fst p, subst_ref pn new_name (snd p))) ex
+                in
+                subst_exports ps' as' ex'
             end
           in
           s <- get_state ;
@@ -1555,17 +2278,34 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               in
               (if is_app then ret tt
                else set_state (mkElabState (S n) sol exts effs caps pending go_pkgs)) ;;
-              let ex :=
-                match seal with
-                | Some (AstSignature _ decls) =>
-                    seal_exports (module_exports_of body) decls
-                | Some (AstApp (AstRef "#applicative") [AstSignature _ decls]) =>
-                    seal_exports (module_exports_of body) decls
-                | Some (AstModTy e) => e
-                | _ => module_exports_of body
-                end
+              let ex0 :=
+                subst_exports fparams (fst argsRes) (module_exports_of body)
               in
-              ret (AstModule pref [] seal body, AstModTy ex)
+              match seal with
+              | Some (AstSignature _ decls) =>
+                  match seal_exports_check true ex0 decls with
+                  | inl err => throw err
+                  | inr xs => ret (AstModule pref [] seal body, AstModTy xs)
+                  end
+              | Some (AstApp (AstRef "#applicative") [AstSignature _ decls]) =>
+                  match seal_exports_check true ex0 decls with
+                  | inl err => throw err
+                  | inr xs => ret (AstModule pref [] seal body, AstModTy xs)
+                  end
+              | Some (AstSigWith base eqs) =>
+                  match apply_sig_with base eqs with
+                  | AstSignature _ decls =>
+                      match seal_exports_check true ex0 decls with
+                      | inl err => throw err
+                      | inr xs => ret (AstModule pref [] seal body, AstModTy xs)
+                      end
+                  | _ => ret (AstModule pref [] seal body, AstModTy ex0)
+                  end
+              | Some (AstModTy e) =>
+                  ret (AstModule pref [] seal body, AstModTy e)
+              | _ =>
+                  ret (AstModule pref [] seal body, AstModTy ex0)
+              end
           end
       | AstModTy _ =>
           ret (AstFunctorApp (fst funcAst) (fst argsRes), AstModTy [])
@@ -1579,6 +2319,17 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
   | Error msg _ => throw msg
 
   | EffectCST name type_params decls _ =>
+      (* Bind each effect type_param as a fresh meta (via AstTypeDecl) so op
+         types like get(): T unify with handler resume args (e.g. Int). *)
+      let fix bind_tps (tps : list string) (e0 : TypeEnv) : ElabM TypeEnv :=
+        match tps with
+        | [] => ret e0
+        | tp :: rest =>
+            m <- fresh_meta ;
+            bind_tps rest (((tp, []), AstTypeDecl tp (Some m)) :: e0)
+        end
+      in
+      env_eff <- bind_tps type_params env ;
       let fix elab_ops (ds : list CST) : ElabM (list (string * list AST * AST)) :=
         match ds with
         | [] => ret []
@@ -1589,13 +2340,13 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   match ps with
                   | [] => ret []
                   | (_, pty) :: ps' =>
-                      tyAst <- elaborate fuel' env pty (Some TypeUniverse) ;
+                      tyAst <- elaborate fuel' env_eff pty (Some TypeUniverse) ;
                       restTys <- elab_params ps' ;
                       ret (fst tyAst :: restTys)
                   end
                 in
                 argTys <- elab_params params ;
-                retAst <- elaborate fuel' env ret_ty (Some TypeUniverse) ;
+                retAst <- elaborate fuel' env_eff ret_ty (Some TypeUniverse) ;
                 restOps <- elab_ops rest ;
                 ret ((op, argTys, fst retAst) :: restOps)
             | None => elab_ops rest
@@ -1667,33 +2418,57 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       match s with
       | mkElabState _ _ _ reg _ _ _ =>
           let ops := match lookup_effect_ops eff reg with Some o => o | None => [] end in
+          let answer_ty := snd bodyAst in
           let fix elab_handlers (hs : list CST) : ElabM (list (string * AST)) :=
             match hs with
             | [] => ret []
             | h :: rest =>
                 match parse_handler_case h with
                 | Some (op, binders, hbody) =>
-                    let retTy := match lookup_op op ops with
-                                 | Some (_, r) => r
-                                 | None => AstRef "Any"
-                                 end in
-                    let resume_ty := AstPi "v" retTy (AstRef "Any") [] in
-                    let fix bind_args (bs : list string) (e0 : TypeEnv) : TypeEnv :=
-                      match bs with
-                      | [] => (("resume", []), resume_ty) :: e0
-                      | b :: bs' => bind_args bs' (((b, []), AstRef "Any") :: e0)
-                      end
-                    in
-                    let henv := bind_args binders env in
-                    hAst <- elaborate fuel' henv hbody None ;
-                    restH <- elab_handlers rest ;
-                    ret ((op, build_handler_lam binders (fst hAst)) :: restH)
-                | None => elab_handlers rest
+                    match lookup_op op ops with
+                    | Some (argTys, opRet) =>
+                        let resume_ty := AstPi "v" opRet answer_ty [] in
+                        let fix bind_args (bs : list string) (tys : list AST)
+                            (e0 : TypeEnv) : TypeEnv :=
+                          match bs, tys with
+                          | [], _ => (("resume", []), resume_ty) :: e0
+                          | b :: bs', ty :: tys' =>
+                              bind_args bs' tys' (((b, []), ty) :: e0)
+                          | b :: bs', [] =>
+                              bind_args bs' [] (((b, []), AstRef "Any") :: e0)
+                          end
+                        in
+                        let henv := bind_args binders argTys env in
+                        hAst <- elaborate fuel' henv hbody (Some answer_ty) ;
+                        restH <- elab_handlers rest ;
+                        ret ((op,
+                              build_handler_lam binders argTys resume_ty (fst hAst))
+                             :: restH)
+                    | None =>
+                        throw ("unknown handler operation: " ++ op)
+                    end
+                | None => throw "malformed handler case"
                 end
             end
           in
           hsRes <- elab_handlers handlers ;
-          ret (AstHandle (fst bodyAst) (UserEffect eff) hsRes, snd bodyAst)
+          let fix check_complete (os : list (string * list AST * AST))
+              : ElabM unit :=
+            match os with
+            | [] => ret tt
+            | (op, _, _) :: rest =>
+                match find (fun p => String.eqb (fst p) op) hsRes with
+                | Some _ => check_complete rest
+                | None => throw ("incomplete handler for effect: " ++ eff)
+                end
+            end
+          in
+          check_complete ops ;;
+          match expected with
+          | Some exp => unify fuel' answer_ty exp
+          | None => ret tt
+          end ;;
+          ret (AstHandle (fst bodyAst) (UserEffect eff) hsRes, answer_ty)
       end
   | RecordCST name type_params fields _ =>
       let fix elab_fs (fs : list CST) : ElabM (list (string * AST)) :=
@@ -1719,17 +2494,20 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               else throw ("type component used as value: " ++ field)
           | Some (AstTypeDecl _ None) =>
               if is_type_expected expected then
-                ret (AstFieldAccess (fst exprAst) field, TypeUniverse)
+                (* Abstract type component: use the field name as the type ref
+                   so [M.t] unifies with other [M.t] / [t] annotations. *)
+                ret (AstRef field, TypeUniverse)
               else throw ("type component used as value: " ++ field)
           | Some ty =>
               if is_type_expected expected then
-                ret (AstFieldAccess (fst exprAst) field, TypeUniverse)
+                (* Enum/ctor FunTy or other export: [M.T] → [AstRef T] in type pos. *)
+                ret (AstRef field, TypeUniverse)
               else ret (AstFieldAccess (fst exprAst) field, ty)
           | None => throw ("module has no export: " ++ field)
           end
       | _ =>
           if is_type_expected expected then
-            ret (AstFieldAccess (fst exprAst) field, TypeUniverse)
+            ret (AstRef field, TypeUniverse)
           else ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
       end
 

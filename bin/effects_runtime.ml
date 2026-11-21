@@ -59,7 +59,10 @@ let ts_effects_runtime =
    if (e && e.__chester_handled === frame) return e.result;\n\
    throw e;\n\
    }\n\
-   finally { __chester_caps.pop(); }\n\
+   finally {\n\
+   if (__chester_caps.length && __chester_caps[__chester_caps.length-1] === frame)\n\
+   __chester_caps.pop();\n\
+   }\n\
    };\n\
    return run([]);\n\
    };\n\
@@ -71,6 +74,7 @@ let ts_effects_runtime =
    const got = frame.take();\n\
    if (got.ok) return got.v;\n\
    const resume = (v) => frame.fork(v);\n\
+   __chester_caps.length = i;\n\
    let fn = h;\n\
    for (let j = 0; j < args.length; j++) fn = fn(args[j]);\n\
    const result = fn(resume);\n\
@@ -82,12 +86,15 @@ let ts_effects_runtime =
    const ev = [];\n\
    for (let li = 0; li < labels.length; li++) {\n\
    const lab = labels[li];\n\
+   let found = false;\n\
    for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
    if (__chester_caps[i].label === lab) {\n\
    ev.push({ label: lab, handlers: __chester_caps[i].handlers });\n\
+   found = true;\n\
    break;\n\
    }\n\
    }\n\
+   if (!found) throw new Error(\"Missing capability for box: \" + lab);\n\
    }\n\
    return ev;\n\
    };\n\
@@ -342,7 +349,15 @@ func __chester_handle(label string, bodyFn func() any, handlers map[string]any) 
 			return run(next)
 		}
 		__chester_caps = append(__chester_caps, frame)
-		defer func() { __chester_caps = __chester_caps[:len(__chester_caps)-1] }()
+		defer func() {
+			n := len(__chester_caps)
+			if n > 0 {
+				top := __chester_caps[n-1]
+				if top["id"] == fid {
+					__chester_caps = __chester_caps[:n-1]
+				}
+			}
+		}()
 		defer func() {
 			if r := recover(); r != nil {
 				if h, ok := r.(__chesterHandled); ok && h.id == fid {
@@ -372,6 +387,9 @@ func __chester_perform(op string, args []any) any {
 		resume := func(v any) any {
 			return frame["fork"].(func(any) any)(v)
 		}
+		// Deep handlers (Plotkin/Pretnar): drop this frame and anything above
+		// so clause effects escape outward; multi-shot still forks the answer stream.
+		__chester_caps = __chester_caps[:i]
 		fn := h
 		for _, a := range args {
 			fn = fn.(func(any) any)(a)
@@ -386,14 +404,19 @@ func __chester_evidence(labels []any) []map[string]any {
 	var ev []map[string]any
 	for _, lab := range labels {
 		ls := lab.(string)
+		found := false
 		for i := len(__chester_caps) - 1; i >= 0; i-- {
 			if __chester_caps[i]["label"] == ls {
 				ev = append(ev, map[string]any{
 					"label":    ls,
 					"handlers": __chester_caps[i]["handlers"],
 				})
+				found = true
 				break
 			}
+		}
+		if !found {
+			panic("Missing capability for box: " + ls)
 		}
 	}
 	return ev

@@ -13,15 +13,20 @@ This verified compiler does not yet ship a single LaTeX “main paper” in-tree
 
 Executable typing lives in `theories/Elaborator.v` and `theories/CoreChecker.v`
 (algorithmic, not a declarative `HasType` judgment). Properties that matter for
-module sealing and the core fragment are split across:
+module sealing and the **pure** core fragment are split across:
 
 | Theory | Contents |
 |--------|----------|
 | `theories/TypeSystemProps.v` | Effect-row lattice (`effect_row_subsumes_*`), binder/`free_in` lemmas, seal examples, subst capture-avoidance |
-| `theories/CoreTyping.v` | Declarative `CoreWT` / `CoreFrag`; `seal_exports_check_names_from_full`; `seal_sigval_requires_effect_subsumption` |
+| `theories/CoreTyping.v` | Declarative `CoreWT` / `CoreFrag`; `seal_cons_export_names`; `seal_sigval_requires_effect_subsumption` |
 | `theories/RocqIRSem.v` | Rocq IR values/`REval`; logical relation `RValTy`; `emit_rocq_correct` for the full `CoreFrag` (proven, axiom-free) |
 | `theories/TypeScriptIRSem.v` | TS value/`TSEval`+`TSEvalBlock` model; `emit_ts_correct` for the full `CoreFrag` (expression and block forms, proven axiom-free); `emit_ts_expr_correct`/`emit_ts_lit_correct` corollaries |
 | `theories/GoIRSem.v` | Go value/`GoEval`+`GoEvalBlock` model; `emit_go_correct` for the full `CoreFrag` (expression and block forms across local environments, proven axiom-free); `emit_go_expr_correct`/`emit_go_correct_closed` corollaries |
+
+**Scope of `CoreFrag`:** literals, refs, λ, single-arg app, `if`, and spans — **not** effects
+(`AstDo` / `AstHandle` / `AstBox` / `AstUnbox`) and **not** modules. Backend emit proofs
+therefore do **not** cover handlers, `box`/`unbox`, or module constructs; those are tested
+by fixtures and the shared runtime in `bin/effects_runtime.ml`.
 
 All three backend correctness theorems (`emit_rocq_correct`, `emit_ts_correct`, `emit_go_correct`)
 as well as CST parser fuel stability and well-formedness (`parse_loop_fuel_stable`,

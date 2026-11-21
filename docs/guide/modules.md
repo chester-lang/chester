@@ -1,8 +1,14 @@
 # Modules and Functors (SML-Core)
 
-Chester implements an SML-style module system informed by *F-ing modules* (Rossberg, Russo, Dreyer). It supports structures, signatures, transparent and opaque sealing, generative and applicative functors, type sharing, first-class modules, and file-as-module imports.
+Chester implements an SML-style module *sketch* informed by *F-ing modules* (Rossberg,
+Russo, Dreyer). It is **not** an F-ing elaboration into System Fω. Structures, signatures,
+opaque/transparent sealing, generative and name-based applicative functors, type sharing,
+first-class pack/unpack, and file-as-module imports are supported; higher-order functors
+are absent.
 
-The semantics are verified in `theories/CoreTyping.v` and `theories/TypeSystemProps.v`, executed by `theories/Elaborator.v`, and tested in `tests/modules*.chester`.
+The sealing/export checks that *are* proven live in `theories/CoreTyping.v` and
+`theories/TypeSystemProps.v`; elaboration is in `theories/Elaborator.v`; fixtures in
+`tests/modules*.chester`.
 
 ---
 
@@ -38,10 +44,9 @@ module Counter {
 
 ## 2. Sealing: Transparent vs. Opaque
 
-Chester supports two signature ascription modes:
-
-### Transparent Sealing (`:`)
-The module is checked against the signature, but exported types and structure remain visible:
+### Transparent ascription (`:`)
+The module is checked against the signature; **implementation types remain visible**
+(transparent view of type components that were defined concretely).
 
 ```chester
 module Visible : Printable {
@@ -49,8 +54,9 @@ module Visible : Printable {
 };
 ```
 
-### Opaque Sealing (`:>`)
-Definitions not in the signature are hidden (data abstraction). Abstract types in the signature hide their concrete representation:
+### Opaque sealing (`:>`)
+Definitions not in the signature are hidden. Abstract `type t` in the signature hides
+its concrete representation outside the module.
 
 ```chester
 signature CounterSig {
@@ -94,10 +100,8 @@ If an implementation performs an unadvertised effect, elaboration fails with an 
 
 ## 4. Functors
 
-Functors are parameterized modules (functions from modules to modules).
-
 ### Generative Functors
-By default, functors generate fresh abstract types upon each application:
+By default, each application is a fresh structure identity (Chester’s generative default):
 
 ```chester
 module MakeSet(Element: Printable) {
@@ -108,7 +112,8 @@ module S1 = MakeSet(Counter);
 ```
 
 ### Applicative Functors (`module app`)
-Prefixing with `app` declares an applicative functor, where applications to equivalent module arguments share type identities:
+Prefixing with `app` declares an applicative functor. Chester’s applicative identity is
+**name-based** (same functor path + argument names), **not** F-ing generative stamps.
 
 ```chester
 module app Id(X: Printable) {
@@ -118,11 +123,15 @@ module app Id(X: Printable) {
 module P = Id(Counter);
 ```
 
+Functor parameters are first-order (signature-typed). Higher-order functor types /
+`(X: S) → T` as modules are **not** implemented.
+
 ---
 
 ## 5. Type Components & Sharing (`with type`)
 
-Signatures can refine type components using `with type` sharing constraints:
+Signatures can refine type components using `with type` sharing constraints. Sharing is
+**applied** during elaboration (constraints rewrite the signature’s type components):
 
 ```chester
 signature Seq = SeqSig with type item = Int;
@@ -132,13 +141,12 @@ signature Seq = SeqSig with type item = Int;
 
 ## 6. First-Class Modules (`pack` and `unpack`)
 
-Modules can be packaged as first-class runtime values and unpacked into local structures:
+`pack M as S` packages a structure as a first-class value **sealed** to signature `S`.
+`unpack` binds a local structure at that signature:
 
 ```chester
-// Pack structure M as signature S
 let packed = pack Counter as Printable;
 
-// Unpack into local module X in body
 unpack (X : Printable) = packed in {
   X.show()
 };
@@ -147,8 +155,6 @@ unpack (X : Printable) = packed in {
 ---
 
 ## 7. File-as-Module Imports
-
-Chester supports modular multi-file compilation:
 
 ```chester
 import Math;

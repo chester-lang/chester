@@ -518,10 +518,40 @@ Fixpoint equiv_ast_raw (t1 t2 : AST) : bool :=
   | AstStringLit s1, AstStringLit s2 => String.eqb s1 s2
   | AstIntLit n1, AstIntLit n2 => Nat.eqb n1 n2
   | AstBoolLit b1, AstBoolLit b2 => Bool.eqb b1 b2
-  | AstApp f1 a1, AstApp f2 a2 => false (* Simplistic for multiple args *)
-  | AstLam n1 t1 b1, AstLam n2 t2 b2 => false
-  | AstPi n1 ty1 ret1 eff1, AstPi n2 ty2 ret2 eff2 => 
-      String.eqb n1 n2 && equiv_ast_raw ty1 ty2 && equiv_ast_raw ret1 ret2
+  | AstApp f1 a1, AstApp f2 a2 =>
+      let fix equiv_args (xs ys : list AST) : bool :=
+        match xs, ys with
+        | [], [] => true
+        | x :: xs', y :: ys' => andb (equiv_ast_raw x y) (equiv_args xs' ys')
+        | _, _ => false
+        end
+      in andb (equiv_ast_raw f1 f2) (equiv_args a1 a2)
+  | AstLam _ ty1 b1, AstLam _ ty2 b2 =>
+      andb (equiv_ast_raw ty1 ty2) (equiv_ast_raw b1 b2)
+  | AstPi _ ty1 ret1 eff1, AstPi _ ty2 ret2 eff2 =>
+      andb (equiv_ast_raw ty1 ty2)
+        (andb (equiv_ast_raw ret1 ret2)
+          (orb (effect_row_subsumes eff1 eff2) (effect_row_subsumes eff2 eff1)))
+  | AstFunTy tp1 p1 r1 e1, AstFunTy tp2 p2 r2 e2 =>
+      let fix equiv_strs (xs ys : list string) : bool :=
+        match xs, ys with
+        | [], [] => true
+        | x :: xs', y :: ys' => andb (String.eqb x y) (equiv_strs xs' ys')
+        | _, _ => false
+        end
+      in
+      let fix equiv_params (xs ys : list (string * AST)) : bool :=
+        match xs, ys with
+        | [], [] => true
+        | (_, tx) :: xs', (_, ty) :: ys' =>
+            andb (equiv_ast_raw tx ty) (equiv_params xs' ys')
+        | _, _ => false
+        end
+      in
+      andb (equiv_strs tp1 tp2)
+        (andb (equiv_params p1 p2)
+          (andb (equiv_ast_raw r1 r2)
+            (orb (effect_row_subsumes e1 e2) (effect_row_subsumes e2 e1))))
   | AstMeta m1, AstMeta m2 => Nat.eqb m1 m2
   | _, _ => false
   end.
@@ -588,9 +618,21 @@ Definition is_universe_ty (t : AST) : bool :=
   | _ => false
   end.
 
+Definition is_type_param_ref (n : string) : bool :=
+  (* Single uppercase letter — common surface type-param names (T, A, B). *)
+  match n with
+  | String c EmptyString =>
+      let k := nat_of_ascii c in
+      andb (PeanoNat.Nat.leb 65 k) (PeanoNat.Nat.leb k 90)
+  | _ => false
+  end.
+
 Definition is_any_ty (t : AST) : bool :=
   match strip_span (whnf t) with
-  | AstRef n => String.eqb n "Any"
+  | AstRef n =>
+      (* [Unknown] = omitted def return; single-letter refs are type params. *)
+      orb (String.eqb n "Any")
+        (orb (String.eqb n "Unknown") (is_type_param_ref n))
   | AstMeta _ => true
   | _ => false
   end.
@@ -616,27 +658,94 @@ Definition is_unit_ty (t : AST) : bool :=
   | _ => false
   end.
 
-(* Soft equality matching elaborator unify's permissive catch-all for aliases. *)
-Definition types_compat (t1 t2 : AST) : bool :=
-  orb (equiv_ast t1 t2)
-    (orb (is_any_ty t1)
-      (orb (is_any_ty t2)
-        (orb (andb (is_int_ty t1) (is_int_ty t2))
-          (orb (andb (is_bool_ty t1) (is_bool_ty t2))
-            (orb (andb (is_unit_ty t1) (is_unit_ty t2))
-              (andb (is_universe_ty t1) (is_universe_ty t2))))))).
+(** Peel [AstFunTy] params against a curried [AstPi] telescope (struct on params). *)
+Fixpoint funty_pi_compat (params : list (string * AST)) (ret pi : AST) {struct params} : bool :=
+  match params with
+  | [] =>
+      match strip_span (whnf pi) with
+      | AstPi _ _ _ _ => false
+      | _ =>
+          (* Defer full types_compat to avoid mutual recursion; name aliases only. *)
+          orb (equiv_ast_raw ret pi)
+            (orb (is_any_ty ret)
+              (orb (is_any_ty pi)
+                (orb (andb (is_int_ty ret) (is_int_ty pi))
+                  (orb (andb (is_bool_ty ret) (is_bool_ty pi))
+                    (orb (andb (is_unit_ty ret) (is_unit_ty pi))
+                      (andb (is_universe_ty ret) (is_universe_ty pi)))))))
+      end
+  | (_, ty) :: rest =>
+      match strip_span (whnf pi) with
+      | AstPi _ ty2 ret2 _ =>
+          andb
+            (orb (equiv_ast_raw ty ty2)
+              (orb (is_any_ty ty) (is_any_ty ty2)))
+            (funty_pi_compat rest ret ret2)
+      | _ => false
+      end
+  end.
 
-(* Post-elab: elaborator unify is intentionally loose (`| _, _ => ret tt`) and
-   metas are not fully zonked. Equality is advisory; reject only when clearly incompatible
-   after soft aliases. Structural checks (binders, apps) remain strict. *)
+(* Soft equality: structural (equiv_ast / FunTy / App / Pi) plus Int/Bool/Unit/Type aliases.
+   FunTy/Pi effect rows are compatible when either subsumes the other. *)
+Fixpoint types_compat_raw (t1 t2 : AST) {struct t1} : bool :=
+  orb (equiv_ast_raw t1 t2)
+    (orb
+      (match t1, t2 with
+       | AstFunTy _ p1 r1 e1, AstFunTy _ p2 r2 e2 =>
+           let fix params_ok (xs ys : list (string * AST)) : bool :=
+             match xs, ys with
+             | [], [] => true
+             | (_, tx) :: xs', (_, ty) :: ys' =>
+                 andb (types_compat_raw tx ty) (params_ok xs' ys')
+             | _, _ => false
+             end
+           in
+           andb (params_ok p1 p2)
+             (andb (types_compat_raw r1 r2)
+               (orb (effect_row_subsumes e1 e2) (effect_row_subsumes e2 e1)))
+       | AstPi _ ty1 ret1 e1, AstPi _ ty2 ret2 e2 =>
+           andb (types_compat_raw ty1 ty2)
+             (andb (types_compat_raw ret1 ret2)
+               (orb (effect_row_subsumes e1 e2) (effect_row_subsumes e2 e1)))
+       | AstFunTy _ p1 r1 _, AstPi _ _ _ _ => funty_pi_compat p1 r1 t2
+       | AstPi _ _ _ _, AstFunTy _ p2 r2 _ => funty_pi_compat p2 r2 t1
+       | AstApp f1 a1, AstApp f2 a2 =>
+           let fix args_ok (xs ys : list AST) : bool :=
+             match xs, ys with
+             | [], [] => true
+             | x :: xs', y :: ys' =>
+                 andb (types_compat_raw x y) (args_ok xs' ys')
+             | _, _ => false
+             end
+           in andb (types_compat_raw f1 f2) (args_ok a1 a2)
+       (* List literals are typed [List]; accept against [List(T)] / [List[T]]. *)
+       | AstRef n, AstApp (AstRef n') _ => String.eqb n n'
+       | AstApp (AstRef n') _, AstRef n => String.eqb n n'
+       (* Module path types [M.t] vs [M.t] / bare [t]. *)
+       | AstFieldAccess e1 f1, AstFieldAccess e2 f2 =>
+           andb (String.eqb f1 f2) (types_compat_raw e1 e2)
+       | AstFieldAccess _ f, AstRef n => String.eqb f n
+       | AstRef n, AstFieldAccess _ f => String.eqb f n
+       | _, _ => false
+       end)
+      (orb (is_any_ty t1)
+        (orb (is_any_ty t2)
+          (orb (andb (is_int_ty t1) (is_int_ty t2))
+            (orb (andb (is_bool_ty t1) (is_bool_ty t2))
+              (orb (andb (is_unit_ty t1) (is_unit_ty t2))
+                (andb (is_universe_ty t1) (is_universe_ty t2)))))))).
+
+Definition types_compat (t1 t2 : AST) : bool :=
+  types_compat_raw (strip_span (whnf t1)) (strip_span (whnf t2)).
+
+(* Post-elab check against an expected type. Soft aliases (Int/Integer, Any, …)
+   and structural FunTy/App/Pi compatibility are accepted; clear mismatches reject. *)
 Definition meet_expected (got : AST) (expected : option AST) : TyResult AST :=
   match expected with
   | None => TyOk got
   | Some expTy =>
       if types_compat got expTy then TyOk got
-      else
-        (* Fall back like elaborator unify: accept after walking subterms. *)
-        TyOk got
+      else TyErr "type mismatch against expected"
   end.
 
 (*
@@ -807,7 +916,29 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
   | AstUniverse _ => meet_expected TypeUniverse expected
   | AstMeta _ => meet_expected AnyType expected
   | AstError msg => TyErr msg
-  | AstTuple _ => meet_expected UnitType expected
+  | AstTuple elems =>
+      (* List literals elaborate as AstTuple values with type List; empty
+         tuples are Unit. Check elements, then meet against expected. *)
+      let fix check_elems (es : list AST) : TyResult unit :=
+        match es with
+        | [] => TyOk tt
+        | e :: es' =>
+            match infer_check env e None with
+            | TyOk _ => check_elems es'
+            | TyErr err => TyErr err
+            end
+        end
+      in
+      match check_elems elems with
+      | TyOk _ =>
+          let got :=
+            match elems with
+            | [] => UnitType
+            | _ => AstRef "List"%string
+            end
+          in meet_expected got expected
+      | TyErr err => TyErr err
+      end
 
   | AstLam argName argTy body =>
       match expected with
@@ -833,64 +964,85 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       end
 
   | AstApp func args =>
+      (* Prefer structural lambda application: re-inferring [AstLam] as [AstPi]
+         can fail when the elaborator left unsolved metas in the binder type. *)
+      let lam_pi :=
+        match strip_span func with
+        | AstLam n aty _ => Some (n, aty, AnyType)
+        | _ => None
+        end
+      in
+      let apply_pi (argName : string) (argTy retTy : AST) : TyResult AST :=
+        match args with
+        | [] => meet_expected (AstPi argName argTy retTy []) expected
+        | arg :: rest =>
+            match infer_check env arg (Some argTy) with
+            | TyOk _ =>
+                let nextTy := subst_ast argName arg retTy in
+                let fix check_extra (ty : AST) (xs : list AST) : TyResult AST :=
+                  match xs with
+                  | [] => meet_expected ty expected
+                  | x :: xs' =>
+                      match infer_check env x None with
+                      | TyOk _ => check_extra AnyType xs'
+                      | TyErr e => TyErr e
+                      end
+                  end
+                in check_extra nextTy rest
+            | TyErr e => TyErr e
+            end
+        end
+      in
+      match lam_pi with
+      | Some (n, aty, rty) => apply_pi n aty rty
+      | None =>
       match infer_check env func None with
       | TyOk (AstPi argName argTy retTy _) =>
-          match args with
-          | [] => meet_expected (AstPi argName argTy retTy []) expected
-          | arg :: rest =>
-              match infer_check env arg (Some argTy) with
-              | TyOk _ =>
-                  let nextTy := subst_ast argName arg retTy in
-                  let fix check_extra (ty : AST) (xs : list AST) : TyResult AST :=
-                    match xs with
-                    | [] => meet_expected ty expected
-                    | x :: xs' =>
-                        match infer_check env x None with
-                        | TyOk _ => check_extra AnyType xs'
-                        | TyErr e => TyErr e
-                        end
-                    end
-                  in check_extra nextTy rest
-              | TyErr e => TyErr e
-              end
-          end
+          apply_pi argName argTy retTy
       | TyOk (AstFunTy tps params ret_ty effs) =>
-          let fix check_args (ps : list (string * AST)) (as_ : list AST) : TyResult AST :=
+          let fix check_args (ps : list (string * AST)) (rty : AST)
+              (as_ : list AST) : TyResult AST :=
             match as_ with
             | [] =>
                 match ps with
-                | [] => meet_expected ret_ty expected
-                | _ => meet_expected (AstFunTy tps ps ret_ty effs) expected
+                | [] => meet_expected rty expected
+                | _ => meet_expected (AstFunTy tps ps rty effs) expected
                 end
             | a :: as' =>
                 match ps with
                 | [] =>
                     match infer_check env a None with
-                    | TyOk _ => check_args [] as'
+                    | TyOk _ => check_args [] rty as'
                     | TyErr e => TyErr e
                     end
-                | (_, pty) :: ps' =>
+                | (pn, pty) :: ps' =>
                     match infer_check env a (Some pty) with
-                    | TyOk _ => check_args ps' as'
+                    | TyOk _ =>
+                        let ps'' :=
+                          map (fun p => (fst p, subst_ast pn a (snd p))) ps'
+                        in
+                        let rty' := subst_ast pn a rty in
+                        check_args ps'' rty' as'
                     | TyErr e => TyErr e
                     end
                 end
             end
-          in check_args params args
-      | TyOk ty =>
-          if orb (is_any_ty ty) (is_universe_ty ty) then
-            let fix check_args (as_ : list AST) : TyResult AST :=
-              match as_ with
-              | [] => meet_expected AnyType expected
-              | a :: as' =>
-                  match infer_check env a None with
-                  | TyOk _ => check_args as'
-                  | TyErr e => TyErr e
-                  end
-              end
-            in check_args args
-          else TyErr "Cannot apply to non-function"
+          in check_args params ret_ty args
+      | TyOk _ =>
+          (* Soft apply fallback when re-inference did not rebuild Pi/FunTy
+             (e.g. elaborator metas on lambda binders). Still checks args. *)
+          let fix check_args (as_ : list AST) : TyResult AST :=
+            match as_ with
+            | [] => meet_expected AnyType expected
+            | a :: as' =>
+                match infer_check env a None with
+                | TyOk _ => check_args as'
+                | TyErr e => TyErr e
+                end
+            end
+          in check_args args
       | TyErr e => TyErr e
+      end
       end
 
   | AstImplicitApp func args =>
@@ -1163,7 +1315,8 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       end
 
   | AstDo op args =>
-      (* Op name is validated by the elaborator against the effect registry. *)
+      (* Effect perform: op name/registry checked by the elaborator; here we
+         only walk argument subterms. Pending effects are not tracked in CoreChecker. *)
       let fix check_args (as_ : list AST) : TyResult AST :=
         match as_ with
         | [] => meet_expected AnyType expected
@@ -1184,27 +1337,36 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
           end
       end
   | AstHandle e _ hs =>
-      match infer_check env e expected with
-      | TyOk ty =>
-          let fix check_hs (xs : list (string * AST)) : TyResult AST :=
-            match xs with
-            | [] => TyOk ty
-            | (_, h) :: xs' =>
-                (* Handlers close over resume; elaborator binds it. *)
-                match infer_check (("resume", AnyType) :: env) h None with
-                | TyOk _ => check_hs xs'
-                | TyErr err => TyErr err
+      (* Lexical handler: body runs under the capability; clauses bind resume.
+         CoreChecker does not model deep-handler stack truncation; nonempty
+         clauses are required so the handle is not a no-op. *)
+      match hs with
+      | [] => TyErr "handle requires at least one handler clause"
+      | _ =>
+          match infer_check env e expected with
+          | TyOk ty =>
+              let fix check_hs (xs : list (string * AST)) : TyResult AST :=
+                match xs with
+                | [] => TyOk ty
+                | (_, h) :: xs' =>
+                    match infer_check (("resume", AnyType) :: env) h None with
+                    | TyOk _ => check_hs xs'
+                    | TyErr err => TyErr err
+                    end
                 end
-            end
-          in check_hs hs
-      | TyErr err => TyErr err
+              in check_hs hs
+          | TyErr err => TyErr err
+          end
       end
   | AstBox e _ =>
+      (* Capture evidence for claimed caps at the box site (runtime evidence).
+         Caps list is trusted from elaboration; we still check the body. *)
       match infer_check env e None with
       | TyOk ty => meet_expected ty expected
       | TyErr err => TyErr err
       end
   | AstUnbox e =>
+      (* Install captured evidence then run; body typing only here. *)
       match infer_check env e None with
       | TyOk ty => meet_expected ty expected
       | TyErr err => TyErr err
@@ -1333,33 +1495,49 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
   | AstUnpack x s e b =>
       match infer_check env s None with
       | TyOk sty =>
-          match infer_check env e (Some sty) with
-          | TyOk _ =>
-              let mod_ty :=
-                match sty with
-                | AstSignature _ decls =>
-                    let fix sig_one (a : AST) : list (string * AST) :=
-                      match a with
-                      | AstSigVal n tps params ret_ty effs =>
-                          [(n, AstFunTy tps params ret_ty effs)]
-                      | AstTypeDecl n opt => [(n, AstTypeDecl n opt)]
-                      | AstSpan _ inner => sig_one inner
-                      | _ => []
-                      end
-                    in
-                    let fix sig_exports (ds : list AST) : list (string * AST) :=
-                      match ds with
-                      | [] => []
-                      | a :: rest => app (sig_one a) (sig_exports rest)
-                      end
-                    in AstModTy (sig_exports decls)
-                | AstModTy _ as m => m
-                | _ => AnyType
+          (* Packed values are [AstModTy]; signatures are [AstSignature]. Accept
+             either against the ascribed signature view. *)
+          let pack_ok :=
+            match infer_check env e (Some sty) with
+            | TyOk _ => true
+            | TyErr _ =>
+                match infer_check env e None with
+                | TyOk (AstModTy _) => true
+                | TyOk _ =>
+                    match sty with
+                    | AstSignature _ _ => true
+                    | AstModTy _ => true
+                    | _ => false
+                    end
+                | TyErr _ => false
                 end
-              in
-              infer_check ((x, mod_ty) :: env) b expected
-          | TyErr err => TyErr err
-          end
+            end
+          in
+          if negb pack_ok then TyErr "type mismatch against expected"
+          else
+            let mod_ty :=
+              match sty with
+              | AstSignature _ decls =>
+                  let fix sig_one (a : AST) : list (string * AST) :=
+                    match a with
+                    | AstSigVal n tps params ret_ty effs =>
+                        [(n, AstFunTy tps params ret_ty effs)]
+                    | AstTypeDecl n opt => [(n, AstTypeDecl n opt)]
+                    | AstSpan _ inner => sig_one inner
+                    | _ => []
+                    end
+                  in
+                  let fix sig_exports (ds : list AST) : list (string * AST) :=
+                    match ds with
+                    | [] => []
+                    | a :: rest => app (sig_one a) (sig_exports rest)
+                    end
+                  in AstModTy (sig_exports decls)
+              | AstModTy _ as m => m
+              | _ => AnyType
+              end
+            in
+            infer_check ((x, mod_ty) :: env) b expected
       | TyErr err => TyErr err
       end
   | AstFileImport _ _ => meet_expected UnitType expected
