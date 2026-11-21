@@ -16,6 +16,9 @@ let ts_primitives =
    const prim__join_strings = (sep, ls) => ls.join(sep);\n\
    const prim__list_make = (len, f) => Array.from({length: len}, (_, i) => \
    f(i));\n\
+   const prim__list_append = (l, x) => [...l, x];\n\
+   const prim__list_drop_last = (l) => l.slice(0, -1);\n\
+   const prim__list_insert_first = (l, x) => [x, ...l];\n\
    const prim__int_sub = (a, b) => a - b;\n\
    const prim__list_get = (l, i) => l[i];\n\
    const prim__int_add = (a, b) => a + b;\n\
@@ -31,7 +34,10 @@ let ts_primitives =
    const prim__int_ge = (a, b) => a >= b;\n\
    const prim__int_le = (a, b) => a <= b;\n\
    const prim__int_neg = (a) => -a;\n\
-   const prim__int_to_string = (n) => String(n);\n"
+   const prim__int_to_string = (n) => String(n);\n\
+   const prim__bool_or = (a, b) => a || b;\n\
+   const prim__bool_and = (a, b) => a && b;\n\
+   const prim__bool_not = (a) => !a;\n"
 
 let ts_effects_runtime =
   "let __chester_caps = [];\n\
@@ -99,13 +105,33 @@ let ts_effects_runtime =
    return () => __chester_with_evidence(ev, bodyFn);\n\
    };\n"
 
-let ts_runtime_file = ts_primitives ^ ts_effects_runtime
+(* Surface aliases matching the Go preamble (and [ts_preamble_surface] in
+   theories/Backend.v, which suppresses re-emitting these defs). *)
+let ts_surface_aliases =
+  "const int_add = prim__int_add;\n\
+   const int_sub = prim__int_sub;\n\
+   const int_mul = prim__int_mul;\n\
+   const int_div = prim__int_div;\n\
+   const int_mod = prim__int_mod;\n\
+   const int_neg = prim__int_neg;\n\
+   const int_eq = prim__int_eq;\n\
+   const int_lt = prim__int_lt;\n\
+   const int_gt = prim__int_gt;\n\
+   const int_le = prim__int_le;\n\
+   const int_ge = prim__int_ge;\n\
+   const bool_or = prim__bool_or;\n\
+   const bool_and = prim__bool_and;\n\
+   const bool_not = prim__bool_not;\n\
+   const string_eq = prim__string_eq;\n\
+   const string_concat = prim__string_concat;\n\
+   const string_length = prim__string_length;\n\
+   const string_substring = prim__string_substring;\n\
+   const int_to_string = prim__int_to_string;\n\
+   const list_length = prim__list_length;\n"
 
-let ts_test_preamble =
-  ts_primitives
-  ^ "const int_add = prim__int_add;\n\
-     const int_mul = prim__int_mul;\n\
-     const int_sub = prim__int_sub;\n" ^ ts_effects_runtime
+let ts_runtime_file = ts_primitives ^ ts_surface_aliases ^ ts_effects_runtime
+
+let ts_test_preamble = ts_runtime_file
 
 let go_preamble_body =
   {|

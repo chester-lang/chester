@@ -431,6 +431,9 @@ Definition go_preamble_surface (name : string) : bool :=
         (orb (go_str_eq name "string_substring") (orb (go_str_eq name "int_to_string")
         (go_str_eq name "list_length"))))))))))))))))))).
 
+(* Names provided as TypeScript preamble aliases — skip re-emitting matching AstDef. *)
+Definition ts_preamble_surface (name : string) : bool := go_preamble_surface name.
+
 (* 
   TypeScript Backend
 *)
@@ -558,7 +561,9 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
   | AstPack m _ => TsExprStmt (emit_ts_expr m)
   | AstUnpack x _ e body =>
       TsExprStmt (TsIIFE (TsLet x (emit_ts_expr e) :: emit_ts_block body))
-  | AstDef name _ params _ body _ => TsFunctionDecl name (map fst params) (emit_ts_block body)
+  | AstDef name _ params _ body _ =>
+      if ts_preamble_surface name then TsEmpty
+      else TsFunctionDecl name (map fst params) (emit_ts_block body)
   | AstRecord name _ _ => TsInterface name
   | AstExtension _ _ _ meths =>
       let fix map_meths (ls : list AST) : list TypeScriptStmt :=
@@ -596,7 +601,20 @@ with emit_ts_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
         | v :: rest => emit_variant v :: emit_variants rest
         end
       in
-      TsConst name (TsObjectLiteral (emit_variants variants))
+      (* Bare constructors (e.g. [Some(x)]) reference the alias, mirroring the
+         Go backend, while qualified [Enum.Ctor] paths use the const object. *)
+      let fix emit_aliases (vs : list (string * list AST * AST)) : list TypeScriptStmt :=
+        match vs with
+        | [] => []
+        | v :: rest =>
+            let vname := fst (fst v) in
+            TsConst vname (TsPropertyAccess (TsIdentifier name) vname)
+            :: emit_aliases rest
+        end
+      in
+      TsBlock
+        (TsConst name (TsObjectLiteral (emit_variants variants))
+         :: emit_aliases variants)
   | AstRef name => TsExprStmt (TsIdentifier name)
   | AstTuple elems => 
       let fix map_ts_expr (ls : list AST) : list TypeScriptExpr :=
@@ -812,7 +830,9 @@ Fixpoint emit_ts_top_stmt (ast : AST) {struct ast} : TypeScriptStmt :=
       in TsNamespace name (emit_body body)
   | AstSignature name _ => TsInterface name
   | AstFunctorApp _ _ => TsEmpty
-  | AstDef name _ params _ body _ => TsExportFunction name (map fst params) (emit_ts_block body)
+  | AstDef name _ params _ body _ =>
+      if ts_preamble_surface name then TsEmpty
+      else TsExportFunction name (map fst params) (emit_ts_block body)
   | AstLet name value => TsConst name (emit_ts_expr value)
   | AstRef "Unit" => TsEmpty
   | AstSpan _ inner => emit_ts_top_stmt inner

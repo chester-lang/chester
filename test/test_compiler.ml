@@ -743,6 +743,14 @@ let%expect_test "option result runs go" =
   run_fixture_go "tests/option_result.chester";
   [%expect {| 158 |}]
 
+let%expect_test "option result runs ts" =
+  run_fixture_main "tests/option_result.chester";
+  [%expect {| 158 |}]
+
+let%expect_test "ts backend runtime prims" =
+  run_fixture_main "tests/ts_backend_runtime.chester";
+  [%expect {| 15 |}]
+
 let%expect_test "cli prelude chains definitions" =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
@@ -802,6 +810,45 @@ let%expect_test "stdlib functional runs go" =
   if st <> 0 then failwith "stdlib functional compile failed";
   let line = go_run_program_in dir in
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+  print_endline line;
+  [%expect {| 421 |}]
+
+let node_run_file path =
+  let out = Filename.temp_file "chester_node_out" ".txt" in
+  let st =
+    Sys.command
+      (Printf.sprintf "node %s > %s 2>&1" (Filename.quote path)
+         (Filename.quote out))
+  in
+  let line =
+    let ic = open_in out in
+    let l = try input_line ic with End_of_file -> "" in
+    close_in ic;
+    l
+  in
+  let full = if st <> 0 then read_file out else "" in
+  Sys.remove out;
+  if st <> 0 then failwith ("node failed:\n" ^ full);
+  line
+
+let%expect_test "stdlib functional runs ts" =
+  let root = repo_root (Sys.getcwd ()) in
+  let main_bin = Filename.concat root "_build/default/bin/main.exe" in
+  let prelude = Filename.concat root "stdlib/std.chester" in
+  let src = Filename.concat root "tests/stdlib_functional.chester" in
+  let out = Filename.temp_file "chester_stdlib_fn_ts" ".ts" in
+  let st =
+    Sys.command
+      (Printf.sprintf "%s --ts -o %s %s %s > /dev/null 2>&1"
+         (Filename.quote main_bin) (Filename.quote out) (Filename.quote prelude)
+         (Filename.quote src))
+  in
+  if st <> 0 then failwith "stdlib functional TS compile failed";
+  let oc = open_out_gen [ Open_append ] 0o644 out in
+  output_string oc "\nconsole.log(main());\n";
+  close_out oc;
+  let line = node_run_file out in
+  Sys.remove out;
   print_endline line;
   [%expect {| 421 |}]
 

@@ -23,11 +23,8 @@ type cli_options = {
 }
 
 let preamble =
-  ts_primitives ^ ts_effects_runtime
-  ^ "   const int_add = prim__int_add;\n\
-     const int_mul = prim__int_mul;\n\
-     const int_eq = prim__int_eq;\n\
-     let _elab_state = null;\n\
+  ts_runtime_file
+  ^ "   let _elab_state = null;\n\
      const prim__get_elab_state = () => _elab_state;\n\
      const prim__put_elab_state = (s) => { _elab_state = s; return Unit; };\n\
      const ParseResult = (result, rest) => ({result, rest});\n\

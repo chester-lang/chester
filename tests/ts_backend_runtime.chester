@@ -1,0 +1,25 @@
+enum Choice[T] {
+  case Missing;
+  case Present(value: T)
+};
+
+def choose(flag: Bool, value: Integer): Choice[Integer] = {
+  if flag then Present(value) else Missing
+};
+
+def main(): Integer = {
+  let xs = prim__list_insert_first([2, 3], 1);
+  let ys = prim__list_append(xs, 4);
+  let zs = prim__list_drop_last(ys);
+  let matched = match choose(true, 10) {
+    case Present(x) => x;
+    case Missing => 0
+  };
+  let missing = match choose(false, 99) {
+    case Present(x) => x;
+    case Missing => 0
+  };
+  let bools = if prim__bool_and(true, prim__bool_not(false)) then { 1 } else { 0 };
+  // xs = [1, 2, 3], ys = [1, 2, 3, 4], zs = [1, 2, 3]
+  int_add(int_add(prim__list_get(zs, 0), prim__list_length(zs)), int_add(int_add(matched, missing), bools))
+};
