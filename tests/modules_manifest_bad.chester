@@ -1,0 +1,13 @@
+signature Wrong {
+  type t = Bool;
+  def id(x: t): t
+};
+
+module M :> Wrong {
+  type t = Int;
+  def id(x: t): t = { x }
+};
+
+def main(): Unit = {
+  ()
+}

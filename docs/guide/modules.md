@@ -75,7 +75,9 @@ module Counter :> CounterSig {
 };
 ```
 
-Any attempt to call `Counter.secret_helper()` or assume `Counter.t` is `Int` outside the module is rejected by the elaborator.
+Any attempt to call `Counter.secret_helper()` or treat `Counter.t` as `Int` outside the module
+is rejected (opaque exports keep signature types abstract — `Counter.zero` has type `Counter.t`,
+not `Int`).
 
 ---
 

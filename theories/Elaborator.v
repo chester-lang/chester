@@ -487,15 +487,45 @@ Definition refs_compat (n1 n2 : string) : bool :=
       (orb (andb (is_bool_ty (AstRef n1)) (is_bool_ty (AstRef n2)))
         (andb (is_universe_ty (AstRef n1)) (is_universe_ty (AstRef n2))))).
 
+(** Expand solved metas in [t] before occurs / assign (fuel from [ast_size]). *)
+Fixpoint expand_metas (fuel : nat) (sol : SolverState) (t : AST) {struct fuel} : AST :=
+  match fuel with
+  | 0 => t
+  | S fuel' =>
+      match strip_span t with
+      | AstMeta m =>
+          match type_metas sol m with
+          | Solved v => expand_metas fuel' sol v
+          | _ => AstMeta m
+          end
+      | AstApp f args =>
+          AstApp (expand_metas fuel' sol f)
+            (map (expand_metas fuel' sol) args)
+      | AstPi n a r e =>
+          AstPi n (expand_metas fuel' sol a) (expand_metas fuel' sol r) e
+      | AstLam n a b =>
+          AstLam n (expand_metas fuel' sol a) (expand_metas fuel' sol b)
+      | AstFunTy tps ps r e =>
+          AstFunTy tps
+            (map (fun p => (fst p, expand_metas fuel' sol (snd p))) ps)
+            (expand_metas fuel' sol r) e
+      | AstTuple xs => AstTuple (map (expand_metas fuel' sol) xs)
+      | AstDo op args =>
+          AstDo (expand_metas fuel' sol op) (map (expand_metas fuel' sol) args)
+      | other => other
+      end
+  end.
+
 Definition assign_meta (m : nat) (t : AST) : ElabM unit :=
-  if occurs_meta m t then throw "Occurs check failed"
-  else
-    s <- get_state ;
-    match s with
-    | mkElabState n sol exts effs caps pending go_pkgs =>
-        set_state (mkElabState n (update_type_state m (Solved t) sol)
+  s <- get_state ;
+  match s with
+  | mkElabState n sol exts effs caps pending go_pkgs =>
+      let t' := expand_metas (S (ast_size t)) sol t in
+      if occurs_meta m t' then throw "Occurs check failed"
+      else
+        set_state (mkElabState n (update_type_state m (Solved t') sol)
                      exts effs caps pending go_pkgs)
-    end.
+  end.
 
 
 
@@ -599,22 +629,19 @@ Fixpoint unify (fuel : nat) (t1 t2 : AST) {struct fuel} : ElabM unit :=
           | _, _ => throw "Type mismatch"
           end
       | AstRef n1, AstRef n2 =>
-          (* [Any]/[Unknown] are AstRef, so check soft aliases before reject. *)
+          (* Explicit [Any]/[Unknown] are wildcards; other refs use aliases. *)
           if orb (refs_compat n1 n2)
-               (orb (is_any_ty t1') (is_any_ty t2'))
+               (orb (is_wildcard_ty t1') (is_wildcard_ty t2'))
           then ret tt else throw "Type mismatch"
       | AstFieldAccess e1 f1, AstFieldAccess e2 f2 =>
           if negb (String.eqb f1 f2) then throw "Type mismatch"
           else unify fuel' e1 e2
       | AstFieldAccess _ f, AstRef n =>
-          if orb (String.eqb f n) (is_any_ty t2') then ret tt
-          else throw "Type mismatch"
+          if String.eqb f n then ret tt else throw "Type mismatch"
       | AstRef n, AstFieldAccess _ f =>
-          if orb (String.eqb f n) (is_any_ty t1') then ret tt
-          else throw "Type mismatch"
+          if String.eqb f n then ret tt else throw "Type mismatch"
       | _, _ =>
-          (* Any / unsolved-looking metas that slipped past whnf: soft allow. *)
-          if orb (is_any_ty t1') (is_any_ty t2') then ret tt
+          if orb (is_wildcard_ty t1') (is_wildcard_ty t2') then ret tt
           else if types_compat t1' t2' then ret tt
           else throw "Type mismatch"
       end
@@ -624,11 +651,25 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
   match fuel with
   | 0 => ret expr
   | S fuel' =>
+      let fix zonk_list (l : list AST) : ElabM (list AST) :=
+        match l with
+        | [] => ret []
+        | x :: xs => x' <- zonk fuel' x ; xs' <- zonk_list xs ; ret (x' :: xs')
+        end in
+      let fix zonk_params (ps : list (string * AST))
+          : ElabM (list (string * AST)) :=
+        match ps with
+        | [] => ret []
+        | (n, ty) :: rest =>
+            ty' <- zonk fuel' ty ;
+            rest' <- zonk_params rest ;
+            ret ((n, ty') :: rest')
+        end in
       match strip_span expr with
       | AstMeta m =>
           s <- get_state ;
           match s with
-          | mkElabState n sol exts effs caps pending _ =>
+          | mkElabState _ sol _ _ _ _ _ =>
               match type_metas sol m with
               | Solved v => zonk fuel' v
               | _ => ret (AstMeta m)
@@ -636,11 +677,6 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
           end
       | AstApp f args =>
           f' <- zonk fuel' f ;
-          let fix zonk_list (l : list AST) : ElabM (list AST) :=
-            match l with
-            | [] => ret []
-            | x :: xs => x' <- zonk fuel' x ; xs' <- zonk_list xs ; ret (x' :: xs')
-            end in
           args' <- zonk_list args ;
           ret (AstApp f' args')
       | AstPi n ty retTy effs =>
@@ -651,7 +687,94 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
           ty' <- zonk fuel' ty ;
           body' <- zonk fuel' body ;
           ret (AstLam n ty' body')
-      | _ => ret expr
+      | AstFunTy tps params retTy effs =>
+          params' <- zonk_params params ;
+          retTy' <- zonk fuel' retTy ;
+          ret (AstFunTy tps params' retTy' effs)
+      | AstTuple xs =>
+          xs' <- zonk_list xs ;
+          ret (AstTuple xs')
+      | AstBlock stmts tail =>
+          stmts' <- zonk_list stmts ;
+          tail' <- zonk fuel' tail ;
+          ret (AstBlock stmts' tail')
+      | AstDo op args =>
+          op' <- zonk fuel' op ;
+          args' <- zonk_list args ;
+          ret (AstDo op' args')
+      | AstHandle e eff hs =>
+          e' <- zonk fuel' e ;
+          let fix zonk_hs (xs : list (string * AST))
+              : ElabM (list (string * AST)) :=
+            match xs with
+            | [] => ret []
+            | (op, h) :: rest =>
+                h' <- zonk fuel' h ;
+                rest' <- zonk_hs rest ;
+                ret ((op, h') :: rest')
+            end in
+          hs' <- zonk_hs hs ;
+          ret (AstHandle e' eff hs')
+      | AstDef n tps params retTy body effs =>
+          params' <- zonk_params params ;
+          retTy' <- zonk fuel' retTy ;
+          body' <- zonk fuel' body ;
+          ret (AstDef n tps params' retTy' body' effs)
+      | AstIf c th el =>
+          c' <- zonk fuel' c ;
+          th' <- zonk fuel' th ;
+          el' <- zonk fuel' el ;
+          ret (AstIf c' th' el')
+      | AstLet n v =>
+          v' <- zonk fuel' v ;
+          ret (AstLet n v')
+      | AstMatch e cases =>
+          e' <- zonk fuel' e ;
+          let fix zonk_cases (cs : list (PatternAST * AST))
+              : ElabM (list (PatternAST * AST)) :=
+            match cs with
+            | [] => ret []
+            | (p, b) :: rest =>
+                b' <- zonk fuel' b ;
+                rest' <- zonk_cases rest ;
+                ret ((p, b') :: rest')
+            end in
+          cases' <- zonk_cases cases ;
+          ret (AstMatch e' cases')
+      | AstFieldAccess e f =>
+          e' <- zonk fuel' e ;
+          ret (AstFieldAccess e' f)
+      | AstBox e caps =>
+          e' <- zonk fuel' e ;
+          ret (AstBox e' caps)
+      | AstUnbox e =>
+          e' <- zonk fuel' e ;
+          ret (AstUnbox e')
+      | AstModTy ex =>
+          let fix zonk_ex (xs : list (string * AST))
+              : ElabM (list (string * AST)) :=
+            match xs with
+            | [] => ret []
+            | (n, ty) :: rest =>
+                ty' <- zonk fuel' ty ;
+                rest' <- zonk_ex rest ;
+                ret ((n, ty') :: rest')
+            end in
+          ex' <- zonk_ex ex ;
+          ret (AstModTy ex')
+      | AstPack m s =>
+          m' <- zonk fuel' m ;
+          s' <- zonk fuel' s ;
+          ret (AstPack m' s')
+      | AstUnpack n s e b =>
+          s' <- zonk fuel' s ;
+          e' <- zonk fuel' e ;
+          b' <- zonk fuel' b ;
+          ret (AstUnpack n s' e' b')
+      | AstSpan sp i =>
+          i' <- zonk fuel' i ;
+          ret (AstSpan sp i')
+      | other => ret other
       end
   end.
 
@@ -794,8 +917,8 @@ Fixpoint types_match_seal (t1 t2 : AST) {struct t1} : bool :=
               | _, _ => false
               end
         | AstRef n1, AstRef n2 => refs_compat n1 n2
-        | AstRef n1, _ => String.eqb n1 "Any"
-        | _, AstRef n2 => String.eqb n2 "Any"
+        | AstRef n1, _ => orb (String.eqb n1 "Any") (String.eqb n1 "Unknown")
+        | _, AstRef n2 => orb (String.eqb n2 "Any") (String.eqb n2 "Unknown")
         | AstUniverse l1, AstUniverse l2 => Nat.eqb l1 l2
         | _, _ => false
         end
@@ -840,12 +963,27 @@ Fixpoint apply_seal_subst_fuel (fuel : nat) (subs : list (string * AST)) (t : AS
           | None => t
           end
       | AstFunTy tps params ret effs =>
-          AstFunTy tps
-            (map (fun p => (fst p, apply_seal_subst_fuel fuel' subs (snd p))) params)
-            (apply_seal_subst_fuel fuel' subs ret) effs
+          let fix go (ps : list (string * AST)) (s : list (string * AST))
+              : list (string * AST) * AST :=
+            match ps with
+            | [] => ([], apply_seal_subst_fuel fuel' s ret)
+            | (pn, pty) :: rest =>
+                let pty' := apply_seal_subst_fuel fuel' s pty in
+                let s' :=
+                  filter (fun p => negb (String.eqb (fst p) pn)) s
+                in
+                let (ps2, r2) := go rest s' in
+                ((pn, pty') :: ps2, r2)
+            end
+          in
+          let (ps', r') := go params subs in
+          AstFunTy tps ps' r' effs
       | AstPi n a r e =>
-          AstPi n (apply_seal_subst_fuel fuel' subs a)
-            (apply_seal_subst_fuel fuel' subs r) e
+          let a' := apply_seal_subst_fuel fuel' subs a in
+          let subs' :=
+            filter (fun p => negb (String.eqb (fst p) n)) subs
+          in
+          AstPi n a' (apply_seal_subst_fuel fuel' subs' r) e
       | AstApp f args =>
           AstApp (apply_seal_subst_fuel fuel' subs f)
             (map (apply_seal_subst_fuel fuel' subs) args)
@@ -932,8 +1070,10 @@ Definition seal_cons_export (n : string) (ty : AST)
   end.
 
 (** Check one signature value member against [found] export and recursive result.
-    [subs] maps signature type-component names to impl definitions from [full]. *)
-Definition seal_sigval_member (n : string) (tps : list string)
+    [subs] maps signature type-component names to impl definitions from [full].
+    Matching uses the substituted view; opaque sealing exports the *signature*
+    types (abstract components stay abstract — no representation leak). *)
+Definition seal_sigval_member (opaque : bool) (n : string) (tps : list string)
     (params : list (string * AST)) (ret : AST) (effs : EffectSet)
     (subs : list (string * AST))
     (found : option (string * AST))
@@ -941,28 +1081,33 @@ Definition seal_sigval_member (n : string) (tps : list string)
   : sum string (list (string * AST)) :=
   let params' := apply_seal_subst_params subs params in
   let ret' := apply_seal_subst subs ret in
-  (* Export the substituted view so clients see concrete types after sealing
-     (e.g. id: Int → Int when [type t = Int] in the impl). *)
-  let exported := AstFunTy tps params' ret' effs in
+  let exported :=
+    if opaque then AstFunTy tps params ret effs
+    else AstFunTy tps params' ret' effs
+  in
   match found with
   | Some (_, AstFunTy _ impl_params impl_ret impl_effs) =>
+      let impl_params' := apply_seal_subst_params subs impl_params in
+      let impl_ret' := apply_seal_subst subs impl_ret in
       if effect_row_subsumes impl_effs effs then
-        if andb (seal_params_ok params' impl_params) (types_match_seal ret' impl_ret)
+        if andb (seal_params_ok params' impl_params') (types_match_seal ret' impl_ret')
         then seal_cons_export n exported rest_res
         else inl ("type mismatch for signature member: " ++ n)
       else inl ("effect row too large for signature member: " ++ n)
   | Some (_, AstPi _ impl_arg impl_ret impl_effs) =>
+      let impl_arg' := apply_seal_subst subs impl_arg in
+      let impl_ret' := apply_seal_subst subs impl_ret in
       if effect_row_subsumes impl_effs effs then
         match params' with
         | [(_, sig_arg)] =>
-            if andb (types_match_seal sig_arg impl_arg)
-                    (types_match_seal ret' impl_ret)
+            if andb (types_match_seal sig_arg impl_arg')
+                    (types_match_seal ret' impl_ret')
             then seal_cons_export n exported rest_res
             else inl ("type mismatch for signature member: " ++ n)
         | _ => inl ("type mismatch for signature member: " ++ n)
         end
       else inl ("effect row too large for signature member: " ++ n)
-  | Some (fn, fty) => seal_cons_export fn fty rest_res
+  | Some _ => inl ("type mismatch for signature member: " ++ n)
   | None => inl ("signature requires missing value: " ++ n)
   end.
 
@@ -976,7 +1121,7 @@ Fixpoint seal_exports_check_flat (opaque : bool) (full : list (string * AST))
   match sig_decls with
   | [] => inr []
   | AstSigVal n tps params ret effs :: rest =>
-      seal_sigval_member n tps params ret effs subs
+      seal_sigval_member opaque n tps params ret effs subs
         (find (fun p => String.eqb (fst p) n) full)
         (seal_exports_check_flat opaque full subs rest)
   | AstDef n _ _ _ _ _ :: rest =>
@@ -988,22 +1133,39 @@ Fixpoint seal_exports_check_flat (opaque : bool) (full : list (string * AST))
           end
       | None => inl ("signature requires missing value: " ++ n)
       end
-  | AstTypeDecl n _ :: rest =>
+  | AstTypeDecl n opt_sig :: rest =>
       match find (fun p => String.eqb (fst p) n) full with
-      | Some (_, AstTypeDecl _ opt) =>
-          let exported :=
-            if opaque then AstTypeDecl n None
-            else AstTypeDecl n opt
+      | Some (_, AstTypeDecl _ opt_impl) =>
+          let manifest_ok :=
+            match opt_sig, opt_impl with
+            | Some sig_ty, Some impl_ty =>
+                types_match_seal (apply_seal_subst subs sig_ty) impl_ty
+            | Some _, None => false
+            | None, _ => true
+            end
           in
-          match seal_exports_check_flat opaque full subs rest with
-          | inl err => inl err
-          | inr xs => inr ((n, exported) :: xs)
-          end
+          if negb manifest_ok then
+            inl ("manifest type mismatch for: " ++ n)
+          else
+            let exported :=
+              if opaque then AstTypeDecl n None
+              else
+                match opt_sig with
+                | Some sig_ty => AstTypeDecl n (Some (apply_seal_subst subs sig_ty))
+                | None => AstTypeDecl n opt_impl
+                end
+            in
+            match seal_exports_check_flat opaque full subs rest with
+            | inl err => inl err
+            | inr xs => inr ((n, exported) :: xs)
+            end
       | Some _ =>
           inl ("signature type component is not a type: " ++ n)
       | None => inl ("signature requires missing type: " ++ n)
       end
-  | _ :: rest => seal_exports_check_flat opaque full subs rest
+  | _ :: _ =>
+      (* Spans / with-type should already be flattened; do not re-cons. *)
+      inl "unsupported signature declaration under sealing"
   end.
 
 Definition seal_exports_check (opaque : bool) (full : list (string * AST))
@@ -1152,10 +1314,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   let ret' := subst_ast tp (fst aAst) ret_ty in
                   restAst <- check_args (AstFunTy tps [] ret' effs) rest;
                   ret (fst aAst :: fst restAst, snd restAst)
-              | a :: rest, AstFunTy [] [] ret_ty effs =>
-                  aAst <- elaborate fuel' env a None;
-                  restAst <- check_args (AstFunTy [] [] ret_ty effs) rest;
-                  ret (fst aAst :: fst restAst, snd restAst)
+              | a :: rest, AstFunTy [] [] _ret_ty _effs =>
+                  throw "too many arguments"
               | a :: rest, AstPi n arg_ty ret_ty effs =>
                   aAst <- elaborate fuel' env a (Some arg_ty);
                   let ret' := subst_ast n (fst aAst) ret_ty in
@@ -1170,10 +1330,13 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   aAst <- elaborate fuel' env a (Some argTyM);
                   restAst <- check_args retTyM rest;
                   ret (fst aAst :: fst restAst, snd restAst)
-              | a :: rest, _ =>
-                  aAst <- elaborate fuel' env a None;
-                  restAst <- check_args (AstRef "Any") rest;
-                  ret (fst aAst :: fst restAst, (AstRef "Any", snd (snd restAst)))
+              | a :: rest, AstRef n =>
+                  if orb (String.eqb n "Any") (String.eqb n "Unknown") then
+                    aAst <- elaborate fuel' env a None ;
+                    restAst <- check_args (AstRef "Any") rest ;
+                    ret (fst aAst :: fst restAst, (AstRef "Any", snd (snd restAst)))
+                  else throw "cannot apply non-function"
+              | _ :: _, _ => throw "cannot apply non-function"
               end
           in
           argsRes <- check_args (snd funcAst) args;
@@ -1418,7 +1581,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       bodyAst <- elaborate fuel' (((arg_name, context span), fst argTyAst) :: env) body None ;
       body_effs <- get_pending ;
       open_effs <- with_open_row body_effs ;
-      set_pending (merge_effects old_pending body_effs) ;;
+      (* Latent effects live on the Pi only — not performed at lambda creation
+         (same rule as annotated [def]). *)
+      set_pending old_pending ;;
       let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) open_effs in
       ret (AstLam (mangle_name arg_name (context span)) (fst argTyAst) (fst bodyAst), arrTy)
 
@@ -2019,6 +2184,36 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         end
       in
       eqsAst <- elab_eqs eqs ;
+      let sig_view :=
+        match strip_span (snd baseAst) with
+        | AstSigWith b eqs0 => apply_sig_with b eqs0
+        | other => other
+        end
+      in
+      let flat_decls :=
+        match sig_view with
+        | AstSignature _ decls =>
+            flatten_sig_decls (sig_decls_fuel decls) decls
+        | _ => []
+        end
+      in
+      let fix type_names (ds : list AST) : list string :=
+        match ds with
+        | [] => []
+        | AstTypeDecl n _ :: rest => n :: type_names rest
+        | _ :: rest => type_names rest
+        end
+      in
+      let names := type_names flat_decls in
+      let fix check_eq_names (es : list (string * AST)) : ElabM unit :=
+        match es with
+        | [] => ret tt
+        | (n, _) :: rest =>
+            if existsb (String.eqb n) names then check_eq_names rest
+            else throw ("unknown type component in with type: " ++ n)
+        end
+      in
+      check_eq_names eqsAst ;;
       let with_ast := AstSigWith (fst baseAst) eqsAst in
       let enriched := apply_sig_with (snd baseAst) eqsAst in
       ret (with_ast, enriched)
@@ -2378,7 +2573,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               in
               argsRes <- check_do_args args argTys ;
               set_pending (add_effect (UserEffect eff) pending) ;;
-              ret (AstDo (AstRef op_name) argsRes, retTy)
+              (* Encode effect label with op so runtime dispatch is label+op. *)
+              ret (AstDo (AstRef (eff ++ "/" ++ op_name)) argsRes, retTy)
           | None =>
               match find_registered_op op_name reg with
               | Some (eff, argTys, retTy) =>
@@ -2400,7 +2596,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   in
                   argsRes <- check_do_args args argTys ;
                   set_pending (add_effect (UserEffect eff) pending) ;;
-                  ret (AstDo (AstRef op_name) argsRes, retTy)
+                  ret (AstDo (AstRef (eff ++ "/" ++ op_name)) argsRes, retTy)
               | None =>
                   throw (append "Unknown effect operation: " op_name)
               end
@@ -2570,12 +2766,15 @@ Definition core_env_of_elab (env : TypeEnv) : Chester.CoreChecker.TypeEnv :=
 
 Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : ElabM (AST * AST) :=
   res <- elaborate (cst_fuel expr) env expr expected ;
+  zexpr <- zonk (S (ast_size (fst res))) (fst res) ;
+  zty <- zonk (S (ast_size (snd res))) (snd res) ;
+  let res' := (zexpr, zty) in
   pending <- get_pending ;
   let fix check_pending (ps : EffectSet) : ElabM (AST * AST) :=
     match ps with
     | [] =>
-        match Chester.CoreChecker.infer_check (core_env_of_elab env) (fst res) None with
-        | TyOk _ => ret res
+        match Chester.CoreChecker.infer_check (core_env_of_elab env) (fst res') None with
+        | TyOk _ => ret res'
         | TyErr msg => throw (append "Core check: " msg)
         end
     | EffectRowVar _ :: rest => check_pending rest
@@ -2584,7 +2783,10 @@ Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : 
         if string_dec e "div" then check_pending rest
         else throw (append "Unhandled effect: " e)
     | BuiltinEffect e :: rest =>
-        if string_dec e "div" then check_pending rest
+        (* [io] is a phantom FFI row for stdlib print, not a handleable effect. *)
+        if orb (if string_dec e "div" then true else false)
+               (if string_dec e "io" then true else false)
+        then check_pending rest
         else throw (append "Unhandled effect: " e)
     end
   in check_pending pending.

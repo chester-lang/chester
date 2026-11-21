@@ -55,7 +55,10 @@ frame is still on top (compare by identity / frame id).
 `resume` may be called more than once. The TS/Go runtime implements multi-shot via an
 **answer stream**: each `resume(v)` forks a replay of the body from the perform, feeding
 prior answers then `v`. Limitation: this replays a **prefix** of the body stream; it is
-not a full delimited-continuation capture.
+not a full delimited-continuation capture (side effects before `perform` re-execute).
+
+Perform sites encode `EffectName/op` so the runtime matches both the handler **label** and
+the operation name (not op-name alone across unrelated frames).
 
 ## `box` / `unbox`
 

@@ -462,6 +462,14 @@ let%expect_test "modules_effects_bad rejects oversized row" =
   expect_type_error "tests/modules_effects_bad.chester";
   [%expect {| effect row too large for signature member: go |}]
 
+let%expect_test "modules_opaque_bad rejects Int as abstract t" =
+  expect_type_error "tests/modules_opaque_bad.chester";
+  [%expect {| Type mismatch |}]
+
+let%expect_test "modules_manifest_bad rejects wrong manifest" =
+  expect_type_error "tests/modules_manifest_bad.chester";
+  [%expect {| manifest type mismatch for: t |}]
+
 let%expect_test "fixture termination infer div" =
   check_fixture "tests/termination_infer.chester";
   [%expect {| tests/termination_infer.chester ok |}]

@@ -67,9 +67,13 @@ let ts_effects_runtime =
    return run([]);\n\
    };\n\
    const __chester_perform = (op, args) => {\n\
+   const slash = op.indexOf(\"/\");\n\
+   const wantLabel = slash >= 0 ? op.slice(0, slash) : null;\n\
+   const opName = slash >= 0 ? op.slice(slash + 1) : op;\n\
    for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
    const frame = __chester_caps[i];\n\
-   const h = frame.handlers[op];\n\
+   if (wantLabel !== null && frame.label !== wantLabel) continue;\n\
+   const h = frame.handlers[opName];\n\
    if (!h) continue;\n\
    const got = frame.take();\n\
    if (got.ok) return got.v;\n\
@@ -373,10 +377,19 @@ func __chester_handle(label string, bodyFn func() any, handlers map[string]any) 
 }
 
 func __chester_perform(op string, args []any) any {
+	wantLabel := ""
+	opName := op
+	if i := strings.IndexByte(op, '/'); i >= 0 {
+		wantLabel = op[:i]
+		opName = op[i+1:]
+	}
 	for i := len(__chester_caps) - 1; i >= 0; i-- {
 		frame := __chester_caps[i]
+		if wantLabel != "" && frame["label"] != wantLabel {
+			continue
+		}
 		handlers := frame["handlers"].(map[string]any)
-		h, ok := handlers[op]
+		h, ok := handlers[opName]
 		if !ok {
 			continue
 		}

@@ -1,20 +1,24 @@
 signature HasId {
   type t;
+  def zero(): t;
   def id(x: t): t
 };
 
 module NatId : HasId {
   type t = Int;
+  def zero(): t = { 0 };
   def id(x: t): t = { x }
 };
 
 module OpaqueId :> HasId {
   type t = Int;
+  def zero(): t = { 0 };
   def id(x: t): t = { x }
 };
 
 def main(): Unit = {
   let _ = NatId.id(1);
-  let _ = OpaqueId.id(2);
+  let z = OpaqueId.zero();
+  let _ = OpaqueId.id(z);
   ()
 }

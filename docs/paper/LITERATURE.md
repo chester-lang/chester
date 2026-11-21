@@ -46,9 +46,10 @@ background if incremental or constraint-propagation elaboration returns.
 
 Chester's surface (`effect` / `handle` / `perform` / `resume`, `box` / `unbox`) follows the
 algebraic-effects / capability line. Runtime deep handlers + answer-stream multi-shot live in
-`bin/effects_runtime.ml`. **Partial vs literature:** no return/value clauses; multi-shot is
-answer-stream prefix replay (not full delimited continuations); CoreFrag / emit proofs exclude
-handlers. See `docs/guide/effects.md`.
+`bin/effects_runtime.ml`. Perform encodes `Effect/op` so dispatch matches **label and op**.
+**Still partial vs literature:** no return/value clauses; multi-shot is answer-stream prefix
+replay (not full delimited continuations); no equational handler theory; `io` is a phantom FFI
+row; CoreFrag / emit proofs exclude handlers. See `docs/guide/effects.md`.
 
 - **"Handling Algebraic Effects"** (Plotkin & Pretnar, 2013)
   - Local PDF: `../../chester-references/handling-algebraic-effects-plotkin-pretnar-2013.pdf`
@@ -63,8 +64,9 @@ handlers. See `docs/guide/effects.md`.
 
 Chester has basic dependent features (`Type` as a kind, polymorphic `enum` field
 types, `tests/dependent_types.chester`). Length-indexed enums are **not** implemented
-(`tests/vector.chester` is a non-indexed `Vector[T]`). **Two-Level Type Theory is
-citation-only** — not implemented as a 2LTT system in the theories.
+(`tests/vector.chester` is a non-indexed `Vector[T]`). Unsolved metas and single-letter
+type-param refs remain soft in places (not full rigid conversion). **Two-Level Type
+Theory is citation-only** — not implemented as a 2LTT system in the theories.
 
 - **"Two-Level Type Theory"** (Annenkov, Capriotti, Kraus, Sattler, 2017)
   - Local PDF: `../../chester-references/two-level-type-theory-annenkov-2017.pdf`
@@ -77,8 +79,10 @@ generative and applicative (`module app`) functors, first-class `pack`/`unpack`,
 file-as-module import via `--module-path` / `CHESTER_PATH`.
 
 **Deviations from F-ing modules:** no System Fω packaging; applicative identity is **name-based**,
-not F-ing generative stamps; higher-order functors are absent; sealing is a shallow export-list
-filter with effect-row checks, not full signature matching. See `docs/guide/modules.md`.
+not F-ing generative stamps; higher-order functors / nested module components / `include` are
+absent. Opaque sealing now exports **unsubstituted** signature value types (no Int leak through
+`id: t → t`); manifest `type t = …` equality is checked; unknown `with type` names error. Sealing
+is still not full F-ing Σ≤Ξ matching. See `docs/guide/modules.md`.
 
 - **"F-ing modules"** (Rossberg, Russo, Dreyer)
   - [Journal PDF](https://people.mpi-sws.org/~dreyer/papers/f-ing/firstview-journal.pdf)

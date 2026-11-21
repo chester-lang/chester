@@ -354,7 +354,17 @@ Fixpoint subst_ast_fuel (fuel : nat) (x : string) (v : AST) (body : AST) {struct
       in
       let (ps', r') := go params' ret in
       AstFunTy tp ps' r' effs
-  | AstEnum n tp vars => AstEnum n tp vars
+  | AstEnum n tp vars =>
+      AstEnum n tp
+        (map
+           (fun variant =>
+              match variant with
+              | (ctor, fields, ret0) =>
+                  (ctor,
+                   map (subst_ast_fuel fuel' x v) fields,
+                   subst_ast_fuel fuel' x v ret0)
+              end)
+           vars)
   | AstMatch expr cases =>
       AstMatch (subst_ast_fuel fuel' x v expr)
         (map
@@ -612,14 +622,13 @@ Definition is_universe_ty (t : AST) : bool :=
   match strip_span (whnf t) with
   | AstUniverse _ => true
   | AstRef n =>
-      orb (String.eqb n "Type")
-        (orb (String.eqb n "TypeUniverse")
-          (orb (String.eqb n "Any") (String.eqb n "Unit")))
+      orb (String.eqb n "Type") (String.eqb n "TypeUniverse")
+  | AstMeta _ => true
   | _ => false
   end.
 
 Definition is_type_param_ref (n : string) : bool :=
-  (* Single uppercase letter — common surface type-param names (T, A, B). *)
+  (* Single uppercase letter — surface type-param names (T, A, B) before subst. *)
   match n with
   | String c EmptyString =>
       let k := nat_of_ascii c in
@@ -627,13 +636,26 @@ Definition is_type_param_ref (n : string) : bool :=
   | _ => false
   end.
 
-Definition is_any_ty (t : AST) : bool :=
+(** Inference wildcards. [Any]/[Unknown] are explicit; single-letter refs are
+    surface type parameters (still soft — full rigid params need env evidence).
+    Unsolved metas are wildcards only in [meet_expected] via [is_meta_ty]. *)
+Definition is_wildcard_ty (t : AST) : bool :=
   match strip_span (whnf t) with
   | AstRef n =>
-      (* [Unknown] = omitted def return; single-letter refs are type params. *)
       orb (String.eqb n "Any")
         (orb (String.eqb n "Unknown") (is_type_param_ref n))
+  | _ => false
+  end.
+
+Definition is_meta_ty (t : AST) : bool :=
+  match strip_span t with
   | AstMeta _ => true
+  | _ => false
+  end.
+
+Definition is_any_ty (t : AST) : bool :=
+  match strip_span (whnf t) with
+  | AstRef n => String.eqb n "Any"
   | _ => false
   end.
 
@@ -728,8 +750,8 @@ Fixpoint types_compat_raw (t1 t2 : AST) {struct t1} : bool :=
        | AstRef n, AstFieldAccess _ f => String.eqb f n
        | _, _ => false
        end)
-      (orb (is_any_ty t1)
-        (orb (is_any_ty t2)
+      (orb (is_wildcard_ty t1)
+        (orb (is_wildcard_ty t2)
           (orb (andb (is_int_ty t1) (is_int_ty t2))
             (orb (andb (is_bool_ty t1) (is_bool_ty t2))
               (orb (andb (is_unit_ty t1) (is_unit_ty t2))
@@ -738,19 +760,22 @@ Fixpoint types_compat_raw (t1 t2 : AST) {struct t1} : bool :=
 Definition types_compat (t1 t2 : AST) : bool :=
   types_compat_raw (strip_span (whnf t1)) (strip_span (whnf t2)).
 
-(* Post-elab check against an expected type. Soft aliases (Int/Integer, Any, …)
-   and structural FunTy/App/Pi compatibility are accepted; clear mismatches reject. *)
+(* Post-elab check against an expected type. Soft aliases (Int/Integer) and
+   explicit wildcards [Any]/[Unknown] are accepted; unsolved metas in the
+   expected position are deferred (zonk should have removed them). *)
 Definition meet_expected (got : AST) (expected : option AST) : TyResult AST :=
   match expected with
   | None => TyOk got
   | Some expTy =>
-      if types_compat got expTy then TyOk got
+      if orb (is_wildcard_ty expTy)
+           (orb (is_meta_ty expTy) (types_compat got expTy))
+      then TyOk got
       else TyErr "type mismatch against expected"
   end.
 
 (*
   Core bidirectional checker for elaborated ASTs (post-elaborator).
-  Metas are treated as Any until zonk covers all constructors.
+  Callers should zonk metas before checking when possible.
 *)
 (* Concrete [div] only. An open row variable does not count: [effect_row_has]
    treats a row variable as every label, which made this check vacuously true
@@ -979,13 +1004,43 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
             match infer_check env arg (Some argTy) with
             | TyOk _ =>
                 let nextTy := subst_ast argName arg retTy in
-                let fix check_extra (ty : AST) (xs : list AST) : TyResult AST :=
+                let fix check_extra (ty : AST) (xs : list AST) {struct xs}
+                    : TyResult AST :=
                   match xs with
                   | [] => meet_expected ty expected
                   | x :: xs' =>
-                      match infer_check env x None with
-                      | TyOk _ => check_extra AnyType xs'
-                      | TyErr e => TyErr e
+                      match strip_span (whnf ty) with
+                      | AstPi n2 a2 r2 _ =>
+                          match infer_check env x (Some a2) with
+                          | TyOk _ => check_extra (subst_ast n2 x r2) xs'
+                          | TyErr e => TyErr e
+                          end
+                      | AstFunTy tps ((pn, pty) :: ps) rty effs =>
+                          match infer_check env x (Some pty) with
+                          | TyOk _ =>
+                              let ps' :=
+                                map (fun p => (fst p, subst_ast pn x (snd p))) ps
+                              in
+                              let rty' := subst_ast pn x rty in
+                              match ps' with
+                              | [] => check_extra rty' xs'
+                              | _ => check_extra (AstFunTy tps ps' rty' effs) xs'
+                              end
+                          | TyErr e => TyErr e
+                          end
+                      | AstMeta _ =>
+                          match infer_check env x None with
+                          | TyOk _ => check_extra AnyType xs'
+                          | TyErr e => TyErr e
+                          end
+                      | AstRef n =>
+                          if orb (String.eqb n "Any") (String.eqb n "Unknown") then
+                            match infer_check env x None with
+                            | TyOk _ => check_extra AnyType xs'
+                            | TyErr e => TyErr e
+                            end
+                          else TyErr "too many arguments"
+                      | _ => TyErr "too many arguments"
                       end
                   end
                 in check_extra nextTy rest
@@ -997,50 +1052,73 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       | Some (n, aty, rty) => apply_pi n aty rty
       | None =>
       match infer_check env func None with
-      | TyOk (AstPi argName argTy retTy _) =>
-          apply_pi argName argTy retTy
-      | TyOk (AstFunTy tps params ret_ty effs) =>
-          let fix check_args (ps : list (string * AST)) (rty : AST)
-              (as_ : list AST) : TyResult AST :=
-            match as_ with
-            | [] =>
-                match ps with
-                | [] => meet_expected rty expected
-                | _ => meet_expected (AstFunTy tps ps rty effs) expected
-                end
-            | a :: as' =>
-                match ps with
+      | TyOk fty0 =>
+          match strip_span (whnf fty0) with
+          | AstPi argName argTy retTy _ =>
+              apply_pi argName argTy retTy
+          | AstFunTy tps params ret_ty effs =>
+              let fix check_args (ps : list (string * AST)) (rty : AST)
+                  (as_ : list AST) {struct as_} : TyResult AST :=
+                match as_ with
                 | [] =>
+                    match ps with
+                    | [] => meet_expected rty expected
+                    | _ => meet_expected (AstFunTy tps ps rty effs) expected
+                    end
+                | a :: as' =>
+                    match ps with
+                    | [] => TyErr "too many arguments"
+                    | (pn, pty) :: ps' =>
+                        match infer_check env a (Some pty) with
+                        | TyOk _ =>
+                            let ps'' :=
+                              map (fun p => (fst p, subst_ast pn a (snd p))) ps'
+                            in
+                            let rty' := subst_ast pn a rty in
+                            check_args ps'' rty' as'
+                        | TyErr e => TyErr e
+                        end
+                    end
+                end
+              in check_args params ret_ty args
+          | AstMeta _ =>
+              let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
+                match as_ with
+                | [] => meet_expected AnyType expected
+                | a :: as' =>
                     match infer_check env a None with
-                    | TyOk _ => check_args [] rty as'
-                    | TyErr e => TyErr e
-                    end
-                | (pn, pty) :: ps' =>
-                    match infer_check env a (Some pty) with
-                    | TyOk _ =>
-                        let ps'' :=
-                          map (fun p => (fst p, subst_ast pn a (snd p))) ps'
-                        in
-                        let rty' := subst_ast pn a rty in
-                        check_args ps'' rty' as'
+                    | TyOk _ => check_args as'
                     | TyErr e => TyErr e
                     end
                 end
-            end
-          in check_args params ret_ty args
-      | TyOk _ =>
-          (* Soft apply fallback when re-inference did not rebuild Pi/FunTy
-             (e.g. elaborator metas on lambda binders). Still checks args. *)
-          let fix check_args (as_ : list AST) : TyResult AST :=
-            match as_ with
-            | [] => meet_expected AnyType expected
-            | a :: as' =>
-                match infer_check env a None with
-                | TyOk _ => check_args as'
-                | TyErr e => TyErr e
+              in check_args args
+          | AstRef n =>
+              (* Soft apply for [Any]/[Unknown]/type-params and other ref
+                 callees (constructors / unresolved); args are still checked. *)
+              let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
+                match as_ with
+                | [] => meet_expected (AstRef n) expected
+                | a :: as' =>
+                    match infer_check env a None with
+                    | TyOk _ => check_args as'
+                    | TyErr e => TyErr e
+                    end
                 end
-            end
-          in check_args args
+              in check_args args
+          | _ =>
+              (* Soft apply when re-inference did not rebuild Pi/FunTy (e.g. still-
+                 open elaborator shapes). Args are still checked. *)
+              let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
+                match as_ with
+                | [] => meet_expected fty0 expected
+                | a :: as' =>
+                    match infer_check env a None with
+                    | TyOk _ => check_args as'
+                    | TyErr e => TyErr e
+                    end
+                end
+              in check_args args
+          end
       | TyErr e => TyErr e
       end
       end
@@ -1337,19 +1415,19 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
           end
       end
   | AstHandle e _ hs =>
-      (* Lexical handler: body runs under the capability; clauses bind resume.
-         CoreChecker does not model deep-handler stack truncation; nonempty
-         clauses are required so the handle is not a no-op. *)
+      (* Lexical handler: body runs under the capability; clauses bind resume
+         at [opRet → answer]. Deep stack truncation is runtime-only here. *)
       match hs with
       | [] => TyErr "handle requires at least one handler clause"
       | _ =>
           match infer_check env e expected with
           | TyOk ty =>
+              let resume_ty := AstPi "v" AnyType ty [] in
               let fix check_hs (xs : list (string * AST)) : TyResult AST :=
                 match xs with
                 | [] => TyOk ty
                 | (_, h) :: xs' =>
-                    match infer_check (("resume", AnyType) :: env) h None with
+                    match infer_check (("resume", resume_ty) :: env) h None with
                     | TyOk _ => check_hs xs'
                     | TyErr err => TyErr err
                     end

@@ -19,8 +19,6 @@ module app Twice(X: Showable) {
 module A = Twice(Counter);
 module B = Twice(Counter);
 
-signature Shown = Showable with type carrier = String;
-
 def main(): Unit = {
   let _ = Counter.show();
   let _ = Visible.show();

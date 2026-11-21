@@ -81,9 +81,13 @@ __chester_caps.pop();
 return run([]);
 };
 const __chester_perform = (op, args) => {
+const slash = op.indexOf("/");
+const wantLabel = slash >= 0 ? op.slice(0, slash) : null;
+const opName = slash >= 0 ? op.slice(slash + 1) : op;
 for (let i = __chester_caps.length - 1; i >= 0; i--) {
 const frame = __chester_caps[i];
-const h = frame.handlers[op];
+if (wantLabel !== null && frame.label !== wantLabel) continue;
+const h = frame.handlers[opName];
 if (!h) continue;
 const got = frame.take();
 if (got.ok) return got.v;

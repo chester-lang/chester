@@ -1,0 +1,14 @@
+signature HasId {
+  type t;
+  def id(x: t): t
+};
+
+module OpaqueId :> HasId {
+  type t = Int;
+  def id(x: t): t = { x }
+};
+
+def main(): Unit = {
+  let _ = OpaqueId.id(2);
+  ()
+}
