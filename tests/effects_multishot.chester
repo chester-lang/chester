@@ -5,7 +5,7 @@ effect Flip {
 // True multi-shot: each resume re-enters the continuation after perform
 // with a fresh answer (answer-stream replay / forking).
 def main() = {
-  handle {
+  handle multishot {
     let x = perform flip();
     let r = if x then {
       10

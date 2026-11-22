@@ -56,20 +56,33 @@ const int_to_string = prim__int_to_string;
 const list_length = prim__list_length;
 let __chester_caps = [];
 const __chester_handle = (label, bodyFn, handlers) => {
-const run = (answers) => {
+const shallow = !!handlers["__chester_shallow__"];
+const multishot = !!handlers["__chester_multishot__"];
+const run = (answers, install) => {
 let ai = 0;
+let shots = 0;
 const frame = {
 label,
 handlers,
+shallow,
+multishot,
 take: () => {
 if (ai < answers.length) return { ok: true, v: answers[ai++] };
 return { ok: false };
 },
-fork: (v) => run(answers.slice(0, ai).concat([v]))
+fork: (v) => {
+shots++;
+if (!multishot && shots > 1)
+throw new Error("one-shot resume: continuation already resumed");
+const next = answers.slice(0, ai).concat([v]);
+return run(next, !shallow);
+}
 };
-__chester_caps.push(frame);
+if (install !== false) __chester_caps.push(frame);
 try {
 const v = bodyFn();
+if (__chester_caps.length && __chester_caps[__chester_caps.length-1] === frame)
+__chester_caps.pop();
 if (typeof handlers["return"] === "function") return handlers["return"](v);
 return v;
 }
@@ -82,8 +95,10 @@ if (__chester_caps.length && __chester_caps[__chester_caps.length-1] === frame)
 __chester_caps.pop();
 }
 };
-return run([]);
+return run([], true);
 };
+/* Ambient FFI io capability — not user-handleable; present for stdlib print. */
+__chester_caps.push({ label: "io", handlers: {}, take: () => ({ ok: false }), fork: (v) => v, shallow: false, multishot: false, ambient: true });
 const __chester_perform = (op, args) => {
 const slash = op.indexOf("/");
 const wantLabel = slash >= 0 ? op.slice(0, slash) : null;

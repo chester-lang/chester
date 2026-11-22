@@ -60,7 +60,8 @@ Inductive CST : Type :=
   | RecordCST : string -> list string -> list CST -> Span -> CST (* name, type_params, fields *)
   | EffectCST : string -> list string -> list CST -> Span -> CST
   | DoCST : CST -> list CST -> Span -> CST
-  | HandleCST : CST -> string -> list CST -> Span -> CST
+  (** body, effect label, shallow?, multishot?, handlers, span *)
+  | HandleCST : CST -> string -> bool -> bool -> list CST -> Span -> CST
   | FieldAccessCST : CST -> string -> Span -> CST (* expr, field_name *)
   | MacroDefCST : string -> list (PatternCST * CST) -> Span -> CST (* name, cases *)
   | ExtensionCST : string -> list string -> CST -> list CST -> Span -> CST (* name, type_params, target_ty, methods *)
@@ -137,7 +138,7 @@ Definition get_span (c : CST) : Span :=
   | RecordCST _ _ _ span => span
   | EffectCST _ _ _ span => span
   | DoCST _ _ span => span
-  | HandleCST _ _ _ span => span
+  | HandleCST _ _ _ _ _ span => span
   | FieldAccessCST _ _ span => span
   | ExtensionCST _ _ _ _ span => span
   | ImportCST _ _ _ _ span => span
@@ -195,7 +196,7 @@ Fixpoint cst_size (c : CST) {struct c} : nat :=
   | MatchCST e cases _ => S (cst_size e + size_cases cases)
   | RecordCST _ _ fs _ => S (sizes fs)
   | EffectCST _ _ ops _ => S (sizes ops)
-  | HandleCST body _ hs _ => S (cst_size body + sizes hs)
+  | HandleCST body _ _ _ hs _ => S (cst_size body + sizes hs)
   | FieldAccessCST e _ _ | BoxCST e _ | UnboxCST e _ => S (cst_size e)
   | MacroDefCST _ cases _ => S (size_cases cases)
   | ExtensionCST _ _ target meths _ => S (cst_size target + sizes meths)

@@ -25,9 +25,9 @@ After parsing, most surface syntax is still untyped trees (`theories/CST.v`):
 | Node | Role |
 |------|------|
 | `Symbol` | Any identifier or punctuation token (`def`, `+`, `main`, …) |
-| `Tuple` | Parenthesized groups; also used for calls `f(x)` |
-| `ListLiteral` | `[a, b]` lists and implicit type args `f[T]` |
-| `Block` | `{ stmts; tail }` with optional trailing expression |
+| `Tuple` | Parenthesized groups; calls `f(x)`; type apps `Option(T)` |
+| `ListLiteral` | `[a, b]` lists and implicit binders/apps `f[T]` only (not type apps) |
+| `Block` | `{ stmts; tail }`; also effect rows `/ {io}` |
 | `SeqOf` | Flattened statement/expression sequences |
 | `StringLiteral` / `IntegerLiteral` / `BoolLiteral` | Literals |
 | `CommentCST` | `//` comments preserved for the formatter |

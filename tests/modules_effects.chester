@@ -3,11 +3,11 @@ effect IO {
 };
 
 signature S {
-  def go(): Unit / [IO]
+  def go(): Unit / {IO}
 };
 
 module M : S {
-  def go(): Unit / [IO] = {
+  def go(): Unit / {IO} = {
     perform put();
     ()
   }

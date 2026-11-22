@@ -7,7 +7,7 @@ signature S {
 };
 
 module M : S {
-  def go(): Unit / [IO] = {
+  def go(): Unit / {IO} = {
     perform put();
     ()
   }

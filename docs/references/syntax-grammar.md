@@ -28,11 +28,12 @@ Statement     ::= DefDecl
 
 ### Definitions (`def`)
 ```bnf
-DefDecl       ::= 'def' ID TypeParams? '(' ParamList? ')' (':' TypeAnnotation)? ('/' EffectRow)? '=' Expr ';'?
-TypeParams    ::= '[' ID (',' ID)* ']'
+DefDecl       ::= 'def' ID ImplicitParams? '(' ParamList? ')' (':' TypeAnnotation)? ('/' EffectRow)? '=' Expr ';'?
+ImplicitParams ::= '[' ID (',' ID)* ']'   /* binders only — keep [] */
 ParamList     ::= Param (',' Param)*
 Param         ::= ID (':' TypeAnnotation)?
-EffectRow     ::= '[' ID (',' ID)* ']'
+EffectRow     ::= '{' ID (',' ID)* '}'    /* closed annotated rows */
+TypeArgs      ::= '(' ID (',' ID)* ')'    /* enum/record/effect params — use () */
 ```
 
 ### Bindings & Assignments
@@ -44,22 +45,23 @@ AssignStmt    ::= ID '=' Expr ';'?
 
 ### Algebraic Effects (`effect`, `handle`)
 ```bnf
-EffectDecl    ::= 'effect' ID TypeParams? '{' EffectOp* '}' ';'?
+EffectDecl    ::= 'effect' ID TypeArgs? '{' EffectOp* '}' ';'?
 EffectOp      ::= 'def' ID '(' ParamList? ')' ':' TypeAnnotation ';'?
 
-HandleExpr    ::= 'handle' Block 'with' ID '{' HandlerCase* '}'
+HandleExpr    ::= 'handle' HandleMod* Block 'with' ID '{' HandlerCase* '}'
+HandleMod     ::= 'shallow' | 'multishot'
 HandlerCase   ::= 'case' ID '(' ParamList? ')' '=>' Expr ';'?
                 | 'case' 'return' '(' ID ')' '=>' Expr ';'?
-                  (* optional Plotkin-style return/value clause *)
+                  (* optional Plotkin-style return/value clause; runs after pop *)
 PerformExpr   ::= 'perform' ID '(' ExprList? ')'
 ResumeExpr    ::= 'resume' '(' Expr ')'
-BoxExpr       ::= 'box' '(' Expr ')'
-UnboxExpr     ::= 'unbox' '(' Expr ')'
+BoxExpr       ::= 'box' Block
+UnboxExpr     ::= 'unbox' Expr
 ```
 
 ### Enums & Pattern Matching
 ```bnf
-EnumDecl      ::= 'enum' ID TypeParams? '{' EnumVariant (';' EnumVariant)* ';'? '}' ';'?
+EnumDecl      ::= 'enum' ID TypeArgs? '{' EnumVariant (';' EnumVariant)* ';'? '}' ';'?
 EnumVariant   ::= 'case' ID ('(' RecordFields? ')')?
 RecordFields  ::= RecordField (',' RecordField)*
 RecordField   ::= ID ':' TypeAnnotation
@@ -83,7 +85,7 @@ FunctorApp    ::= ID '(' ID ')'
 
 SignatureDecl ::= 'signature' ID SignatureWith? '{' SigMember* '}' ';'?
 SignatureWith ::= 'with' 'type' ID '=' TypeAnnotation
-SigMember     ::= 'def' ID TypeParams? '(' ParamList? ')' ':' TypeAnnotation ('/' EffectRow)? ';'?
+SigMember     ::= 'def' ID ImplicitParams? '(' ParamList? ')' ':' TypeAnnotation ('/' EffectRow)? ';'?
                 | 'type' ID ('=' TypeAnnotation)? ';'?
 
 FirstClassMod ::= 'pack' ID 'as' ID
@@ -92,7 +94,7 @@ FirstClassMod ::= 'pack' ID 'as' ID
 
 ### Extensions & Methods
 ```bnf
-ExtensionDecl ::= 'extension' ID TypeParams? ('on' | 'for') TypeAnnotation '{' DefDecl* '}' ';'?
+ExtensionDecl ::= 'extension' ID ImplicitParams? ('on' | 'for') TypeAnnotation '{' DefDecl* '}' ';'?
 ```
 
 ### Imports & Foreign Function Interface (FFI)
@@ -176,7 +178,11 @@ InfixOp        ::= '+' | '-' | '*' | '/' | '%' | '==' | '<' | '<=' | '>' | '>=' 
 
 - **Unit Type vs Value**: `Unit` is the unit **type**; `()` is the unit **value**.
 - **First-Class Types**: Types like `Int`, `String`, `Bool`, `Unit`, `Type` can be passed as values.
-- **Effect Annotations**: Written `/ [eff1, eff2]`. Non-structural recursion requires `/ [div]` (or is inferred as `div`).
+- **Effect Annotations**: Written `/ {eff1, eff2}` (braces). Non-structural recursion requires `/ {div}` (or is inferred as `div`).
+- **Delimiter roles**:
+  - `[]` — list literals and implicit binders/apps only (`def f[T]`, `f[A]`, `[1, 2]`)
+  - `()` — type applications and enum/record/effect params (`Option(T)`, `enum Option(T)`)
+  - `{}` — blocks and effect rows (`/ {io}`)
 - **Punctuation Independence**: Token delimiters `()`, `[]`, `{}` are parsed prior to semantic keyword analysis.
 
 ---

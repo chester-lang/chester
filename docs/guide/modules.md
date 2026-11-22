@@ -87,10 +87,10 @@ Functions in signatures can specify effect bounds. Under sealing, the elaborator
 
 ```chester
 signature SafeIO {
-  def run(): Unit / [io]
+  def run(): Unit / {io}
 };
 
-// Valid: empty effect row subsumed by [io]
+// Valid: empty effect row subsumed by {io}
 module Impl :> SafeIO {
   def run(): Unit = ()
 };

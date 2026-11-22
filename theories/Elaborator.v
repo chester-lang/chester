@@ -1632,14 +1632,13 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       caps <- get_pending ;
       set_pending old_pending ;;
       active <- get_active_caps ;
-      (* Seal when all required caps are on the lexical stack: evidence is
-         captured at runtime and the box type is pure. Otherwise defer:
-         store no capture labels (empty) so box construction succeeds outside
-         the handler; the box type retains caps and unbox re-requires them. *)
-      let sealed := effects_covered_by caps active in
-      let box_caps := if sealed then caps else [] in
-      let ty_effs := if sealed then [] else caps in
-      ret (AstBox (fst eAst) box_caps, AstPi "x" (AstRef "Unit") (snd eAst) ty_effs)
+      (* Evidence capture requires all claimed caps on the lexical stack
+         (EaC-lite). Empty capture is not allowed — that silently dropped evidence. *)
+      if negb (effects_covered_by caps active) then
+        throw "Missing capability for box"
+      else
+        ret (AstBox (fst eAst) caps,
+             AstPi "x" (AstRef "Unit") (snd eAst) [])
 
   | UnboxCST e span =>
       eAst <- elaborate fuel' env e None ;
@@ -1768,6 +1767,21 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       ret (AstLam (mangle_name arg_name (context span)) arg_ty (fst bodyAst), arrTy)
 
   | AppCST func args span =>
+      (* Type application Option(T) / Result(T, E) uses (); [] is implicits only. *)
+      if is_type_expected expected then
+        funcAst <- elaborate fuel' env func (Some TypeUniverse) ;
+        let fix check_targs (as_ : list CST) : ElabM (list AST) :=
+          match as_ with
+          | [] => ret []
+          | a :: rest =>
+              aAst <- elaborate fuel' env a (Some TypeUniverse) ;
+              restAst <- check_targs rest ;
+              ret (fst aAst :: restAst)
+          end
+        in
+        argsRes <- check_targs args ;
+        ret (AstApp (fst funcAst) argsRes, TypeUniverse)
+      else
       match func with
       | FieldAccessCST expr field fsp =>
           exprAst <- elaborate fuel' env expr None ;
@@ -1913,6 +1927,15 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           fs0 <- instantiate_funty (snd funcAst) ;
           argsRes <- check_args fs0 args ;
           retTyZ <- zonk (S (ast_size (snd argsRes))) (snd argsRes) ;
+          let call_effs :=
+            match strip_span (snd funcAst) with
+            | AstFunTy _ _ _ e => e
+            | AstPi _ _ _ e => e
+            | _ => []
+            end
+          in
+          pending <- get_pending ;
+          set_pending (merge_effects pending (effect_labels call_effs)) ;;
           match expected with
           | Some exp => unify fuel' retTyZ exp
           | None => ret tt
@@ -1977,6 +2000,15 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           fs0 <- instantiate_funty (snd funcAst) ;
           argsRes <- check_args fs0 args ;
           retTyZ <- zonk (S (ast_size (snd argsRes))) (snd argsRes) ;
+          let call_effs :=
+            match strip_span (snd funcAst) with
+            | AstFunTy _ _ _ e => e
+            | AstPi _ _ _ e => e
+            | _ => []
+            end
+          in
+          pending <- get_pending ;
+          set_pending (merge_effects pending (effect_labels call_effs)) ;;
           match expected with
           | Some exp => unify fuel' retTyZ exp
           | None => ret tt
@@ -1985,14 +2017,13 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       end
 
   | ImplicitAppCST func args _ =>
-      (* Standalone implicit application f[A,B]. In type position this is the
-         applied type AstApp f args (e.g. Option[Int]); otherwise keep ImplicitApp. *)
+      (* Implicit application f[A,B] (value-level). Type apps use Option(T). *)
       funcAst <- elaborate fuel' env func None ;
       let fix check_targs (as_ : list CST) : ElabM (list AST) :=
         match as_ with
         | [] => ret []
         | a :: rest =>
-            aAst <- elaborate fuel' env a (Some (AstRef "TypeUniverse")) ;
+            aAst <- elaborate fuel' env a (Some TypeUniverse) ;
             restAst <- check_targs rest ;
             ret (fst aAst :: restAst)
         end
@@ -2810,7 +2841,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               end
           end
       end
-  | HandleCST body eff handlers _ =>
+  | HandleCST body eff shallow multishot handlers _ =>
       push_capability eff ;;
       old_pending <- get_pending ;
       set_pending [] ;;
@@ -2840,7 +2871,6 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           in
           match partition handlers [] [] with
           | (ret_cs, op_cs) =>
-          (* Reverse partitions (we consed) so surface order is preserved. *)
           let fix rev (xs ys : list CST) : list CST :=
             match xs with
             | [] => ys
@@ -2899,32 +2929,46 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                               build_handler_lam binders argTys resume_ty (fst hAst))
                              :: restH)
                     | None =>
-                        throw ("unknown handler operation: " ++ op)
+                        (* Forwarding: unknown/undeclared op still elaborates; runtime
+                           re-performs to an outer handler. *)
+                        let resume_ty := AstPi "v" (AstRef "Any") answer_ty [] in
+                        let fix bind_any (bs : list string) (e0 : TypeEnv) : TypeEnv :=
+                          match bs with
+                          | [] => (("resume", []), resume_ty) :: e0
+                          | b :: bs' => bind_any bs' (((b, []), AstRef "Any") :: e0)
+                          end
+                        in
+                        hAst <- elaborate fuel' (bind_any binders env) hbody
+                                  (Some answer_ty) ;
+                        restH <- elab_handlers rest ;
+                        ret ((op,
+                              build_handler_lam binders
+                                (map (fun _ => AstRef "Any") binders)
+                                resume_ty (fst hAst)) :: restH)
                     end
                 | None => throw "malformed handler case"
                 end
             end
           in
           hsOps <- elab_handlers op_cs ;
-          let hsRes :=
+          (* Incomplete handlers allowed (Effekt forwarding): missing ops are
+             not installed; runtime continue-search / re-perform outward. *)
+          let hsRes0 :=
             match ret_clause with
             | Some (x, body, _) =>
                 ("return", AstLam x body_ty body) :: hsOps
             | None => hsOps
             end
           in
-          let fix check_complete (os : list (string * list AST * AST))
-              : ElabM unit :=
-            match os with
-            | [] => ret tt
-            | (op, _, _) :: rest =>
-                match find (fun p => String.eqb (fst p) op) hsRes with
-                | Some _ => check_complete rest
-                | None => throw ("incomplete handler for effect: " ++ eff)
-                end
-            end
+          let hsRes :=
+            let flags :=
+              app
+                (if shallow then [("__chester_shallow__", AstBoolLit true)] else [])
+                (if multishot then [("__chester_multishot__", AstBoolLit true)]
+                 else [])
+            in
+            app flags hsRes0
           in
-          check_complete ops ;;
           match expected with
           | Some exp => unify fuel' answer_ty exp
           | None => ret tt

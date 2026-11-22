@@ -17,119 +17,119 @@ def run_state(init: Integer): Integer = {
     }
   }
 };
-enum Pair[A, B] {
+enum Pair(A, B) {
   case MkPair(fst: A, snd: B)
 };
-enum Option[T] {
+enum Option(T) {
   case None;
   case Some(value: T)
 };
-enum Result[T, E] {
+enum Result(T, E) {
   case Ok(value: T);
   case Err(err: E)
 };
-def option_is_some[T](opt: Option[T]): Bool = {
+def option_is_some[T](opt: Option(T)): Bool = {
   match opt {
     case Some(x) => true;
     case _ => false
   }
 };
-def option_is_none[T](opt: Option[T]): Bool = {
+def option_is_none[T](opt: Option(T)): Bool = {
   match opt {
     case Some(x) => false;
     case _ => true
   }
 };
-def option_unwrap_or[T](opt: Option[T], default_val: T): T = {
+def option_unwrap_or[T](opt: Option(T), default_val: T): T = {
   match opt {
     case Some(x) => x;
     case _ => default_val
   }
 };
-def option_map[A, B](opt: Option[A], f: (x: A) -> B): Option[B] = {
+def option_map[A, B](opt: Option(A), f: (x: A) -> B): Option(B) = {
   match opt {
     case Some(x) => Some(f(x));
     case _ => None
   }
 };
-def option_and_then[A, B](opt: Option[A], f: (x: A) -> Option[B]): Option[B] = {
+def option_and_then[A, B](opt: Option(A), f: (x: A) -> Option(B)): Option(B) = {
   match opt {
     case Some(x) => f(x);
     case _ => None
   }
 };
-def option_or_else[T](opt: Option[T], default_opt: Option[T]): Option[T] = {
+def option_or_else[T](opt: Option(T), default_opt: Option(T)): Option(T) = {
   match opt {
     case Some(x) => Some(x);
     case _ => default_opt
   }
 };
-def option_to_result[T, E](opt: Option[T], err: E): Result[T, E] = {
+def option_to_result[T, E](opt: Option(T), err: E): Result(T, E) = {
   match opt {
     case Some(x) => Ok(x);
     case _ => Err(err)
   }
 };
-extension OptionOps[T] for Option[T] {
-  def is_some(self: Option[T]): Bool = option_is_some(self);
-  def is_none(self: Option[T]): Bool = option_is_none(self);
-  def unwrap_or(self: Option[T], default_val: T): T = option_unwrap_or(self, default_val);
-  def map[U](self: Option[T], f: (x: T) -> U): Option[U] = option_map(self, f);
-  def and_then[U](self: Option[T], f: (x: T) -> Option[U]): Option[U] = option_and_then(self, f);
-  def or_else(self: Option[T], default_opt: Option[T]): Option[T] = option_or_else(self, default_opt);
-  def to_result[E](self: Option[T], err: E): Result[T, E] = option_to_result(self, err)
+extension OptionOps[T] for Option(T) {
+  def is_some(self: Option(T)): Bool = option_is_some(self);
+  def is_none(self: Option(T)): Bool = option_is_none(self);
+  def unwrap_or(self: Option(T), default_val: T): T = option_unwrap_or(self, default_val);
+  def map[U](self: Option(T), f: (x: T) -> U): Option(U) = option_map(self, f);
+  def and_then[U](self: Option(T), f: (x: T) -> Option(U)): Option(U) = option_and_then(self, f);
+  def or_else(self: Option(T), default_opt: Option(T)): Option(T) = option_or_else(self, default_opt);
+  def to_result[E](self: Option(T), err: E): Result(T, E) = option_to_result(self, err)
 };
 
-def result_is_ok[T, E](res: Result[T, E]): Bool = {
+def result_is_ok[T, E](res: Result(T, E)): Bool = {
   match res {
     case Ok(x) => true;
     case _ => false
   }
 };
-def result_is_err[T, E](res: Result[T, E]): Bool = {
+def result_is_err[T, E](res: Result(T, E)): Bool = {
   match res {
     case Ok(x) => false;
     case _ => true
   }
 };
-def result_unwrap_or[T, E](res: Result[T, E], default_val: T): T = {
+def result_unwrap_or[T, E](res: Result(T, E), default_val: T): T = {
   match res {
     case Ok(x) => x;
     case _ => default_val
   }
 };
-def result_map[T, E, U](res: Result[T, E], f: (x: T) -> U): Result[U, E] = {
+def result_map[T, E, U](res: Result(T, E), f: (x: T) -> U): Result(U, E) = {
   match res {
     case Ok(x) => Ok(f(x));
     case Err(e) => Err(e)
   }
 };
-def result_map_err[T, E, F](res: Result[T, E], f: (err: E) -> F): Result[T, F] = {
+def result_map_err[T, E, F](res: Result(T, E), f: (err: E) -> F): Result(T, F) = {
   match res {
     case Ok(x) => Ok(x);
     case Err(e) => Err(f(e))
   }
 };
-def result_and_then[T, E, U](res: Result[T, E], f: (x: T) -> Result[U, E]): Result[U, E] = {
+def result_and_then[T, E, U](res: Result(T, E), f: (x: T) -> Result(U, E)): Result(U, E) = {
   match res {
     case Ok(x) => f(x);
     case Err(e) => Err(e)
   }
 };
-def result_to_option[T, E](res: Result[T, E]): Option[T] = {
+def result_to_option[T, E](res: Result(T, E)): Option(T) = {
   match res {
     case Ok(x) => Some(x);
     case _ => None
   }
 };
-extension ResultOps[T, E] for Result[T, E] {
-  def is_ok(self: Result[T, E]): Bool = result_is_ok(self);
-  def is_err(self: Result[T, E]): Bool = result_is_err(self);
-  def unwrap_or(self: Result[T, E], default_val: T): T = result_unwrap_or(self, default_val);
-  def map[U](self: Result[T, E], f: (x: T) -> U): Result[U, E] = result_map(self, f);
-  def map_err[F](self: Result[T, E], f: (err: E) -> F): Result[T, F] = result_map_err(self, f);
-  def and_then[U](self: Result[T, E], f: (x: T) -> Result[U, E]): Result[U, E] = result_and_then(self, f);
-  def to_option(self: Result[T, E]): Option[T] = result_to_option(self)
+extension ResultOps[T, E] for Result(T, E) {
+  def is_ok(self: Result(T, E)): Bool = result_is_ok(self);
+  def is_err(self: Result(T, E)): Bool = result_is_err(self);
+  def unwrap_or(self: Result(T, E), default_val: T): T = result_unwrap_or(self, default_val);
+  def map[U](self: Result(T, E), f: (x: T) -> U): Result(U, E) = result_map(self, f);
+  def map_err[F](self: Result(T, E), f: (err: E) -> F): Result(T, F) = result_map_err(self, f);
+  def and_then[U](self: Result(T, E), f: (x: T) -> Result(U, E)): Result(U, E) = result_and_then(self, f);
+  def to_option(self: Result(T, E)): Option(T) = result_to_option(self)
 };
 // Arithmetic operators
 infixl "+";
@@ -177,7 +177,7 @@ def digit_char(d: Integer): String = {
   if int_eq(d, 7) then "7" else
   if int_eq(d, 8) then "8" else "9"
 };
-def int_to_string_helper(n: Integer, acc: String): String / [div] = {
+def int_to_string_helper(n: Integer, acc: String): String / {div} = {
   if int_eq(n, 0) then acc else {
     let d = int_mod(n, 10);
     let rest = int_div(n, 10);
@@ -209,7 +209,7 @@ def char_digit(c: String): Integer = {
   if string_eq(c, "8") then 8 else
   if string_eq(c, "9") then 9 else 0
 };
-def string_to_int_aux(s: String, idx: Integer, acc: Integer): Integer / [div] = {
+def string_to_int_aux(s: String, idx: Integer, acc: Integer): Integer / {div} = {
   if int_eq(idx, string_length(s)) then acc
   else string_to_int_aux(s, int_add(idx, 1), int_add(int_mul(acc, 10), char_digit(string_char_at(s, idx))))
 };
@@ -219,11 +219,11 @@ def string_to_int(s: String): Integer = {
   else string_to_int_aux(s, 0, 0)
 };
 def list_is_empty[T](list: List(T)): Bool = int_eq(list_length(list), 0);
-def list_head[T](list: List(T)): Option[T] = {
+def list_head[T](list: List(T)): Option(T) = {
   if int_eq(list_length(list), 0) then None
   else Some(list_get(list, 0))
 };
-def list_tail[T](list: List(T)): Option[List(T)] = {
+def list_tail[T](list: List(T)): Option(List(T)) = {
   if int_eq(list_length(list), 0) then None
   else Some(advance(list))
 };
@@ -232,8 +232,8 @@ extension ListOps[T] for List(T) {
   def length(self: List(T)): Integer = list_length(self);
   def get(self: List(T), index: Integer): T = list_get(self, index);
   def is_empty(self: List(T)): Bool = list_is_empty(self);
-  def head(self: List(T)): Option[T] = list_head(self);
-  def tail(self: List(T)): Option[List(T)] = list_tail(self);
+  def head(self: List(T)): Option(T) = list_head(self);
+  def tail(self: List(T)): Option(List(T)) = list_tail(self);
   def reverse(self: List(T)): List(T) = list_reverse(self);
   def append(self: List(T), elem: T): List(T) = list_append(self, elem);
   def map[B](self: List(T), f: (x: T) -> B): List(B) = list_map(self, f);
@@ -241,7 +241,7 @@ extension ListOps[T] for List(T) {
   def foldl[B](self: List(T), init: B, f: (acc: B, elem: T) -> B): B = list_foldl(self, init, f);
   def any(self: List(T), pred: (x: T) -> Bool): Bool = list_any(self, pred);
   def all(self: List(T), pred: (x: T) -> Bool): Bool = list_all(self, pred);
-  def find(self: List(T), pred: (x: T) -> Bool): Option[T] = list_find(self, pred);
+  def find(self: List(T), pred: (x: T) -> Bool): Option(T) = list_find(self, pred);
   def concat(self: List(T), other: List(T)): List(T) = list_concat(self, other)
 };
 extension StringOps for String {
@@ -276,7 +276,7 @@ def list_map[A, B](list: List(A), f: (x: A) -> B): List(B) = {
   let len = list_length(list);
   list_make(len, \i => f(list_get(list, i)))
 };
-def find_matching_index[T](list: List(T), predicate: (x: T) -> Bool, target_match: Integer, current_idx: Integer, matches_found: Integer): Integer / [div] = {
+def find_matching_index[T](list: List(T), predicate: (x: T) -> Bool, target_match: Integer, current_idx: Integer, matches_found: Integer): Integer / {div} = {
   if int_eq(current_idx, list_length(list)) then {
     int_sub(0, 1)
   } else {
@@ -292,7 +292,7 @@ def find_matching_index[T](list: List(T), predicate: (x: T) -> Bool, target_matc
   }
 };
 def list_filter[T](list: List(T), predicate: (x: T) -> Bool): List(T) = prim__list_filter(list, predicate);
-def list_foldl_helper[A, B](list: List(A), init: B, f: (acc: B, elem: A) -> B, idx: Integer): B / [div] = {
+def list_foldl_helper[A, B](list: List(A), init: B, f: (acc: B, elem: A) -> B, idx: Integer): B / {div} = {
   if int_eq(idx, list_length(list)) then {
     init
   } else {
@@ -304,7 +304,7 @@ def list_foldl[A, B](list: List(A), init: B, f: (acc: B, elem: A) -> B): B = {
   list_foldl_helper(list, init, f, 0)
 };
 
-def list_any_helper[T](list: List(T), pred: (x: T) -> Bool, idx: Integer): Bool / [div] = {
+def list_any_helper[T](list: List(T), pred: (x: T) -> Bool, idx: Integer): Bool / {div} = {
   if int_eq(idx, list_length(list)) then {
     false
   } else {
@@ -319,7 +319,7 @@ def list_any[T](list: List(T), pred: (x: T) -> Bool): Bool = {
   list_any_helper(list, pred, 0)
 };
 
-def list_all_helper[T](list: List(T), pred: (x: T) -> Bool, idx: Integer): Bool / [div] = {
+def list_all_helper[T](list: List(T), pred: (x: T) -> Bool, idx: Integer): Bool / {div} = {
   if int_eq(idx, list_length(list)) then {
     true
   } else {
@@ -334,7 +334,7 @@ def list_all[T](list: List(T), pred: (x: T) -> Bool): Bool = {
   list_all_helper(list, pred, 0)
 };
 
-def list_find_helper[T](list: List(T), pred: (x: T) -> Bool, idx: Integer): Option[T] / [div] = {
+def list_find_helper[T](list: List(T), pred: (x: T) -> Bool, idx: Integer): Option(T) / {div} = {
   if int_eq(idx, list_length(list)) then {
     None
   } else {
@@ -346,11 +346,11 @@ def list_find_helper[T](list: List(T), pred: (x: T) -> Bool, idx: Integer): Opti
     }
   }
 };
-def list_find[T](list: List(T), pred: (x: T) -> Bool): Option[T] = {
+def list_find[T](list: List(T), pred: (x: T) -> Bool): Option(T) = {
   list_find_helper(list, pred, 0)
 };
 
-def list_contains_helper(list: List(Integer), target: Integer, idx: Integer): Bool / [div] = {
+def list_contains_helper(list: List(Integer), target: Integer, idx: Integer): Bool / {div} = {
   if int_eq(idx, list_length(list)) then {
     false
   } else {

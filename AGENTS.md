@@ -19,9 +19,19 @@ elaborator represents it as `AstRef "Unit"` and backends treat it like void. Pre
 
 ## Surface syntax (current compiler)
 
-- Effects are declared with `effect ... { def op(...): Ret }` and used with `handle`, `perform`,
-  `resume`, `box`, `unbox`. Functions may also carry effect rows such as `/ [io]` (see
-  `stdlib/*/std.chester`).
+### Delimiter roles
+
+- `[]` — list literals and **implicit** binders/apps only: `def f[T]`, `extension Ops[T]`,
+  `f[A]`, `[1, 2, 3]`.
+- `()` — type applications and enum/record/effect type params: `Option(T)`, `List(T)`,
+  `enum Option(T)`, `effect State(T)`.
+- `{}` — blocks and **effect rows**: `Unit / {io}`, `Integer / {div}`.
+
+### Effects & FFI
+
+- Effects are declared with `effect ... { def op(...): Ret }` and used with `handle`
+  (`handle shallow` / `handle multishot` optional), `perform`, `resume`, `box`, `unbox`.
+  Functions may also carry effect rows such as `/ {io}` (see `stdlib/*/std.chester`).
 - TypeScript FFI: `extern ts "module" { def name(...): Ret; }` plus optional bindgen via
   `scripts/dts2chester.mjs` / `bin/chester_bindgen.exe`.
 - Go FFI: bare package calls such as `fmt.Println(...)` in `stdlib/go/std.chester` (no
@@ -32,7 +42,7 @@ elaborator represents it as `AstRef "Unit"` and backends treat it like void. Pre
   generative functors `module F(X: S) { ... }` / `module N = F(M)`,
   applicative functors `module app F(X: S) { ... }`, paths `M.x`,
   type components `type t` / `type t = T` (incl. `M.t` in type position),
-  effect rows on defs/signature members (`def f(): T / [e]`), checked under sealing,
+  effect rows on defs/signature members (`def f(): T / {e}`), checked under sealing,
   first-class `pack M as S` / `unpack (X : S) = e in body`,
   sharing `signature T = S with type t = Int`,
   and Chester file imports `import Math` / `import Math from "math.chester"`

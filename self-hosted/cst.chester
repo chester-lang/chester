@@ -39,7 +39,7 @@ enum CST {
   case ExtensionCST(name: String, type_params: List(String), target_ty: CST, methods: List(CST), span: Span);
   case EffectCST(name: String, type_params: List(String), decls: List(CST), span: Span);
   case DoCST(op: CST, args: List(CST), span: Span);
-  case HandleCST(body: CST, eff: String, handlers: List(CST), span: Span);
+  case HandleCST(body: CST, eff: String, shallow: Bool, multishot: Bool, handlers: List(CST), span: Span);
   case BoxCST(inner: CST, span: Span);
   case UnboxCST(inner: CST, span: Span);
   case ImportCST(lang: String, alias: String, mod_path: String, syms: List(String), span: Span);
@@ -86,7 +86,7 @@ def cst_size(c: CST): Integer = match c {
   case ExtensionCST(_, _, target, meths, _) => int_add(1, int_add(cst_size(target), cst_list_size(meths)));
   case EffectCST(_, _, decls, _) => int_add(1, cst_list_size(decls));
   case DoCST(op, args, _) => int_add(1, int_add(cst_size(op), cst_list_size(args)));
-  case HandleCST(body, _, hs, _) => int_add(1, int_add(cst_size(body), cst_list_size(hs)));
+  case HandleCST(body, _, _, _, hs, _) => int_add(1, int_add(cst_size(body), cst_list_size(hs)));
   case BoxCST(e, _) => int_add(1, cst_size(e));
   case UnboxCST(e, _) => int_add(1, cst_size(e));
   case FieldAccess(e, _, _) => int_add(1, cst_size(e));

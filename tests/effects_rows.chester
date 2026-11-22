@@ -4,7 +4,7 @@ effect Choose {
 
 // Nested multi-shot: two chooses × two resumes → 8+4+2+1 = 15
 def main() = {
-  handle {
+  handle multishot {
     let a = perform choose();
     let b = perform choose();
     let r = if a then {

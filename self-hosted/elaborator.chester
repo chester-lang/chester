@@ -212,15 +212,9 @@ def hs_has_op(op: String, hs: List(Pair)): Bool = {
     }
   }
 };
-def check_handler_complete(eff: String, ops: List(EffectOp), hs: List(Pair)): String = {
-  if int_eq(list_length(ops), 0) then "ok" else {
-    match list_get(ops, 0) {
-      case MkEffectOp(op, _, _) => {
-        if hs_has_op(op, hs) then check_handler_complete(eff, advance(ops), hs)
-        else string_concat("incomplete handler for effect: ", eff)
-      }
-    }
-  }
+def check_handler_complete(_eff: String, _ops: List(EffectOp), _hs: List(Pair)): String = {
+  // Incomplete handlers allowed (Effekt forwarding): missing ops re-perform outward.
+  "ok"
 };
 def free_in_asts(name: String, ls: List(AST)): Bool = {
   if int_eq(list_length(ls), 0) then false else {
@@ -1672,10 +1666,10 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                 case MkElabState(e1, nv1, sub1, ex1, ef1, act1, caps) => {
                   put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act1, pend0));
                   let sealed = effects_covered_by(caps, act1);
-                  let box_caps = if sealed then caps else list_empty[String]();
-                  let ty_effs = if sealed then list_empty[String]() else caps;
-                  let box_ty = AST.AstPi("x", AST.AstRef("Unit"), innerTy, ty_effs);
-                  Pair.MkPair(AST.AstBox(iAst, box_caps), box_ty)
+                  if sealed then {
+                    let box_ty = AST.AstPi("x", AST.AstRef("Unit"), innerTy, list_empty[String]());
+                    Pair.MkPair(AST.AstBox(iAst, caps), box_ty)
+                  } else Pair.MkPair(AST.AstError("Missing capability for box"), AST.AstRef("Any"))
                 }
               }
             }
@@ -1976,7 +1970,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
         }
       }
     };
-    case HandleCST(body, eff, handlers, _) => {
+    case HandleCST(body, eff, shallow, multishot, handlers, _) => {
       let s0 = get_elab_state();
       match s0 {
         case MkElabState(e0, nv0, sub0, ex0, ef0, act0, pend0) => {
@@ -1988,7 +1982,9 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               put_elab_state(ElabState.MkElabState(e1, nv1, sub1, ex1, ef1, act0, merge_pending(pend0, filter_pending(eff, pend1))));
               match body_elab {
                 case MkPair(body_ast, body_ty) => {
-                  let hs = elab_hs(env, handlers);
+                  let hs0 = elab_hs(env, handlers);
+                  let hs1 = if shallow then list_insert_first(hs0, Pair.MkPair("__chester_shallow__", AST.AstBoolLit(true))) else hs0;
+                  let hs = if multishot then list_insert_first(hs1, Pair.MkPair("__chester_multishot__", AST.AstBoolLit(true))) else hs1;
                   let msg = check_handler_complete(eff, lookup_effect_ops(eff, ef1), hs);
                   if string_eq(msg, "ok") then Pair.MkPair(AST.AstHandle(body_ast, eff, hs), body_ty)
                   else Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"))
@@ -2037,7 +2033,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
 def check_pending(ps: List(String), res: Pair): Pair = {
   if int_eq(list_length(ps), 0) then res else {
     let e = list_get(ps, 0);
-    if bool_or(is_row_var(e), string_eq(e, "div")) then check_pending(advance(ps), res) else {
+    // div = termination classifier; io = ambient top-level capability (not handleable).
+    if bool_or(is_row_var(e), bool_or(string_eq(e, "div"), string_eq(e, "io"))) then check_pending(advance(ps), res) else {
       Pair.MkPair(AST.AstError(string_concat("Unhandled effect: ", e)), AST.AstRef("Any"))
     }
 }

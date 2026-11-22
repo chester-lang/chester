@@ -1,8 +1,8 @@
-enum Vector[T] {
+enum Vector(T) {
   case Nil;
-  case Cons(head: T, tail: Vector[T])
+  case Cons(head: T, tail: Vector(T))
 };
-def head[T](v: Vector[T]): T = {
+def head[T](v: Vector(T)): T = {
   match v {
     case Cons(h, t) => h
   }

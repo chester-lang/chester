@@ -1,4 +1,4 @@
-enum ParseResult[T] {
+enum ParseResult(T) {
   case MkParseResult(result: T, remaining: List(Token))
 };
 def ParseResult_result[T](p: ParseResult(T)): T = match p { case MkParseResult(r, _) => r };
@@ -287,6 +287,11 @@ def parse_atom_sequence_helper(tokens: List(Token), acc: List(CST)): ParseResult
               match Token_kind(next) {
                 case Identifier() => {
                   if is_block_continue_kw(Token_text(next)) then parse_atom_sequence_helper(rem, new_acc)
+                  else finish_atom_seq(new_acc, rem)
+                };
+                case SymToken(s) => {
+                  // Effect rows use `/ {e}`; keep parsing through `= {body}` on defs.
+                  if string_eq(s, "=") then parse_atom_sequence_helper(rem, new_acc)
                   else finish_atom_seq(new_acc, rem)
                 };
                 case _ => finish_atom_seq(new_acc, rem)

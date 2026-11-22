@@ -1,9 +1,9 @@
-enum Choice[T] {
+enum Choice(T) {
   case Missing;
   case Present(value: T)
 };
 
-def choose(flag: Bool, value: Integer): Choice[Integer] = {
+def choose(flag: Bool, value: Integer): Choice(Integer) = {
   if flag then Present(value) else Missing
 };
 

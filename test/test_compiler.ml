@@ -574,7 +574,7 @@ let%expect_test "runtime effects rows" =
 
 let%expect_test "unbox without handler is rejected" =
   expect_type_error "tests/effects_unbox_unhandled.chester";
-  [%expect {| Unhandled effect: State |}]
+  [%expect {| Missing capability for box |}]
 
 let%expect_test "go emit effects handle" =
   let prog =

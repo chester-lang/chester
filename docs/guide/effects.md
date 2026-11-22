@@ -7,12 +7,11 @@ This is **not** a full Plotkin/Pretnar or Effekt implementation — see caveats 
 
 ## Declaring Effects
 
-Effects are declared with the `effect` keyword. Type parameters (e.g. `State[T]`) may
-appear in operation signatures; the elaborator instantiates them at use sites where
-supported by the registry.
+Effects are declared with the `effect` keyword. Type parameters use parentheses
+(e.g. `State(T)`), same as type applications / enum params — not `[]`.
 
 ```chester
-effect State[T] {
+effect State(T) {
   def get(): T;
   def put(s: T): Unit;
 }
@@ -38,8 +37,9 @@ for the unit value (legacy bare `Unit` is still accepted).
 
 ### Return / value clause
 
-An optional `case return(x) => …` maps the pure result of the `handle` body (Plotkin–Pretnar
-return clause). If omitted, the body value is the handle result (identity return).
+An optional `case return(x) => …` maps the pure result of the `handle` body. The clause
+runs **after** the handler frame is popped (Plotkin: return outside the handler). If
+omitted, the body value is the handle result (identity return).
 
 ```chester
 handle { … ; 1 } with Choose {
@@ -48,62 +48,97 @@ handle { … ; 1 } with Choose {
 }
 ```
 
-### Incomplete handlers
+### Incomplete handlers (forwarding)
 
-The elaborator rejects a `handle` that omits any operation declared on the effect
-(`incomplete handler for effect: …`). The core checker also rejects a handle with an
-empty clause list. At runtime, a perform with no matching capability still throws /
-panics (`Unhandled effect operation`).
+Handlers may omit operations. Missing ops are not installed on the frame; at runtime a
+perform continues searching outer frames (Effekt-style forwarding). Only when no outer
+match exists does the runtime throw / panic (`Unhandled effect operation`).
 
-### Deep handlers
+### Deep vs shallow
 
-Before a handler clause runs, the matched capability frame (and anything above it) is
-**truncated** from the stack so effects performed inside the clause escape to outer
-handlers (Plotkin/Pretnar deep semantics). The `handle` `finally` only pops if that
-frame is still on top (compare by identity / frame id).
+Default `handle` is **deep**: resume reinstalls the handler around the continuation
+(truncate + answer-stream). Opt in to shallow with `handle shallow Eff { … }`: resume
+does **not** reinstall that frame around the continuation.
 
-### Multi-shot resume (answer-stream)
+```chester
+handle shallow {
+  perform choose()
+} with Choose {
+  case choose() => resume(true)
+}
+```
 
-`resume` may be called more than once. The TS/Go runtime implements multi-shot via an
-**answer stream**: each `resume(v)` forks a replay of the body from the perform, feeding
-prior answers then `v`. Limitation: this replays a **prefix** of the body stream; it is
-not a full delimited-continuation capture (side effects before `perform` re-execute).
+### One-shot vs multi-shot resume
+
+Default resume is **one-shot**: a second `resume` errors
+(`one-shot resume: continuation already resumed`). Opt in with `handle multishot`:
+
+```chester
+handle multishot {
+  …
+} with Choose { … }
+```
+
+Multi-shot uses an **answer stream** (prefix replay of the body from the perform). It is
+**not** delimited-continuation capture; side effects before `perform` re-execute.
+
+Modifiers may combine: `handle shallow multishot { … } with Eff { … }`.
 
 Perform sites encode `EffectName/op` so the runtime matches both the handler **label** and
 the operation name (not op-name alone across unrelated frames).
 
 ## `box` / `unbox`
 
-`box { … }` captures the currently active capabilities listed for the boxed thunk
-(evidence). `unbox` reinstalls that evidence and runs the body. If a claimed label is
-missing at the box site, the runtime throws / panics (`Missing capability for box`) —
-silent dropping is not allowed.
+`box { … }` captures the currently active capabilities claimed by the boxed thunk
+(evidence). Caps must be on the lexical stack at the box site — empty / unsealed capture
+is rejected (`Missing capability for box`). `unbox` reinstalls that evidence and runs the
+body.
 
 ## Effect Rows in Signatures
 
-Functions may carry effect rows with `/ [label]` syntax. Stdlib I/O uses lowercase
-**`io`** (e.g. `Unit / [io]` in `stdlib/*/std.chester`), not `IO`. Labels are
-case-sensitive strings in the effect registry.
+Annotated rows use braces: `/ {label}`. Annotated rows are **closed** (must list all
+effects). Open rows appear only via inferred unannotated defs (`with_open_row`). Stdlib
+I/O uses lowercase **`io`** (e.g. `Unit / {io}`), not `IO`.
 
 ```chester
-def do_io(): Unit / [io] = {
-  // perform IO operations
+def do_io(): Unit / {io} = {
+  // FFI / print — not a user-handleable algebraic effect
 }
 ```
+
+### `io` ambient
+
+`io` is an **ambient top-level capability**: the elaborator allows pending `io` at program
+top / prelude boundary, and the runtime installs a trivial ambient `io` frame for script
+entry. It is **not** a user-`handle`able algebraic effect (unlike `State` / `Choose`).
+
+### `div` classifier
+
+`div` is a termination classifier, not a capability: it does not need a `handle`.
 
 ## Termination and `div`
 
 A recursive function is accepted when every self-call passes a strictly smaller argument: `int_sub` / `prim__int_sub` of a parameter by a positive literal, `advance` / `prim__list_tail` of a parameter, or a field bound by matching on that parameter. `let` names bound to such a decrease count as smaller too.
 
-Any other recursion must carry the `div` effect. An unannotated definition gets `div` inferred. A written row such as `/ [io]` that omits `div` is rejected. `div` is a classifier, not a capability: it does not need a `handle`.
+Any other recursion must carry the `div` effect. An unannotated definition gets `div` inferred. A written row such as `/ {io}` that omits `div` is rejected.
 
 ```chester
 def fact(n: Integer): Integer = {
   if int_eq(n, 0) then 1 else fact(int_sub(n, 1))
 };
 
-def loop(): Integer / [div] = loop();
+def loop(): Integer / {div} = loop();
 ```
+
+## Delimiter roles (effects-related)
+
+| Form | Syntax |
+|------|--------|
+| Effect / enum / record type params | `effect State(T)`, `enum Option(T)` — `()` |
+| Type applications | `Option(T)`, `List(T)` — `()` |
+| Effect rows | `Unit / {io}` — `{}` |
+| Implicit binders / apps | `def f[T]`, `f[A]` — `[]` |
+| List literals | `[1, 2, 3]` — `[]` |
 
 ## See also
 

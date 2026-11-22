@@ -42,20 +42,33 @@ let ts_primitives =
 let ts_effects_runtime =
   "let __chester_caps = [];\n\
    const __chester_handle = (label, bodyFn, handlers) => {\n\
-   const run = (answers) => {\n\
+   const shallow = !!handlers[\"__chester_shallow__\"];\n\
+   const multishot = !!handlers[\"__chester_multishot__\"];\n\
+   const run = (answers, install) => {\n\
    let ai = 0;\n\
+   let shots = 0;\n\
    const frame = {\n\
    label,\n\
    handlers,\n\
+   shallow,\n\
+   multishot,\n\
    take: () => {\n\
    if (ai < answers.length) return { ok: true, v: answers[ai++] };\n\
    return { ok: false };\n\
    },\n\
-   fork: (v) => run(answers.slice(0, ai).concat([v]))\n\
+   fork: (v) => {\n\
+   shots++;\n\
+   if (!multishot && shots > 1)\n\
+   throw new Error(\"one-shot resume: continuation already resumed\");\n\
+   const next = answers.slice(0, ai).concat([v]);\n\
+   return run(next, !shallow);\n\
+   }\n\
    };\n\
-   __chester_caps.push(frame);\n\
+   if (install !== false) __chester_caps.push(frame);\n\
    try {\n\
    const v = bodyFn();\n\
+   if (__chester_caps.length && __chester_caps[__chester_caps.length-1] === frame)\n\
+   __chester_caps.pop();\n\
    if (typeof handlers[\"return\"] === \"function\") return handlers[\"return\"](v);\n\
    return v;\n\
    }\n\
@@ -68,8 +81,10 @@ let ts_effects_runtime =
    __chester_caps.pop();\n\
    }\n\
    };\n\
-   return run([]);\n\
+   return run([], true);\n\
    };\n\
+   /* Ambient FFI io capability — not user-handleable; present for stdlib print. */\n\
+   __chester_caps.push({ label: \"io\", handlers: {}, take: () => ({ ok: false }), fork: (v) => v, shallow: false, multishot: false, ambient: true });\n\
    const __chester_perform = (op, args) => {\n\
    const slash = op.indexOf(\"/\");\n\
    const wantLabel = slash >= 0 ? op.slice(0, slash) : null;\n\
@@ -338,12 +353,15 @@ type __chesterHandled struct {
 }
 
 func __chester_handle(label string, bodyFn func() any, handlers map[string]any) any {
-	var run func(answers []any) any
-	run = func(answers []any) (res any) {
+	shallow, _ := handlers["__chester_shallow__"].(bool)
+	multishot, _ := handlers["__chester_multishot__"].(bool)
+	var run func(answers []any, install bool) any
+	run = func(answers []any, install bool) (res any) {
 		ai := 0
+		shots := 0
 		__chester_frame_id++
 		fid := __chester_frame_id
-		frame := map[string]any{"label": label, "handlers": handlers, "id": fid}
+		frame := map[string]any{"label": label, "handlers": handlers, "id": fid, "shallow": shallow, "multishot": multishot}
 		frame["take"] = func() (bool, any) {
 			if ai < len(answers) {
 				v := answers[ai]
@@ -353,10 +371,16 @@ func __chester_handle(label string, bodyFn func() any, handlers map[string]any) 
 			return false, nil
 		}
 		frame["fork"] = func(v any) any {
+			shots++
+			if !multishot && shots > 1 {
+				panic("one-shot resume: continuation already resumed")
+			}
 			next := append(append([]any{}, answers[:ai]...), v)
-			return run(next)
+			return run(next, !shallow)
 		}
-		__chester_caps = append(__chester_caps, frame)
+		if install {
+			__chester_caps = append(__chester_caps, frame)
+		}
 		defer func() {
 			n := len(__chester_caps)
 			if n > 0 {
@@ -376,12 +400,28 @@ func __chester_handle(label string, bodyFn func() any, handlers map[string]any) 
 			}
 		}()
 		v := bodyFn()
+		n := len(__chester_caps)
+		if n > 0 {
+			top := __chester_caps[n-1]
+			if top["id"] == fid {
+				__chester_caps = __chester_caps[:n-1]
+			}
+		}
 		if retFn, ok := handlers["return"].(func(any) any); ok {
 			return retFn(v)
 		}
 		return v
 	}
-	return run(nil)
+	return run(nil, true)
+}
+
+func init() {
+	// Ambient FFI io capability for stdlib print (not user-handleable).
+	__chester_caps = append(__chester_caps, map[string]any{
+		"label": "io", "handlers": map[string]any{}, "ambient": true,
+		"take": func() (bool, any) { return false, nil },
+		"fork": func(v any) any { return v },
+	})
 }
 
 func __chester_perform(op string, args []any) any {

@@ -445,7 +445,7 @@ Fixpoint format_cst (fuel : nat) (indent : nat) (expr : CST) : string :=
       | MacroDefCST _ _ _
       | BoxCST _ _
       | UnboxCST _ _
-      | HandleCST _ _ _ _ => "/* EXPANDED NODE */"
+      | HandleCST _ _ _ _ _ _ => "/* EXPANDED NODE */"
       | Error msg _ => "/* ERROR: " ++ msg ++ " */"
       end
   end.

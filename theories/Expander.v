@@ -33,8 +33,8 @@ Fixpoint collapse_apps_aux (elems : list CST) (acc : list CST) : list CST :=
   | ListLiteral targs tspan :: rest =>
       match acc with
       | Symbol name sp :: acc_rest =>
-          (* `[]` is implicit app for callables; keep list literals after binders/punct.
-             Also keep after `/` so effect rows `T / [e]` are not ImplicitApp. *)
+          (* `[]` is only list literals or implicit apps (def f[T], f[A]).
+             Keep list literals after binders/punct. Effect rows use `/ {e}` (Block). *)
           if orb (eqb name "=") (orb (eqb name ":") (orb (eqb name "/") (orb (eqb name "return")
                 (orb (eqb name "=>") (orb (eqb name ",") (eqb name ";")))))) then
             collapse_apps_aux rest (ListLiteral targs tspan :: Symbol name sp :: acc_rest)
@@ -178,14 +178,35 @@ Definition try_parse_infix (op_env : OpEnv) (elems : list CST) (span : Span) : o
     end
   else None.
 
-(** Split a trailing effect-row annotation `T / [e1, e2]` from a type SeqOf.
-    Returns (ret_ty, effect names). Also accepts collapsed `ImplicitAppCST / [e]`. *)
+(** Split a trailing effect-row annotation `T / {e1, e2}` from a type SeqOf.
+    Effect rows use braces (Block). Returns (ret_ty, effect names). *)
 Definition split_ty_effect_row (tys : list CST) (span : Span) : (CST * list string) :=
-  let fix names_of (es : list CST) : list string :=
-    match es with
-    | [] => []
-    | Symbol n _ :: rest => n :: names_of rest
-    | _ :: rest => names_of rest
+  let fix names_of (fuel : nat) (es : list CST) {struct fuel} : list string :=
+    match fuel with
+    | 0 => []
+    | S fuel' =>
+        match es with
+        | [] => []
+        | Symbol n _ :: rest => n :: names_of fuel' rest
+        | SeqOf inner _ :: rest =>
+            app (names_of fuel' inner) (names_of fuel' rest)
+        | _ :: rest => names_of fuel' rest
+        end
+    end
+  in
+  let names_of_block (b : CST) : list string :=
+    match b with
+    | Block stmts tail _ =>
+        let tail_es :=
+          match tail with
+          | Symbol u _ => if string_dec u "Unit" then [] else [tail]
+          | Tuple [] _ => []
+          | _ => [tail]
+          end
+        in
+        let es := app stmts tail_es in
+        names_of (S (List.length es + fold_left (fun a c => a + cst_size c) es 0)) es
+    | _ => []
     end
   in
   let pack_ret (ret_rev : list CST) : CST :=
@@ -196,10 +217,8 @@ Definition split_ty_effect_row (tys : list CST) (span : Span) : (CST * list stri
     end
   in
   match rev tys with
-  | ListLiteral effs _ :: Symbol "/" _ :: ret_rev =>
-      (pack_ret ret_rev, names_of effs)
-  | ImplicitAppCST (Symbol "/" _) effs _ :: ret_rev =>
-      (pack_ret ret_rev, names_of effs)
+  | Block _ _ _ as b :: Symbol "/" _ :: ret_rev =>
+      (pack_ret ret_rev, names_of_block b)
   | _ =>
       let ret :=
         match tys with
@@ -383,15 +402,30 @@ Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST
           | [e] => UnboxCST e span
           | _ => UnboxCST (SeqOf rest span) span
           end
-      | Symbol "handle" _ :: Block body_stmts body_tail body_sp :: Symbol "with" _ :: Symbol eff _ :: Block h_stmts h_tail h_sp :: [] =>
-          let methods_of_block (b_stmts : list CST) (b_tail : CST) : list CST :=
-            match b_tail with
-            | Symbol u _ => if eqb u "Unit" then b_stmts else app b_stmts [b_tail]
-            | _ => app b_stmts [b_tail]
+      | Symbol "handle" _ :: rest_h =>
+          (* Optional modifiers: handle [shallow] [multishot] {body} with Eff {hs} *)
+          let fix take_mods (es : list CST) (sh : bool) (ms : bool)
+              : option (bool * bool * list CST) :=
+            match es with
+            | Symbol "shallow" _ :: rest => take_mods rest true ms
+            | Symbol "multishot" _ :: rest => take_mods rest sh true
+            | _ => Some (sh, ms, es)
             end
           in
-          HandleCST (Block body_stmts body_tail body_sp) eff
-            (methods_of_block h_stmts h_tail) span
+          match take_mods rest_h false false with
+          | Some (shallow, multishot,
+              Block body_stmts body_tail body_sp
+                :: Symbol "with" _ :: Symbol eff _ :: Block h_stmts h_tail h_sp :: []) =>
+              let methods_of_block (b_stmts : list CST) (b_tail : CST) : list CST :=
+                match b_tail with
+                | Symbol u _ => if eqb u "Unit" then b_stmts else app b_stmts [b_tail]
+                | _ => app b_stmts [b_tail]
+                end
+              in
+              HandleCST (Block body_stmts body_tail body_sp) eff shallow multishot
+                (methods_of_block h_stmts h_tail) span
+          | _ => SeqOf collapsed span
+          end
       | _ =>
           match split_at_arrow [] collapsed with
           | Some (lhs, rhs) =>
@@ -985,7 +1019,8 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                 EnumCST name [] (extract_variants all_variants) s
                             | _ => stmt
                             end
-                        | ImplicitAppCST (Symbol name _) targs _ =>
+                        | AppCST (Symbol name _) targs _ =>
+                            (* enum Option(T) { ... } — type params via () *)
                             match e2 with
                             | Block variants tail_cst _ =>
                                 let fix extract_variants (vs : list CST) : list CST :=
@@ -1028,8 +1063,8 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                   | _ :: vrest => extract_variants vrest
                                   end
                                 in
-                                let extract_targ (a: CST) : string := 
-                                   match a with Symbol n _ => n | _ => "T" end 
+                                let extract_targ (a: CST) : string :=
+                                   match a with Symbol n _ => n | _ => "T" end
                                 in
                                 let type_params := map extract_targ targs in
                                 let all_variants : list CST := match tail_cst with | Symbol u _ => if string_dec u "Unit" then variants else app variants (tail_cst :: nil) | _ => app variants (tail_cst :: nil) end in
@@ -1068,24 +1103,11 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                 EffectCST name [] (fst (process_stmts f2' env (methods_of_block e2))) s
                             | _ => stmt
                             end
-                        | ImplicitAppCST (Symbol name _) targs _ =>
+                        | AppCST (Symbol name _) targs _ =>
+                            (* effect State(T) { ... } — type params via () *)
                             match e2 with
                             | Block _ _ _ =>
                                 EffectCST name (extract_tparams targs) (fst (process_stmts f2' env (methods_of_block e2))) s
-                            | _ => stmt
-                            end
-                        | _ => stmt
-                        end
-                    | [e1; e2; e3] =>
-                        match e1 with
-                        | Symbol name _ =>
-                            match e2 with
-                            | ListLiteral targs _ =>
-                                match e3 with
-                                | Block _ _ _ =>
-                                    EffectCST name (extract_tparams targs) (fst (process_stmts f2' env (methods_of_block e3))) s
-                                | _ => stmt
-                                end
                             | _ => stmt
                             end
                         | _ => stmt
@@ -1112,8 +1134,16 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                           end
                       | _ => []
                       end in
-                    match rest_seq with
-                    | [e1; e2; e3; e4] =>
+                    let fix take_mods (es : list CST) (sh : bool) (ms : bool)
+                        : option (bool * bool * list CST) :=
+                      match es with
+                      | Symbol "shallow" _ :: rest => take_mods rest true ms
+                      | Symbol "multishot" _ :: rest => take_mods rest sh true
+                      | _ => Some (sh, ms, es)
+                      end
+                    in
+                    match take_mods rest_seq false false with
+                    | Some (shallow, multishot, [e1; e2; e3; e4]) =>
                         match e1 with
                         | Block body_stmts body_tail body_sp =>
                             match e2 with
@@ -1124,6 +1154,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                                     | Block _ _ _ =>
                                         if eqb kwd2 "with" then
                                             HandleCST (Block body_stmts body_tail body_sp) eff
+                                              shallow multishot
                                               (fst (process_stmts f2' env (methods_of_block e4))) s
                                         else stmt
                                     | _ => stmt
@@ -1142,9 +1173,10 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                         match e1 with
                         | AppCST (Symbol name _) fields _ =>
                             RecordCST name [] fields s
-                        | AppCST (ImplicitAppCST (Symbol name _) targs _) fields _ =>
-                            let extract_targ (a: CST) : string := 
-                               match a with Symbol n _ => n | _ => "T" end 
+                        | AppCST (AppCST (Symbol name _) targs _) fields _ =>
+                            (* record R(T) { ... } — type params via () *)
+                            let extract_targ (a: CST) : string :=
+                               match a with Symbol n _ => n | _ => "T" end
                             in
                             let type_params := map extract_targ targs in
                             RecordCST name type_params fields s
@@ -1193,7 +1225,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
             | Symbol u _ =>
                 if eqb u "Unit" then
                   match rev stmts with
-                  | (HandleCST _ _ _ _ as h) :: prefix_rev => (rev prefix_rev, h)
+                  | (HandleCST _ _ _ _ _ _ as h) :: prefix_rev => (rev prefix_rev, h)
                   | (DoCST _ _ _ as d) :: prefix_rev => (rev prefix_rev, d)
                   | (AssignCST _ _ _ as a) :: prefix_rev => (rev prefix_rev, a)
                   | _ => (stmts, tail)
@@ -1275,7 +1307,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
       in
       let (args', env2) := map_elems env1 args in
       (DoCST op' args' span, env2)
-  | HandleCST body eff handlers span =>
+  | HandleCST body eff shallow multishot handlers span =>
       let (body', env1) := expand_cst fuel' op_env body in
       let fix map_elems (env : OpEnv) (cs : list CST) : (list CST * OpEnv) :=
         match cs with
@@ -1287,7 +1319,7 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
         end
       in
       let (handlers', env2) := map_elems env1 handlers in
-      (HandleCST body' eff handlers' span, env2)
+      (HandleCST body' eff shallow multishot handlers' span, env2)
   | VarCST name value next span =>
       let (value', env1) := expand_cst fuel' op_env value in
       let (next', env2) := expand_cst fuel' env1 next in
@@ -1615,8 +1647,9 @@ Fixpoint apply_macros_fuel (fuel : nat) (env : MacroEnv) (c : CST) {struct fuel}
             (map (fun p => (fst p, apply_macros_fuel fuel' env (snd p))) cases) sp
       | DoCST op args sp =>
           DoCST (apply_macros_fuel fuel' env op) (on_list env args) sp
-      | HandleCST body eff hs sp =>
-          HandleCST (apply_macros_fuel fuel' env body) eff (on_list env hs) sp
+      | HandleCST body eff shallow multishot hs sp =>
+          HandleCST (apply_macros_fuel fuel' env body) eff shallow multishot
+            (on_list env hs) sp
       | BoxCST inner sp => BoxCST (apply_macros_fuel fuel' env inner) sp
       | UnboxCST inner sp => UnboxCST (apply_macros_fuel fuel' env inner) sp
       | ExtensionCST n tps tgt meths sp =>

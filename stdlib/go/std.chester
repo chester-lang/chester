@@ -1,8 +1,8 @@
-def print_str(msg: String): Unit / [io] = {
+def print_str(msg: String): Unit / {io} = {
   fmt.Println(msg);
   ()
 };
-def print_int(val: Integer): Unit / [io] = {
+def print_int(val: Integer): Unit / {io} = {
   fmt.Println(val);
   ()
 };

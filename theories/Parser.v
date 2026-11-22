@@ -105,6 +105,9 @@ Definition is_block_continue (toks : list Token) : bool :=
       else if string_dec s "for" then true
       else if string_dec s "with" then true
       else false
+  | TokSym s _ :: _ =>
+      (* Effect rows use `/ {e}`; keep parsing through `= {body}` on defs. *)
+      if string_dec s "=" then true else false
   | _ => false
   end.
 

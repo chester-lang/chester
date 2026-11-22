@@ -45,20 +45,29 @@ background if incremental or constraint-propagation elaboration returns.
 ## 3. Algebraic effects & capabilities (partial in Chester)
 
 Chester's surface (`effect` / `handle` / `perform` / `resume`, `box` / `unbox`) follows the
-algebraic-effects / capability line. Runtime deep handlers + answer-stream multi-shot live in
-`bin/effects_runtime.ml`. Perform encodes `Effect/op` so dispatch matches **label and op**.
-Lambdas keep latent effects on the Pi (not charged at creation). Match binders use constructor
+algebraic-effects / capability line. Runtime lives in `bin/effects_runtime.ml` and
+`runtime/chester-runtime.ts`. Perform encodes `Effect/op` so dispatch matches **label and
+op**. Lambdas keep latent effects on the Pi (not charged at creation); **AppCST** / method
+paths charge callee latent rows the same way `SeqOf` does. Match binders use constructor
 field types when the ctor is in scope.
 
-Optional Plotkin-style `case return(x) => …` is supported (identity if omitted).
+**Shipped this pass (honest subset):**
+- Default **deep** handlers; opt-in `handle shallow` (resume does not reinstall the frame)
+- Default **one-shot** resume; opt-in `handle multishot` via answer-stream prefix replay
+  (**not** delimited-continuation capture)
+- Incomplete handlers **forward** missing ops to outer frames (Effekt-style); hard fail only
+  when no outer match exists
+- Plotkin-style `case return(x) => …` runs **after** popping the handler frame
+- Annotated rows `/ {e}` are **closed**; open rows only via inferred unannotated defs
+- `io` is an **ambient top-level capability** (not user-`handle`able); runtime installs a
+  trivial ambient `io` frame at script entry
+- `box` requires claimed caps on the lexical stack (no empty-evidence / silent drop)
 
 **Still out of scope / partial vs literature:**
-- multi-shot is answer-stream prefix replay (not delimited continuations)
-- no equational handler theory; not full Effects-as-Capabilities (stack + evidence, not explicit
-  capability parameters)
-- `io` is a phantom FFI row (ambient at top level); open rows are Koka-lite (row var accepts labels)
-- `CoreFrag` / emit proofs exclude handlers; Rocq `__chester_*` are Parameters
-- no shallow handlers / forwarding
+- no true delimited-continuation CPS transform
+- no equational handler theory; not full Effects-as-Capabilities (stack + evidence, not
+  explicit capability-parameter rewrite)
+- `CoreFrag` / `emit_*_correct` still exclude `AstHandle`; Rocq `__chester_*` are Parameters
 
 See `docs/guide/effects.md`.
 
@@ -75,7 +84,7 @@ See `docs/guide/effects.md`.
 
 Chester has basic dependent features (`Type` as a kind, polymorphic `enum` field
 types, `tests/dependent_types.chester`). Length-indexed enums are **not** implemented
-(`tests/vector.chester` is a non-indexed `Vector[T]`).
+(`tests/vector.chester` is a non-indexed `Vector(T)`).
 
 **Design (rigid type params + prenex instantiate):** Single-letter surface type-param
 refs (`T`, `A`, …) are **not** unification wildcards. They compare by name
@@ -84,7 +93,7 @@ distinct param letters). Call sites **prenex-instantiate** `AstFunTy` type param
 to fresh metas (`freshen_fun_tps` / `instantiate_funty` in `Elaborator.v`) before
 argument checking — including nullary polymorphic ctors and extension methods (extension
 `[T]` is prepended onto each method’s type-param list so `some.map(f)` instantiates
-`T`). Match binders instantiate the ctor scheme against the scrutinee (`Option[A]` ⇒
+`T`). Match binders instantiate the ctor scheme against the scrutinee (`Option(A)` ⇒
 binder `A`, not scheme `T`). Polymorphic bodies reject `def bad[T](x: T): Int = x`
 (`tests/typeparam_rigid_bad.chester`) while `option_unwrap_or(Some(42), 0)` still
 infers `T := Int`. Remaining soft spot: explicit `[Any]` / `[Unknown]` (FFI /
