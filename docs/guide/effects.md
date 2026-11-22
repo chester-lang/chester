@@ -140,6 +140,13 @@ def loop(): Integer / {div} = loop();
 | Implicit binders / apps | `def f[T]`, `f[A]` — `[]` |
 | List literals | `[1, 2, 3]` — `[]` |
 
+## Honesty vs literature (short)
+
+- Multishot is **answer-stream replay**, not delimited-continuation capture (see Hillerström et al. / Handlers in Action).
+- Open rows are **not** full Koka row polymorphism (`EffectRowVar` is a soft open tail).
+- Stack + `box` evidence is **not** Effects-as-Capabilities System Ξ.
+- Full gap table: [LITERATURE.md](../paper/LITERATURE.md) §3.
+
 ## See also
 
 - [Getting Started](getting-started.md)
