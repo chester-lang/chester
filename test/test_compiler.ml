@@ -532,6 +532,14 @@ let%expect_test "fixture effects multishot" =
   check_fixture "tests/effects_multishot.chester";
   [%expect {| tests/effects_multishot.chester ok |}]
 
+let%expect_test "fixture effects return clause" =
+  check_fixture "tests/effects_return.chester";
+  [%expect {| tests/effects_return.chester ok |}]
+
+let%expect_test "effects return clause runs" =
+  run_fixture_main "tests/effects_return.chester";
+  [%expect {| 11 |}]
+
 let%expect_test "runtime effects multishot fork" =
   run_fixture_main "tests/effects_multishot.chester";
   [%expect {| 11 |}]

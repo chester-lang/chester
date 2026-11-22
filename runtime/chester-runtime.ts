@@ -68,7 +68,11 @@ return { ok: false };
 fork: (v) => run(answers.slice(0, ai).concat([v]))
 };
 __chester_caps.push(frame);
-try { return bodyFn(); }
+try {
+const v = bodyFn();
+if (typeof handlers["return"] === "function") return handlers["return"](v);
+return v;
+}
 catch (e) {
 if (e && e.__chester_handled === frame) return e.result;
 throw e;

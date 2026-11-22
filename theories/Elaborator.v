@@ -2740,7 +2740,57 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       match s with
       | mkElabState _ _ _ reg _ _ _ =>
           let ops := match lookup_effect_ops eff reg with Some o => o | None => [] end in
-          let answer_ty := snd bodyAst in
+          let body_ty := snd bodyAst in
+          (* Partition Plotkin-style [case return(x) => …] from op cases. *)
+          let fix partition (hs : list CST) (rets ops_hs : list CST)
+              : list CST * list CST :=
+            match hs with
+            | [] => (rets, ops_hs)
+            | h :: rest =>
+                match parse_handler_case h with
+                | Some (op, _, _) =>
+                    if string_dec op "return" then
+                      partition rest (h :: rets) ops_hs
+                    else partition rest rets (h :: ops_hs)
+                | None => partition rest rets (h :: ops_hs)
+                end
+            end
+          in
+          match partition handlers [] [] with
+          | (ret_cs, op_cs) =>
+          (* Reverse partitions (we consed) so surface order is preserved. *)
+          let fix rev (xs ys : list CST) : list CST :=
+            match xs with
+            | [] => ys
+            | x :: xs' => rev xs' (x :: ys)
+            end
+          in
+          let ret_cs := rev ret_cs [] in
+          let op_cs := rev op_cs [] in
+          ret_clause <-
+            match ret_cs with
+            | [] => ret None
+            | h :: _ =>
+                match parse_handler_case h with
+                | Some (_, binders, hbody) =>
+                    let x :=
+                      match binders with
+                      | b :: _ => b
+                      | [] => "x"
+                      end
+                    in
+                    hAst <- elaborate fuel'
+                              (((x, []), body_ty) :: env) hbody None ;
+                    ret (Some (x, fst hAst, snd hAst))
+                | None => throw "malformed return clause"
+                end
+            end ;
+          let answer_ty :=
+            match ret_clause with
+            | Some (_, _, ty) => ty
+            | None => body_ty
+            end
+          in
           let fix elab_handlers (hs : list CST) : ElabM (list (string * AST)) :=
             match hs with
             | [] => ret []
@@ -2773,7 +2823,14 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 end
             end
           in
-          hsRes <- elab_handlers handlers ;
+          hsOps <- elab_handlers op_cs ;
+          let hsRes :=
+            match ret_clause with
+            | Some (x, body, _) =>
+                ("return", AstLam x body_ty body) :: hsOps
+            | None => hsOps
+            end
+          in
           let fix check_complete (os : list (string * list AST * AST))
               : ElabM unit :=
             match os with
@@ -2791,6 +2848,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           | None => ret tt
           end ;;
           ret (AstHandle (fst bodyAst) (UserEffect eff) hsRes, answer_ty)
+          end
       end
   | RecordCST name type_params fields _ =>
       let fix elab_fs (fs : list CST) : ElabM (list (string * AST)) :=

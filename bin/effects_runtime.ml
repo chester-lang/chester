@@ -54,7 +54,11 @@ let ts_effects_runtime =
    fork: (v) => run(answers.slice(0, ai).concat([v]))\n\
    };\n\
    __chester_caps.push(frame);\n\
-   try { return bodyFn(); }\n\
+   try {\n\
+   const v = bodyFn();\n\
+   if (typeof handlers[\"return\"] === \"function\") return handlers[\"return\"](v);\n\
+   return v;\n\
+   }\n\
    catch (e) {\n\
    if (e && e.__chester_handled === frame) return e.result;\n\
    throw e;\n\
@@ -371,7 +375,11 @@ func __chester_handle(label string, bodyFn func() any, handlers map[string]any) 
 				panic(r)
 			}
 		}()
-		return bodyFn()
+		v := bodyFn()
+		if retFn, ok := handlers["return"].(func(any) any); ok {
+			return retFn(v)
+		}
+		return v
 	}
 	return run(nil)
 }

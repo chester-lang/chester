@@ -49,6 +49,8 @@ EffectOp      ::= 'def' ID '(' ParamList? ')' ':' TypeAnnotation ';'?
 
 HandleExpr    ::= 'handle' Block 'with' ID '{' HandlerCase* '}'
 HandlerCase   ::= 'case' ID '(' ParamList? ')' '=>' Expr ';'?
+                | 'case' 'return' '(' ID ')' '=>' Expr ';'?
+                  (* optional Plotkin-style return/value clause *)
 PerformExpr   ::= 'perform' ID '(' ExprList? ')'
 ResumeExpr    ::= 'resume' '(' Expr ')'
 BoxExpr       ::= 'box' '(' Expr ')'

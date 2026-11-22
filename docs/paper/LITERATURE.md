@@ -50,8 +50,10 @@ algebraic-effects / capability line. Runtime deep handlers + answer-stream multi
 Lambdas keep latent effects on the Pi (not charged at creation). Match binders use constructor
 field types when the ctor is in scope.
 
+Optional Plotkin-style `case return(x) => …` is supported (identity if omitted).
+
 **Still out of scope / partial vs literature:**
-- no return/value clauses; multi-shot is answer-stream prefix replay (not delimited continuations)
+- multi-shot is answer-stream prefix replay (not delimited continuations)
 - no equational handler theory; not full Effects-as-Capabilities (stack + evidence, not explicit
   capability parameters)
 - `io` is a phantom FFI row (ambient at top level); open rows are Koka-lite (row var accepts labels)
@@ -94,7 +96,8 @@ is checked; nested module/enum/record components are retained under opaque keep 
 - no System Fω packaging; applicative identity is **name-based**, not stamps
 - no higher-order functors / `include` / `open` / `with module` / recursive modules
 - sealing is not full Σ≤Ξ; functor application is export rewrite, not re-elaboration under subst
-- modules outside `CoreFrag`; self-hosted elaborator does not seal/functors
+- modules outside `CoreFrag`; self-hosted elaborates module/signature/pack/functor-app
+  CST nodes as AST skeletons (no sealing / `with type` / opaque checks yet)
 See `docs/guide/modules.md`.
 
 - **"F-ing modules"** (Rossberg, Russo, Dreyer)

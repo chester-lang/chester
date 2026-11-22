@@ -1497,6 +1497,15 @@ def elab_ext_methods(env: List(Pair), meths: List(CST), ext_name: String): List(
     }
   }
 };
+def elab_stmt_list(env: List(Pair), xs: List(CST)): List(AST) = {
+  if int_eq(list_length(xs), 0) then list_empty[AST]() else {
+    let hd_res = elaborate(env, list_get(xs, 0), OptionAST.NoneAST);
+    let tl = elab_stmt_list(env, advance(xs));
+    match hd_res {
+      case MkPair(ast, _) => list_insert_first(tl, ast)
+    }
+  }
+};
 def zonk_list(fuel: Integer, l: List(AST)): List(AST) = {
   if int_eq(list_length(l), 0) then list_empty[AST]() else {
     let hd = zonk(fuel, list_get(l, 0));
@@ -1987,6 +1996,38 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
               }
             }
           }
+        }
+      }
+    };
+    case ModuleCST(name, _params, _seal, body, _) => {
+      let body_asts = elab_stmt_list(env, body);
+      Pair.MkPair(
+        AST.AstModule(name, list_empty[Pair](), list_empty[AST](), body_asts),
+        AST.AstModTy(list_empty[Pair]())
+      )
+    };
+    case SignatureCST(name, body, _) => {
+      let decls = elab_stmt_list(env, body);
+      Pair.MkPair(AST.AstSignature(name, decls), AST.AstSignature(name, decls))
+    };
+    case PackCST(m, s, _) => {
+      let m_res = elaborate(env, m, OptionAST.NoneAST);
+      let s_res = elaborate(env, s, OptionAST.NoneAST);
+      match m_res {
+        case MkPair(mAst, _) => {
+          match s_res {
+            case MkPair(sAst, _) =>
+              Pair.MkPair(AST.AstPack(mAst, sAst), AST.AstModTy(list_empty[Pair]()))
+          }
+        }
+      }
+    };
+    case FunctorAppCST(f, args, _) => {
+      let f_res = elaborate(env, f, OptionAST.NoneAST);
+      match f_res {
+        case MkPair(fAst, _) => {
+          let args_asts = elab_stmt_list(env, args);
+          Pair.MkPair(AST.AstFunctorApp(fAst, args_asts), AST.AstModTy(list_empty[Pair]()))
         }
       }
     };

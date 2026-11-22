@@ -36,6 +36,18 @@ def main() = {
 Inside handler cases, `resume(value)` returns to the perform site. Prefer `resume(())`
 for the unit value (legacy bare `Unit` is still accepted).
 
+### Return / value clause
+
+An optional `case return(x) => …` maps the pure result of the `handle` body (Plotkin–Pretnar
+return clause). If omitted, the body value is the handle result (identity return).
+
+```chester
+handle { … ; 1 } with Choose {
+  case choose() => resume(true);
+  case return(x) => int_add(x, 10)
+}
+```
+
 ### Incomplete handlers
 
 The elaborator rejects a `handle` that omits any operation declared on the effect

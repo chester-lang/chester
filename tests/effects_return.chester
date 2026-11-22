@@ -1,0 +1,14 @@
+effect Choose {
+  def choose(): Bool
+}
+
+def main(): Int = {
+  handle {
+    let b = perform choose();
+    let r = if b then { 1 } else { 2 };
+    r
+  } with Choose {
+    case choose() => resume(true);
+    case return(x) => int_add(x, 10)
+  }
+}
