@@ -1797,11 +1797,11 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             end
           in
           let fix check_mod_args (fs : AST) (as_ : list CST)
-              : ElabM (list AST * AST) :=
+              : ElabM (list AST * (AST * EffectSet)) :=
             match as_, fs with
-            | [], AstFunTy _ _ ret_ty _ => ret ([], ret_ty)
-            | [], AstPi _ _ ret_ty _ => ret ([], ret_ty)
-            | [], ty => ret ([], ty)
+            | [], AstFunTy _ _ ret_ty e => ret ([], (ret_ty, e))
+            | [], AstPi _ _ ret_ty e => ret ([], (ret_ty, e))
+            | [], ty => ret ([], (ty, []))
             | a :: rest, AstFunTy tps ((pn, arg_ty) :: params) ret_ty effs =>
                 aAst <- elaborate fuel' env a (Some arg_ty) ;
                 let params' :=
@@ -1810,7 +1810,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 let ret' := subst_ast pn (fst aAst) ret_ty in
                 restAst <- check_mod_args (AstFunTy tps params' ret' effs) rest ;
                 ret (fst aAst :: fst restAst, snd restAst)
-            | a :: rest, AstPi n arg_ty ret_ty _ =>
+            | a :: rest, AstPi n arg_ty ret_ty _e =>
                 aAst <- elaborate fuel' env a (Some arg_ty) ;
                 let ret' := subst_ast n (fst aAst) ret_ty in
                 restAst <- check_mod_args ret' rest ;
@@ -1818,8 +1818,23 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             | a :: rest, _ =>
                 aAst <- elaborate fuel' env a None ;
                 restAst <- check_mod_args (AstRef "Any") rest ;
-                ret (fst aAst :: fst restAst, AstRef "Any")
+                ret (fst aAst :: fst restAst, (AstRef "Any", []))
             end
+          in
+          let charge_mod_call (ty0 : AST) (args : list CST)
+              : ElabM (list AST * AST) :=
+            ty <- instantiate_funty ty0 ;
+            let call_effs :=
+              match strip_span ty with
+              | AstFunTy _ _ _ e => e
+              | AstPi _ _ _ e => e
+              | _ => []
+              end
+            in
+            argsRes <- check_mod_args ty args ;
+            pending <- get_pending ;
+            set_pending (merge_effects pending (effect_labels call_effs)) ;;
+            ret (fst argsRes, fst (snd argsRes))
           in
           match expr with
           | Symbol pkg_name _ =>
@@ -1832,8 +1847,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   | AstModTy exports =>
                       match lookup_export exports field with
                       | Some ty0 =>
-                          ty <- instantiate_funty ty0 ;
-                          argsRes <- check_mod_args ty args ;
+                          argsRes <- charge_mod_call ty0 args ;
                           ret (AstApp (AstFieldAccess (fst exprAst) field)
                                 (fst argsRes), snd argsRes)
                       | None => throw ("module has no export: " ++ field)
@@ -1855,8 +1869,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               | AstModTy exports =>
                   match lookup_export exports field with
                   | Some ty0 =>
-                      ty <- instantiate_funty ty0 ;
-                      argsRes <- check_mod_args ty args ;
+                      argsRes <- charge_mod_call ty0 args ;
                       ret (AstApp (AstFieldAccess (fst exprAst) field)
                             (fst argsRes), snd argsRes)
                   | None => throw ("module has no export: " ++ field)

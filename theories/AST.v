@@ -35,14 +35,14 @@ Inductive EffectRef :=
 (*
   EffectSet on AstPi / AstFunTy = capabilities / open effect row (Effekt ∩ Koka).
   Lexical handlers install capabilities; perform uses the nearest matching capability.
-  Multi-shot: answer-stream replay in the TS/Go runtime — each resume(v) re-enters
-  after perform via fork; the handler's result is the handle result (body abort).
-  Deep handlers: before a clause runs, the matched frame (and anything above) is
-  truncated off the capability stack so clause effects escape outward
-  (Plotkin/Pretnar). Limitation: multi-shot replays only the answer-stream prefix
-  of the body, not an arbitrary delimited continuation capture.
-  EffectRowVar (μ) is attached to inferred def/lam effect sets; unify uses
-  effect_row_subsumes; call sites only push concrete labels into pending.
+  Deep (default) and multishot both use answer-stream re-entry in the TS/Go runtime
+  (`fork` → `run(next, !shallow)`); one-shot errors on a second resume. Deep truncates
+  the matched frame (and above) before a clause so clause effects escape outward
+  (Plotkin/Pretnar operational). Limitation: replay is only the answer-stream prefix
+  of the body, not delimited-continuation capture (Hillerström et al.).
+  EffectRowVar (μ) is a Koka-lite open *tail* marker on inferred rows: it does **not**
+  make `effect_row_has` accept every label (concrete labels must still appear). Unify
+  uses `effect_row_subsumes`; call sites push concrete labels into pending.
   box records capture labels on AstBox; if those caps are active at the box site
   the type is sealed (pure) and unbox need not re-require them (evidence escape).
   Otherwise unbox re-requires the caps. Missing claimed caps panic/throw at box.
@@ -67,11 +67,12 @@ Definition effect_row_is_open (es : EffectSet) : bool :=
     end
   in go es.
 
-(* Does [provided] cover concrete label [n]? An open row variable accepts any label. *)
+(* Does [provided] cover concrete label [n]? Open-row vars are skipped (not
+   “accepts every label”); ⟨State | μ⟩ has State, bare ⟨μ⟩ does not. *)
 Fixpoint effect_row_has (n : EffectRef) (ps : EffectSet) : bool :=
   match ps with
   | [] => false
-  | EffectRowVar _ :: _ => true
+  | EffectRowVar _ :: ps' => effect_row_has n ps'
   | p :: ps' =>
       match n, p with
       | UserEffect a, UserEffect b => if string_dec a b then true else effect_row_has n ps'
@@ -80,9 +81,8 @@ Fixpoint effect_row_has (n : EffectRef) (ps : EffectSet) : bool :=
       end
   end.
 
-(* Koka-style row subsumption: every concrete label in `needed` appears in `provided`,
-   or `provided` is open (has a row variable) and may accept further labels.
-   Open variables in `needed` are ignored (they do not constrain the provider). *)
+(* Row subsumption: every concrete label in `needed` appears in `provided`.
+   Open variables in `needed` are ignored. *)
 Fixpoint effect_row_subsumes (needed provided : EffectSet) : bool :=
   match needed with
   | [] => true

@@ -58,12 +58,13 @@ let __chester_caps = [];
 const __chester_handle = (label, bodyFn, handlers) => {
 const shallow = !!handlers["__chester_shallow__"];
 const multishot = !!handlers["__chester_multishot__"];
-const run = (answers, install) => {
+const run = (answers, install, hs) => {
 let ai = 0;
 let shots = 0;
+const useHandlers = hs !== undefined ? hs : handlers;
 const frame = {
 label,
-handlers,
+handlers: useHandlers,
 shallow,
 multishot,
 take: () => {
@@ -75,7 +76,9 @@ shots++;
 if (!multishot && shots > 1)
 throw new Error("one-shot resume: continuation already resumed");
 const next = answers.slice(0, ai).concat([v]);
-return run(next, !shallow);
+/* Always reinstall for answer-stream take. Shallow uses empty handlers so
+new performs forward outward (Handlers-in-Action shallow). */
+return run(next, true, shallow ? {} : undefined);
 }
 };
 if (install !== false) __chester_caps.push(frame);
@@ -106,10 +109,12 @@ const opName = slash >= 0 ? op.slice(slash + 1) : op;
 for (let i = __chester_caps.length - 1; i >= 0; i--) {
 const frame = __chester_caps[i];
 if (wantLabel !== null && frame.label !== wantLabel) continue;
-const h = frame.handlers[opName];
-if (!h) continue;
+/* Prefer pending answer-stream values before requiring a handler clause
+(shallow resume installs an answer-only frame with empty handlers). */
 const got = frame.take();
 if (got.ok) return got.v;
+const h = frame.handlers[opName];
+if (!h) continue;
 const resume = (v) => frame.fork(v);
 __chester_caps.length = i;
 let fn = h;

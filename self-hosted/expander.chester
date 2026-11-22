@@ -404,6 +404,64 @@ def split_at_eq(acc: List(CST), ls: List(CST)): List(List(CST)) = {
     }
 }
 };
+def names_of_eff_cs(es: List(CST)): List(String) = {
+  if int_eq(list_length(es), 0) then list_empty[String]() else {
+    match list_get(es, 0) {
+      case Symbol(n, _) => list_insert_first(names_of_eff_cs(advance(es)), n);
+      case SeqOf(inner, _) => list_concat(names_of_eff_cs(inner), names_of_eff_cs(advance(es)));
+      case _ => names_of_eff_cs(advance(es))
+    }
+  }
+};
+def names_of_eff_block(b: CST): List(String) = {
+  match b {
+    case Block(stmts, tail, _) => {
+      let tail_es = match tail {
+        case Symbol(u, _) => { if string_eq(u, "Unit") then list_empty[CST]() else list_insert_first(list_empty[CST](), tail) };
+        case Tuple(elems, _) => { if int_eq(list_length(elems), 0) then list_empty[CST]() else list_insert_first(list_empty[CST](), tail) };
+        case _ => list_insert_first(list_empty[CST](), tail)
+      };
+      names_of_eff_cs(list_concat(stmts, tail_es))
+    };
+    case _ => list_empty[String]()
+  }
+};
+def pack_ret_ty(xs: List(CST), sp: Span): CST = {
+  let n = list_length(xs);
+  if int_eq(n, 0) then Symbol("Unit", sp)
+  else if int_eq(n, 1) then list_get(xs, 0)
+  else SeqOf(xs, sp)
+};
+def split_ty_effect_row(tys: List(CST), sp: Span): Pair = {
+  // Match Rocq: rev find Block :: "/" :: ret_rev
+  let rev = list_reverse(tys);
+  if int_lt(list_length(rev), 2) then Pair.MkPair(pack_ret_ty(tys, sp), list_empty[String]()) else {
+    let b0 = list_get(rev, 0);
+    let s1 = list_get(rev, 1);
+    match b0 {
+      case Block(_, _, _) => {
+        match s1 {
+          case Symbol(sl, _) => {
+            if string_eq(sl, "/") then {
+              let ret_rev = advance(advance(rev));
+              Pair.MkPair(pack_ret_ty(list_reverse(ret_rev), sp), names_of_eff_block(b0))
+            } else Pair.MkPair(pack_ret_ty(tys, sp), list_empty[String]())
+          };
+          case _ => Pair.MkPair(pack_ret_ty(tys, sp), list_empty[String]())
+        }
+      };
+      case _ => Pair.MkPair(pack_ret_ty(tys, sp), list_empty[String]())
+    }
+  }
+};
+def eff_syms(es: List(String), sp: Span): List(CST) = {
+  if int_eq(list_length(es), 0) then list_empty[CST]() else list_insert_first(eff_syms(advance(es), sp), Symbol(list_get(es, 0), sp))
+};
+def with_effect_row(ret: CST, effs: List(String), sp: Span): CST = {
+  if int_eq(list_length(effs), 0) then ret else {
+    AppCST(Symbol("#effect_row", sp), list_insert_first(list_insert_first(list_empty[CST](), ListLiteral(eff_syms(effs, sp), sp)), ret), sp)
+  }
+};
 def is_collapse_skip_kw(kw: String): Bool = {
   if string_eq(kw, "then") then true
   else if string_eq(kw, "else") then true
@@ -1533,7 +1591,18 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                               let c0 = list_get(ty_exprs, 0);
                               match c0 {
                                 case Symbol(c0_s, _) => {
-                                  if string_eq(c0_s, ":") then expand_seq_expr(advance(ty_exprs), op_env, sp) else Symbol("Unknown", Span(0, 0, list_empty[Integer]()))
+                                  if string_eq(c0_s, ":") then {
+                                    let after = advance(ty_exprs);
+                                    match split_ty_effect_row(after, sp) {
+                                      case MkPair(ret0, effs) => {
+                                        let ret_exp = match ret0 {
+                                          case SeqOf(xs, sp2) => expand_seq_expr(xs, op_env, sp2);
+                                          case other => other
+                                        };
+                                        with_effect_row(ret_exp, effs, sp)
+                                      }
+                                    }
+                                  } else Symbol("Unknown", Span(0, 0, list_empty[Integer]()))
                                 };
                                 case _ => Symbol("Unknown", Span(0, 0, list_empty[Integer]()))
                               }

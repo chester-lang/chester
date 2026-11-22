@@ -1,0 +1,24 @@
+effect Choose {
+  def choose(): Boolean
+}
+
+// Shallow: resume does not reinstall this handler. The second perform escapes
+// to the outer Choose (which answers false).
+def main() = {
+  handle {
+    handle shallow {
+      let x = perform choose();
+      let y = perform choose();
+      let r = if x then {
+        if y then { 1 } else { 2 }
+      } else {
+        3
+      };
+      r
+    } with Choose {
+      case choose() => resume(true)
+    }
+  } with Choose {
+    case choose() => resume(false)
+  }
+}

@@ -25,7 +25,7 @@ Lemma effect_row_subsumes_nil : forall provided,
 Proof. reflexivity. Qed.
 
 Lemma effect_row_has_open : forall n mu ps,
-  effect_row_has n (EffectRowVar mu :: ps) = true.
+  effect_row_has n (EffectRowVar mu :: ps) = effect_row_has n ps.
 Proof. intros; reflexivity. Qed.
 
 Lemma effect_row_has_head_builtin : forall a ps,
@@ -58,8 +58,8 @@ Proof.
       try (destruct (string_dec nb u); [reflexivity|exact H]);
       try (destruct (string_dec nu u); [reflexivity|exact H]);
       exact H.
-  - (* open var accepts everything *)
-    reflexivity.
+  - (* open var is skipped — coverage unchanged *)
+    simpl. exact H.
 Qed.
 
 Lemma effect_row_subsumes_cons_provided : forall needed p provided,

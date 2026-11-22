@@ -313,6 +313,8 @@ let parity_fixtures =
     ("tests/effects_multishot.chester", "11");
     ("tests/effects_rows.chester", "15");
     ("tests/effects_nested.chester", "10");
+    ("tests/effects_return.chester", "11");
+    ("tests/effects_shallow.chester", "2");
     ("tests/binders_param_shadow.chester", "7");
     ("tests/binders_pattern_shadow.chester", "9");
     ("tests/binders_rec_def.chester", "6");
@@ -535,6 +537,14 @@ let%expect_test "fixture effects nested" =
 let%expect_test "fixture effects multishot" =
   check_fixture "tests/effects_multishot.chester";
   [%expect {| tests/effects_multishot.chester ok |}]
+
+let%expect_test "fixture effects shallow" =
+  check_fixture "tests/effects_shallow.chester";
+  [%expect {| tests/effects_shallow.chester ok |}]
+
+let%expect_test "runtime effects shallow" =
+  run_fixture_main "tests/effects_shallow.chester";
+  [%expect {| 2 |}]
 
 let%expect_test "fixture effects return clause" =
   check_fixture "tests/effects_return.chester";
@@ -1055,6 +1065,8 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/effects_multishot.chester parity ok (11)
     tests/effects_rows.chester parity ok (15)
     tests/effects_nested.chester parity ok (10)
+    tests/effects_return.chester parity ok (11)
+    tests/effects_shallow.chester parity ok (2)
     tests/binders_param_shadow.chester parity ok (7)
     tests/binders_pattern_shadow.chester parity ok (9)
     tests/binders_rec_def.chester parity ok (6)

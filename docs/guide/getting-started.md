@@ -1,8 +1,10 @@
 # Getting Started with Chester
 
-Chester is a verified programming language: semantics live in Coq/Rocq theories
-(`theories/`), the compiler is extracted to OCaml, and backends emit TypeScript, Go,
-and Rocq.
+Chester is a programming language with a **verified core fragment**: semantics live in
+Coq/Rocq theories (`theories/`), the compiler is extracted to OCaml, and backends emit
+TypeScript, Go, and Rocq. Backend correctness theorems (`emit_*_correct`) cover a tiny
+`CoreFrag` (literals, refs, λ, unary app, if) — not handlers, modules, or match. See
+[LITERATURE.md](../paper/LITERATURE.md) §6.
 
 ## Prerequisites
 

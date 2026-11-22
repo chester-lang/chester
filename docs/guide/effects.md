@@ -38,8 +38,9 @@ for the unit value (legacy bare `Unit` is still accepted).
 ### Return / value clause
 
 An optional `case return(x) => …` maps the pure result of the `handle` body. The clause
-runs **after** the handler frame is popped (Plotkin: return outside the handler). If
-omitted, the body value is the handle result (identity return).
+runs **after** the handler frame is popped (Plotkin-style **operational** return-after-pop;
+there is no equational handler theory). If omitted, the body value is the handle result
+(identity return).
 
 ```chester
 handle { … ; 1 } with Choose {
@@ -56,9 +57,11 @@ match exists does the runtime throw / panic (`Unhandled effect operation`).
 
 ### Deep vs shallow
 
-Default `handle` is **deep**: resume reinstalls the handler around the continuation
-(truncate + answer-stream). Opt in to shallow with `handle shallow Eff { … }`: resume
-does **not** reinstall that frame around the continuation.
+Default `handle` is **deep** in the operational sense: before a clause runs, the matched
+frame is truncated, and resume re-enters via the **same answer-stream machinery** as
+multishot (reinstall when not shallow). This is not Kammar/Lindley/Oury “fold over the
+computation tree.” Opt in to shallow with `handle shallow { … } with Eff { … }`: resume
+does **not** reinstall that frame (subsequent performs search outer handlers).
 
 ```chester
 handle shallow {

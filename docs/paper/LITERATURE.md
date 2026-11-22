@@ -43,14 +43,15 @@ verified compiler uses `theories/Elaborator.v` instead.
 
 Surface: `effect` / `handle` / `perform` / `resume`, `box` / `unbox`. Runtime:
 `bin/effects_runtime.ml`, `runtime/chester-runtime.ts`. Perform encodes `Effect/op` so
-dispatch matches **label and op**. Lambdas keep latent effects on the Pi; **direct AppCST**
-charges callee FunTy/Pi rows into pending (module-method / self-hosted AppCST paths do
-**not** yet — soft spot). Match binders use constructor field types when the ctor is in scope.
+dispatch matches **label and op**. Lambdas keep latent effects on the Pi; AppCST / SeqOf / module-method paths charge
+callee FunTy/Pi rows into pending (Rocq + self-hosted). Annotated `/ {e}` uses expander
+`#effect_row` (self-hosted peels it too). Match binders use constructor field types when
+the ctor is in scope.
 
 | Feature | Chester behavior |
 |---------|------------------|
-| Deep / shallow | Default **deep**; opt-in `handle shallow` (resume does not reinstall the frame) |
-| One-shot / multi-shot | Default **one-shot**; opt-in `handle multishot` via **answer-stream prefix replay** |
+| Deep / shallow | Default **deep** = truncate + answer-stream reinstall (not HiA fold); opt-in `handle shallow` |
+| One-shot / multi-shot | Default **one-shot**; opt-in `handle multishot` — both use answer-stream; multishot allows replay |
 | Incomplete handlers | Missing ops **forward** to outer frames; fail only when no outer match |
 | Return clause | `case return(x) => …` runs **after** popping the handler frame |
 | Annotated rows | `/ {e}` are **closed**; open only via inferred unannotated defs (`with_open_row`) |
@@ -84,10 +85,10 @@ capability-as-parameter rewrite, not second-class functions.
 
 **Koka rows (Leijen; TFP’22 open/close).** Closed `⟨exn,div⟩` vs open `⟨exn \| μ⟩` with
 principal row unification (duplicate labels matter); named defs get **closed** rows and
-instantiation **opens** them. Chester’s `EffectRowVar` is treated as covering every label
-in places (`effect_row_has`) — a **vacuous open tail**, not Koka unify. Annotated
-`/ {e}` + `with_open_row` is only a sketch of open/close. Ambient `io` / classifier `div`
-are Koka-flavored names, not the same system.
+instantiation **opens** them. Chester’s `EffectRowVar` is a soft open *tail* marker
+(`effect_row_has` skips μ rather than accepting every label) — still **not** Koka
+principal unify / open-at-instantiate. Annotated `/ {e}` + `with_open_row` is a sketch.
+Ambient `io` / classifier `div` are Koka-flavored names, not the same system.
 
 **Verified core.** `CoreFrag` / `emit_*_correct` still exclude `AstHandle` / `AstDo` /
 `AstBox`; Rocq `__chester_*` are Parameters.
@@ -149,8 +150,8 @@ equality is checked; nested components are retained under opaque keep when seale
   phantom types (F-ing: applicative abstraction safety needs Fω + stamps)
 - no higher-order functors / `include` / `open` / `with module` / recursive modules
 - sealing is not full Σ≤Ξ; functor application is export rewrite, not re-elaboration under subst
-- modules outside `CoreFrag`; self-hosted elaborates module CST as AST skeletons (no
-  sealing / `with type` / opaque checks yet)
+- modules outside `CoreFrag`; self-hosted elaborates module bodies and exports `AstDef`s
+  as `AstModTy`, but still no sealing / `with type` / opaque / stamp checks (Rocq-only)
 
 See `docs/guide/modules.md`.
 

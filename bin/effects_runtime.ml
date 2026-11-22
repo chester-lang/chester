@@ -44,12 +44,13 @@ let ts_effects_runtime =
    const __chester_handle = (label, bodyFn, handlers) => {\n\
    const shallow = !!handlers[\"__chester_shallow__\"];\n\
    const multishot = !!handlers[\"__chester_multishot__\"];\n\
-   const run = (answers, install) => {\n\
+   const run = (answers, install, hs) => {\n\
    let ai = 0;\n\
    let shots = 0;\n\
+   const useHandlers = hs !== undefined ? hs : handlers;\n\
    const frame = {\n\
    label,\n\
-   handlers,\n\
+   handlers: useHandlers,\n\
    shallow,\n\
    multishot,\n\
    take: () => {\n\
@@ -61,7 +62,9 @@ let ts_effects_runtime =
    if (!multishot && shots > 1)\n\
    throw new Error(\"one-shot resume: continuation already resumed\");\n\
    const next = answers.slice(0, ai).concat([v]);\n\
-   return run(next, !shallow);\n\
+   /* Always reinstall for answer-stream take. Shallow uses empty handlers so\n\
+      new performs forward outward (Handlers-in-Action shallow). */\n\
+   return run(next, true, shallow ? {} : undefined);\n\
    }\n\
    };\n\
    if (install !== false) __chester_caps.push(frame);\n\
@@ -92,10 +95,12 @@ let ts_effects_runtime =
    for (let i = __chester_caps.length - 1; i >= 0; i--) {\n\
    const frame = __chester_caps[i];\n\
    if (wantLabel !== null && frame.label !== wantLabel) continue;\n\
-   const h = frame.handlers[opName];\n\
-   if (!h) continue;\n\
+   /* Prefer pending answer-stream values before requiring a handler clause\n\
+      (shallow resume installs an answer-only frame with empty handlers). */\n\
    const got = frame.take();\n\
    if (got.ok) return got.v;\n\
+   const h = frame.handlers[opName];\n\
+   if (!h) continue;\n\
    const resume = (v) => frame.fork(v);\n\
    __chester_caps.length = i;\n\
    let fn = h;\n\
@@ -355,13 +360,17 @@ type __chesterHandled struct {
 func __chester_handle(label string, bodyFn func() any, handlers map[string]any) any {
 	shallow, _ := handlers["__chester_shallow__"].(bool)
 	multishot, _ := handlers["__chester_multishot__"].(bool)
-	var run func(answers []any, install bool) any
-	run = func(answers []any, install bool) (res any) {
+	var run func(answers []any, install bool, hs map[string]any) any
+	run = func(answers []any, install bool, hs map[string]any) (res any) {
 		ai := 0
 		shots := 0
 		__chester_frame_id++
 		fid := __chester_frame_id
-		frame := map[string]any{"label": label, "handlers": handlers, "id": fid, "shallow": shallow, "multishot": multishot}
+		useHandlers := handlers
+		if hs != nil {
+			useHandlers = hs
+		}
+		frame := map[string]any{"label": label, "handlers": useHandlers, "id": fid, "shallow": shallow, "multishot": multishot}
 		frame["take"] = func() (bool, any) {
 			if ai < len(answers) {
 				v := answers[ai]
@@ -376,7 +385,11 @@ func __chester_handle(label string, bodyFn func() any, handlers map[string]any) 
 				panic("one-shot resume: continuation already resumed")
 			}
 			next := append(append([]any{}, answers[:ai]...), v)
-			return run(next, !shallow)
+			// Always reinstall for answer-stream take; shallow uses empty handlers to forward.
+			if shallow {
+				return run(next, true, map[string]any{})
+			}
+			return run(next, true, nil)
 		}
 		if install {
 			__chester_caps = append(__chester_caps, frame)
@@ -412,7 +425,7 @@ func __chester_handle(label string, bodyFn func() any, handlers map[string]any) 
 		}
 		return v
 	}
-	return run(nil, true)
+	return run(nil, true, nil)
 }
 
 func init() {
@@ -436,14 +449,14 @@ func __chester_perform(op string, args []any) any {
 		if wantLabel != "" && frame["label"] != wantLabel {
 			continue
 		}
+		take := frame["take"].(func() (bool, any))
+		if ok2, v := take(); ok2 {
+			return v
+		}
 		handlers := frame["handlers"].(map[string]any)
 		h, ok := handlers[opName]
 		if !ok {
 			continue
-		}
-		take := frame["take"].(func() (bool, any))
-		if ok2, v := take(); ok2 {
-			return v
 		}
 		resume := func(v any) any {
 			return frame["fork"].(func(any) any)(v)

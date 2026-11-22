@@ -2,8 +2,8 @@ effect Flip {
   def flip(): Boolean
 }
 
-// True multi-shot: each resume re-enters the continuation after perform
-// with a fresh answer (answer-stream replay / forking).
+// Answer-stream multishot (not delimited-continuation capture): each resume
+// re-enters after perform via fork; side effects before perform re-execute.
 def main() = {
   handle multishot {
     let x = perform flip();

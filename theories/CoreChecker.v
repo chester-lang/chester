@@ -800,9 +800,8 @@ Definition meet_expected (got : AST) (expected : option AST) : TyResult AST :=
   Core bidirectional checker for elaborated ASTs (post-elaborator).
   Callers should zonk metas before checking when possible.
 *)
-(* Concrete [div] only. An open row variable does not count: [effect_row_has]
-   treats a row variable as every label, which made this check vacuously true
-   on every unannotated elaborated definition. *)
+(* Concrete [div] only. Open-row vars are skipped by [effect_row_has] (they do
+   not cover every label); still do not treat μ as satisfying [div]. *)
 Fixpoint effect_has_div (ps : EffectSet) : bool :=
   match ps with
   | [] => false
