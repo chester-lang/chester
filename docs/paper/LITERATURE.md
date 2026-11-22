@@ -47,9 +47,18 @@ background if incremental or constraint-propagation elaboration returns.
 Chester's surface (`effect` / `handle` / `perform` / `resume`, `box` / `unbox`) follows the
 algebraic-effects / capability line. Runtime deep handlers + answer-stream multi-shot live in
 `bin/effects_runtime.ml`. Perform encodes `Effect/op` so dispatch matches **label and op**.
-**Still partial vs literature:** no return/value clauses; multi-shot is answer-stream prefix
-replay (not full delimited continuations); no equational handler theory; `io` is a phantom FFI
-row; CoreFrag / emit proofs exclude handlers. See `docs/guide/effects.md`.
+Lambdas keep latent effects on the Pi (not charged at creation). Match binders use constructor
+field types when the ctor is in scope.
+
+**Still out of scope / partial vs literature:**
+- no return/value clauses; multi-shot is answer-stream prefix replay (not delimited continuations)
+- no equational handler theory; not full Effects-as-Capabilities (stack + evidence, not explicit
+  capability parameters)
+- `io` is a phantom FFI row (ambient at top level); open rows are Koka-lite (row var accepts labels)
+- `CoreFrag` / emit proofs exclude handlers; Rocq `__chester_*` are Parameters
+- no shallow handlers / forwarding
+
+See `docs/guide/effects.md`.
 
 - **"Handling Algebraic Effects"** (Plotkin & Pretnar, 2013)
   - Local PDF: `../../chester-references/handling-algebraic-effects-plotkin-pretnar-2013.pdf`
@@ -64,9 +73,9 @@ row; CoreFrag / emit proofs exclude handlers. See `docs/guide/effects.md`.
 
 Chester has basic dependent features (`Type` as a kind, polymorphic `enum` field
 types, `tests/dependent_types.chester`). Length-indexed enums are **not** implemented
-(`tests/vector.chester` is a non-indexed `Vector[T]`). Unsolved metas and single-letter
-type-param refs remain soft in places (not full rigid conversion). **Two-Level Type
-Theory is citation-only** — not implemented as a 2LTT system in the theories.
+(`tests/vector.chester` is a non-indexed `Vector[T]`). Soft spots remain: `[Any]` /
+`[Unknown]` wildcards and single-letter type-param refs. **Two-Level Type Theory is
+citation-only** — not implemented as a 2LTT system in the theories.
 
 - **"Two-Level Type Theory"** (Annenkov, Capriotti, Kraus, Sattler, 2017)
   - Local PDF: `../../chester-references/two-level-type-theory-annenkov-2017.pdf`
@@ -75,14 +84,18 @@ Theory is citation-only** — not implemented as a 2LTT system in the theories.
 
 Chester supports ML-style structures, signatures, opaque (`:>`) and transparent (`:`) sealing,
 generative and applicative (`module app`) functors, first-class `pack`/`unpack`, type components,
-`with type` sharing (now applied in elaboration), Rocq `Module`/`Module Type` emit, and
-file-as-module import via `--module-path` / `CHESTER_PATH`.
+`with type` sharing (applied in elaboration; unknown names error), Rocq `Module`/`Module Type`
+emit, and file-as-module import via `--module-path` / `CHESTER_PATH`.
 
-**Deviations from F-ing modules:** no System Fω packaging; applicative identity is **name-based**,
-not F-ing generative stamps; higher-order functors / nested module components / `include` are
-absent. Opaque sealing now exports **unsubstituted** signature value types (no Int leak through
-`id: t → t`); manifest `type t = …` equality is checked; unknown `with type` names error. Sealing
-is still not full F-ing Σ≤Ξ matching. See `docs/guide/modules.md`.
+Opaque sealing exports **unsubstituted** signature value types; manifest `type t = …` equality
+is checked; nested module/enum/record components are retained under opaque keep when sealed.
+
+**Still out of scope vs F-ing modules:**
+- no System Fω packaging; applicative identity is **name-based**, not stamps
+- no higher-order functors / `include` / `open` / `with module` / recursive modules
+- sealing is not full Σ≤Ξ; functor application is export rewrite, not re-elaboration under subst
+- modules outside `CoreFrag`; self-hosted elaborator does not seal/functors
+See `docs/guide/modules.md`.
 
 - **"F-ing modules"** (Rossberg, Russo, Dreyer)
   - [Journal PDF](https://people.mpi-sws.org/~dreyer/papers/f-ing/firstview-journal.pdf)

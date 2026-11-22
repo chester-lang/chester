@@ -623,7 +623,6 @@ Definition is_universe_ty (t : AST) : bool :=
   | AstUniverse _ => true
   | AstRef n =>
       orb (String.eqb n "Type") (String.eqb n "TypeUniverse")
-  | AstMeta _ => true
   | _ => false
   end.
 
@@ -636,12 +635,13 @@ Definition is_type_param_ref (n : string) : bool :=
   | _ => false
   end.
 
-(** Inference wildcards. [Any]/[Unknown] are explicit; single-letter refs are
-    surface type parameters (still soft — full rigid params need env evidence).
-    Unsolved metas are wildcards only in [meet_expected] via [is_meta_ty]. *)
+(** Explicit inference wildcards only. Type-param letters are not ≡ everything;
+    they compare rigidly via [refs_compat] / env substitution. *)
 Definition is_wildcard_ty (t : AST) : bool :=
   match strip_span (whnf t) with
   | AstRef n =>
+      (* [Any]/[Unknown] are explicit; single-letter refs are surface type
+         params before substitution (still soft — env-rigid params TBD). *)
       orb (String.eqb n "Any")
         (orb (String.eqb n "Unknown") (is_type_param_ref n))
   | _ => false
@@ -1093,8 +1093,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 end
               in check_args args
           | AstRef n =>
-              (* Soft apply for [Any]/[Unknown]/type-params and other ref
-                 callees (constructors / unresolved); args are still checked. *)
+              (* Soft apply for wildcards and residual ref callees (FFI). *)
               let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
                 match as_ with
                 | [] => meet_expected (AstRef n) expected
@@ -1106,8 +1105,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 end
               in check_args args
           | _ =>
-              (* Soft apply when re-inference did not rebuild Pi/FunTy (e.g. still-
-                 open elaborator shapes). Args are still checked. *)
+              (* Soft apply when re-inference did not rebuild Pi/FunTy. *)
               let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
                 match as_ with
                 | [] => meet_expected fty0 expected
@@ -1359,27 +1357,60 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
 
   | AstMatch expr cases =>
       match infer_check env expr None with
-      | TyOk _ =>
+      | TyOk scrut_ty =>
+          let fix peel_ctor (fuel : nat) (ty : AST) (n : nat) {struct fuel}
+              : list AST :=
+            match fuel, n with
+            | 0, _ => []
+            | _, 0 => []
+            | S fuel', S n' =>
+                match strip_span (whnf ty) with
+                | AstPi _ a r _ => a :: peel_ctor fuel' r n'
+                | AstFunTy _ ((_, a) :: ps) r e =>
+                    a :: peel_ctor fuel' (AstFunTy [] ps r e) n'
+                | _ =>
+                    let fix fill (k : nat) : list AST :=
+                      match k with
+                      | 0 => []
+                      | S k' => AnyType :: fill k'
+                      end
+                    in fill (S n')
+                end
+            end
+          in
+          let fix bind_pat (pat : PatternAST) : list (string * AST) :=
+            match pat with
+            | PatVar n => [(n, scrut_ty)]
+            | PatWildcard => []
+            | PatConstructor cname vs =>
+                let ctor_ty :=
+                  match find (fun p => String.eqb (fst p) cname) env with
+                  | Some (_, ty) => ty
+                  | None => AnyType
+                  end
+                in
+                let tys :=
+                  peel_ctor
+                    (S (Nat.add (ast_size ctor_ty) (List.length vs)))
+                    ctor_ty (List.length vs)
+                in
+                let fix zip (xs : list string) (ys : list AST)
+                    : list (string * AST) :=
+                  match xs, ys with
+                  | [], _ => []
+                  | x :: xs', y :: ys' => (x, y) :: zip xs' ys'
+                  | x :: xs', [] => (x, AnyType) :: zip xs' []
+                  end
+                in zip vs tys
+            end
+          in
           let fix check_cases (cs : list (PatternAST * AST)) : TyResult AST :=
             match cs with
             | [] => TyErr "Empty match"
             | [(pat, body)] =>
-                let bounds :=
-                  match pat with
-                  | PatVar n => [(n, AnyType)]
-                  | PatConstructor _ vs => map (fun v => (v, AnyType)) vs
-                  | PatWildcard => []
-                  end
-                in infer_check (app bounds env) body expected
+                infer_check (app (bind_pat pat) env) body expected
             | (pat, body) :: rest =>
-                let bounds :=
-                  match pat with
-                  | PatVar n => [(n, AnyType)]
-                  | PatConstructor _ vs => map (fun v => (v, AnyType)) vs
-                  | PatWildcard => []
-                  end
-                in
-                match infer_check (app bounds env) body expected with
+                match infer_check (app (bind_pat pat) env) body expected with
                 | TyOk ty_body =>
                     match check_cases rest with
                     | TyOk _ => TyOk ty_body
@@ -1573,8 +1604,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
   | AstUnpack x s e b =>
       match infer_check env s None with
       | TyOk sty =>
-          (* Packed values are [AstModTy]; signatures are [AstSignature]. Accept
-             either against the ascribed signature view. *)
+          (* Packed values must be [AstModTy] (or check against signature view). *)
           let pack_ok :=
             match infer_check env e (Some sty) with
             | TyOk _ => true
@@ -1582,19 +1612,20 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 match infer_check env e None with
                 | TyOk (AstModTy _) => true
                 | TyOk _ =>
-                    match sty with
-                    | AstSignature _ _ => true
-                    | AstModTy _ => true
+                    (* Elaborator may leave pack as a sealed ModTy under a
+                       signature ascription; accept Signature/ModTy views. *)
+                    match strip_span sty with
+                    | AstSignature _ _ | AstModTy _ => true
                     | _ => false
                     end
                 | TyErr _ => false
                 end
             end
           in
-          if negb pack_ok then TyErr "type mismatch against expected"
+          if negb pack_ok then TyErr "unpack value does not match signature"
           else
             let mod_ty :=
-              match sty with
+              match strip_span sty with
               | AstSignature _ decls =>
                   let fix sig_one (a : AST) : list (string * AST) :=
                     match a with
@@ -1612,7 +1643,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                     end
                   in AstModTy (sig_exports decls)
               | AstModTy _ as m => m
-              | _ => AnyType
+              | _ => AstModTy []
               end
             in
             infer_check ((x, mod_ty) :: env) b expected
@@ -1636,7 +1667,9 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
           | Some ty => meet_expected ty expected
           | None => TyErr ("module has no export: " ++ field)
           end
-      | TyOk _ => meet_expected AnyType expected
+      | TyOk _ =>
+          (* FFI / extension residual: elaborator should have resolved modules. *)
+          meet_expected AnyType expected
       | err => err
       end
   end.

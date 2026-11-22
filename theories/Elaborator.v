@@ -483,9 +483,10 @@ Fixpoint occurs_meta (m : nat) (t : AST) {struct t} : bool :=
 (** Soft name aliases matching CoreChecker int/bool/universe helpers. *)
 Definition refs_compat (n1 n2 : string) : bool :=
   orb (String.eqb n1 n2)
-    (orb (andb (is_int_ty (AstRef n1)) (is_int_ty (AstRef n2)))
-      (orb (andb (is_bool_ty (AstRef n1)) (is_bool_ty (AstRef n2)))
-        (andb (is_universe_ty (AstRef n1)) (is_universe_ty (AstRef n2))))).
+    (orb (andb (is_type_param_ref n1) (is_type_param_ref n2))
+      (orb (andb (is_int_ty (AstRef n1)) (is_int_ty (AstRef n2)))
+        (orb (andb (is_bool_ty (AstRef n1)) (is_bool_ty (AstRef n2)))
+          (andb (is_universe_ty (AstRef n1)) (is_universe_ty (AstRef n2)))))).
 
 (** Expand solved metas in [t] before occurs / assign (fuel from [ast_size]). *)
 Fixpoint expand_metas (fuel : nat) (sol : SolverState) (t : AST) {struct fuel} : AST :=
@@ -771,6 +772,64 @@ Fixpoint zonk (fuel : nat) (expr : AST) : ElabM AST :=
           e' <- zonk fuel' e ;
           b' <- zonk fuel' b ;
           ret (AstUnpack n s' e' b')
+      | AstVar n v =>
+          v' <- zonk fuel' v ;
+          ret (AstVar n v')
+      | AstAssign n v =>
+          v' <- zonk fuel' v ;
+          ret (AstAssign n v')
+      | AstTypeDecl n (Some ty) =>
+          ty' <- zonk fuel' ty ;
+          ret (AstTypeDecl n (Some ty'))
+      | AstTypeDecl n None => ret (AstTypeDecl n None)
+      | AstSigVal n tps params retTy effs =>
+          params' <- zonk_params params ;
+          retTy' <- zonk fuel' retTy ;
+          ret (AstSigVal n tps params' retTy' effs)
+      | AstSignature n decls =>
+          decls' <- zonk_list decls ;
+          ret (AstSignature n decls')
+      | AstModule n params seal0 body =>
+          params' <- zonk_params params ;
+          seal' <-
+            match seal0 with
+            | Some s => s' <- zonk fuel' s ; ret (Some s')
+            | None => ret None
+            end ;
+          body' <- zonk_list body ;
+          ret (AstModule n params' seal' body')
+      | AstEnum n tps vars =>
+          let fix zonk_vars (vs : list (string * list AST * AST))
+              : ElabM (list (string * list AST * AST)) :=
+            match vs with
+            | [] => ret []
+            | (c, fields, r) :: rest =>
+                fields' <- zonk_list fields ;
+                r' <- zonk fuel' r ;
+                rest' <- zonk_vars rest ;
+                ret ((c, fields', r') :: rest')
+            end in
+          vars' <- zonk_vars vars ;
+          ret (AstEnum n tps vars')
+      | AstRecord n tps fields =>
+          fields' <- zonk_params fields ;
+          ret (AstRecord n tps fields')
+      | AstExtension n tps tgt meths =>
+          tgt' <- zonk fuel' tgt ;
+          meths' <- zonk_list meths ;
+          ret (AstExtension n tps tgt' meths')
+      | AstFunctorApp f args =>
+          f' <- zonk fuel' f ;
+          args' <- zonk_list args ;
+          ret (AstFunctorApp f' args')
+      | AstSigWith s eqs =>
+          s' <- zonk fuel' s ;
+          eqs' <- zonk_params eqs ;
+          ret (AstSigWith s' eqs')
+      | AstImplicitApp f args =>
+          f' <- zonk fuel' f ;
+          args' <- zonk_list args ;
+          ret (AstImplicitApp f' args')
       | AstSpan sp i =>
           i' <- zonk fuel' i ;
           ret (AstSpan sp i')
@@ -917,11 +976,33 @@ Fixpoint types_match_seal (t1 t2 : AST) {struct t1} : bool :=
               | _, _ => false
               end
         | AstRef n1, AstRef n2 => refs_compat n1 n2
-        | AstRef n1, _ => orb (String.eqb n1 "Any") (String.eqb n1 "Unknown")
-        | _, AstRef n2 => orb (String.eqb n2 "Any") (String.eqb n2 "Unknown")
+        | AstRef n1, _ => String.eqb n1 "Any"
+        | _, AstRef n2 => String.eqb n2 "Any"
         | AstUniverse l1, AstUniverse l2 => Nat.eqb l1 l2
         | _, _ => false
         end
+  end.
+
+(** Peel leading Pi/FunTy argument types for constructor pattern binders. *)
+Fixpoint ctor_arg_tys (fuel : nat) (ty : AST) (n : nat) {struct fuel}
+  : list AST :=
+  match fuel, n with
+  | 0, _ => []
+  | _, 0 => []
+  | S fuel', S n' =>
+      match strip_span (whnf ty) with
+      | AstPi _ a r _ => a :: ctor_arg_tys fuel' r n'
+      | AstFunTy _ ((_, a) :: ps) r e =>
+          a :: ctor_arg_tys fuel' (AstFunTy [] ps r e) n'
+      | _ =>
+          (* Unknown ctor shape: remaining binders get [Any]. *)
+          let fix fill (k : nat) : list AST :=
+            match k with
+            | 0 => []
+            | S k' => AstRef "Any" :: fill k'
+            end
+          in fill (S n')
+      end
   end.
 
 (** Collect impl type-component definitions for seal matching:
@@ -1644,10 +1725,12 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                       | None => throw ("module has no export: " ++ field)
                       end
                   | _ =>
+                      (* Extension method, else FFI/Go package call (typed Any). *)
                       let full_name := find_ext_method (snd exprAst) field exts in
                       if string_dec full_name EmptyString then
                         argsAst <- elab_args args ;
-                        ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
+                        ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst,
+                             AstRef "Any")
                       else
                         let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
                         elaborate fuel' env new_cst expected
@@ -1667,7 +1750,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   let full_name := find_ext_method (snd exprAst) field exts in
                   if string_dec full_name EmptyString then
                     argsAst <- elab_args args ;
-                    ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst, AstRef "Unknown")
+                    ret (AstApp (AstFieldAccess (fst exprAst) field) argsAst,
+                         AstRef "Any")
                   else
                     let new_cst := AppCST (Symbol full_name fsp) (expr :: args) span in
                     elaborate fuel' env new_cst expected
@@ -1918,6 +2002,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
 
   | MatchCST expr cases _ =>
       exprAst <- elaborate fuel' env expr None ;
+      let scrut_ty := snd exprAst in
       let fix elab_cases (cs : list (PatternCST * CST)) : ElabM (list (PatternAST * AST) * AST) :=
         match cs with
         | [] => throw "Empty match not allowed"
@@ -1925,19 +2010,32 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             bodyAst <- elaborate fuel' env body expected ;
             ret ([(PatWildcard, fst bodyAst)], snd bodyAst)
         | (PatVarCST v span, body) :: _ =>
-            m <- fresh_meta ;
-            bodyAst <- elaborate fuel' (((v, context span), m) :: env) body expected ;
+            bodyAst <- elaborate fuel'
+                         (((v, context span), scrut_ty) :: env) body expected ;
             ret ([(PatVar v, fst bodyAst)], snd bodyAst)
         | (PatConstructorCST name vars span, body) :: _ =>
-            let fix add_vars (vs : list string) (e : TypeEnv) {struct vs} : ElabM TypeEnv :=
-              match vs with
-              | [] => ret e
-              | v :: rest_vs =>
-                  m <- fresh_meta ;
-                  add_vars rest_vs (((v, context span), m) :: e)
+            let ctor_ty :=
+              match find (fun p => String.eqb (fst (fst p)) name) env with
+              | Some (_, ty) => ty
+              | None => AstRef "Any"
               end
             in
-            case_env <- add_vars vars env ;
+            let arg_tys :=
+              ctor_arg_tys
+                (S (Nat.add (ast_size ctor_ty) (List.length vars)))
+                ctor_ty (List.length vars)
+            in
+            let fix add_vars (vs : list string) (tys : list AST) (e : TypeEnv)
+                {struct vs} : TypeEnv :=
+              match vs, tys with
+              | [], _ => e
+              | v :: rest_vs, ty :: rest_tys =>
+                  add_vars rest_vs rest_tys (((v, context span), ty) :: e)
+              | v :: rest_vs, [] =>
+                  add_vars rest_vs [] (((v, context span), AstRef "Any") :: e)
+              end
+            in
+            let case_env := add_vars vars arg_tys env in
             bodyAst <- elaborate fuel' case_env body expected ;
             ret ([(PatConstructor name vars, fst bodyAst)], snd bodyAst)
         end
@@ -2080,12 +2178,40 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             | Some _ => AstSpan sp (AstTypeDecl n opt) :: keep_sealed sealed xs
             | None => keep_sealed sealed xs
             end
-        | AstModule _ _ _ _ :: xs => keep_sealed sealed xs
-        | AstSignature _ _ :: xs => keep_sealed sealed xs
-        | AstEnum _ _ _ :: xs => keep_sealed sealed xs
-        | AstRecord _ _ _ :: xs => keep_sealed sealed xs
-        | AstSpan _ (AstModule _ _ _ _) :: xs => keep_sealed sealed xs
-        | AstSpan _ (AstSignature _ _) :: xs => keep_sealed sealed xs
+        | AstModule n params seal0 body0 :: xs =>
+            match lookup_export sealed n with
+            | Some _ =>
+                AstModule n params seal0 body0 :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | AstSignature n decls :: xs =>
+            match lookup_export sealed n with
+            | Some _ => AstSignature n decls :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | AstEnum n tps vars :: xs =>
+            match lookup_export sealed n with
+            | Some _ => AstEnum n tps vars :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | AstRecord n tps fields :: xs =>
+            match lookup_export sealed n with
+            | Some _ => AstRecord n tps fields :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | AstSpan sp (AstModule n params seal0 body0) :: xs =>
+            match lookup_export sealed n with
+            | Some _ =>
+                AstSpan sp (AstModule n params seal0 body0)
+                  :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
+        | AstSpan sp (AstSignature n decls) :: xs =>
+            match lookup_export sealed n with
+            | Some _ =>
+                AstSpan sp (AstSignature n decls) :: keep_sealed sealed xs
+            | None => keep_sealed sealed xs
+            end
         | x :: xs => x :: keep_sealed sealed xs
         end
       in
@@ -2704,7 +2830,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       | _ =>
           if is_type_expected expected then
             ret (AstRef field, TypeUniverse)
-          else ret (AstFieldAccess (fst exprAst) field, AstRef "Type")
+          else
+            (* Residual FFI / unresolved receiver — type as Any. *)
+            ret (AstFieldAccess (fst exprAst) field, AstRef "Any")
       end
 
   | TypeDeclCST name opt span =>
