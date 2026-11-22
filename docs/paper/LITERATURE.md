@@ -1,8 +1,9 @@
 # Chester Literature & References
 
-Foundational reading for Chester's design. This repo implements a verified compiler
-(Coq/Rocq theories in `theories/`, extracted OCaml in `extraction/`). The Scala drafts in
-sibling directories explored many of the same ideas in a product/tooling stack.
+Foundational reading for Chester's design. This repo implements a **partially** verified
+compiler (Coq/Rocq theories in `theories/`, extracted OCaml in `extraction/`): proved emit
+covers the pure `CoreFrag` only — see §6. The Scala drafts in sibling directories explored
+many of the same ideas in a product/tooling stack.
 
 **Honesty note:** Chester takes inspiration from these papers; it does **not** claim full
 literature fidelity. Deviations are called out below and in the guides
@@ -43,10 +44,11 @@ verified compiler uses `theories/Elaborator.v` instead.
 
 Surface: `effect` / `handle` / `perform` / `resume`, `box` / `unbox`. Runtime:
 `bin/effects_runtime.ml`, `runtime/chester-runtime.ts`. Perform encodes `Effect/op` so
-dispatch matches **label and op**. Lambdas keep latent effects on the Pi; AppCST / SeqOf / module-method paths charge
-callee FunTy/Pi rows into pending (Rocq + self-hosted). Annotated `/ {e}` uses expander
-`#effect_row` (self-hosted peels it too). Match binders use constructor field types when
-the ctor is in scope.
+dispatch matches **label and op**. Lambdas keep latent effects on the Pi; AppCST / SeqOf /
+module-method (`AstModTy` FieldAccess) paths charge callee FunTy/Pi rows into pending
+(Rocq + self-hosted). Annotated `/ {e}` uses expander `#effect_row` (self-hosted peels it
+too). Match binders use constructor field types when the ctor is in scope. Shallow fixture:
+`tests/effects_shallow.chester` (parity-wired).
 
 | Feature | Chester behavior |
 |---------|------------------|
@@ -68,8 +70,8 @@ Chester has **no equational theory / handler-correctness check** — any clause 
 accepted; return-after-pop is operational only.
 
 **Kammar, Lindley, Oury — deep vs shallow.** Deep = fold over the computation tree;
-shallow = case-split. Chester implements a runtime shallow flag, but has **no shallow
-fixtures** and no fold/case semantic story.
+shallow = case-split. Chester has a runtime shallow flag and `tests/effects_shallow.chester`,
+but semantics remain answer-stream + empty-handler reinstall — **not** HiA fold/case.
 
 **Hillerström et al. / delimited control — true multi-shot.** Real multi-shot needs
 delimited continuations (CPS / CEK / stack copy). Chester’s `multishot` **replays a prefix
@@ -150,8 +152,9 @@ equality is checked; nested components are retained under opaque keep when seale
   phantom types (F-ing: applicative abstraction safety needs Fω + stamps)
 - no higher-order functors / `include` / `open` / `with module` / recursive modules
 - sealing is not full Σ≤Ξ; functor application is export rewrite, not re-elaboration under subst
-- modules outside `CoreFrag`; self-hosted elaborates module bodies and exports `AstDef`s
-  as `AstModTy`, but still no sealing / `with type` / opaque / stamp checks (Rocq-only)
+- modules outside `CoreFrag`; self-hosted now has `AstModTy` FieldAccess latent charge,
+  `SigVal`/`TypeDecl`, and a name/effect `seal_exports_check` slice (opaque keep) — still
+  no `with type` enrichment, stamps, or full F-ing packaging
 
 See `docs/guide/modules.md`.
 

@@ -1,7 +1,7 @@
 # Statements and scoping
 
-Adapted from the Scala draft guide. Chester's verified compiler (`theories/Elaborator.v`)
-handles `let` and `def` bindings in blocks.
+Adapted from the Scala draft guide. Chester's elaborator (`theories/Elaborator.v`; proved
+emit only for `CoreFrag`) handles `let` and `def` bindings in blocks.
 
 ## `let` bindings
 

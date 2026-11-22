@@ -2,8 +2,9 @@
 
 Academic and foundational material for Chester.
 
-This verified compiler does not yet ship a single LaTeX “main paper” in-tree (the
-2026 draft kept one under `docs/paper/`). Here we collect:
+This compiler’s **verified** surface is the pure `CoreFrag` (see [LITERATURE §6](LITERATURE.md));
+it does not yet ship a single LaTeX “main paper” in-tree (the 2026 draft kept one under
+`docs/paper/`). Here we collect:
 
 | Page | Contents |
 |------|----------|

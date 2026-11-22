@@ -36,10 +36,11 @@ Inductive EffectRef :=
   EffectSet on AstPi / AstFunTy = capabilities / open effect row (Effekt ∩ Koka).
   Lexical handlers install capabilities; perform uses the nearest matching capability.
   Deep (default) and multishot both use answer-stream re-entry in the TS/Go runtime
-  (`fork` → `run(next, !shallow)`); one-shot errors on a second resume. Deep truncates
-  the matched frame (and above) before a clause so clause effects escape outward
-  (Plotkin/Pretnar operational). Limitation: replay is only the answer-stream prefix
-  of the body, not delimited-continuation capture (Hillerström et al.).
+  (`fork` always re-enters; shallow reinstalls an **empty** answer-only handler map so
+  subsequent performs search outer frames); one-shot errors on a second resume. Deep
+  truncates the matched frame (and above) before a clause so clause effects escape
+  outward (Plotkin/Pretnar operational). Limitation: replay is only the answer-stream
+  prefix of the body, not delimited-continuation capture (Hillerström et al.).
   EffectRowVar (μ) is a Koka-lite open *tail* marker on inferred rows: it does **not**
   make `effect_row_has` accept every label (concrete labels must still appear). Unify
   uses `effect_row_subsumes`; call sites push concrete labels into pending.

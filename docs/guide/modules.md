@@ -6,9 +6,10 @@ opaque/transparent sealing, generative and name-based applicative functors, type
 first-class pack/unpack, and file-as-module imports are supported; higher-order functors
 are absent.
 
-The sealing/export checks that *are* proven live in `theories/CoreTyping.v` and
-`theories/TypeSystemProps.v`; elaboration is in `theories/Elaborator.v`; fixtures in
-`tests/modules*.chester`.
+Sealing/export **examples and lattice lemmas** live in `theories/CoreTyping.v` and
+`theories/TypeSystemProps.v` (not a full sealing-soundness theorem). Elaboration is in
+`theories/Elaborator.v`; the self-hosted elaborator mirrors a name/effect sealing slice.
+Fixtures: `tests/modules*.chester`.
 
 ---
 

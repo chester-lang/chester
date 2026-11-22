@@ -59,9 +59,10 @@ match exists does the runtime throw / panic (`Unhandled effect operation`).
 
 Default `handle` is **deep** in the operational sense: before a clause runs, the matched
 frame is truncated, and resume re-enters via the **same answer-stream machinery** as
-multishot (reinstall when not shallow). This is not Kammar/Lindley/Oury “fold over the
+multishot (reinstalling the handler map). This is not Kammar/Lindley/Oury “fold over the
 computation tree.” Opt in to shallow with `handle shallow { … } with Eff { … }`: resume
-does **not** reinstall that frame (subsequent performs search outer handlers).
+still re-enters the answer stream, but reinstalls an **empty** answer-only frame so
+subsequent performs search **outer** handlers (not a HiA case-split).
 
 ```chester
 handle shallow {
