@@ -104,6 +104,32 @@ Definition fresh_meta : ElabM AST :=
       ret (AstMeta n)
   end.
 
+(** Prenex-instantiate [AstFunTy] type parameters with fresh metas (HM-style).
+    Call sites must freshen before unifying args so surface type-param letters
+    stay rigid inside polymorphic bodies (see LITERATURE §4). *)
+Fixpoint freshen_fun_tps (tps : list string) (params : list (string * AST))
+    (rty : AST) {struct tps} : ElabM (list (string * AST) * AST) :=
+  match tps with
+  | [] => ret (params, rty)
+  | tp :: tps' =>
+      m <- fresh_meta ;
+      let params' :=
+        map (fun p => (fst p, subst_ast tp m (snd p))) params
+      in
+      freshen_fun_tps tps' params' (subst_ast tp m rty)
+  end.
+
+Definition instantiate_funty (ty : AST) : ElabM AST :=
+  match strip_span ty with
+  | AstFunTy tps params ret_ty effs =>
+      fr <- freshen_fun_tps tps params ret_ty ;
+      match fst fr with
+      | [] => ret (snd fr)
+      | _ => ret (AstFunTy [] (fst fr) (snd fr) effs)
+      end
+  | other => ret other
+  end.
+
 Definition TypeEnv := list ((string * list nat) * AST).
 Definition init_elab_state := mkElabState 0 empty_state [] [] [] [] [].
 
@@ -480,13 +506,14 @@ Fixpoint occurs_meta (m : nat) (t : AST) {struct t} : bool :=
   | AstSpan _ inner => occurs_meta m inner
   end.
 
-(** Soft name aliases matching CoreChecker int/bool/universe helpers. *)
+(** Name aliases: exact equality, plus Int/Integer, Bool/Boolean, Type universes.
+    Distinct type-param letters ([T] vs [A]) are *not* aliases — rigidity is the
+    point of polymorphic binders (LITERATURE §4). *)
 Definition refs_compat (n1 n2 : string) : bool :=
   orb (String.eqb n1 n2)
-    (orb (andb (is_type_param_ref n1) (is_type_param_ref n2))
-      (orb (andb (is_int_ty (AstRef n1)) (is_int_ty (AstRef n2)))
-        (orb (andb (is_bool_ty (AstRef n1)) (is_bool_ty (AstRef n2)))
-          (andb (is_universe_ty (AstRef n1)) (is_universe_ty (AstRef n2)))))).
+    (orb (andb (is_int_ty (AstRef n1)) (is_int_ty (AstRef n2)))
+      (orb (andb (is_bool_ty (AstRef n1)) (is_bool_ty (AstRef n2)))
+        (andb (is_universe_ty (AstRef n1)) (is_universe_ty (AstRef n2))))).
 
 (** Expand solved metas in [t] before occurs / assign (fuel from [ast_size]). *)
 Fixpoint expand_metas (fuel : nat) (sol : SolverState) (t : AST) {struct fuel} : AST :=
@@ -1313,11 +1340,12 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               if is_type_expected expected then
                 ret (AstRef name, TypeUniverse)
               else
+                tyI <- instantiate_funty ty ;
                 match expected with
                 | Some exp =>
-                    unify fuel' ty exp ;;
-                    ret (AstRef (mangle_name name resolved_ctx), ty)
-                | None => ret (AstRef (mangle_name name resolved_ctx), ty)
+                    unify fuel' tyI exp ;;
+                    ret (AstRef (mangle_name name resolved_ctx), tyI)
+                | None => ret (AstRef (mangle_name name resolved_ctx), tyI)
                 end
           | _ =>
               match expected with
@@ -1348,6 +1376,25 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           | AstRef name => if string_dec name "\\" then throw "Lambda!" else ret tt
           | _ => ret tt
           end ;;
+          (* Prenex-instantiate polymorphic FunTy before checking value args.
+             Keep raw FunTy only when the first param is a Type (explicit type
+             arg / dependent [my_id(T: Type, x: T)] style). *)
+          fs0 <-
+            match strip_span (snd funcAst) with
+            | AstFunTy tps params ret_ty effs =>
+                match params with
+                | (_, arg_ty) :: _ =>
+                    if is_universe_ty arg_ty then
+                      ret (AstFunTy tps params ret_ty effs)
+                    else
+                      fr <- freshen_fun_tps tps params ret_ty ;
+                      ret (AstFunTy [] (fst fr) (snd fr) effs)
+                | [] =>
+                    fr <- freshen_fun_tps tps params ret_ty ;
+                    ret (AstFunTy [] (fst fr) (snd fr) effs)
+                end
+            | other => ret other
+            end ;
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * (AST * EffectSet)) :=
               match as_, fs with
               | [], AstFunTy _ _ ret_ty effs => ret ([], (ret_ty, effs))
@@ -1420,7 +1467,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               | _ :: _, _ => throw "cannot apply non-function"
               end
           in
-          argsRes <- check_args (snd funcAst) args;
+          argsRes <- check_args fs0 args;
           match snd argsRes with
           | (ret_ty, call_effs) =>
               pending <- get_pending ;
@@ -1512,7 +1559,11 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                       map (fun v =>
                         let '((vname, fields), _) := v in
                         match fields with
-                        | [] => ((vname, context span), enum_ret)
+                        | [] =>
+                            (* Nullary poly ctors stay schemes so lookup
+                               prenex-instantiates [Option[T]] → [Option[?m]]. *)
+                            ((vname, context span),
+                             AstFunTy type_params [] enum_ret [])
                         | _ =>
                             let ps := map (fun ty => ("_", ty)) fields in
                             ((vname, context span),
@@ -1522,6 +1573,29 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   end
                 in
                 let new_env := (ctors ++ current_env)%list in
+                rest <- map_elabs new_env xs ;
+                ret (fst res :: fst rest, snd rest)
+            | ExtensionCST _ _ _ _ span =>
+                res <- elaborate fuel' current_env x None ;
+                let meth_binds :=
+                  match fst res with
+                  | AstExtension _ _ _ meths =>
+                      let fix go (ms : list AST) : TypeEnv :=
+                        match ms with
+                        | [] => []
+                        | AstDef n tps ps rt _ effs :: rest =>
+                            ((n, context span), AstFunTy tps ps rt effs)
+                              :: go rest
+                        | AstSpan _ (AstDef n tps ps rt _ effs) :: rest =>
+                            ((n, context span), AstFunTy tps ps rt effs)
+                              :: go rest
+                        | _ :: rest => go rest
+                        end
+                      in go meths
+                  | _ => []
+                  end
+                in
+                let new_env := (meth_binds ++ current_env)%list in
                 rest <- map_elabs new_env xs ;
                 ret (fst res :: fst rest, snd rest)
             | _ =>
@@ -1657,16 +1731,41 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         let piTy := AstPi arg_name (fst argTyAst) (fst bodyAst) [] in
         ret (piTy, TypeUniverse)
       else
+      (* When checking against an expected Pi (e.g. map's [f]), solve the
+         binder meta from [expArg] before elaborating the body. *)
+      arg_ty <-
+        match expected with
+        | Some exp =>
+            match strip_span (whnf exp) with
+            | AstPi _ expArg _ _ =>
+                unify fuel' (fst argTyAst) expArg ;;
+                zonk (S (ast_size (fst argTyAst))) (fst argTyAst)
+            | _ => ret (fst argTyAst)
+            end
+        | None => ret (fst argTyAst)
+        end ;
       old_pending <- get_pending ;
       set_pending [] ;;
-      bodyAst <- elaborate fuel' (((arg_name, context span), fst argTyAst) :: env) body None ;
+      let body_exp :=
+        match expected with
+        | Some exp =>
+            match strip_span (whnf exp) with
+            | AstPi _ _ expRet _ => Some expRet
+            | _ => None
+            end
+        | None => None
+        end
+      in
+      bodyAst <- elaborate fuel' (((arg_name, context span), arg_ty) :: env) body body_exp ;
       body_effs <- get_pending ;
       open_effs <- with_open_row body_effs ;
       (* Latent effects live on the Pi only — not performed at lambda creation
          (same rule as annotated [def]). *)
       set_pending old_pending ;;
-      let arrTy := AstPi arg_name (fst argTyAst) (snd bodyAst) open_effs in
-      ret (AstLam (mangle_name arg_name (context span)) (fst argTyAst) (fst bodyAst), arrTy)
+      (* Latent [open_effs] sit on the Pi; do not [unify] the whole arrow against
+         an expected effect-free Pi — that rejected [\x => …] at map call sites. *)
+      let arrTy := AstPi arg_name arg_ty (snd bodyAst) open_effs in
+      ret (AstLam (mangle_name arg_name (context span)) arg_ty (fst bodyAst), arrTy)
 
   | AppCST func args span =>
       match func with
@@ -1718,7 +1817,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   match snd exprAst with
                   | AstModTy exports =>
                       match lookup_export exports field with
-                      | Some ty =>
+                      | Some ty0 =>
+                          ty <- instantiate_funty ty0 ;
                           argsRes <- check_mod_args ty args ;
                           ret (AstApp (AstFieldAccess (fst exprAst) field)
                                 (fst argsRes), snd argsRes)
@@ -1740,7 +1840,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               match snd exprAst with
               | AstModTy exports =>
                   match lookup_export exports field with
-                  | Some ty =>
+                  | Some ty0 =>
+                      ty <- instantiate_funty ty0 ;
                       argsRes <- check_mod_args ty args ;
                       ret (AstApp (AstFieldAccess (fst exprAst) field)
                             (fst argsRes), snd argsRes)
@@ -1761,18 +1862,6 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       | ImplicitAppCST inner_func _targs _tspan =>
           (* Erase the implicit [A,B] telescope; elaborate fuel' only the inner function and explicit args *)
           funcAst <- elaborate fuel' env inner_func None ;
-          let fix freshen_fun_tps (tps : list string) (params : list (string * AST))
-              (rty : AST) : ElabM (list (string * AST) * AST) :=
-            match tps with
-            | [] => ret (params, rty)
-            | tp :: tps' =>
-                m <- fresh_meta ;
-                let params' :=
-                  map (fun p => (fst p, subst_ast tp m (snd p))) params
-                in
-                freshen_fun_tps tps' params' (subst_ast tp m rty)
-            end
-          in
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] =>
@@ -1821,13 +1910,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 end
             end
           in
-          fs0 <-
-            match snd funcAst with
-            | AstFunTy tps params ret_ty effs =>
-                fr <- freshen_fun_tps tps params ret_ty ;
-                ret (AstFunTy [] (fst fr) (snd fr) effs)
-            | other => ret other
-            end ;
+          fs0 <- instantiate_funty (snd funcAst) ;
           argsRes <- check_args fs0 args ;
           retTyZ <- zonk (S (ast_size (snd argsRes))) (snd argsRes) ;
           match expected with
@@ -1837,18 +1920,6 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           ret (AstApp (fst funcAst) (fst argsRes), retTyZ)
       | _ =>
           funcAst <- elaborate fuel' env func None ;
-          let fix freshen_fun_tps (tps : list string) (params : list (string * AST))
-              (rty : AST) : ElabM (list (string * AST) * AST) :=
-            match tps with
-            | [] => ret (params, rty)
-            | tp :: tps' =>
-                m <- fresh_meta ;
-                let params' :=
-                  map (fun p => (fst p, subst_ast tp m (snd p))) params
-                in
-                freshen_fun_tps tps' params' (subst_ast tp m rty)
-            end
-          in
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] =>
@@ -1903,13 +1974,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 end
             end
           in
-          fs0 <-
-            match snd funcAst with
-            | AstFunTy tps params ret_ty effs =>
-                fr <- freshen_fun_tps tps params ret_ty ;
-                ret (AstFunTy [] (fst fr) (snd fr) effs)
-            | other => ret other
-            end ;
+          fs0 <- instantiate_funty (snd funcAst) ;
           argsRes <- check_args fs0 args ;
           retTyZ <- zonk (S (ast_size (snd argsRes))) (snd argsRes) ;
           match expected with
@@ -2014,16 +2079,33 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                          (((v, context span), scrut_ty) :: env) body expected ;
             ret ([(PatVar v, fst bodyAst)], snd bodyAst)
         | (PatConstructorCST name vars span, body) :: _ =>
-            let ctor_ty :=
+            let ctor_ty0 :=
               match find (fun p => String.eqb (fst (fst p)) name) env with
               | Some (_, ty) => ty
               | None => AstRef "Any"
               end
             in
+            (* Prenex-instantiate the ctor scheme, then unify its result with the
+               scrutinee so binders see [A] from [Option[A]], not the scheme [T]. *)
+            ctor_tyI <- instantiate_funty ctor_ty0 ;
+            let ctor_ret :=
+              match strip_span ctor_tyI with
+              | AstFunTy _ _ r _ => r
+              | AstPi _ _ r _ => r
+              | other => other
+              end
+            in
+            unify fuel' ctor_ret scrut_ty ;;
+            ctor_tyZ <- zonk (S (ast_size ctor_tyI)) ctor_tyI ;
             let arg_tys :=
-              ctor_arg_tys
-                (S (Nat.add (ast_size ctor_ty) (List.length vars)))
-                ctor_ty (List.length vars)
+              match strip_span ctor_tyZ with
+              | AstFunTy _ params _ _ =>
+                  map snd (firstn (List.length vars) params)
+              | _ =>
+                  ctor_arg_tys
+                    (S (Nat.add (ast_size ctor_tyZ) (List.length vars)))
+                    ctor_tyZ (List.length vars)
+              end
             in
             let fix add_vars (vs : list string) (tys : list AST) (e : TypeEnv)
                 {struct vs} : TypeEnv :=
@@ -2903,7 +2985,18 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
       end
 
   | ExtensionCST ext_name tparams target_ty meths span =>
-      targetTy_res <- elaborate fuel' env target_ty (Some (AstUniverse 0)) ;
+      (* Bind extension type params so method bodies see rigid [T], and quantify
+         them on each method FunTy so call-site prenex-instantiate covers
+         [Option[T]] (not a free leftover [T]). *)
+      let fix bind_ext_tps (tps : list string) (e0 : TypeEnv) : TypeEnv :=
+        match tps with
+        | [] => e0
+        | tp :: rest =>
+            bind_ext_tps rest (((tp, []), TypeUniverse) :: e0)
+        end
+      in
+      let env_ext := bind_ext_tps tparams env in
+      targetTy_res <- elaborate fuel' env_ext target_ty (Some (AstUniverse 0)) ;
       s <- get_state ;
       match s with
       | mkElabState n sol exts effs caps pending go_pkgs =>
@@ -2914,13 +3007,17 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             match ms with
             | [] => ret []
             | m :: rest =>
-                ast <- elaborate fuel' env m None ;
+                ast <- elaborate fuel' env_ext m None ;
                 rest_ast <- elab_meths rest ;
-                let renamed_ast := match m, fst ast with
-                                   | DefCST n _ _ _ _ _, AstDef _ tps ps rt b effs =>
-                                       AstDef (append (append ext_name "_") n) tps ps rt b effs
-                                   | _, a => a
-                                   end in
+                let renamed_ast :=
+                  match m, fst ast with
+                  | DefCST n _ _ _ _ _, AstDef _ tps ps rt b effs =>
+                      let tps' := app tparams tps in
+                      AstDef (append (append ext_name "_") n) tps' ps rt b
+                        effs
+                  | _, a => a
+                  end
+                in
                 ret (renamed_ast :: rest_ast)
             end
           in

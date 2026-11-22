@@ -75,9 +75,21 @@ See `docs/guide/effects.md`.
 
 Chester has basic dependent features (`Type` as a kind, polymorphic `enum` field
 types, `tests/dependent_types.chester`). Length-indexed enums are **not** implemented
-(`tests/vector.chester` is a non-indexed `Vector[T]`). Soft spots remain: `[Any]` /
-`[Unknown]` wildcards and single-letter type-param refs. **Two-Level Type Theory is
-citation-only** — not implemented as a 2LTT system in the theories.
+(`tests/vector.chester` is a non-indexed `Vector[T]`).
+
+**Design (rigid type params + prenex instantiate):** Single-letter surface type-param
+refs (`T`, `A`, …) are **not** unification wildcards. They compare by name
+(`is_wildcard_ty` is only explicit `Any` / `Unknown`; `refs_compat` does not equate
+distinct param letters). Call sites **prenex-instantiate** `AstFunTy` type parameters
+to fresh metas (`freshen_fun_tps` / `instantiate_funty` in `Elaborator.v`) before
+argument checking — including nullary polymorphic ctors and extension methods (extension
+`[T]` is prepended onto each method’s type-param list so `some.map(f)` instantiates
+`T`). Match binders instantiate the ctor scheme against the scrutinee (`Option[A]` ⇒
+binder `A`, not scheme `T`). Polymorphic bodies reject `def bad[T](x: T): Int = x`
+(`tests/typeparam_rigid_bad.chester`) while `option_unwrap_or(Some(42), 0)` still
+infers `T := Int`. Remaining soft spot: explicit `[Any]` / `[Unknown]` (FFI /
+incomplete annotations). **Two-Level Type Theory is citation-only** — not implemented
+as a 2LTT system in the theories.
 
 - **"Two-Level Type Theory"** (Annenkov, Capriotti, Kraus, Sattler, 2017)
   - Local PDF: `../../chester-references/two-level-type-theory-annenkov-2017.pdf`

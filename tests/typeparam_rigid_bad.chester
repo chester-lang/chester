@@ -1,0 +1,2 @@
+// Type-param letters are rigid: T is not Int.
+def leak[T](x: T): Int = x;

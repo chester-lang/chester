@@ -466,6 +466,10 @@ let%expect_test "modules_opaque_bad rejects Int as abstract t" =
   expect_type_error "tests/modules_opaque_bad.chester";
   [%expect {| Type mismatch |}]
 
+let%expect_test "typeparam_rigid_bad rejects T as Int / A as B" =
+  expect_type_error "tests/typeparam_rigid_bad.chester";
+  [%expect {| Type mismatch |}]
+
 let%expect_test "modules_manifest_bad rejects wrong manifest" =
   expect_type_error "tests/modules_manifest_bad.chester";
   [%expect {| manifest type mismatch for: t |}]

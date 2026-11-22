@@ -635,16 +635,39 @@ Definition is_type_param_ref (n : string) : bool :=
   | _ => false
   end.
 
-(** Explicit inference wildcards only. Type-param letters are not ≡ everything;
-    they compare rigidly via [refs_compat] / env substitution. *)
+(** Explicit inference wildcards only ([Any], [Unknown]).
+    Single-letter surface type params ([T], [A], …) are *not* wildcards:
+    they compare by name (after env / seal subst). See LITERATURE §4 design. *)
 Definition is_wildcard_ty (t : AST) : bool :=
   match strip_span (whnf t) with
   | AstRef n =>
-      (* [Any]/[Unknown] are explicit; single-letter refs are surface type
-         params before substitution (still soft — env-rigid params TBD). *)
-      orb (String.eqb n "Any")
-        (orb (String.eqb n "Unknown") (is_type_param_ref n))
+      orb (String.eqb n "Any") (String.eqb n "Unknown")
   | _ => false
+  end.
+
+(** Core-side prenex instantiate: substitute [AstFunTy] type parameters with
+    [Any] so applications like [Some(42)] do not require soft [T]≡[Int].
+    Polymorphic *bodies* still see rigid [T] via env binders. *)
+Fixpoint core_subst_tps (tps : list string) (params : list (string * AST))
+    (rty : AST) {struct tps} : list (string * AST) * AST :=
+  match tps with
+  | [] => (params, rty)
+  | tp :: tps' =>
+      let params' :=
+        map (fun p => (fst p, subst_ast tp AnyType (snd p))) params
+      in
+      core_subst_tps tps' params' (subst_ast tp AnyType rty)
+  end.
+
+Definition core_instantiate (ty : AST) : AST :=
+  match strip_span (whnf ty) with
+  | AstFunTy tps params ret effs =>
+      let fr := core_subst_tps tps params ret in
+      match fst fr with
+      | [] => snd fr
+      | _ => AstFunTy [] (fst fr) (snd fr) effs
+      end
+  | other => other
   end.
 
 Definition is_meta_ty (t : AST) : bool :=
@@ -929,7 +952,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
 
   | AstRef name =>
       match lookup_type name env with
-      | Some ty => meet_expected ty expected
+      | Some ty => meet_expected (core_instantiate ty) expected
       | None =>
           if is_allowed_unbound name then meet_expected AnyType expected
           else TyErr ("Unbound variable: " ++ name)
@@ -968,9 +991,12 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
   | AstLam argName argTy body =>
       match expected with
       | Some (AstPi _ expArgTy expRetTy _) =>
-          if types_compat argTy expArgTy then
-            match infer_check ((argName, argTy) :: env) body (Some expRetTy) with
-            | TyOk _ => TyOk (AstPi argName argTy expRetTy [])
+          (* Accept unsolved binder metas (elaborator may leave them when the
+             lambda was typed under a soft [Any] callee) and ordinary compat. *)
+          if orb (types_compat argTy expArgTy) (is_meta_ty argTy) then
+            let argTy' := if is_meta_ty argTy then expArgTy else argTy in
+            match infer_check ((argName, argTy') :: env) body (Some expRetTy) with
+            | TyOk _ => TyOk (AstPi argName argTy' expRetTy [])
             | TyErr e => TyErr e
             end
           else TyErr "Lambda argument type does not match expected Pi type"
@@ -1057,13 +1083,16 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
           | AstPi argName argTy retTy _ =>
               apply_pi argName argTy retTy
           | AstFunTy tps params ret_ty effs =>
+              let fr := core_subst_tps tps params ret_ty in
+              let paramsI := fst fr in
+              let retI := snd fr in
               let fix check_args (ps : list (string * AST)) (rty : AST)
                   (as_ : list AST) {struct as_} : TyResult AST :=
                 match as_ with
                 | [] =>
                     match ps with
                     | [] => meet_expected rty expected
-                    | _ => meet_expected (AstFunTy tps ps rty effs) expected
+                    | _ => meet_expected (AstFunTy [] ps rty effs) expected
                     end
                 | a :: as' =>
                     match ps with
@@ -1080,7 +1109,7 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                         end
                     end
                 end
-              in check_args params ret_ty args
+              in check_args paramsI retI args
           | AstMeta _ =>
               let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
                 match as_ with
@@ -1248,18 +1277,21 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                   | s :: ss' => bind_syms ss' ((s, AnyType) :: e0)
                   end
                 in prebind xs (bind_syms syms e)
-            | AstEnum name _ variants =>
-                let fix bind_ctors (vs : list (string * list AST * AST)) (e0 : TypeEnv) : TypeEnv :=
+            | AstEnum name type_params variants =>
+                let enum_ret :=
+                  match type_params with
+                  | [] => AstRef name
+                  | _ => AstApp (AstRef name) (map (fun tp => AstRef tp) type_params)
+                  end
+                in
+                let fix bind_ctors (vs : list (string * list AST * AST)) (e0 : TypeEnv)
+                    : TypeEnv :=
                   match vs with
                   | [] => e0
                   | (cname, argTys, _) :: vs' =>
-                      let fix build_fun (args : list AST) : AST :=
-                        match args with
-                        | [] => AnyType
-                        | t :: ts => AstPi "_" t (build_fun ts) []
-                        end
-                      in
-                      bind_ctors vs' ((cname, build_fun argTys) :: e0)
+                      let ps := map (fun ty => ("_"%string, ty)) argTys in
+                      bind_ctors vs'
+                        ((cname, AstFunTy type_params ps enum_ret []) :: e0)
                   end
                 in prebind xs (bind_ctors variants ((name, TypeUniverse) :: e))
             | AstRecord name _ _ => prebind xs ((name, TypeUniverse) :: e)
@@ -1383,12 +1415,13 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
             | PatVar n => [(n, scrut_ty)]
             | PatWildcard => []
             | PatConstructor cname vs =>
-                let ctor_ty :=
+                let ctor_ty0 :=
                   match find (fun p => String.eqb (fst p) cname) env with
                   | Some (_, ty) => ty
                   | None => AnyType
                   end
                 in
+                let ctor_ty := core_instantiate ctor_ty0 in
                 let tys :=
                   peel_ctor
                     (S (Nat.add (ast_size ctor_ty) (List.length vs)))
