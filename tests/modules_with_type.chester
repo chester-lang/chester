@@ -1,0 +1,16 @@
+signature SeqSig {
+  type item;
+  def singleton(x: item): item
+};
+
+signature Seq = SeqSig with type item = Int;
+
+module M :> Seq {
+  type item = Int;
+  def singleton(x: Int): Int = { x }
+};
+
+def main(): Unit = {
+  let _ = M.singleton(1);
+  ()
+}

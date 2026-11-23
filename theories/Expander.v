@@ -754,8 +754,12 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                     | Symbol modname _ :: (Block _ _ _ as blk) :: [] =>
                         SignatureCST modname
                           (to_sig_specs (fst (process_stmts f2' env (methods_of_block blk)))) s
-                    (* signature Name = Base with type t = T *)
+                    (* signature Name = Base with type t = T (flat elems) *)
                     | Symbol modname _ :: Symbol "=" _ :: base :: Symbol "with" _ :: Symbol "type" _ :: Symbol tname _ :: Symbol "=" _ :: ty :: [] =>
+                        SignatureCST modname
+                          [SigWithCST base [(tname, ty)] empty_span] s
+                    (* Same form when the RHS was grouped into a SeqOf by expand. *)
+                    | Symbol modname _ :: Symbol "=" _ :: SeqOf (base :: Symbol "with" _ :: Symbol "type" _ :: Symbol tname _ :: Symbol "=" _ :: ty :: []) _ :: [] =>
                         SignatureCST modname
                           [SigWithCST base [(tname, ty)] empty_span] s
                     | Symbol modname _ :: Symbol "=" _ :: base :: [] =>

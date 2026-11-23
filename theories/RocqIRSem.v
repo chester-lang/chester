@@ -291,3 +291,5 @@ Proof.
   intros e ty Hf Hw.
   eapply emit_rocq_correct; [exact Hf | exact Hw | exact renv_ty_nil].
 Qed.
+
+Print Assumptions emit_rocq_correct.

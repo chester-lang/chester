@@ -1113,7 +1113,38 @@ Definition apply_seal_subst_params (subs : list (string * AST))
     (params : list (string * AST)) : list (string * AST) :=
   map (fun p => (fst p, apply_seal_subst subs (snd p))) params.
 
-(** Apply `with type t = T` sharing equations to signature decls. *)
+(** Substitute [AstRef n] for sharing equations (with-type enrichment). *)
+Fixpoint apply_eq_subst_fuel (fuel : nat) (eqs : list (string * AST)) (t : AST)
+  {struct fuel} : AST :=
+  match fuel with
+  | 0 => t
+  | S fuel' =>
+      match t with
+      | AstRef n =>
+          match find (fun p => String.eqb (fst p) n) eqs with
+          | Some (_, ty) => ty
+          | None => t
+          end
+      | AstFunTy tps params ret effs =>
+          AstFunTy tps
+            (map (fun p => (fst p, apply_eq_subst_fuel fuel' eqs (snd p))) params)
+            (apply_eq_subst_fuel fuel' eqs ret) effs
+      | AstPi n a r e =>
+          AstPi n (apply_eq_subst_fuel fuel' eqs a)
+            (apply_eq_subst_fuel fuel' eqs r) e
+      | AstApp f args =>
+          AstApp (apply_eq_subst_fuel fuel' eqs f)
+            (map (apply_eq_subst_fuel fuel' eqs) args)
+      | AstSpan sp i => AstSpan sp (apply_eq_subst_fuel fuel' eqs i)
+      | other => other
+      end
+  end.
+
+Definition apply_eq_subst (eqs : list (string * AST)) (t : AST) : AST :=
+  apply_eq_subst_fuel (S (ast_size t)) eqs t.
+
+(** Apply `with type t = T` sharing equations to signature decls.
+    Rewrites type components and substitutes into value member types. *)
 Fixpoint apply_type_eqs (decls : list AST) (eqs : list (string * AST))
   : list AST :=
   match decls with
@@ -1129,6 +1160,12 @@ Fixpoint apply_type_eqs (decls : list AST) (eqs : list (string * AST))
           AstSpan sp (AstTypeDecl n (Some ty)) :: apply_type_eqs rest eqs
       | None => AstSpan sp (AstTypeDecl n opt) :: apply_type_eqs rest eqs
       end
+  | AstSigVal n tps params ret effs :: rest =>
+      let params' :=
+        map (fun p => (fst p, apply_eq_subst eqs (snd p))) params
+      in
+      AstSigVal n tps params' (apply_eq_subst eqs ret) effs
+        :: apply_type_eqs rest eqs
   | x :: rest => x :: apply_type_eqs rest eqs
   end.
 
@@ -1255,13 +1292,16 @@ Fixpoint seal_exports_check_flat (opaque : bool) (full : list (string * AST))
           if negb manifest_ok then
             inl ("manifest type mismatch for: " ++ n)
           else
+            (* Manifest signature types stay visible under opaque sealing
+               (SML-style); only abstract [type t] is hidden. *)
             let exported :=
-              if opaque then AstTypeDecl n None
-              else
-                match opt_sig with
-                | Some sig_ty => AstTypeDecl n (Some (apply_seal_subst subs sig_ty))
-                | None => AstTypeDecl n opt_impl
-                end
+              match opt_sig with
+              | Some sig_ty =>
+                  AstTypeDecl n (Some (apply_seal_subst subs sig_ty))
+              | None =>
+                  if opaque then AstTypeDecl n None
+                  else AstTypeDecl n opt_impl
+              end
             in
             match seal_exports_check_flat opaque full subs rest with
             | inl err => inl err
@@ -1713,8 +1753,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             throw ("Termination check failed: recursive function '" ++ name ++ "' must declare the 'div' effect")
           else if effect_row_subsumes body_effs decl_effs then
             let fun_ty := AstFunTy type_params paramsAst (fst retAst) decl_effs in
-            let node_effs := if needs_div then decl_effs else open_effs in
-            ret (AstDef name type_params paramsAst (fst retAst) body_term node_effs, fun_ty)
+            (* Annotated AstDef nodes keep the declared row (not open_effs). *)
+            ret (AstDef name type_params paramsAst (fst retAst) body_term decl_effs, fun_ty)
           else
             throw ("effect row too large for declared annotation on: " ++ name)
       end
@@ -2423,7 +2463,21 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         end
       in
       sig_ast <- elab_sig_body env body ;
-      ret (AstSignature name sig_ast, AstSignature name sig_ast)
+      (* [signature Alias = Base with type t = T] expands to a single
+         SigWithCST body member; store the enriched flat decls so sealing
+         against Alias does not see a nested AstSigWith. *)
+      let sig_ast' :=
+        match sig_ast with
+        | [AstSigWith base eqs] =>
+            match apply_sig_with base eqs with
+            | AstSignature _ decls =>
+                flatten_sig_decls (sig_decls_fuel decls) decls
+            | _ => sig_ast
+            end
+        | _ => sig_ast
+        end
+      in
+      ret (AstSignature name sig_ast', AstSignature name sig_ast')
   | SigWithCST base eqs span =>
       baseAst <- elaborate fuel' env base None ;
       let fix elab_eqs (es : list (string * CST)) : ElabM (list (string * AST)) :=
@@ -2466,8 +2520,19 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         end
       in
       check_eq_names eqsAst ;;
-      let with_ast := AstSigWith (fst baseAst) eqsAst in
-      let enriched := apply_sig_with (snd baseAst) eqsAst in
+      (* Store the signature *type* view as the with-base so later
+         flatten_sig_decls / sealing can apply equations (AstRef alone
+         is not enough when [signature Alias = Base with type …]
+         nests SigWith inside SignatureCST). *)
+      let base_for_with :=
+        match strip_span (snd baseAst) with
+        | AstSignature _ _ as s => s
+        | AstSigWith b e0 => apply_sig_with b e0
+        | _ => fst baseAst
+        end
+      in
+      let with_ast := AstSigWith base_for_with eqsAst in
+      let enriched := apply_sig_with base_for_with eqsAst in
       ret (with_ast, enriched)
   | FileImportCST name path span =>
       (* Host CLI rewrites these to ModuleCST before elaborate; leftover is an error. *)
@@ -2855,6 +2920,9 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           end
       end
   | HandleCST body eff shallow multishot handlers _ =>
+      match String.eqb eff "io" with
+      | true => throw "io is not a user-handleable effect"
+      | false =>
       push_capability eff ;;
       old_pending <- get_pending ;
       set_pending [] ;;
@@ -2988,6 +3056,7 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           end ;;
           ret (AstHandle (fst bodyAst) (UserEffect eff) hsRes, answer_ty)
           end
+      end
       end
   | RecordCST name type_params fields _ =>
       let fix elab_fs (fs : list CST) : ElabM (list (string * AST)) :=

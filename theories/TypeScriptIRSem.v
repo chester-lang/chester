@@ -470,3 +470,5 @@ Proof.
   intros e ty Hf Hw.
   eapply emit_ts_expr_correct; [exact Hf | exact Hw | exact tsenv_ty_nil].
 Qed.
+
+Print Assumptions emit_ts_correct.

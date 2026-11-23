@@ -57,7 +57,7 @@ too). Match binders use constructor field types when the ctor is in scope. Shall
 | Incomplete handlers | Missing ops **forward** to outer frames; fail only when no outer match |
 | Return clause | `case return(x) => …` runs **after** popping the handler frame |
 | Annotated rows | `/ {e}` are **closed**; open only via inferred unannotated defs (`with_open_row`) |
-| `io` | Ambient top-level / FFI phantom — **not** user-`handle`able |
+| `io` | Ambient top-level / FFI phantom — elaborator **rejects** `handle … with io` |
 | `box` | Requires claimed caps on the lexical stack (no empty-evidence silent drop) |
 
 See `docs/guide/effects.md`.
@@ -144,19 +144,23 @@ generative and applicative (`module app`) functors, first-class `pack`/`unpack`,
 `with type` sharing, Rocq `Module`/`Module Type` emit, and file-as-module import via
 `--module-path` / `CHESTER_PATH`.
 
-Opaque sealing exports **unsubstituted** signature value types; manifest `type t = …`
-equality is checked; nested components are retained under opaque keep when sealed.
+Opaque sealing exports **unsubstituted** signature value types; transparent sealing
+exports substituted views. Manifest `type t = …` (including after `with type`) stays
+visible under opaque sealing; only abstract `type t` is hidden. Nested components are
+retained under opaque keep when sealed. The self-hosted elaborator has the same
+**AST-level** slice (`with type`, `pack`/`unpack`, generative `_gN` / applicative
+`__Arg` identity, param/ret/`manifest` sealing checks), but its front-end does not yet
+lower `signature`/`module` syntax, so module fixtures are Rocq-path only (still not
+F-ing stamps / Fω).
 
 **Still out of scope vs F-ing modules:**
 - no System Fω packaging; applicative identity is **name-based**, not **stamps** /
   phantom types (F-ing: applicative abstraction safety needs Fω + stamps)
 - no higher-order functors / `include` / `open` / `with module` / recursive modules
 - sealing is not full Σ≤Ξ; functor application is export rewrite, not re-elaboration under subst
-- modules outside `CoreFrag`; self-hosted now has `AstModTy` FieldAccess latent charge,
-  `SigVal`/`TypeDecl`, and a name/effect `seal_exports_check` slice (opaque keep) — still
-  no `with type` enrichment, stamps, or full F-ing packaging
+- modules outside `CoreFrag`
 
-See `docs/guide/modules.md`.
+See `docs/guide/modules.md`. Fixture: `tests/modules_with_type.chester`.
 
 - **"F-ing modules"** (Rossberg, Russo, Dreyer)
   - [Journal PDF](https://people.mpi-sws.org/~dreyer/papers/f-ing/firstview-journal.pdf)

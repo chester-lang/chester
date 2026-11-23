@@ -114,7 +114,8 @@ def do_io(): Unit / {io} = {
 
 `io` is an **ambient top-level capability**: the elaborator allows pending `io` at program
 top / prelude boundary, and the runtime installs a trivial ambient `io` frame for script
-entry. It is **not** a user-`handle`able algebraic effect (unlike `State` / `Choose`).
+entry. `handle … with io` is a hard elaborator error (`io is not a user-handleable effect`);
+unlike `State` / `Choose`, there is no user handler for `io`.
 
 ### `div` classifier
 
@@ -149,6 +150,7 @@ def loop(): Integer / {div} = loop();
 - Multishot is **answer-stream replay**, not delimited-continuation capture (see Hillerström et al. / Handlers in Action).
 - Open rows are **not** full Koka row polymorphism (`EffectRowVar` is a soft open tail).
 - Stack + `box` evidence is **not** Effects-as-Capabilities System Ξ.
+- `handle … with io` is rejected (ambient only); still not a Plotkin/Pretnar equational handler.
 - Full gap table: [LITERATURE.md](../paper/LITERATURE.md) §3.
 
 ## See also

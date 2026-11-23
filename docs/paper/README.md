@@ -31,7 +31,8 @@ by fixtures and the shared runtime in `bin/effects_runtime.ml`.
 
 All three backend correctness theorems (`emit_rocq_correct`, `emit_ts_correct`, `emit_go_correct`)
 as well as CST parser fuel stability and well-formedness (`parse_loop_fuel_stable`,
-`parse_loop_fuel_never_runs_out`, `parse_produces_ParserCST`) are checked with `Print Assumptions`
+`parse_loop_fuel_never_runs_out`, `parse_produces_ParserCST`) end with in-file
+`Print Assumptions` (see `RocqIRSem.v`, `TypeScriptIRSem.v`, `GoIRSem.v`, `Parser.v`)
 and are closed under the global context (no `Admitted`, `Axiom`, or `Parameter`).
 
 Formal definitions that *are* executable live in `theories/*.v` (AST, elaborator,

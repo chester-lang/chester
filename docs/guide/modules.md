@@ -8,8 +8,12 @@ are absent.
 
 Sealing/export **examples and lattice lemmas** live in `theories/CoreTyping.v` and
 `theories/TypeSystemProps.v` (not a full sealing-soundness theorem). Elaboration is in
-`theories/Elaborator.v`; the self-hosted elaborator mirrors a name/effect sealing slice.
-Fixtures: `tests/modules*.chester`.
+`theories/Elaborator.v`. The self-hosted elaborator carries a matching **AST-level**
+slice (sealing param/ret/manifest checks, `with type` substitution, `pack`/`unpack`, and
+generative/applicative name-based identity), but its front-end does not yet lower
+`signature`/`module` surface syntax, so module fixtures run through the Rocq compiler
+only. No stamps or Fω packaging either way. Fixtures: `tests/modules*.chester`
+(including `modules_with_type.chester`).
 
 ---
 
@@ -57,7 +61,8 @@ module Visible : Printable {
 
 ### Opaque sealing (`:>`)
 Definitions not in the signature are hidden. Abstract `type t` in the signature hides
-its concrete representation outside the module.
+its concrete representation outside the module. Manifest types (`type t = Int`, or
+after `with type t = Int`) remain visible even under `:>`.
 
 ```chester
 signature CounterSig {
@@ -139,6 +144,8 @@ Signatures can refine type components using `with type` sharing constraints. Sha
 ```chester
 signature Seq = SeqSig with type item = Int;
 ```
+
+See `tests/modules_with_type.chester`.
 
 ---
 

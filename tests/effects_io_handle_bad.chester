@@ -1,0 +1,7 @@
+def main(): Int = {
+  handle {
+    1
+  } with io {
+    case return(x) => x
+  }
+}

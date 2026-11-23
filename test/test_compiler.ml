@@ -456,6 +456,10 @@ let%expect_test "fixture modules types" =
   check_fixture "tests/modules_types.chester";
   [%expect {| tests/modules_types.chester ok |}]
 
+let%expect_test "fixture modules with type" =
+  check_fixture "tests/modules_with_type.chester";
+  [%expect {| tests/modules_with_type.chester ok |}]
+
 let%expect_test "modules_effects fixture elaborates" =
   check_fixture "tests/modules_effects.chester";
   [%expect {| tests/modules_effects.chester ok |}]
@@ -585,6 +589,10 @@ let%expect_test "runtime effects rows" =
 let%expect_test "unbox without handler is rejected" =
   expect_type_error "tests/effects_unbox_unhandled.chester";
   [%expect {| Missing capability for box |}]
+
+let%expect_test "handle io is rejected" =
+  expect_type_error "tests/effects_io_handle_bad.chester";
+  [%expect {| io is not a user-handleable effect |}]
 
 let%expect_test "go emit effects handle" =
   let prog =

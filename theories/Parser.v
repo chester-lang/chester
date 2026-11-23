@@ -1237,3 +1237,7 @@ Proof.
   - apply parse_body_fuel_produces_ParserCST in Hp. exact (proj1 Hp).
   - apply parse_body_fuel_produces_ParserCST in Hp. exact (proj2 Hp).
 Qed.
+
+Print Assumptions parse_loop_fuel_stable.
+Print Assumptions parse_loop_fuel_never_runs_out.
+Print Assumptions parse_produces_ParserCST.
