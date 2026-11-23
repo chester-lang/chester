@@ -12,10 +12,13 @@ Sealing/export **examples and lattice lemmas** live in `theories/CoreTyping.v` a
 `:`/`:`sealing, `with type`, aliases, functor declarations/applications, and
 `pack`/`unpack`) and carries the matching AST-level slice (param/ret/manifest sealing
 checks, `with type` substitution, generative/applicative name-based identity). Module
-bodies emit as `Module_member` Go functions. Remaining limits: no stamps or Fω
-packaging, `pack`/`unpack` runtime emission is unimplemented in both backends, and
-use-site enforcement of abstract opaque types is Rocq-only. Fixtures:
-`tests/modules*.chester` (including `modules_with_type.chester`).
+bodies emit as `Module_member` Go functions. `unpack (X : S) = pack M as S in body`
+compiles by inlining the module reference, so no runtime module value is needed;
+storing a `pack` value as first-class data remains unimplemented. Abstract opaque
+type components are hidden at use sites by both backends. Applicative identity is
+keyed by the argument's hygienic declaration site and generative functors get fresh
+ids; full System Fω packaging is out of scope. Fixtures: `tests/modules*.chester`
+(including `modules_with_type.chester`).
 
 ---
 

@@ -516,6 +516,7 @@ def rename_free(old: String, new_name: String, t: AST): AST = {
       AST.AstBlock(list_map(stmts, \s => rename_free(old, new_name, s)), rename_free(old, new_name, tail));
     case AstApp(f, args) =>
       AST.AstApp(rename_free(old, new_name, f), list_map(args, \a => rename_free(old, new_name, a)));
+    case AstFieldAccess(e2, f) => AST.AstFieldAccess(rename_free(old, new_name, e2), f);
     case AstLam(argName, argTy, argBody) => {
       let ty2 = rename_free(old, new_name, argTy);
       if string_eq(argName, old) then AST.AstLam(argName, ty2, argBody)
@@ -1219,6 +1220,24 @@ def strip_span(t: AST): AST = {
     case _ => t
   }
 };
+def unpack_inline(x: String, eAst: AST, bAst: AST): OptionAST = {
+  match strip_span(eAst) {
+    case AstPack(m, _) => {
+      match m {
+        case AstRef(n) => OptionAST.SomeAST(rename_free(x, n, bAst));
+        case AstModule(n, _, _, _) => OptionAST.SomeAST(rename_free(x, n, bAst));
+        case _ => OptionAST.NoneAST
+      }
+    };
+    case _ => OptionAST.NoneAST
+  }
+};
+def wrap_unpack(x: String, sigAst: AST, eAst: AST, bAst: AST, bTy: AST): Pair = {
+  match unpack_inline(x, eAst, bAst) {
+    case SomeAST(inlined) => Pair.MkPair(inlined, bTy);
+    case OptionAST.NoneAST => Pair.MkPair(AST.AstUnpack(x, sigAst, eAst, bAst), bTy)
+  }
+};
 def refs_compat(n1: String, n2: String): Bool = {
   if string_eq(n1, n2) then true
   else if bool_and(bool_or(string_eq(n1, "Int"), string_eq(n1, "Integer")), bool_or(string_eq(n2, "Int"), string_eq(n2, "Integer"))) then true
@@ -1509,6 +1528,65 @@ def flatten_sig_decls(fuel: Integer, ds: List(AST)): List(AST) = {
   }
 };
 def sig_decls_fuel(ds: List(AST)): Integer = int_mul(int_add(ast_list_size(ds), 1), 4);
+def abstract_type_names(ds: List(AST), subs: List(Pair)): List(String) = {
+  if int_eq(list_length(ds), 0) then list_empty[String]() else {
+    let rest = abstract_type_names(advance(ds), subs);
+    match list_get(ds, 0) {
+      case AstTypeDecl(n, _) => {
+        match find_pair_ty(subs, n) {
+          case SomeAST(_) => rest;
+          case OptionAST.NoneAST => list_insert_first(rest, n)
+        }
+      };
+      case AstSpan(_, inner) => {
+        match inner {
+          case AstTypeDecl(n, _) => {
+            match find_pair_ty(subs, n) {
+              case SomeAST(_) => rest;
+              case OptionAST.NoneAST => list_insert_first(rest, n)
+            }
+          };
+          case _ => rest
+        }
+      };
+      case _ => rest
+    }
+  }
+};
+def mark_abstract_ty(names: List(String), t: AST): AST = {
+  match t {
+    case AstRef(n) => {
+      if string_in_list(n, names) then AST.AstApp(AST.AstRef("#abstract"), list_insert_first(list_empty[AST](), AST.AstRef(n))) else t
+    };
+    case AstApp(f, args) => AST.AstApp(mark_abstract_ty(names, f), list_map(args, \x => mark_abstract_ty(names, x)));
+    case AstTuple(xs) => AST.AstTuple(list_map(xs, \x => mark_abstract_ty(names, x)));
+    case AstSpan(sp, i) => AST.AstSpan(sp, mark_abstract_ty(names, i));
+    case _ => t
+  }
+};
+def mark_abstract_params(names: List(String), ps: List(Pair)): List(Pair) = {
+  if int_eq(list_length(ps), 0) then list_empty[Pair]() else {
+    match list_get(ps, 0) {
+      case MkPair(n, ty) => list_insert_first(mark_abstract_params(names, advance(ps)), Pair.MkPair(n, mark_abstract_ty(names, ty)));
+      case _ => mark_abstract_params(names, advance(ps))
+    }
+  }
+};
+def mark_abstract_export_ty(names: List(String), ty: AST): AST = {
+  match ty {
+    case AstFunTy(tps, ps, r, es) => AST.AstFunTy(tps, mark_abstract_params(names, ps), mark_abstract_ty(names, r), es);
+    case AstSpan(sp, i) => AST.AstSpan(sp, mark_abstract_export_ty(names, i));
+    case _ => ty
+  }
+};
+def mark_abstract_exports(names: List(String), ps: List(Pair)): List(Pair) = {
+  if int_eq(list_length(ps), 0) then list_empty[Pair]() else {
+    match list_get(ps, 0) {
+      case MkPair(n, ty) => list_insert_first(mark_abstract_exports(names, advance(ps)), Pair.MkPair(n, mark_abstract_export_ty(names, ty)));
+      case _ => mark_abstract_exports(names, advance(ps))
+    }
+  }
+};
 def seal_cons_export(n: String, ty: AST, rest_res: Pair): Pair = {
   match rest_res {
     case MkPair(msg, xs) => {
@@ -1551,6 +1629,8 @@ def seal_sigval_member(opaque: Bool, n: String, tps: List(String), params: List(
   }
 };
 def seal_exports_check_flat(opaque: Bool, full: List(Pair), subs: List(Pair), sig_decls: List(AST)): Pair = {
+  // Abstract components are signature type components with no manifest;
+  // derive that from the signature itself (not the implementation's manifests).
   if int_eq(list_length(sig_decls), 0) then Pair.MkPair("ok", list_empty[Pair]()) else {
     let rest = advance(sig_decls);
     match list_get(sig_decls, 0) {
@@ -1599,8 +1679,11 @@ def apply_sig_seal(opaque: Bool, full_ex: List(Pair), body_ast: List(AST), sTy: 
       match seal_exports_check(opaque, full_ex, decls) {
         case MkPair(msg, sealed) => {
           if string_eq(msg, "ok") then {
-            let body2 = if opaque then keep_sealed(sealed, body_ast) else body_ast;
-            Pair.MkPair(AST.AstModTy(sealed), Pair.MkPair(seal_node, body2))
+            let sig_subs = seal_type_substs(decls, module_exports_of(decls));
+            let abstracts = abstract_type_names(decls, sig_subs);
+            let sealed2 = if opaque then mark_abstract_exports(abstracts, sealed) else sealed;
+            let body2 = if opaque then keep_sealed(sealed2, body_ast) else body_ast;
+            Pair.MkPair(AST.AstModTy(sealed2), Pair.MkPair(seal_node, body2))
           } else Pair.MkPair(AST.AstError(msg), Pair.MkPair(seal_node, body_ast))
         }
       }
@@ -1911,6 +1994,31 @@ def add_vars_to_env(env: List(Pair), vars: List(String), ctx: List(Integer)): Li
     list_insert_first(rest, Pair.MkPair(Pair.MkPair(v, ctx), fresh_meta()))
   }
 };
+def abstract_ty_name(ty: AST): String = {
+  match ty {
+    case AstApp(f, args) => {
+      match f {
+        case AstRef(n) => {
+          if string_eq(n, "#abstract") then {
+            if int_eq(list_length(args), 0) then "" else {
+              match list_get(args, 0) {
+                case AstRef(m) => m;
+                case _ => ""
+              }
+            }
+          } else ""
+        };
+        case _ => ""
+      }
+    };
+    case AstSpan(_, inner) => abstract_ty_name(inner);
+    case _ => ""
+  }
+};
+def abstract_mismatch(expected_ty: AST, actual_ty: AST): Bool = {
+  let exp = abstract_ty_name(expected_ty);
+  if string_eq(exp, "") then false else bool_not(string_eq(abstract_ty_name(actual_ty), exp))
+};
 def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
   if int_eq(list_length(as_), 0) then {
     match fs {
@@ -1939,12 +2047,15 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
             case MkPair(_, arg_ty) => {
               let aAst_res = elaborate(env, a, OptionAST.SomeAST(arg_ty));
               match aAst_res {
-                case MkPair(aAst_expr, _) => {
-                  let next_fs = if int_eq(list_length(advance(params)), 0) then ret_ty else AST.AstFunTy(tps, advance(params), ret_ty, effs);
-                  let restAst_res = elab_check_args(env, next_fs, rest);
-                  match restAst_res {
-                    case MkPair(restAst_exprs, restAst_ty) =>
-                      Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
+                case MkPair(aAst_expr, a_ty) => {
+                  if abstract_mismatch(arg_ty, a_ty) then Pair.MkPair(list_insert_first(list_empty[AST](), AST.AstError(string_concat("opaque type mismatch: ", abstract_ty_name(arg_ty)))), AST.AstRef("Any"))
+                  else {
+                    let next_fs = if int_eq(list_length(advance(params)), 0) then ret_ty else AST.AstFunTy(tps, advance(params), ret_ty, effs);
+                    let restAst_res = elab_check_args(env, next_fs, rest);
+                    match restAst_res {
+                      case MkPair(restAst_exprs, restAst_ty) =>
+                        Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
+                    }
                   }
                 }
               }
@@ -1955,11 +2066,14 @@ def elab_check_args(env: List(Pair), fs: AST, as_: List(CST)): Pair = {
       case AstPi(_, arg_ty, ret_ty, _) => {
         let aAst_res = elaborate(env, a, OptionAST.SomeAST(arg_ty));
         match aAst_res {
-          case MkPair(aAst_expr, _) => {
-            let restAst_res = elab_check_args(env, ret_ty, rest);
-            match restAst_res {
-              case MkPair(restAst_exprs, restAst_ty) => {
-                Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
+          case MkPair(aAst_expr, a_ty) => {
+            if abstract_mismatch(arg_ty, a_ty) then Pair.MkPair(list_insert_first(list_empty[AST](), AST.AstError(string_concat("opaque type mismatch: ", abstract_ty_name(arg_ty)))), AST.AstRef("Any"))
+            else {
+              let restAst_res = elab_check_args(env, ret_ty, rest);
+              match restAst_res {
+                case MkPair(restAst_exprs, restAst_ty) => {
+                  Pair.MkPair(list_insert_first(restAst_exprs, aAst_expr), restAst_ty)
+                }
               }
             }
           }
@@ -3363,7 +3477,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                             let modty = AST.AstModTy(sealed);
                             let body_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(x, span_context(span)), modty));
                             match elaborate(body_env, body, expected) {
-                              case MkPair(bAst, bTy) => Pair.MkPair(AST.AstUnpack(x, sigAst, eAst, bAst), bTy)
+                              case MkPair(bAst, bTy) => wrap_unpack(x, sigAst, eAst, bAst, bTy)
                             }
                           } else Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"))
                         }
@@ -3374,7 +3488,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                       if types_compat(other, expected_mod) then {
                         let body_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(x, span_context(span)), expected_mod));
                         match elaborate(body_env, body, expected) {
-                          case MkPair(bAst, bTy) => Pair.MkPair(AST.AstUnpack(x, sigAst, eAst, bAst), bTy)
+                          case MkPair(bAst, bTy) => wrap_unpack(x, sigAst, eAst, bAst, bTy)
                         }
                       } else Pair.MkPair(AST.AstError("unpack value does not match signature"), AST.AstRef("Any"))
                     }
@@ -3383,13 +3497,13 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                 case AstModTy(ex) => {
                   let body_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(x, span_context(span)), AST.AstModTy(ex)));
                   match elaborate(body_env, body, expected) {
-                    case MkPair(bAst, bTy) => Pair.MkPair(AST.AstUnpack(x, sigAst, eAst, bAst), bTy)
+                    case MkPair(bAst, bTy) => wrap_unpack(x, sigAst, eAst, bAst, bTy)
                   }
                 };
                 case _ => {
                   let body_env = list_insert_first(env, Pair.MkPair(Pair.MkPair(x, span_context(span)), AST.AstModTy(list_empty[Pair]())));
                   match elaborate(body_env, body, expected) {
-                    case MkPair(bAst, bTy) => Pair.MkPair(AST.AstUnpack(x, sigAst, eAst, bAst), bTy)
+                    case MkPair(bAst, bTy) => wrap_unpack(x, sigAst, eAst, bAst, bTy)
                   }
                 }
               }

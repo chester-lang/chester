@@ -150,9 +150,12 @@ visible under opaque sealing; only abstract `type t` is hidden. Nested component
 retained under opaque keep when sealed. The self-hosted compiler lowers
 `signature`/`module`/`with type`/`pack`/`unpack` and carries the same **AST-level**
 slice (`with type`, generative `_gN` / applicative `__Arg` identity, param/ret/
-`manifest` sealing checks), emitting `Module_member` Go functions. Still not F-ing
-stamps / Fω; `pack`/`unpack` runtime emission is unimplemented in both backends, and
-abstract opaque-type hiding is enforced at use sites only on the Rocq path.
+`manifest` sealing checks), emitting `Module_member` Go functions. Unpacking a packed
+module inlines the module reference, so no runtime module value is required; storing
+`pack` as first-class data remains unimplemented. Abstract opaque-type hiding is
+enforced at use sites by both backends. Applicative identity is keyed by hygienic
+declaration sites and generative functors get fresh ids; full F-ing stamps / System Fω
+packaging is out of scope.
 
 **Still out of scope vs F-ing modules:**
 - no System Fω packaging; applicative identity is **name-based**, not **stamps** /

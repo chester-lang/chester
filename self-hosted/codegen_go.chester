@@ -885,7 +885,9 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
           //   { let tmp=a; let a=b; { let b=tmp; Unit } }
           // The inner AstBlock tail should be a statement call, not `return func(){...}()`.
           case AstBlock(_, _) => {
-            let d = string_concat(emit_go_expr(next_fuel, sigs, tail_locals, tail), ";");
+            let expr = emit_go_expr(next_fuel, sigs, tail_locals, tail);
+            let d = if string_eq(ret_ty, "") then string_concat(expr, ";")
+                    else go_return(sigs, tail_locals, ret_ty, tail, expr);
             if int_eq(list_length(stmts), 0) then d
             else string_concat(join_strings(go_nl(), stmts_strs), string_concat(go_nl(), d))
           };

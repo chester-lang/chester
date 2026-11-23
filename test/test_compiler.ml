@@ -296,6 +296,21 @@ let selfhosted_go_run_output stage1_bin filename =
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
   line
 
+(** Exit status of the self-hosted compiler on [filename]. *)
+let selfhosted_compile_status stage1_bin filename =
+  let src = fixture_path filename in
+  let out = Filename.temp_file "chester_sh_bad" ".go" in
+  let err = Filename.temp_file "chester_sh_bad" ".err" in
+  let st =
+    Sys.command
+      (Printf.sprintf "%s %s > %s 2> %s"
+         (Filename.quote stage1_bin)
+         (Filename.quote src) (Filename.quote out) (Filename.quote err))
+  in
+  Sys.remove out;
+  Sys.remove err;
+  st
+
 (** Fixtures where Rocq and self-hosted Go backends must agree at runtime. *)
 let parity_fixtures =
   [
@@ -348,7 +363,13 @@ let check_rocq_selfhosted_parity () =
       ignore (selfhosted_go_run_output stage1 fixture);
       print_endline (fixture ^ " self-hosted ok"))
     [ "tests/modules.chester"; "tests/modules_with_type.chester";
-      "tests/modules_effects.chester" ];
+      "tests/modules_effects.chester"; "tests/modules_ext.chester" ];
+  List.iter
+    (fun fixture ->
+      let st = selfhosted_compile_status stage1 fixture in
+      print_endline
+        (fixture ^ " self-hosted rejected=" ^ string_of_bool (st <> 0)))
+    [ "tests/modules_opaque_bad.chester" ];
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote stage_dir)) in
   ()
 
@@ -524,10 +545,10 @@ let%expect_test "fixture modules ext unpack emit" =
   let ts = string_of_char_list (stringify_ts_stmt (emit_ts ast)) in
   if not (has_substr ts "namespace Counter") then
     failwith "expected Counter namespace";
-  if not (has_substr ts "const X =") then
-    failwith "expected unpack binder in TS emit";
-  if not (has_substr ts "X.show") then
-    failwith "expected packed module use X.show";
+  if has_substr ts "const X =" then
+    failwith "unpack should inline the packed module reference";
+  if not (has_substr ts "Counter.show") then
+    failwith "expected inlined Counter.show";
   print_endline "tests/modules_ext.chester unpack emit ok";
   [%expect {| tests/modules_ext.chester unpack emit ok |}]
 
@@ -1091,6 +1112,8 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/modules.chester self-hosted ok
     tests/modules_with_type.chester self-hosted ok
     tests/modules_effects.chester self-hosted ok
+    tests/modules_ext.chester self-hosted ok
+    tests/modules_opaque_bad.chester self-hosted rejected=true
     |}]
 
 let%expect_test "fixture dependent types" =

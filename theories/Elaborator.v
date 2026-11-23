@@ -1357,6 +1357,21 @@ Definition lookup_export (exports : list (string * AST)) (field : string) : opti
   | None => None
   end.
 
+(* [unpack (X : S) = pack M as S in body] is compiled by inlining the packed
+   module reference: no runtime module value is needed. *)
+Definition unpack_inline (x : string) (eAst bAst : AST) : option AST :=
+  match strip_span eAst with
+  | AstPack (AstRef m) _ => Some (subst_ast x (AstRef m) bAst)
+  | AstPack (AstModule m _ _ _) _ => Some (subst_ast x (AstRef m) bAst)
+  | _ => None
+  end.
+
+Definition wrap_unpack (x : string) (sigAst eAst bAst ty : AST) : AST * AST :=
+  match unpack_inline x eAst bAst with
+  | Some b => (b, ty)
+  | None => (AstUnpack x sigAst eAst bAst, ty)
+  end.
+
 Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option AST) {struct fuel}
   : ElabM (AST * AST) :=
   match fuel with
@@ -2584,8 +2599,8 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                   let modty := AstModTy sealed in
                   bodyAst <- elaborate fuel'
                                (((x, context span), modty) :: env) body expected ;
-                  ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst),
-                       snd bodyAst)
+                  ret (wrap_unpack x (fst sigAst) (fst eAst) (fst bodyAst)
+                         (snd bodyAst))
               end
           | other =>
               let expected_mod := AstModTy (module_exports_of decls) in
@@ -2593,18 +2608,20 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
                 bodyAst <- elaborate fuel'
                              (((x, context span), expected_mod) :: env)
                              body expected ;
-                ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst),
-                     snd bodyAst)
+                ret (wrap_unpack x (fst sigAst) (fst eAst) (fst bodyAst)
+                       (snd bodyAst))
               else throw "unpack value does not match signature"
           end
       | AstModTy ex =>
           bodyAst <- elaborate fuel'
                        (((x, context span), AstModTy ex) :: env) body expected ;
-          ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst), snd bodyAst)
+          ret (wrap_unpack x (fst sigAst) (fst eAst) (fst bodyAst)
+                 (snd bodyAst))
       | _ =>
           bodyAst <- elaborate fuel'
                        (((x, context span), AstModTy []) :: env) body expected ;
-          ret (AstUnpack x (fst sigAst) (fst eAst) (fst bodyAst), snd bodyAst)
+          ret (wrap_unpack x (fst sigAst) (fst eAst) (fst bodyAst)
+                 (snd bodyAst))
       end
   | ModuleAliasCST name rhs span =>
       rhsAst <- elaborate fuel' env rhs None ;
