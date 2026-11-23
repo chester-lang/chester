@@ -340,6 +340,15 @@ let check_rocq_selfhosted_parity () =
              rocq selfh);
       print_endline (fixture ^ " parity ok (" ^ rocq ^ ")"))
     parity_fixtures;
+  (* Module surface syntax is self-hosted-only coverage: both backends emit
+     these, but Unit mains print differently ([] vs <nil>), so compare existence
+     rather than output. *)
+  List.iter
+    (fun fixture ->
+      ignore (selfhosted_go_run_output stage1 fixture);
+      print_endline (fixture ^ " self-hosted ok"))
+    [ "tests/modules.chester"; "tests/modules_with_type.chester";
+      "tests/modules_effects.chester" ];
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote stage_dir)) in
   ()
 
@@ -1079,6 +1088,9 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/binders_pattern_shadow.chester parity ok (9)
     tests/binders_rec_def.chester parity ok (6)
     tests/option_result.chester parity ok (158)
+    tests/modules.chester self-hosted ok
+    tests/modules_with_type.chester self-hosted ok
+    tests/modules_effects.chester self-hosted ok
     |}]
 
 let%expect_test "fixture dependent types" =

@@ -298,6 +298,8 @@ Definition go_builtin_param_tys (name : string) (nargs : nat) : option (list str
   else if go_str_eq name "__chester_read_file" then Some ["string"]
   else if go_str_eq name "__chester_write_file" then Some ["string"; "string"]
   else if go_str_eq name "__chester_write_stdout" then Some ["string"]
+  else if go_str_eq name "__chester_write_stderr" then Some ["string"]
+  else if go_str_eq name "__chester_exit" then Some ["int"]
   else if go_str_eq name "__chester_read_stdin" then Some []
   else None.
 

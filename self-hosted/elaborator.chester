@@ -708,6 +708,146 @@ def ast_size(t: AST): Integer = match t {
   case AstUnpack(_, s, e, b) => int_add(1, int_add(ast_size(s), int_add(ast_size(e), ast_size(b))))
 };
 def ast_fuel(t: AST): Integer = int_mul(int_add(ast_size(t), 1), 16);
+// First elaboration error embedded in an AST ("" when clean). Used by the CLI
+// so failed compiles exit nonzero instead of emitting panic expressions.
+def first_error_asts(ls: List(AST)): String = {
+  if int_eq(list_length(ls), 0) then "" else {
+    let head = first_error(list_get(ls, 0));
+    if string_eq(head, "") then first_error_asts(advance(ls)) else head
+  }
+};
+def first_error_pairs(ps: List(Pair)): String = {
+  if int_eq(list_length(ps), 0) then "" else {
+    match list_get(ps, 0) {
+      case MkPair(_, v) => {
+        let head = first_error(v);
+        if string_eq(head, "") then first_error_pairs(advance(ps)) else head
+      }
+    }
+  }
+};
+def first_error(ast: AST): String = {
+  match ast {
+    case AstError(msg) => msg;
+    case AstSpan(_, inner) => first_error(inner);
+    case AstTuple(es) => first_error_asts(es);
+    case AstBlock(stmts, tail) => {
+      let e = first_error_asts(stmts);
+      if string_eq(e, "") then first_error(tail) else e
+    };
+    case AstApp(f, args) => {
+      let e = first_error(f);
+      if string_eq(e, "") then first_error_asts(args) else e
+    };
+    case AstImplicitApp(f, args) => {
+      let e = first_error(f);
+      if string_eq(e, "") then first_error_asts(args) else e
+    };
+    case AstLam(_, ty, body) => {
+      let e = first_error(ty);
+      if string_eq(e, "") then first_error(body) else e
+    };
+    case AstPi(_, ty, ret, _) => {
+      let e = first_error(ty);
+      if string_eq(e, "") then first_error(ret) else e
+    };
+    case AstLet(_, v) => first_error(v);
+    case AstVar(_, v) => first_error(v);
+    case AstAssign(_, v) => first_error(v);
+    case AstIf(c, t, e2) => {
+      let e = first_error(c);
+      if string_eq(e, "") then {
+        let e1 = first_error(t);
+        if string_eq(e1, "") then first_error(e2) else e1
+      } else e
+    };
+    case AstDef(_, _, ps, ret, body, _) => {
+      let e = first_error_pairs(ps);
+      if string_eq(e, "") then {
+        let e1 = first_error(ret);
+        if string_eq(e1, "") then first_error(body) else e1
+      } else e
+    };
+    case AstFunTy(_, ps, ret, _) => {
+      let e = first_error_pairs(ps);
+      if string_eq(e, "") then first_error(ret) else e
+    };
+    case AstMatch(e0, cases) => {
+      let e = first_error(e0);
+      if string_eq(e, "") then first_error_pairs(cases) else e
+    };
+    case AstFieldAccess(e, _) => first_error(e);
+    case AstExtension(_, _, tgt, meths) => {
+      let e = first_error(tgt);
+      if string_eq(e, "") then first_error_asts(meths) else e
+    };
+    case AstDo(op, args) => {
+      let e = first_error(op);
+      if string_eq(e, "") then first_error_asts(args) else e
+    };
+    case AstHandle(body, _, hs) => {
+      let e = first_error(body);
+      if string_eq(e, "") then first_error_pairs(hs) else e
+    };
+    case AstBox(e, _) => first_error(e);
+    case AstUnbox(e) => first_error(e);
+    case AstModule(_, ps, seal, body) => {
+      let e = first_error_pairs(ps);
+      if string_eq(e, "") then {
+        let e1 = first_error_asts(seal);
+        if string_eq(e1, "") then first_error_asts(body) else e1
+      } else e
+    };
+    case AstSignature(_, decls) => first_error_asts(decls);
+    case AstFunctorApp(f, args) => {
+      let e = first_error(f);
+      if string_eq(e, "") then first_error_asts(args) else e
+    };
+    case AstModTy(ex) => first_error_pairs(ex);
+    case AstSigVal(_, _, ps, ret, _) => {
+      let e = first_error_pairs(ps);
+      if string_eq(e, "") then first_error(ret) else e
+    };
+    case AstTypeDecl(_, defs) => first_error_asts(defs);
+    case AstSigWith(s, eqs) => {
+      let e = first_error(s);
+      if string_eq(e, "") then first_error_pairs(eqs) else e
+    };
+    case AstPack(m, s) => {
+      let e = first_error(m);
+      if string_eq(e, "") then first_error(s) else e
+    };
+    case AstUnpack(_, s, e, b) => {
+      let e0 = first_error(s);
+      if string_eq(e0, "") then {
+        let e1 = first_error(e);
+        if string_eq(e1, "") then first_error(b) else e1
+      } else e0
+    };
+    case _ => ""
+  }
+};
+def elab_module_params(env: List(Pair), ps: List(Pair)): Pair = {
+  if int_eq(list_length(ps), 0) then Pair.MkPair(list_empty[Pair](), env) else {
+    match list_get(ps, 0) {
+      case MkPair(pn, pty) => {
+        match elaborate(env, pty, OptionAST.NoneAST) {
+          case MkPair(tyAst, ty) => {
+            let pmodty = match ty {
+              case AstSignature(_, decls) => AST.AstModTy(module_exports_of(decls));
+              case AstModTy(ex) => AST.AstModTy(ex);
+              case other => other
+            };
+            let env1 = list_insert_first(env, Pair.MkPair(Pair.MkPair(pn, list_empty[Integer]()), pmodty));
+            match elab_module_params(env1, advance(ps)) {
+              case MkPair(psAst, env2) => Pair.MkPair(list_insert_first(psAst, Pair.MkPair(pn, tyAst)), env2)
+            }
+          }
+        }
+      }
+    }
+  }
+};
 def unify_fuel(t1: AST, t2: AST): Integer = {
   let s = get_elab_state();
   let subst_len = match s {
@@ -2996,17 +3136,20 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
     };
     case ModuleCST(name, params, seal, body, _) => {
       // Slice: body exports + name/effect sealing. Not F-ing stamps / Fω.
-      let body_asts = elab_stmt_list(env, body);
+      let fparams_res = elab_module_params(env, params);
+      let params_ast = match fparams_res { case MkPair(psA, _) => psA };
+      let body_env = match fparams_res { case MkPair(_, e) => e };
+      let body_asts = elab_stmt_list(body_env, body);
       let full_ex = module_exports_of(body_asts);
       if int_eq(list_length(seal), 0) then {
-        let mod_ty = if int_eq(list_length(params), 0) then AST.AstModTy(full_ex) else AST.AstModule(name, params, list_empty[AST](), body_asts);
-        Pair.MkPair(AST.AstModule(name, params, list_empty[AST](), body_asts), mod_ty)
+        let mod_ty = if int_eq(list_length(params), 0) then AST.AstModTy(full_ex) else AST.AstModule(name, params_ast, list_empty[AST](), body_asts);
+        Pair.MkPair(AST.AstModule(name, params_ast, list_empty[AST](), body_asts), mod_ty)
       } else {
         let seal0 = list_get(seal, 0);
         match seal0 {
           case Symbol("#applicative", _) => {
             let seal_asts = list_insert_first(list_empty[AST](), AST.AstRef("#applicative"));
-            Pair.MkPair(AST.AstModule(name, params, seal_asts, body_asts), AST.AstModule(name, params, seal_asts, body_asts))
+            Pair.MkPair(AST.AstModule(name, params_ast, seal_asts, body_asts), AST.AstModule(name, params_ast, seal_asts, body_asts))
           };
           case AppCST(f, inners, _) => {
             match f {
@@ -3027,8 +3170,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                                   case AstError(msg) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
                                   case _ => {
                                     let seal_asts = list_insert_first(list_empty[AST](), s_node);
-                                    let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params, seal_asts, body2);
-                                    Pair.MkPair(AST.AstModule(name, params, seal_asts, body2), out_ty)
+                                    let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params_ast, seal_asts, body2);
+                                    Pair.MkPair(AST.AstModule(name, params_ast, seal_asts, body2), out_ty)
                                   }
                                 }
                               }
@@ -3050,8 +3193,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                                 case AstError(msg) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
                                 case _ => {
                                   let seal_asts = list_insert_first(list_empty[AST](), s_node);
-                                  let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params, seal_asts, body2);
-                                  Pair.MkPair(AST.AstModule(name, params, seal_asts, body2), out_ty)
+                                  let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params_ast, seal_asts, body2);
+                                  Pair.MkPair(AST.AstModule(name, params_ast, seal_asts, body2), out_ty)
                                 }
                               }
                             }
@@ -3074,8 +3217,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                               case AstError(msg) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
                               case _ => {
                                 let seal_asts = list_insert_first(list_empty[AST](), s_node);
-                                let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params, seal_asts, body2);
-                                Pair.MkPair(AST.AstModule(name, params, seal_asts, body2), out_ty)
+                                let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params_ast, seal_asts, body2);
+                                Pair.MkPair(AST.AstModule(name, params_ast, seal_asts, body2), out_ty)
                               }
                             }
                           }
@@ -3099,8 +3242,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
                           case AstError(msg) => Pair.MkPair(AST.AstError(msg), AST.AstRef("Any"));
                           case _ => {
                             let seal_asts = list_insert_first(list_empty[AST](), s_node);
-                            let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params, seal_asts, body2);
-                            Pair.MkPair(AST.AstModule(name, params, seal_asts, body2), out_ty)
+                            let out_ty = if int_eq(list_length(params), 0) then mod_ty else AST.AstModule(name, params_ast, seal_asts, body2);
+                            Pair.MkPair(AST.AstModule(name, params_ast, seal_asts, body2), out_ty)
                           }
                         }
                       }

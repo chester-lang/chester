@@ -339,6 +339,16 @@ func __chester_write_stdout(s string) any {
     return nil
 }
 
+func __chester_write_stderr(s string) any {
+    fmt.Fprint(os.Stderr, s)
+    return nil
+}
+
+func __chester_exit(code int) any {
+    os.Exit(code)
+    return nil
+}
+
 func __chester_field(obj any, field string) any {
     if obj == nil { panic(fmt.Sprintf("cannot access field %s on nil", field)) }
     if m, ok := obj.(map[string]any); ok {

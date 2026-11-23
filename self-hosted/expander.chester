@@ -173,6 +173,301 @@ def cont_with_leftover(elems: List(CST), consumed: Integer, sp: Span, rest_ss: L
     list_insert_first(rest_ss, node)
   }
 };
+// ---------- module / signature surface lowering ----------
+def empty_span_(): Span = Span(0, 0, list_empty[Integer]());
+def one_cst(c: CST): List(CST) = list_insert_first(list_empty[CST](), c);
+def seal_list(tag: String, signame: String, sp: Span): List(CST) = {
+  one_cst(AppCST(Symbol(tag, sp), one_cst(Symbol(signame, sp)), sp))
+};
+def extract_named_formal(a: CST, op_env: List(OpEnvEntry)): Pair = {
+  match a {
+    case Symbol(n, _) => Pair.MkPair(n, Symbol("Unknown", empty_span_()));
+    case SeqOf(xs, sp) => {
+      if int_lt(list_length(xs), 2) then Pair.MkPair("unknown", a) else {
+        match list_get(xs, 0) {
+          case Symbol(n, _) => {
+            match list_get(xs, 1) {
+              case Symbol(kw, _) => {
+                if string_eq(kw, ":") then {
+                  let tys = advance(advance(xs));
+                  let ty = if int_eq(list_length(tys), 0) then Symbol("Unknown", empty_span_())
+                           else if int_eq(list_length(tys), 1) then list_get(tys, 0)
+                           else expand_seq_expr(tys, op_env, sp);
+                  Pair.MkPair(n, ty)
+                } else Pair.MkPair("unknown", a)
+              };
+              case _ => Pair.MkPair("unknown", a)
+            }
+          };
+          case _ => Pair.MkPair("unknown", a)
+        }
+      }
+    };
+    case _ => Pair.MkPair("unknown", a)
+  }
+};
+def named_formals(args: List(CST), op_env: List(OpEnvEntry)): List(Pair) = {
+  list_map(args, \a => extract_named_formal(a, op_env))
+};
+def sig_ret_ty(cs: List(CST), sp: Span, op_env: List(OpEnvEntry)): CST = {
+  if int_eq(list_length(cs), 0) then Symbol("Unknown", sp) else {
+    match list_get(cs, 0) {
+      case Symbol(colon, _) => {
+        if string_eq(colon, ":") then {
+          match split_ty_effect_row(advance(cs), sp) {
+            case MkPair(ret0, effs) => {
+              let ret = match ret0 {
+                case SeqOf(xs, sp2) => expand_seq_expr(xs, op_env, sp2);
+                case other => other
+              };
+              with_effect_row(ret, effs, sp)
+            }
+          }
+        } else Symbol("Unknown", sp)
+      };
+      case _ => Symbol("Unknown", sp)
+    }
+  }
+};
+def sig_member(c: CST, op_env: List(OpEnvEntry)): CST = {
+  match c {
+    // DefCST keeps raw CST params (SeqOf(name, ":", ty)); SigValCST wants pairs.
+    case DefCST(name, tps, params, ret, _, sp) => SigValCST(name, tps, named_formals(params, op_env), ret, sp);
+    case TypeDeclCST(_, _, _) => c;
+    case SeqOf(xs, sp) => {
+      if int_lt(list_length(xs), 2) then c else {
+        match list_get(xs, 0) {
+          case Symbol(kw, _) => {
+            if string_eq(kw, "type") then {
+              match list_get(xs, 1) {
+                case Symbol(name, _) => {
+                  let after = advance(advance(xs));
+                  let defs = if int_eq(list_length(after), 0) then list_empty[CST]() else {
+                    match list_get(after, 0) {
+                      case Symbol(eq, _) => {
+                        if string_eq(eq, "=") then {
+                          let tys = advance(after);
+                          if int_eq(list_length(tys), 0) then list_empty[CST]()
+                          else one_cst(if int_eq(list_length(tys), 1) then list_get(tys, 0) else expand_seq_expr(tys, op_env, sp))
+                        } else list_empty[CST]()
+                      };
+                      case _ => list_empty[CST]()
+                    }
+                  };
+                  TypeDeclCST(name, defs, sp)
+                };
+                case _ => c
+              }
+            } else if string_eq(kw, "def") then {
+              match list_get(xs, 1) {
+                case AppCST(h, args, _) => {
+                  match h {
+                    case Symbol(name, _) =>
+                      SigValCST(name, list_empty[String](), named_formals(args, op_env), sig_ret_ty(list_drop_n(2, xs), sp, op_env), sp);
+                    case ImplicitAppCST(inner, targs, _) => {
+                      match inner {
+                        case Symbol(name, _) =>
+                          SigValCST(name, extract_tparams(targs), named_formals(args, op_env), sig_ret_ty(list_drop_n(2, xs), sp, op_env), sp);
+                        case _ => c
+                      }
+                    };
+                    case _ => c
+                  }
+                };
+                case _ => c
+              }
+            } else c
+          };
+          case _ => c
+        }
+      }
+    };
+    case _ => c
+  }
+};
+def to_sig_specs(cs: List(CST), op_env: List(OpEnvEntry)): List(CST) = {
+  list_map(cs, \c => sig_member(c, op_env))
+};
+def process_after(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, node: CST, rest_ss: List(CST)): ExpandResultList = {
+  let res_rest = process_stmts(fuel, env, op_env, m, rest_ss);
+  match res_rest {
+    case ResList(rest_csts, final_m) => ExpandResultList.ResList(list_insert_first(rest_csts, node), final_m)
+  }
+};
+def seal_head(rest: List(CST)): Pair = {
+  if int_eq(list_length(rest), 0) then Pair.MkPair(false, rest) else {
+    match list_get(rest, 0) {
+      case Symbol(op, _) => {
+        if string_eq(op, ":>") then Pair.MkPair(true, advance(rest))
+        else if string_eq(op, ":") then {
+          let after = advance(rest);
+          if int_eq(list_length(after), 0) then Pair.MkPair(false, after) else {
+            match list_get(after, 0) {
+              case Symbol(gt, _) => {
+                if string_eq(gt, ">") then Pair.MkPair(true, advance(after)) else Pair.MkPair(false, after)
+              };
+              case _ => Pair.MkPair(false, after)
+            }
+          }
+        } else Pair.MkPair(false, rest)
+      };
+      case _ => Pair.MkPair(false, rest)
+    }
+  }
+};
+def finish_module_seal(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, modname: String, params: List(Pair), opaque: Bool, signame: String, seal_rest: List(CST), sp: Span, rest_ss: List[CST], s: CST): ExpandResultList = {
+  if int_lt(list_length(seal_rest), 2) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+    match list_get(seal_rest, 1) {
+      case Block(_, _, _) => {
+        match process_stmts(fuel, env, op_env, m, methods_of_block_1(list_get(seal_rest, 1), op_env)) {
+          case ResList(body2, m2) => {
+            let seal = if opaque then seal_list("#opaque", signame, sp) else seal_list("#transparent", signame, sp);
+            process_after(fuel, env, op_env, m2, ModuleCST(modname, params, seal, body2, sp), rest_ss)
+          }
+        }
+      };
+      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+    }
+  }
+};
+def expand_module_stmt(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, elems: List(CST), sp: Span, rest_ss: List(CST), s: CST): ExpandResultList = {
+  let keep = process_stmt_keep(fuel, env, op_env, m, s, rest_ss);
+  let rest0 = advance(elems);
+  if int_eq(list_length(rest0), 0) then keep else {
+    let is_app0 = match list_get(rest0, 0) {
+      case Symbol(kw, _) => bool_or(string_eq(kw, "app"), string_eq(kw, "applicative"));
+      case _ => false
+    };
+    let rest1 = if is_app0 then advance(rest0) else rest0;
+    let app_seal = if is_app0 then one_cst(Symbol("#applicative", sp)) else list_empty[CST]();
+    if int_eq(list_length(rest1), 0) then keep else {
+      let after = advance(rest1);
+      match list_get(rest1, 0) {
+        case Symbol(modname, _) => {
+          if int_eq(list_length(after), 0) then keep else {
+            let n1 = list_get(after, 0);
+            match n1 {
+              case Block(_, _, _) => {
+                match process_stmts(fuel, env, op_env, m, methods_of_block_1(n1, op_env)) {
+                  case ResList(body2, m2) => process_after(fuel, env, op_env, m2, ModuleCST(modname, list_empty[Pair](), app_seal, body2, sp), rest_ss)
+                }
+              };
+              case Symbol(op, _) => {
+                if string_eq(op, "=") then {
+                  let rhs = advance(after);
+                  if int_eq(list_length(rhs), 0) then keep else {
+                    match list_get(rhs, 0) {
+                      case AppCST(fc, args, fsp) => process_after(fuel, env, op_env, m, ModuleAliasCST(modname, FunctorAppCST(fc, args, fsp), sp), rest_ss);
+                      case Symbol(other, _) => process_after(fuel, env, op_env, m, ModuleAliasCST(modname, Symbol(other, empty_span_()), sp), rest_ss);
+                      case _ => keep
+                    }
+                  }
+                } else if bool_or(string_eq(op, ":>"), string_eq(op, ":")) then {
+                  match seal_head(after) {
+                    case MkPair(opaque, sr) => {
+                      if int_eq(list_length(sr), 0) then keep else {
+                        match list_get(sr, 0) {
+                          case Symbol(signame, _) => finish_module_seal(fuel, env, op_env, m, modname, list_empty[Pair](), opaque, signame, sr, sp, rest_ss, s);
+                          case _ => keep
+                        }
+                      }
+                    }
+                  }
+                } else keep
+              };
+              case _ => keep
+            }
+          }
+        };
+        case AppCST(fpart, args, _) => {
+          let fname = match fpart { case Symbol(n, _) => n; case _ => "" };
+          if bool_or(string_eq(fname, ""), int_eq(list_length(after), 0)) then keep else {
+            let n1 = list_get(after, 0);
+            match n1 {
+              case Block(_, _, _) => {
+                match process_stmts(fuel, env, op_env, m, methods_of_block_1(n1, op_env)) {
+                  case ResList(body2, m2) => process_after(fuel, env, op_env, m2, ModuleCST(fname, named_formals(args, op_env), app_seal, body2, sp), rest_ss)
+                }
+              };
+              case Symbol(op, _) => {
+                if bool_or(string_eq(op, ":>"), string_eq(op, ":")) then {
+                  match seal_head(after) {
+                    case MkPair(opaque, sr) => {
+                      if int_eq(list_length(sr), 0) then keep else {
+                        match list_get(sr, 0) {
+                          case Symbol(signame, _) => finish_module_seal(fuel, env, op_env, m, fname, named_formals(args, op_env), opaque, signame, sr, sp, rest_ss, s);
+                          case _ => keep
+                        }
+                      }
+                    }
+                  }
+                } else keep
+              };
+              case _ => keep
+            }
+          }
+        };
+        case _ => keep
+      }
+    }
+  }
+};
+def expand_signature_stmt(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, elems: List(CST), sp: Span, rest_ss: List(CST), s: CST): ExpandResultList = {
+  let keep = process_stmt_keep(fuel, env, op_env, m, s, rest_ss);
+  let rest0 = advance(elems);
+  if int_eq(list_length(rest0), 0) then keep else {
+    match list_get(rest0, 0) {
+      case Symbol(signame, _) => {
+        let after = advance(rest0);
+        if int_eq(list_length(after), 0) then keep else {
+          let n1 = list_get(after, 0);
+          match n1 {
+            case Block(_, _, _) => {
+              match process_stmts(fuel, env, op_env, m, methods_of_block_1(n1, op_env)) {
+                case ResList(body2, m2) => process_after(fuel, env, op_env, m2, SignatureCST(signame, to_sig_specs(body2, op_env), sp), rest_ss)
+              }
+            };
+            case Symbol(eq, _) => {
+              if string_eq(eq, "=") then {
+                let rhs = advance(after);
+                if int_eq(list_length(rhs), 0) then keep else if int_eq(list_length(rhs), 1) then {
+                  process_after(fuel, env, op_env, m, SignatureCST(signame, one_cst(list_get(rhs, 0)), sp), rest_ss)
+                } else if int_lt(list_length(rhs), 6) then keep else {
+                  match list_get(rhs, 1) {
+                    case Symbol(w, _) => {
+                      match list_get(rhs, 2) {
+                        case Symbol(tk, _) => {
+                          match list_get(rhs, 3) {
+                            case Symbol(tn, _) => {
+                              match list_get(rhs, 4) {
+                                case Symbol(e2, _) => {
+                                  if bool_and(string_eq(w, "with"), bool_and(string_eq(tk, "type"), string_eq(e2, "="))) then {
+                                    let eqs = list_insert_first(list_empty[Pair](), Pair.MkPair(tn, list_get(rhs, 5)));
+                                    process_after(fuel, env, op_env, m, SignatureCST(signame, one_cst(SigWithCST(list_get(rhs, 0), eqs, empty_span_())), sp), rest_ss)
+                                  } else keep
+                                };
+                                case _ => keep
+                              }
+                            };
+                            case _ => keep
+                          }
+                        };
+                        case _ => keep
+                      }
+                    };
+                    case _ => keep
+                  }
+                }
+              } else keep
+            };
+            case _ => keep
+          }
+        }
+      };
+      case _ => keep
+    }
+  }
+};
 def process_stmt_keep(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry), m: Integer, s: CST, rest_ss: List(CST)): ExpandResultList = {
   let res_s = expand_cst(fuel, env, op_env, m, s);
   match res_s {
@@ -687,6 +982,14 @@ def pratt_loop(fuel: Integer, lhs: CST, elems: List(CST), left_op: String, op_en
       case _ => PrattResult.Parsed(lhs, elems)
     }
 }
+};
+def is_stmt_seq(ls: List(CST)): Bool = {
+  if int_eq(list_length(ls), 0) then false else {
+    match list_get(ls, 0) {
+      case Symbol(k, _) => bool_or(string_eq(k, "unpack"), bool_or(string_eq(k, "module"), bool_or(string_eq(k, "signature"), bool_or(string_eq(k, "type"), string_eq(k, "pack")))));
+      case _ => false
+    }
+  }
 };
 def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST = {
   let collapsed = collapse_apps(elems, list_empty[CST]());
@@ -1716,6 +2019,109 @@ def process_stmts(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEnt
                     }
                   }
                 }
+} else if string_eq(sym, "module") then {
+                expand_module_stmt(fuel, env, op_env, m, elems, sp, rest_ss, s)
+} else if string_eq(sym, "signature") then {
+                expand_signature_stmt(fuel, env, op_env, m, elems, sp, rest_ss, s)
+} else if string_eq(sym, "type") then {
+                let rest_t = advance(elems);
+                if int_eq(list_length(rest_t), 0) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                  match list_get(rest_t, 0) {
+                    case Symbol(tname, _) => {
+                      let after = advance(rest_t);
+                      let defs = if int_eq(list_length(after), 0) then list_empty[CST]() else {
+                        match list_get(after, 0) {
+                          case Symbol(eq, _) => {
+                            if string_eq(eq, "=") then {
+                              let tys = advance(after);
+                              if int_eq(list_length(tys), 0) then list_empty[CST]()
+                              else one_cst(if int_eq(list_length(tys), 1) then list_get(tys, 0) else expand_seq_expr(tys, op_env, sp))
+                            } else list_empty[CST]()
+                          };
+                          case _ => list_empty[CST]()
+                        }
+                      };
+                      process_after(fuel, env, op_env, m, TypeDeclCST(tname, defs, sp), rest_ss)
+                    };
+                    case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                  }
+                }
+} else if string_eq(sym, "pack") then {
+                let rest_p = advance(elems);
+                if int_lt(list_length(rest_p), 3) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                  match list_get(rest_p, 1) {
+                    case Symbol(as_kw, _) => {
+                      if string_eq(as_kw, "as") then
+                        process_after(fuel, env, op_env, m, PackCST(list_get(rest_p, 0), list_get(rest_p, 2), sp), rest_ss)
+                      else process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                    };
+                    case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                  }
+                }
+} else if string_eq(sym, "unpack") then {
+                let rest_u = advance(elems);
+                if int_lt(list_length(rest_u), 4) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                  match list_get(rest_u, 0) {
+                    case Tuple(binders, _) => {
+                      if bool_not(int_eq(list_length(binders), 1)) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                        match list_get(binders, 0) {
+                          case SeqOf(bs, _) => {
+                            if int_lt(list_length(bs), 3) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                              match list_get(bs, 0) {
+                                case Symbol(x, _) => {
+                                  let sig_cst = list_get(bs, 2);
+                                  let rhs = list_drop_n(1, rest_u);
+                                  if int_lt(list_length(rhs), 3) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                                    match list_get(rhs, 0) {
+                                      case Symbol(eq, _) => {
+                                        if bool_not(string_eq(eq, "=")) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                                          let after_eq = advance(rhs);
+                                          if int_lt(list_length(after_eq), 3) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
+                                            let body = list_get(after_eq, int_sub(list_length(after_eq), 1));
+                                            let in_node = list_get(after_eq, int_sub(list_length(after_eq), 2));
+                                            let in_idx = int_sub(list_length(after_eq), 2);
+                                            let packed = if int_eq(in_idx, 1) then list_get(after_eq, 0) else {
+                                              match list_get(after_eq, 0) {
+                                                case Symbol(pk, _) => {
+                                                  if bool_and(string_eq(pk, "pack"), int_lt(2, in_idx)) then {
+                                                    match list_get(after_eq, 2) {
+                                                      case Symbol(as_kw, _) => {
+                                                        if string_eq(as_kw, "as") then PackCST(list_get(after_eq, 1), list_get(after_eq, 3), sp)
+                                                        else list_get(after_eq, 0)
+                                                      };
+                                                      case _ => list_get(after_eq, 0)
+                                                    }
+                                                  } else list_get(after_eq, 0)
+                                                };
+                                                case _ => list_get(after_eq, 0)
+                                              }
+                                            };
+                                            match in_node {
+                                              case Symbol(in_kw, _) => {
+                                                if string_eq(in_kw, "in") then
+                                                  process_after(fuel, env, op_env, m, UnpackCST(x, sig_cst, packed, body, sp), rest_ss)
+                                                else process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                                              };
+                                              case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                                            }
+                                          }
+                                        }
+                                      };
+                                      case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                                    }
+                                  }
+                                };
+                                case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                              }
+                            }
+                          };
+                          case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                        }
+                      }
+                    };
+                    case _ => process_stmt_keep(fuel, env, op_env, m, s, rest_ss)
+                  }
+                }
 } else if string_eq(sym, "import") then {
                 let rest = advance(elems);
                 if int_lt(list_length(rest), 2) then process_stmt_keep(fuel, env, op_env, m, s, rest_ss) else {
@@ -1939,12 +2345,16 @@ def expand_cst(fuel: Integer, env: List(MacroEnvEntry), op_env: List(OpEnvEntry)
         let res_elems = map_expand(elems, next_fuel, env, op_env, mark);
         match res_elems {
           case ResList(new_elems, next_m) => {
+            // Statement forms (module/signature/type/pack/unpack) must reach
+            // process_stmts unparsed, especially when they are a block tail.
+            if is_stmt_seq(new_elems) then ExpandResult.Res(SeqOf(new_elems, sp), next_m) else {
             let expanded = expand_seq_expr(new_elems, op_env, sp);
             // Rocq returns expand_seq_expr directly. Recurse only when it
             // rewrote into a non-SeqOf form (if/match/lam/…).
             match expanded {
               case SeqOf(_, _) => ExpandResult.Res(expanded, next_m);
               case _ => expand_cst(next_fuel, env, op_env, next_m, expanded)
+            }
             }
           }
         }

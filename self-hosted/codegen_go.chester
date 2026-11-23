@@ -330,6 +330,8 @@ def go_builtin_param_tys(name: String, nargs: Integer): List(String) = {
   else if string_eq(name, "__chester_read_file") then list_insert_first(list_empty[String](), "string")
   else if string_eq(name, "__chester_write_file") then list_insert_first(list_insert_first(list_empty[String](), "string"), "string")
   else if string_eq(name, "__chester_write_stdout") then list_insert_first(list_empty[String](), "string")
+  else if string_eq(name, "__chester_write_stderr") then list_insert_first(list_empty[String](), "string")
+  else if string_eq(name, "__chester_exit") then list_insert_first(list_empty[String](), "int")
   else if string_eq(name, "__chester_read_stdin") then list_empty[String]()
   else list_empty[String]()
 };
@@ -646,11 +648,27 @@ def emit_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.A
       case AstImplicitApp(fn_expr, _) => emit_go_expr(next_fuel, sigs, locals, fn_expr);
       case AstFieldAccess(expr, field) => {
         match expr {
+          // Chester module path M.x → M_x; lowercase pkg.Method stays a selector.
           case AstRef(n) => {
-             if is_upper(n) then field else string_concat(emit_go_expr(next_fuel, sigs, locals, expr), string_concat(".", field))
+             if is_upper(n) then string_concat(n, string_concat("_", field))
+             else string_concat(emit_go_expr(next_fuel, sigs, locals, expr), string_concat(".", field))
           };
           case _ => string_concat(emit_go_expr(next_fuel, sigs, locals, expr), string_concat(".", field))
         }
+      };
+      case AstModule(name, _, _, _) => name;
+      case AstSignature(_, _) => "nil";
+      case AstModTy(_) => "nil";
+      case AstSigVal(_, _, _, _, _) => "nil";
+      case AstSigWith(_, _) => "nil";
+      case AstTypeDecl(name, _) => name;
+      case AstPack(m, _) => emit_go_expr(next_fuel, sigs, locals, m);
+      case AstUnpack(x, _, e, b) => {
+        let e_str = emit_go_expr(next_fuel, sigs, locals, e);
+        let bl = list_insert_first(locals, MkPair(x, go_iface()));
+        let body_str = emit_go_stmt(next_fuel, sigs, bl, go_iface(), b);
+        let bind = string_concat("var ", string_concat(x, string_concat(" any = ", string_concat(e_str, string_concat(";", go_nl())))));
+        string_concat("func() any {", string_concat(go_nl(), string_concat(bind, string_concat(body_str, string_concat(go_nl(), "}()")))))
       };
       case AstError(msg) => string_concat("panic(", string_concat(go_q(), string_concat(escape_go_string(msg, 0, ""), string_concat(go_q(), ")"))));
       case AstVar(name, val) => {
@@ -660,7 +678,7 @@ def emit_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.A
       case AstLet(name, val) => {
         let ty = go_type_of_ast_value(sigs, locals, val);
         let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), string_concat(";", go_nl())))))));
-        let discard = string_concat("_ = ", string_concat(name, string_concat(";", go_nl())));
+        let discard = if string_eq(name, "_") then "" else string_concat("_ = ", string_concat(name, string_concat(";", go_nl())));
         string_concat("func() any {", string_concat(go_nl(), string_concat(bind, string_concat(discard, string_concat("return nil;", string_concat(go_nl(), "}()"))))))
       };
       case AstLam(arg, _, body) => {
@@ -745,6 +763,38 @@ def go_record_field_decls(fs: List(Pair)): String = {
         else string_concat(decl, string_concat("; ", go_record_field_decls(rest)))
       };
       case _ => go_record_field_decls(advance(fs))
+    }
+  }
+};
+
+// Module bodies emit their defs with a [Module_] prefix, matching the Rocq
+// emitter (M.x calls become M_x).
+def emit_go_module_body(prefix: String, fuel: Integer, sigs: List(Pair), locals: List(Pair), body: List(AST.AST)): String = {
+  if int_eq(fuel, 0) then "" else {
+    if int_eq(list_length(body), 0) then "" else {
+      let hd = list_get(body, 0);
+      let rest_str = emit_go_module_body(prefix, int_sub(fuel, 1), sigs, locals, advance(body));
+      match hd {
+        case AstDef(name, _, params, ret, b, _) => {
+          let dname = string_concat(prefix, string_concat("_", name));
+          let go_ret = chester_to_go_type(ret);
+          let params_strs = map_params(int_sub(fuel, 1), params);
+          let body_locals = go_bind_params(list_empty[Pair](), params);
+          let body_str = emit_go_stmt(int_sub(fuel, 1), sigs, body_locals, go_ret, b);
+          let decl = string_concat("func ", string_concat(dname, string_concat("(", string_concat(join_strings(", ", params_strs), string_concat(string_concat(") ", string_concat(go_ret, string_concat(" {", go_nl()))), string_concat(body_str, string_concat(go_nl(), "}")))))));
+          if string_eq(rest_str, "") then decl else string_concat(decl, string_concat(go_nl(), rest_str))
+        };
+        case AstSpan(_, inner) => {
+          let body2 = list_insert_first(advance(body), inner);
+          emit_go_module_body(prefix, int_sub(fuel, 1), sigs, locals, body2)
+        };
+        case AstModule(n, _, _, b) => {
+          let nested = emit_go_module_body(string_concat(prefix, string_concat("_", n)), int_sub(fuel, 1), sigs, locals, b);
+          if string_eq(nested, "") then rest_str else if string_eq(rest_str, "") then nested
+          else string_concat(nested, string_concat(go_nl(), rest_str))
+        };
+        case _ => rest_str
+      }
     }
   }
 };
@@ -874,6 +924,22 @@ def emit_go_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ret_ty: St
       };
       
       case AstEnum(name, _, variants) => emit_enum_variants(name, variants);
+      case AstModule(name, _, _, body) => emit_go_module_body(name, next_fuel, sigs, locals, body);
+      case AstSignature(_, _) => "";
+      case AstSigVal(_, _, _, _, _) => "";
+      case AstSigWith(_, _) => "";
+      case AstTypeDecl(_, _) => "";
+      case AstFunctorApp(_, _) => "";
+      case AstModTy(_) => "";
+      case AstPack(m, _) => go_return(sigs, locals, ret_ty, m, emit_go_expr(next_fuel, sigs, locals, m));
+      case AstUnpack(x, _, e, b) => {
+        let e_str = emit_go_expr(next_fuel, sigs, locals, e);
+        let bl = list_insert_first(locals, MkPair(x, go_iface()));
+        let body_str = emit_go_stmt(next_fuel, sigs, bl, ret_ty, b);
+        let bind = string_concat("var ", string_concat(x, string_concat(" any = ", string_concat(e_str, string_concat(";", go_nl())))));
+        let iife = string_concat("func() any {", string_concat(go_nl(), string_concat(bind, string_concat(body_str, string_concat(go_nl(), "}()")))));
+        if string_eq(ret_ty, "") then iife else string_concat("return ", iife)
+      };
       case AstExtension(_, _, _, meths) => emit_ext_methods(next_fuel, sigs, locals, meths);
       case AstDo(_, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
       case AstHandle(_, _, _) => go_return(sigs, locals, ret_ty, ast, emit_go_expr(next_fuel, sigs, locals, ast));
@@ -910,7 +976,8 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
       case AstLet(name, val) => {
         let ty = go_type_of_ast_value(sigs, locals, val);
         let bind = string_concat("var ", string_concat(name, string_concat(" ", string_concat(ty, string_concat(" = ", string_concat(emit_go_expr(next_fuel, sigs, locals, val), ";"))))));
-        string_concat(bind, string_concat(go_nl(), string_concat("_ = ", string_concat(name, ";"))))
+        if string_eq(name, "_") then bind
+        else string_concat(bind, string_concat(go_nl(), string_concat("_ = ", string_concat(name, ";"))))
       };
       case AstIf(cond, then_b, else_b) => {
         let c_str = emit_go_expr(next_fuel, sigs, locals, cond);
@@ -925,6 +992,13 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
       case AstSpan(_, inner) => emit_go_expr_stmt(next_fuel, sigs, locals, inner);
       case AstBlock(_, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
       case AstDef(_, _, _, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstModule(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
+      case AstSignature(_, _) => "";
+      case AstSigVal(_, _, _, _, _) => "";
+      case AstSigWith(_, _) => "";
+      case AstTypeDecl(_, _) => "";
+      case AstFunctorApp(_, _) => "";
+      case AstModTy(_) => "";
       case AstEnum(_, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
       case AstExtension(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
       case AstImport(_, _, _, _) => emit_go_stmt(next_fuel, sigs, locals, "", ast);
@@ -939,13 +1013,57 @@ def emit_go_expr_stmt(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: 
   }
 };
 
+// Top-level modules emit as prefixed Go declarations outside main.
+def emit_go_top_modules(ls: List(AST.AST), fuel: Integer, sigs: List(Pair)): String = {
+  if int_eq(fuel, 0) then "" else {
+    if int_eq(list_length(ls), 0) then "" else {
+      let hd = list_get(ls, 0);
+      let rest = emit_go_top_modules(advance(ls), int_sub(fuel, 1), sigs);
+      let decl = match hd {
+        case AstModule(name, _, _, body) => emit_go_module_body(name, fuel, sigs, list_empty[Pair](), body);
+        case AstSpan(_, inner) => {
+          match inner {
+            case AstModule(name, _, _, body) => emit_go_module_body(name, fuel, sigs, list_empty[Pair](), body);
+            case _ => ""
+          }
+        };
+        case _ => ""
+      };
+      if string_eq(decl, "") then rest
+      else if string_eq(rest, "") then decl
+      else string_concat(decl, string_concat(go_nl(), rest))
+    }
+  }
+};
+def strip_top_modules(ls: List(AST.AST), fuel: Integer): List(AST.AST) = {
+  if int_eq(fuel, 0) then ls else {
+    if int_eq(list_length(ls), 0) then list_empty[AST.AST]() else {
+      let hd = list_get(ls, 0);
+      let rest = strip_top_modules(advance(ls), int_sub(fuel, 1));
+      let keep = match hd {
+        case AstModule(_, _, _, _) => false;
+        case AstSpan(_, inner) => {
+          match inner {
+            case AstModule(_, _, _, _) => false;
+            case _ => true
+          }
+        };
+        case _ => true
+      };
+      if keep then list_insert_first(rest, hd) else rest
+    }
+  }
+};
 // Top-level: collect GoSigEnv from AstBlock stmts, then emit.
 // Emit fuel is derived from the AST size measure (mirrors Rocq measure-derived fuel).
 def emit_go_top(ast: AST.AST): String = {
   match ast {
-    case AstBlock(stmts, _) => {
+    case AstBlock(stmts, tail) => {
       let sigs = collect_go_sigs(stmts);
-      emit_go_stmt(ast_fuel(ast), sigs, list_empty[Pair](), "", ast)
+      let mods = emit_go_top_modules(stmts, ast_fuel(ast), sigs);
+      let body_ast = AstBlock(strip_top_modules(stmts, ast_fuel(ast)), tail);
+      let body = emit_go_stmt(ast_fuel(ast), sigs, list_empty[Pair](), "", body_ast);
+      if string_eq(mods, "") then body else string_concat(mods, string_concat(go_nl(), body))
     };
     case AstSpan(_, inner) => emit_go_top(inner);
     case _ => emit_go_stmt(ast_fuel(ast), list_empty[Pair](), list_empty[Pair](), "", ast)

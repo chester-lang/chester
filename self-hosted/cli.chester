@@ -43,15 +43,22 @@ def compile_source(source: String, out_file: String): String = {
       put_elab_state(init_state);
       match elaborate_top(list_empty[Pair](), expanded_cst, OptionAST.NoneAST) {
         case MkPair(ast, _) => {
-          let body = emit_go_top(ast);
-          let code = __chester_assemble_go(body);
-          if string_eq(out_file, "") then {
-            __chester_write_stdout(code);
+          let err = first_error(ast);
+          if bool_not(string_eq(err, "")) then {
+            __chester_write_stderr(string_concat("Elaboration error: ", string_concat(err, "\n")));
+            __chester_exit(1);
             ""
           } else {
-            __chester_write_file(out_file, code);
-            __chester_write_stdout(string_concat("Successfully compiled to ", string_concat(out_file, "\n")));
-            ""
+            let body = emit_go_top(ast);
+            let code = __chester_assemble_go(body);
+            if string_eq(out_file, "") then {
+              __chester_write_stdout(code);
+              ""
+            } else {
+              __chester_write_file(out_file, code);
+              __chester_write_stdout(string_concat("Successfully compiled to ", string_concat(out_file, "\n")));
+              ""
+            }
           }
         };
         case _ => {

@@ -147,11 +147,12 @@ generative and applicative (`module app`) functors, first-class `pack`/`unpack`,
 Opaque sealing exports **unsubstituted** signature value types; transparent sealing
 exports substituted views. Manifest `type t = …` (including after `with type`) stays
 visible under opaque sealing; only abstract `type t` is hidden. Nested components are
-retained under opaque keep when sealed. The self-hosted elaborator has the same
-**AST-level** slice (`with type`, `pack`/`unpack`, generative `_gN` / applicative
-`__Arg` identity, param/ret/`manifest` sealing checks), but its front-end does not yet
-lower `signature`/`module` syntax, so module fixtures are Rocq-path only (still not
-F-ing stamps / Fω).
+retained under opaque keep when sealed. The self-hosted compiler lowers
+`signature`/`module`/`with type`/`pack`/`unpack` and carries the same **AST-level**
+slice (`with type`, generative `_gN` / applicative `__Arg` identity, param/ret/
+`manifest` sealing checks), emitting `Module_member` Go functions. Still not F-ing
+stamps / Fω; `pack`/`unpack` runtime emission is unimplemented in both backends, and
+abstract opaque-type hiding is enforced at use sites only on the Rocq path.
 
 **Still out of scope vs F-ing modules:**
 - no System Fω packaging; applicative identity is **name-based**, not **stamps** /

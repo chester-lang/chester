@@ -8,12 +8,14 @@ are absent.
 
 Sealing/export **examples and lattice lemmas** live in `theories/CoreTyping.v` and
 `theories/TypeSystemProps.v` (not a full sealing-soundness theorem). Elaboration is in
-`theories/Elaborator.v`. The self-hosted elaborator carries a matching **AST-level**
-slice (sealing param/ret/manifest checks, `with type` substitution, `pack`/`unpack`, and
-generative/applicative name-based identity), but its front-end does not yet lower
-`signature`/`module` surface syntax, so module fixtures run through the Rocq compiler
-only. No stamps or Fω packaging either way. Fixtures: `tests/modules*.chester`
-(including `modules_with_type.chester`).
+`theories/Elaborator.v`. The self-hosted compiler lowers `signature`/`module` (opaque
+`:`/`:`sealing, `with type`, aliases, functor declarations/applications, and
+`pack`/`unpack`) and carries the matching AST-level slice (param/ret/manifest sealing
+checks, `with type` substitution, generative/applicative name-based identity). Module
+bodies emit as `Module_member` Go functions. Remaining limits: no stamps or Fω
+packaging, `pack`/`unpack` runtime emission is unimplemented in both backends, and
+use-site enforcement of abstract opaque types is Rocq-only. Fixtures:
+`tests/modules*.chester` (including `modules_with_type.chester`).
 
 ---
 
