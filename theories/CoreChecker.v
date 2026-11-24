@@ -913,6 +913,86 @@ Definition unknown_ty_in_program (env : list (string * AST)) (prog : AST)
   unknown_ty_in_decl (S (ast_size prog))
     (app (env_ty_names env) (declared_ty_names prog)) prog.
 
+(** Top-level [def] names of a program (module bodies are separate scopes). *)
+Fixpoint top_def_names (prog : AST) : list string :=
+  match prog with
+  | AstDef n _ _ _ _ _ => [n]
+  | AstBlock ss _ => flat_map top_def_names ss
+  | AstSpan _ i => top_def_names i
+  | _ => []
+  end.
+
+Fixpoint first_dup (seen names : list string) {struct names} : option string :=
+  match names with
+  | [] => None
+  | n :: rest =>
+      if existsb (String.eqb n) seen then Some n
+      else first_dup (n :: seen) rest
+  end.
+
+(** Two definitions of the same top-level name would emit duplicate Go
+    functions, which [go build] rejects. *)
+Definition duplicate_def_in_program (prog : AST) : option string :=
+  first_dup [] (top_def_names prog).
+
+(** Effect labels mentioned by declared rows on defs / signature members. *)
+Fixpoint declared_effect_labels (prog : AST) : list EffectRef :=
+  match prog with
+  | AstDef _ _ _ _ _ effs => effs
+  | AstSigVal _ _ _ _ effs => effs
+  | AstBlock ss _ => flat_map declared_effect_labels ss
+  | AstSpan _ i => declared_effect_labels i
+  | AstModule _ _ _ b => flat_map declared_effect_labels b
+  | AstSignature _ ds => flat_map declared_effect_labels ds
+  | _ => []
+  end.
+
+Definition effect_label_known (declared : list string) (n : string) : bool :=
+  orb (String.eqb n "div")
+    (orb (String.eqb n "io") (existsb (String.eqb n) declared)).
+
+(** A declared row such as [/ {nope}] must name a declared effect (or the
+    builtin [div] / [io] classifiers). *)
+Definition unknown_effect_label (declared : list string) (prog : AST)
+  : option string :=
+  let fix go (es : list EffectRef) : option string :=
+    match es with
+    | [] => None
+    | EffectRowVar _ :: rest => go rest
+    | UserEffect n :: rest =>
+        if effect_label_known declared n then go rest else Some n
+    | BuiltinEffect n :: rest =>
+        if effect_label_known declared n then go rest else Some n
+    end
+  in go (declared_effect_labels prog).
+
+(** Conservative exhaustiveness for the builtin enums: if every case is a
+    constructor of the same builtin enum and a variant is missing, reject.
+    Wildcards, variables and user enums stay permissive. *)
+Definition match_missing_builtin_variant
+    (cases : list (PatternAST * AST)) : option string :=
+  let ctor_names : list (option string) :=
+    map (fun c => match fst c with
+                  | PatConstructor n _ => Some n
+                  | _ => None
+                  end) cases
+  in
+  if existsb (fun x => match x with None => true | Some _ => false end) ctor_names
+  then None
+  else
+    let names : list string :=
+      map (fun x => match x with Some n => n | None => EmptyString end) ctor_names
+    in
+    let all_in (vs : list string) : bool :=
+      forallb (fun n => existsb (String.eqb n) vs) names
+    in
+    let missing (vs : list string) : option string :=
+      find (fun v => negb (existsb (String.eqb v) names)) vs
+    in
+    if all_in ["Some"; "None"] then missing ["Some"; "None"]
+    else if all_in ["Ok"; "Err"] then missing ["Ok"; "Err"]
+    else None.
+
 (** Peel [AstFunTy] params against a curried [AstPi] telescope (struct on params). *)
 Fixpoint funty_pi_compat (params : list (string * AST)) (ret pi : AST) {struct params} : bool :=
   match params with
@@ -1163,7 +1243,10 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       match lookup_type name env with
       | Some ty => meet_expected (core_instantiate ty) expected
       | None =>
-          if is_allowed_unbound name then meet_expected AnyType expected
+          (* [resume] is only in scope inside handler clauses, where the
+             elaborator/CoreChecker bind it explicitly. *)
+          if String.eqb name "resume" then TyErr "resume outside handler"
+          else if is_allowed_unbound name then meet_expected AnyType expected
           else TyErr ("Unbound variable: " ++ name)
       end
 
@@ -1346,8 +1429,10 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
               in check_args args
           | AstRef n =>
               (* Soft apply for wildcards and residual ref callees (FFI), but
-                 never apply a value whose type is a known non-function. *)
-              if is_non_function_ty (AstRef n) then
+                 never apply a value whose type is a known non-function.
+                 [resume] is only bound by handler clauses. *)
+              if String.eqb n "resume" then TyErr "resume outside handler"
+              else if is_non_function_ty (AstRef n) then
                 match args with
                 | [] => meet_expected (AstRef n) expected
                 | _ => TyErr "call on non-function"
@@ -1688,7 +1773,11 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 | err => err
                 end
             end
-          in check_cases cases
+          in
+          match match_missing_builtin_variant cases with
+          | Some v => TyErr ("Non-exhaustive match: missing " ++ v)
+          | None => check_cases cases
+          end
       | err => err
       end
 

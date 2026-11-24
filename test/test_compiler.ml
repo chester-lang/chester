@@ -523,6 +523,26 @@ let%expect_test "unknown_type_bad rejects undeclared type" =
   expect_type_error "tests/unknown_type_bad.chester";
   [%expect {| Unknown type: Missing |}]
 
+let%expect_test "duplicate_def_bad rejects duplicate top-level def" =
+  expect_type_error "tests/duplicate_def_bad.chester";
+  [%expect {| Duplicate definition: f |}]
+
+let%expect_test "resume_bad rejects resume outside handler" =
+  expect_type_error "tests/resume_bad.chester";
+  [%expect {| Core check: resume outside handler |}]
+
+let%expect_test "unknown_effect_bad rejects undeclared effect label" =
+  expect_type_error "tests/unknown_effect_bad.chester";
+  [%expect {| Unknown effect: nope |}]
+
+let%expect_test "typeargs_mismatch_bad rejects wrong explicit type arg" =
+  expect_type_error "tests/typeargs_mismatch_bad.chester";
+  [%expect {| Type mismatch |}]
+
+let%expect_test "match_non_exhaustive_bad rejects missing variant" =
+  expect_type_error "tests/match_non_exhaustive_bad.chester";
+  [%expect {| Core check: Non-exhaustive match: missing None |}]
+
 let%expect_test "builtin type ctor arity is checked" =
   expect_type_error "tests/typeargs_arity_bad.chester";
   [%expect {| Core check: Wrong number of type arguments |}]

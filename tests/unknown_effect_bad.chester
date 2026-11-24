@@ -1,0 +1,3 @@
+// [nope] is not a declared effect.
+def f(): Integer / {nope} = 1;
+def main(): Integer = 1;

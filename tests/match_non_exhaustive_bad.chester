@@ -1,0 +1,4 @@
+// [None] is not handled, so the match is not exhaustive.
+def main(): Integer = match Some(1) {
+  case Some(x) => x
+};

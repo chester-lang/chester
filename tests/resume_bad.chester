@@ -1,0 +1,2 @@
+// [resume] is only in scope inside handler clauses.
+def main(): Integer = resume(1);

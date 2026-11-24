@@ -1,0 +1,9 @@
+// Explicit type arguments must match the constructor's field types.
+enum Option(T) {
+  case None;
+  case Some(value: T)
+};
+def main(): Integer = match Some[String](1) {
+  case Some(x) => 0;
+  case None => 1
+};

@@ -1,0 +1,4 @@
+// Two top-level definitions of the same name would emit duplicate Go funcs.
+def f(): Integer = 1;
+def f(): Integer = 2;
+def main(): Integer = 1;

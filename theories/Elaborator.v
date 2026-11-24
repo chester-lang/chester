@@ -1945,9 +1945,28 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
           (* Erase the implicit [A,B] telescope; elaborate fuel' only the inner function and explicit args.
              The telescope is still checked for arity against the callee's type params. *)
           funcAst <- elaborate fuel' env inner_func None ;
+          (* The elaborated callee has its telescope freshened into metas, so
+             recover the declared telescope for the explicit type arguments. *)
+          raw_ty <- (match inner_func with
+                     | Symbol n sp =>
+                         match resolve_hygiene env n (context sp) with
+                         | Some (ty, _) => ret ty
+                         | None => ret (snd funcAst)
+                         end
+                     | _ => ret (snd funcAst)
+                     end) ;
           let n_targs := List.length targs in
+          (* Only constructors are substituted: explicit arguments on
+             polymorphic functions stay permissive, as before. *)
+          let ctor_callee :=
+            match inner_func with
+            | Symbol n _ => Chester.CoreChecker.name_is_upper n
+            | _ => false
+            end
+          in
+          let checked_ty := if ctor_callee then raw_ty else snd funcAst in
           let arity_ok :=
-            match strip_span (whnf (snd funcAst)) with
+            match strip_span (whnf checked_ty) with
             | AstFunTy tps _ _ _ =>
                 (* Instantiated callees carry an empty telescope; arity is
                    only enforced when the declaration still shows its params. *)
@@ -1957,6 +1976,36 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
             end
           in
           if negb arity_ok then throw "Wrong number of type arguments" else
+          targsAst <- (let fix elab_targs (ts : list CST) : ElabM (list AST) :=
+                         match ts with
+                         | [] => ret []
+                         | t :: rest =>
+                             tAst <- elaborate fuel' env t (Some TypeUniverse) ;
+                             restAst <- elab_targs rest ;
+                             ret (fst tAst :: restAst)
+                         end in elab_targs targs) ;
+          (* Substitute the explicit type arguments into the callee's
+             telescope, so [Some[String](1)] is rejected. *)
+          let subst_targs :=
+            fix go (tps : list string) (as_ : list AST) (t : AST) {struct tps} : AST :=
+              match tps, as_ with
+              | tp :: tps', a :: rest => go tps' rest (subst_ast tp a t)
+              | _, _ => t
+              end
+          in
+          let fun_ty_sub :=
+            match strip_span (whnf checked_ty) with
+            | AstFunTy tps params ret effs =>
+                if Nat.eqb (List.length tps) (List.length targsAst)
+                then AstFunTy []
+                       (map (fun p => (fst p, subst_targs tps targsAst (snd p))) params)
+                       (subst_targs tps targsAst ret) effs
+                else snd funcAst
+            | ty => ty
+            end
+          in
+          (* Type-check explicit arguments against the substituted telescope. *)
+          funcAst <- ret (fst funcAst, fun_ty_sub) ;
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] =>
@@ -3224,16 +3273,30 @@ Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : 
   zty <- zonk (S (ast_size (snd res))) (snd res) ;
   let res' := (zexpr, zty) in
   pending <- get_pending ;
+  st <- get_state ;
+  let declared_effects :=
+    match st with
+    | mkElabState _ _ _ reg _ _ _ => map fst reg
+    end
+  in
   let fix check_pending (ps : EffectSet) : ElabM (AST * AST) :=
     match ps with
     | [] =>
         match Chester.CoreChecker.infer_check (core_env_of_elab env) (fst res') None with
         | TyOk _ =>
-            (* Reject annotations that name a type nobody declared. *)
-            match Chester.CoreChecker.unknown_ty_in_program
-                    (core_env_of_elab env) (fst res') with
-            | Some n => throw (append "Unknown type: " n)
-            | None => ret res'
+            match Chester.CoreChecker.unknown_effect_label declared_effects (fst res') with
+            | Some e => throw (append "Unknown effect: " e)
+            | None =>
+            match Chester.CoreChecker.duplicate_def_in_program (fst res') with
+            | Some n => throw (append "Duplicate definition: " n)
+            | None =>
+                (* Reject annotations that name a type nobody declared. *)
+                match Chester.CoreChecker.unknown_ty_in_program
+                        (core_env_of_elab env) (fst res') with
+                | Some n => throw (append "Unknown type: " n)
+                | None => ret res'
+                end
+            end
             end
         | TyErr msg => throw (append "Core check: " msg)
         end
