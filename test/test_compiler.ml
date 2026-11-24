@@ -369,7 +369,8 @@ let check_rocq_selfhosted_parity () =
       let st = selfhosted_compile_status stage1 fixture in
       print_endline
         (fixture ^ " self-hosted rejected=" ^ string_of_bool (st <> 0)))
-    [ "tests/modules_opaque_bad.chester" ];
+    [ "tests/modules_opaque_bad.chester"; "tests/if_cond_bad.chester";
+      "tests/literal_mismatch_bad.chester" ];
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote stage_dir)) in
   ()
 
@@ -505,6 +506,26 @@ let%expect_test "modules_opaque_bad rejects Int as abstract t" =
 let%expect_test "typeparam_rigid_bad rejects T as Int / A as B" =
   expect_type_error "tests/typeparam_rigid_bad.chester";
   [%expect {| Type mismatch |}]
+
+let%expect_test "if_cond_bad rejects non-Bool guard" =
+  expect_type_error "tests/if_cond_bad.chester";
+  [%expect {| Core check: If condition is not Bool |}]
+
+let%expect_test "call_non_function_bad rejects applying a literal" =
+  expect_type_error "tests/call_non_function_bad.chester";
+  [%expect {| Core check: call on non-function |}]
+
+let%expect_test "literal_mismatch_bad rejects String as Integer" =
+  expect_type_error "tests/literal_mismatch_bad.chester";
+  [%expect {| Type mismatch |}]
+
+let%expect_test "unknown_type_bad rejects undeclared type" =
+  expect_type_error "tests/unknown_type_bad.chester";
+  [%expect {| Unknown type: Missing |}]
+
+let%expect_test "builtin type ctor arity is checked" =
+  expect_type_error "tests/typeargs_arity_bad.chester";
+  [%expect {| Core check: Wrong number of type arguments |}]
 
 let%expect_test "modules_manifest_bad rejects wrong manifest" =
   expect_type_error "tests/modules_manifest_bad.chester";
@@ -860,11 +881,12 @@ let%expect_test "cli stdlib prelude provides int_add" =
      else "stdlib prelude missing");
   [%expect {| stdlib prelude ok |}]
 
-let%expect_test "stdlib functional runs go" =
+(** Compile [fixture] with the stdlib prelude to Go, run it, return first line. *)
+let run_stdlib_fixture_go fixture =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
   let prelude = Filename.concat root "stdlib/std.chester" in
-  let src = Filename.concat root "tests/stdlib_functional.chester" in
+  let src = Filename.concat root fixture in
   let dir = Filename.temp_file "chester_stdlib_fn_go" "" in
   Sys.remove dir;
   Sys.mkdir dir 0o755;
@@ -875,10 +897,13 @@ let%expect_test "stdlib functional runs go" =
          (Filename.quote main_bin) (Filename.quote prelude)
          (Filename.quote out_go) (Filename.quote src))
   in
-  if st <> 0 then failwith "stdlib functional compile failed";
+  if st <> 0 then failwith ("stdlib compile failed: " ^ fixture);
   let line = go_run_program_in dir in
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
-  print_endline line;
+  line
+
+let%expect_test "stdlib functional runs go" =
+  print_endline (run_stdlib_fixture_go "tests/stdlib_functional.chester");
   [%expect {| 421 |}]
 
 let node_run_file path =
@@ -899,11 +924,12 @@ let node_run_file path =
   if st <> 0 then failwith ("node failed:\n" ^ full);
   line
 
-let%expect_test "stdlib functional runs ts" =
+(** Compile [fixture] with the stdlib prelude to TS, run it, return first line. *)
+let run_stdlib_fixture_ts fixture =
   let root = repo_root (Sys.getcwd ()) in
   let main_bin = Filename.concat root "_build/default/bin/main.exe" in
   let prelude = Filename.concat root "stdlib/std.chester" in
-  let src = Filename.concat root "tests/stdlib_functional.chester" in
+  let src = Filename.concat root fixture in
   let out = Filename.temp_file "chester_stdlib_fn_ts" ".ts" in
   let st =
     Sys.command
@@ -911,14 +937,29 @@ let%expect_test "stdlib functional runs ts" =
          (Filename.quote main_bin) (Filename.quote out) (Filename.quote prelude)
          (Filename.quote src))
   in
-  if st <> 0 then failwith "stdlib functional TS compile failed";
+  if st <> 0 then failwith ("stdlib TS compile failed: " ^ fixture);
   let oc = open_out_gen [ Open_append ] 0o644 out in
   output_string oc "\nconsole.log(main());\n";
   close_out oc;
   let line = node_run_file out in
   Sys.remove out;
-  print_endline line;
+  line
+
+let%expect_test "stdlib functional runs ts" =
+  print_endline (run_stdlib_fixture_ts "tests/stdlib_functional.chester");
   [%expect {| 421 |}]
+
+let%expect_test "stdlib extras runs go" =
+  print_endline (run_stdlib_fixture_go "tests/stdlib_extras.chester");
+  [%expect {| 229 |}]
+
+let%expect_test "stdlib extras runs ts" =
+  print_endline (run_stdlib_fixture_ts "tests/stdlib_extras.chester");
+  [%expect {| 229 |}]
+
+let%expect_test "typed function values run go" =
+  print_endline (run_stdlib_fixture_go "tests/func_values.chester");
+  [%expect {| 26 |}]
 
 let%expect_test "cli help flag prints usage" =
   let root = repo_root (Sys.getcwd ()) in
@@ -1114,6 +1155,8 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/modules_effects.chester self-hosted ok
     tests/modules_ext.chester self-hosted ok
     tests/modules_opaque_bad.chester self-hosted rejected=true
+    tests/if_cond_bad.chester self-hosted rejected=true
+    tests/literal_mismatch_bad.chester self-hosted rejected=true
     |}]
 
 let%expect_test "fixture dependent types" =

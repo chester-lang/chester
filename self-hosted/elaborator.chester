@@ -856,6 +856,46 @@ def unify_fuel(t1: AST, t2: AST): Integer = {
   };
   int_add(ast_size(t1), int_add(ast_size(t2), int_add(subst_len, 2)))
 };
+// Type-shape helpers mirroring CoreChecker's if/application rules.
+def ty_is_definitely_not_bool(t: AST): Bool = {
+  match t {
+    case AstRef(n) =>
+      bool_or(string_eq(n, "Integer"), bool_or(string_eq(n, "Int"),
+        bool_or(string_eq(n, "String"), bool_or(string_eq(n, "Unit"),
+          bool_or(string_eq(n, "Type"), string_eq(n, "TypeUniverse"))))));
+    case AstSpan(_, inner) => ty_is_definitely_not_bool(inner);
+    case _ => false
+  }
+};
+def ty_name_is_int(n: String): Bool = bool_or(string_eq(n, "Integer"), string_eq(n, "Int"));
+def ty_name_is_bool(n: String): Bool =
+  bool_or(string_eq(n, "Bool"), bool_or(string_eq(n, "Boolean"), string_eq(n, "bool")));
+def ty_name_is_universe(n: String): Bool =
+  bool_or(string_eq(n, "Type"), string_eq(n, "TypeUniverse"));
+// "" unless [t] is a ground named type (no unsolved meta / Any / Unknown).
+def ty_ground_name(t: AST): String = {
+  match whnf(t) {
+    case AstRef(n) => { if bool_or(string_eq(n, "Any"), string_eq(n, "Unknown")) then "" else n };
+    case AstSpan(_, inner) => ty_ground_name(inner);
+    case _ => ""
+  }
+};
+// Ground named types that are definitely different (alias-aware).
+def ty_ground_mismatch(t1: AST, t2: AST): Bool = {
+  let n1 = ty_ground_name(t1);
+  let n2 = ty_ground_name(t2);
+  if bool_or(string_eq(n1, ""), string_eq(n2, "")) then false
+  else if string_eq(n1, n2) then false
+  else if bool_and(ty_name_is_int(n1), ty_name_is_int(n2)) then false
+  else if bool_and(ty_name_is_bool(n1), ty_name_is_bool(n2)) then false
+  else if bool_and(ty_name_is_universe(n1), ty_name_is_universe(n2)) then false
+  else true
+};
+// Unify for its meta effects, then report a definite ground mismatch.
+def unify_ok(t1: AST, t2: AST): Bool = {
+  unify(unify_fuel(t1, t2), t1, t2);
+  bool_not(ty_ground_mismatch(t1, t2))
+};
 def unify_top(t1: AST, t2: AST): Unit = unify(unify_fuel(t1, t2), t1, t2);
 def unify_list(fuel: Integer, l1: List(AST), l2: List(AST)): Unit = {
   if int_eq(list_length(l1), 0) then () else {
@@ -1034,11 +1074,6 @@ def is_preamble_prim(name: String): Bool = {
   else if string_eq(name, "\\") then true
   else false
 };
-def string_starts_with(pre: String, s: String): Bool = {
-  let plen = string_length(pre);
-  if int_gt(plen, string_length(s)) then false
-  else string_eq(string_substring(s, 0, plen), pre)
-};
 def name_is_upper(name: String): Bool = {
   if int_eq(string_length(name), 0) then false else {
     let c = string_char_at(name, 0);
@@ -1056,8 +1091,8 @@ def name_is_upper(name: String): Bool = {
 def is_allowed_unbound(name: String): Bool = {
   if name_is_upper(name) then true
   else if is_preamble_prim(name) then true
-  else if string_starts_with("prim__", name) then true
-  else if string_starts_with("__", name) then true
+  else if string_starts_with(name, "prim__") then true
+  else if string_starts_with(name, "__") then true
   else false
 };
 def is_type_expected(expected: OptionAST): Bool = {
@@ -2701,26 +2736,32 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
     case StringLiteral(s, _) => {
       let str_ty = AST.AstRef("String");
       match expected {
-        case SomeAST(exp) => unify_top(str_ty, exp);
-        case OptionAST.NoneAST => ()
-      };
-      Pair.MkPair(AST.AstStringLit(s), str_ty)
+        case SomeAST(exp) => {
+          if unify_ok(str_ty, exp) then Pair.MkPair(AST.AstStringLit(s), str_ty)
+          else Pair.MkPair(AST.AstError("Type mismatch"), str_ty)
+        };
+        case OptionAST.NoneAST => Pair.MkPair(AST.AstStringLit(s), str_ty)
+      }
     };
     case IntegerLiteral(s, _) => {
       let int_ty = AST.AstRef("Int");
       match expected {
-        case SomeAST(exp) => unify_top(int_ty, exp);
-        case OptionAST.NoneAST => ()
-      };
-      Pair.MkPair(AST.AstIntLit(string_to_int(s)), int_ty)
+        case SomeAST(exp) => {
+          if unify_ok(int_ty, exp) then Pair.MkPair(AST.AstIntLit(string_to_int(s)), int_ty)
+          else Pair.MkPair(AST.AstError("Type mismatch"), int_ty)
+        };
+        case OptionAST.NoneAST => Pair.MkPair(AST.AstIntLit(string_to_int(s)), int_ty)
+      }
     };
     case BoolLiteral(b, _) => {
       let bool_ty = AST.AstRef("Bool");
       match expected {
-        case SomeAST(exp) => unify_top(bool_ty, exp);
-        case OptionAST.NoneAST => ()
-      };
-      Pair.MkPair(AST.AstBoolLit(b), bool_ty)
+        case SomeAST(exp) => {
+          if unify_ok(bool_ty, exp) then Pair.MkPair(AST.AstBoolLit(b), bool_ty)
+          else Pair.MkPair(AST.AstError("Type mismatch"), bool_ty)
+        };
+        case OptionAST.NoneAST => Pair.MkPair(AST.AstBoolLit(b), bool_ty)
+      }
     };
     case SeqOf(elems, _) => {
       if int_eq(list_length(elems), 0) then Pair.MkPair(AST.AstError("Empty SeqOf"), AST.AstRef("Any")) else {
@@ -2843,16 +2884,18 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
       }
     };
     case IfCST(cond, thenB, elseB, _) => {
+      // Guard must be Bool (mirrors CoreChecker's if-condition rule).
       let condAst_res = elaborate(env, cond, OptionAST.NoneAST);
       match condAst_res {
-        case MkPair(cAst, _) => {
+        case MkPair(cAst, cTy) => {
+          let cond_ast = if ty_is_definitely_not_bool(cTy) then AST.AstError("If condition is not Bool") else cAst;
           let thenAst_res = elaborate(env, thenB, expected);
           match thenAst_res {
             case MkPair(tAst, tTy) => {
               let elseAst_res = elaborate(env, elseB, expected);
               match elseAst_res {
                 case MkPair(eAst, _) => {
-                  Pair.MkPair(AST.AstIf(cAst, tAst, eAst), tTy)
+                  Pair.MkPair(AST.AstIf(cond_ast, tAst, eAst), tTy)
                 }
               }
             }

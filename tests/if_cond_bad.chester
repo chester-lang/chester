@@ -1,0 +1,2 @@
+// An if guard must have type Bool.
+def main(): Integer = if 1 then 2 else 3;

@@ -1,0 +1,2 @@
+// Builtin type constructors have fixed arity: List takes one argument.
+def main(): Integer = List(Int, Int);

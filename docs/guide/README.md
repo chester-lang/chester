@@ -6,6 +6,7 @@ Practical documentation for people writing and running Chester programs.
 |------|----------|
 | [Getting Started](getting-started.md) | Build with Nix, compile hello world, modules sketch |
 | [CLI Usage](cli-usage.md) | Flags, `--module-path`, prelude, backends |
+| [Standard library](stdlib.md) | Preludes, `Option` / `Result` / `List` / `String` APIs, effects |
 | [Effects](effects.md) | `effect` / `handle` / `perform` / `resume`, effect rows |
 | [Statements & scoping](statements.md) | `let` vs `def`, blocks |
 | [Universal Parsed Syntax](universal-syntax.md) | How CST → expander → elaborator works (conceptual) |

@@ -1,0 +1,2 @@
+// A String literal is not an Integer.
+def main(): Integer = "hi";

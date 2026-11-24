@@ -1941,9 +1941,22 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
               end
           end
           end
-      | ImplicitAppCST inner_func _targs _tspan =>
-          (* Erase the implicit [A,B] telescope; elaborate fuel' only the inner function and explicit args *)
+      | ImplicitAppCST inner_func targs _tspan =>
+          (* Erase the implicit [A,B] telescope; elaborate fuel' only the inner function and explicit args.
+             The telescope is still checked for arity against the callee's type params. *)
           funcAst <- elaborate fuel' env inner_func None ;
+          let n_targs := List.length targs in
+          let arity_ok :=
+            match strip_span (whnf (snd funcAst)) with
+            | AstFunTy tps _ _ _ =>
+                (* Instantiated callees carry an empty telescope; arity is
+                   only enforced when the declaration still shows its params. *)
+                if orb (Nat.eqb n_targs 0) (Nat.eqb (List.length tps) 0) then true
+                else Nat.eqb (List.length tps) n_targs
+            | _ => true
+            end
+          in
+          if negb arity_ok then throw "Wrong number of type arguments" else
           let fix check_args (fs : AST) (as_ : list CST) {struct as_} : ElabM (list AST * AST) :=
             match as_ with
             | [] =>
@@ -2087,6 +2100,21 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
   | ImplicitAppCST func args _ =>
       (* Implicit application f[A,B] (value-level). Type apps use Option(T). *)
       funcAst <- elaborate fuel' env func None ;
+      (* Explicit type arguments must match the callee's type-parameter arity.
+         Callees of unknown (ref) type stay permissive: [List[T]]-style type
+         constructors are not FunTy bindings. *)
+      let n_targs := List.length args in
+      let arity_ok :=
+        match strip_span (whnf (snd funcAst)) with
+        | AstFunTy tps _ _ _ =>
+            (* A zero-length telescope means the callee was already
+               instantiated, so its declared arity is unknown here. *)
+            if orb (Nat.eqb n_targs 0) (Nat.eqb (List.length tps) 0) then true
+            else Nat.eqb (List.length tps) n_targs
+        | _ => true
+        end
+      in
+      if negb arity_ok then throw "Wrong number of type arguments" else
       let fix check_targs (as_ : list CST) : ElabM (list AST) :=
         match as_ with
         | [] => ret []
@@ -3200,7 +3228,13 @@ Definition elaborate_top (env : TypeEnv) (expr : CST) (expected : option AST) : 
     match ps with
     | [] =>
         match Chester.CoreChecker.infer_check (core_env_of_elab env) (fst res') None with
-        | TyOk _ => ret res'
+        | TyOk _ =>
+            (* Reject annotations that name a type nobody declared. *)
+            match Chester.CoreChecker.unknown_ty_in_program
+                    (core_env_of_elab env) (fst res') with
+            | Some n => throw (append "Unknown type: " n)
+            | None => ret res'
+            end
         | TyErr msg => throw (append "Core check: " msg)
         end
     | EffectRowVar _ :: rest => check_pending rest

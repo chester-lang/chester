@@ -402,19 +402,13 @@ Fixpoint go_app_direct (locals : GoLocalEnv) (func : AST) {struct func} : bool :
   | _ => false
   end.
 
-(* Interface{} values (e.g. resume) need a type assert before calling. *)
+(* Indirect callees are `any`-typed, so route them through __chester_call,
+   which adapts to the callee's concrete Go signature (e.g. func(int, int) int).
+   Asserting func(any, ...) any only matches fully erased functions and panics
+   on concretely typed ones. *)
 Definition go_call_emitted (direct : bool) (callee : GoExpr) (args : list GoExpr) : GoExpr :=
   if direct then GoCall callee args
-  else
-    let fix gen_types (n : nat) : string :=
-      match n with
-      | 0 => ""
-      | S 0 => "any"
-      | S n' => append "any, " (gen_types n')
-      end
-    in
-    let assert_ty := append "func(" (append (gen_types (length args)) ") any") in
-    GoCall (GoTypeAssert callee assert_ty) args.
+  else GoCall (GoIdentifier "__chester_call") (callee :: args).
 
 Definition go_bool_cond (sigs : GoSigEnv) (locals : GoLocalEnv) (e : GoExpr) : GoExpr :=
   match go_expr_known_ty sigs locals e with

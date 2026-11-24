@@ -1,0 +1,3 @@
+// [Missing] is not a declared type.
+def f(x: Missing): Integer = 1;
+def main(): Integer = 1;

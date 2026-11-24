@@ -578,22 +578,13 @@ def go_app_direct(locals: List(Pair), fn_expr: AST.AST): Bool = {
   }
 };
 
-def go_iface_params(n: Integer): String = {
-  if int_eq(n, 0) then ""
-  else if int_eq(n, 1) then "any"
-  else string_concat("any, ", go_iface_params(int_sub(n, 1)))
-};
-
-def go_func_assert_ty(nargs: Integer): String = {
-  string_concat("func(", string_concat(go_iface_params(nargs), ") any"))
-};
-
+// Rocq go_call_emitted: indirect calls go through __chester_call, which adapts
+// any-typed callees to their concrete Go signature (func(int, int) int).
 def go_call_emitted(direct: Bool, callee: String, args_strs: List(String)): String = {
-  let args_joined = join_strings(", ", args_strs);
-  if direct then string_concat(callee, string_concat("(", string_concat(args_joined, ")")))
+  if direct then string_concat(callee, string_concat("(", string_concat(join_strings(", ", args_strs), ")")))
   else {
-    let ty = go_func_assert_ty(list_length(args_strs));
-    string_concat(callee, string_concat(".(", string_concat(ty, string_concat(")(", string_concat(args_joined, ")")))))
+    let all_args = list_insert_first(args_strs, callee);
+    string_concat("__chester_call(", string_concat(join_strings(", ", all_args), ")"))
   }
 };
 
@@ -728,7 +719,7 @@ def emit_go_expr(fuel: Integer, sigs: List(Pair), locals: List(Pair), ast: AST.A
       };
       case AstUnbox(inner) => {
         let callee = emit_go_expr(next_fuel, sigs, locals, inner);
-        string_concat(callee, ".(func() any)()")
+        string_concat("__chester_call(", string_concat(callee, ")"))
       };
       case AstPi(_, _, _, _) => "any";
       case AstFunTy(_, _, _, _) => "any";

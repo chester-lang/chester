@@ -1,0 +1,2 @@
+// Applying a value whose type is not a function is a type error.
+def main(): Integer = 1(2);

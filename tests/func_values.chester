@@ -1,0 +1,15 @@
+// Concretely typed function values passed to higher-order stdlib helpers.
+// Regression: the Go backend used to assert func(any, ...) any on indirect
+// calls, which panics for func(int, int) int.
+def inc(x: Integer): Integer = int_add(x, 1);
+def is_even(x: Integer): Bool = int_eq(int_mod(x, 2), 0);
+def add(acc: Integer, x: Integer): Integer = int_add(acc, x);
+
+def main(): Integer = {
+  let xs = [1, 2, 3, 4];
+  // map: 4, filter: 2, foldl: 10, foldr: 10
+  int_add(
+    xs.map(inc).length(),
+    int_add(xs.filter(is_even).length(), int_add(xs.foldl(0, add), xs.foldr(0, add)))
+  )
+};

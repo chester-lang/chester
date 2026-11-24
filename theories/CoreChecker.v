@@ -703,6 +703,216 @@ Definition is_unit_ty (t : AST) : bool :=
   | _ => false
   end.
 
+(** Types that are definitely not functions. Applying a value of one of these
+    is a type error rather than a soft FFI application. Wildcards ([Any] /
+    [Unknown]) and unresolved refs stay permissive. *)
+Definition is_non_function_ty (t : AST) : bool :=
+  orb (is_int_ty t)
+    (orb (is_bool_ty t)
+      (orb (is_unit_ty t)
+        (orb (is_universe_ty t)
+          (match strip_span (whnf t) with
+           | AstRef n => String.eqb n "String"
+           | _ => false
+           end)))).
+
+(* ------------------------------------------------------------ *)
+(* Unknown type names in annotations                            *)
+(* ------------------------------------------------------------ *)
+
+(** Type names the checker knows without a declaration. *)
+Definition is_builtin_ty_name (n : string) : bool :=
+  existsb (String.eqb n)
+    ["Integer"; "Int"; "String"; "Bool"; "Boolean"; "bool"; "Unit";
+     "Type"; "TypeUniverse"; "Any"; "Unknown"; "List"; "Option"; "Pair";
+     "Result"; "Tuple"; "Span"].
+
+(** Mangled module type components carry their hygiene context with '_'. *)
+Fixpoint string_has_underscore (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c rest =>
+      orb (Nat.eqb (nat_of_ascii c) 95) (string_has_underscore rest)
+  end.
+
+(** Type names declared anywhere in a program (enums, type components,
+    records), including nested modules and signatures. *)
+Fixpoint declared_ty_names (t : AST) : list string :=
+  match t with
+  | AstEnum n _ _ => [n]
+  | AstTypeDecl n _ => [n]
+  | AstRecord n _ _ => [n]
+  | AstBlock ss tail => app (flat_map declared_ty_names ss) (declared_ty_names tail)
+  | AstSpan _ i => declared_ty_names i
+  | AstModule _ _ _ b => flat_map declared_ty_names b
+  | AstSignature _ ds => flat_map declared_ty_names ds
+  | AstExtension _ _ _ ms => flat_map declared_ty_names ms
+  | AstDef _ _ _ _ b _ => declared_ty_names b
+  | AstSigWith s eqs =>
+      app (declared_ty_names s)
+          (flat_map (fun p => declared_ty_names (snd p)) eqs)
+  | _ => []
+  end.
+
+(** Names mentioned by a type (used to recover declarations from the env). *)
+Fixpoint ty_names_in_ty (t : AST) : list string :=
+  match t with
+  | AstRef n => [n]
+  | AstApp f args | AstImplicitApp f args =>
+      app (ty_names_in_ty f) (flat_map ty_names_in_ty args)
+  | AstFunTy _ ps r _ =>
+      app (flat_map (fun p => ty_names_in_ty (snd p)) ps) (ty_names_in_ty r)
+  | AstPi _ a r _ => app (ty_names_in_ty a) (ty_names_in_ty r)
+  | AstTuple xs => flat_map ty_names_in_ty xs
+  | AstTypeDecl n o =>
+      n :: (match o with Some d => ty_names_in_ty d | None => [] end)
+  | AstFieldAccess e _ => ty_names_in_ty e
+  | AstSpan _ i => ty_names_in_ty i
+  | _ => []
+  end.
+
+(** Type names already mentioned by the accumulated environment (covers
+    declarations from previously elaborated files). *)
+Definition env_ty_names (env : list (string * AST)) : list string :=
+  flat_map (fun kv => fst kv :: ty_names_in_ty (snd kv)) env.
+
+Definition ty_param_names (params : list (string * AST)) : list string :=
+  map fst (filter (fun p => is_universe_ty (snd p)) params).
+
+Definition ty_name_ok (scope allowed : list string) (n : string) : bool :=
+  orb (is_builtin_ty_name n)
+    (orb (is_type_param_ref n)
+      (orb (string_has_underscore n)
+        (orb (existsb (String.eqb n) scope)
+             (existsb (String.eqb n) allowed)))).
+
+(** First offending type name in a type expression. Fuel is derived from the
+    AST size, and every member of the block decreases the same argument. *)
+Fixpoint first_unknown_name (fuel : nat) (scope allowed : list string)
+    (t : AST) {struct fuel} : option string :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match t with
+      | AstSpan _ i => first_unknown_name fuel' scope allowed i
+      | AstRef n => if ty_name_ok scope allowed n then None else Some n
+      | AstApp f args =>
+          match first_unknown_name fuel' scope allowed f with
+          | Some x => Some x
+          | None => first_unknown_list fuel' scope allowed args
+          end
+      | AstImplicitApp f args =>
+          match first_unknown_name fuel' scope allowed f with
+          | Some x => Some x
+          | None => first_unknown_list fuel' scope allowed args
+          end
+      | AstTuple xs => first_unknown_list fuel' scope allowed xs
+      | AstFieldAccess _ _ => None
+      | _ => None
+      end
+  end
+with first_unknown_list (fuel : nat) (scope allowed : list string)
+    (ts : list AST) {struct fuel} : option string :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match ts with
+      | [] => None
+      | x :: rest =>
+          match first_unknown_name fuel' scope allowed x with
+          | Some y => Some y
+          | None => first_unknown_list fuel' scope allowed rest
+          end
+      end
+  end
+with first_unknown_params (fuel : nat) (scope allowed : list string)
+    (ps : list (string * AST)) {struct fuel} : option string :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match ps with
+      | [] => None
+      | (_, ty) :: rest =>
+          match first_unknown_name fuel' scope allowed ty with
+          | Some x => Some x
+          | None => first_unknown_params fuel' scope allowed rest
+          end
+      end
+  end
+with unknown_ty_in_variants (fuel : nat) (scope allowed : list string)
+    (vs : list (string * list AST * AST)) {struct fuel} : option string :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match vs with
+      | [] => None
+      | (_, fields, _) :: rest =>
+          match first_unknown_list fuel' scope allowed fields with
+          | Some x => Some x
+          | None => unknown_ty_in_variants fuel' scope allowed rest
+          end
+      end
+  end
+with unknown_ty_in_decl (fuel : nat) (allowed : list string) (d : AST)
+    {struct fuel} : option string :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match d with
+      | AstSpan _ i => unknown_ty_in_decl fuel' allowed i
+      | AstDef _ tps params ret _ _ =>
+          let scope := app tps (ty_param_names params) in
+          match first_unknown_params fuel' scope allowed params with
+          | Some x => Some x
+          | None => first_unknown_name fuel' scope allowed ret
+          end
+      | AstSigVal _ tps params ret _ =>
+          let scope := app tps (ty_param_names params) in
+          match first_unknown_params fuel' scope allowed params with
+          | Some x => Some x
+          | None => first_unknown_name fuel' scope allowed ret
+          end
+      | AstEnum _ tps variants =>
+          unknown_ty_in_variants fuel' tps allowed variants
+      | AstRecord _ tps fields =>
+          first_unknown_params fuel' tps allowed fields
+      | AstTypeDecl _ (Some ty) => first_unknown_name fuel' [] allowed ty
+      | AstTypeDecl _ None => None
+      | AstBlock ss tail =>
+          match unknown_ty_in_decls fuel' allowed ss with
+          | Some x => Some x
+          | None => unknown_ty_in_decl fuel' allowed tail
+          end
+      | AstSignature _ ds => unknown_ty_in_decls fuel' allowed ds
+      | AstModule _ _ _ body => unknown_ty_in_decls fuel' allowed body
+      | AstExtension _ tps target methods =>
+          match first_unknown_name fuel' tps allowed target with
+          | Some x => Some x
+          | None => unknown_ty_in_decls fuel' (app tps allowed) methods
+          end
+      | _ => None
+      end
+  end
+with unknown_ty_in_decls (fuel : nat) (allowed : list string) (ds : list AST)
+    {struct fuel} : option string :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match ds with
+      | [] => None
+      | d :: rest =>
+          match unknown_ty_in_decl fuel' allowed d with
+          | Some x => Some x
+          | None => unknown_ty_in_decls fuel' allowed rest
+          end
+      end
+  end.
+
+Definition unknown_ty_in_program (env : list (string * AST)) (prog : AST)
+  : option string :=
+  unknown_ty_in_decl (S (ast_size prog))
+    (app (env_ty_names env) (declared_ty_names prog)) prog.
+
 (** Peel [AstFunTy] params against a curried [AstPi] telescope (struct on params). *)
 Fixpoint funty_pi_compat (params : list (string * AST)) (ret pi : AST) {struct params} : bool :=
   match params with
@@ -1014,6 +1224,20 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
       end
 
   | AstApp func args =>
+      (* Builtin type constructors have fixed arity: [List(T)], [Option(T)],
+         [Pair(A, B)], [Result(T, E)]. *)
+      let ctor_arity_ok :=
+        match strip_span func with
+        | AstRef n =>
+            if String.eqb n "List" then Nat.eqb (length args) 1
+            else if String.eqb n "Option" then Nat.eqb (length args) 1
+            else if String.eqb n "Pair" then Nat.eqb (length args) 2
+            else if String.eqb n "Result" then Nat.eqb (length args) 2
+            else true
+        | _ => true
+        end
+      in
+      if negb ctor_arity_ok then TyErr "Wrong number of type arguments" else
       (* Prefer structural lambda application: re-inferring [AstLam] as [AstPi]
          can fail when the elaborator left unsolved metas in the binder type. *)
       let lam_pi :=
@@ -1121,17 +1345,24 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                 end
               in check_args args
           | AstRef n =>
-              (* Soft apply for wildcards and residual ref callees (FFI). *)
-              let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
-                match as_ with
+              (* Soft apply for wildcards and residual ref callees (FFI), but
+                 never apply a value whose type is a known non-function. *)
+              if is_non_function_ty (AstRef n) then
+                match args with
                 | [] => meet_expected (AstRef n) expected
-                | a :: as' =>
-                    match infer_check env a None with
-                    | TyOk _ => check_args as'
-                    | TyErr e => TyErr e
-                    end
+                | _ => TyErr "call on non-function"
                 end
-              in check_args args
+              else
+                let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
+                  match as_ with
+                  | [] => meet_expected (AstRef n) expected
+                  | a :: as' =>
+                      match infer_check env a None with
+                      | TyOk _ => check_args as'
+                      | TyErr e => TyErr e
+                      end
+                  end
+                in check_args args
           | _ =>
               (* Soft apply when re-inference did not rebuild Pi/FunTy. *)
               let fix check_args (as_ : list AST) {struct as_} : TyResult AST :=
@@ -1355,15 +1586,21 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
 
   | AstIf cond thenB elseB =>
       match infer_check env cond None with
-      | TyOk _ =>
-          match infer_check env thenB expected with
-          | TyOk thenTy =>
-              match infer_check env elseB (Some thenTy) with
-              | TyOk _ => TyOk thenTy
-              | TyErr e => TyErr e
-              end
-          | TyErr e => TyErr e
-          end
+      | TyOk condTy =>
+          (* The guard must be a Bool; wildcards/metas stay permissive for
+             dynamic FFI values. *)
+          if orb (is_bool_ty condTy)
+               (orb (is_wildcard_ty condTy) (is_meta_ty condTy))
+          then
+            match infer_check env thenB expected with
+            | TyOk thenTy =>
+                match infer_check env elseB (Some thenTy) with
+                | TyOk _ => TyOk thenTy
+                | TyErr e => TyErr e
+                end
+            | TyErr e => TyErr e
+            end
+          else TyErr "If condition is not Bool"
       | TyErr e => TyErr e
       end
 

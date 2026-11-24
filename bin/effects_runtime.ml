@@ -174,6 +174,7 @@ package main
 
 import (
     "fmt"
+    "reflect"
     "strings"
     "strconv"
     "io"
@@ -206,6 +207,73 @@ func prim__int_to_string(a int) string { return fmt.Sprintf("%d", a) }
 func __chester_as_int(v any) int { return v.(int) }
 func __chester_as_string(v any) string { return v.(string) }
 func __chester_as_bool(v any) bool { return v.(bool) }
+
+// Indirect calls: emitted callees are `any`-typed, so adapt the arguments to
+// the callee's concrete Go signature (e.g. func(int, int) int) instead of
+// asserting func(any, ...) any, which only matches fully erased functions.
+func __chester_call(fn any, args ...any) any {
+	switch f := fn.(type) {
+	case func() any:
+		if len(args) == 0 {
+			return f()
+		}
+	case func(any) any:
+		if len(args) == 1 {
+			return f(args[0])
+		}
+	case func(any, any) any:
+		if len(args) == 2 {
+			return f(args[0], args[1])
+		}
+	case func(any, any, any) any:
+		if len(args) == 3 {
+			return f(args[0], args[1], args[2])
+		}
+	}
+	return __chester_call_reflect(fn, args)
+}
+
+func __chester_call_reflect(fn any, args []any) any {
+	if fn == nil {
+		panic("chester: call on nil function")
+	}
+	fv := reflect.ValueOf(fn)
+	if fv.Kind() != reflect.Func {
+		panic(fmt.Sprintf("chester: call on non-function %T", fn))
+	}
+	ft := fv.Type()
+	if len(args) != ft.NumIn() {
+		panic(fmt.Sprintf("chester: call to %s with %d arguments", ft, len(args)))
+	}
+	in := make([]reflect.Value, len(args))
+	for i, a := range args {
+		t := ft.In(i)
+		if a == nil {
+			in[i] = reflect.Zero(t)
+			continue
+		}
+		v := reflect.ValueOf(a)
+		if v.Type() != t {
+			if !v.Type().ConvertibleTo(t) {
+				panic(fmt.Sprintf("chester: cannot pass %T as %s", a, t))
+			}
+			v = v.Convert(t)
+		}
+		in[i] = v
+	}
+	out := fv.Call(in)
+	if len(out) == 0 {
+		return nil
+	}
+	if len(out) == 1 {
+		return out[0].Interface()
+	}
+	res := make([]any, len(out))
+	for i, o := range out {
+		res[i] = o.Interface()
+	}
+	return res
+}
 
 // Surface names used by desugaring (`+` → int_add) and stdlib wrappers.
 // Emitter skips AstDef for these names so emitting stdlib does not redeclare.
@@ -249,9 +317,8 @@ func prim__list_filter(l any, pred any) any {
 	switch v := l.(type) {
 	case []any:
 		var res []any
-		fn := pred.(func(any) any)
 		for _, x := range v {
-			if fn(x).(bool) {
+			if __chester_call(pred, x).(bool) {
 				res = append(res, x)
 			}
 		}
@@ -285,9 +352,8 @@ func prim__join_strings(sep any, ls any) any {
 
 func prim__list_make(l, f any) any {
 	res := make([]any, l.(int))
-	fn := f.(func(any) any)
 	for i := 0; i < l.(int); i++ {
-		res[i] = fn(i)
+		res[i] = __chester_call(f, i)
 	}
 	return res
 }
