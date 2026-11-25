@@ -1241,6 +1241,30 @@ def keep_sealed(sealed: List(Pair), ls: List(AST)): List(AST) = {
           case _ => list_insert_first(rest, AST.AstTypeDecl(n, defs))
         }
       };
+      case AstModule(n, params, seal, body) => {
+        match lookup_export(sealed, n) {
+          case AstError(_) => rest;
+          case _ => list_insert_first(rest, AST.AstModule(n, params, seal, body))
+        }
+      };
+      case AstSignature(n, decls) => {
+        match lookup_export(sealed, n) {
+          case AstError(_) => rest;
+          case _ => list_insert_first(rest, AST.AstSignature(n, decls))
+        }
+      };
+      case AstEnum(n, tps, variants) => {
+        match lookup_export(sealed, n) {
+          case AstError(_) => rest;
+          case _ => list_insert_first(rest, AST.AstEnum(n, tps, variants))
+        }
+      };
+      case AstRecord(n, tps, fields) => {
+        match lookup_export(sealed, n) {
+          case AstError(_) => rest;
+          case _ => list_insert_first(rest, AST.AstRecord(n, tps, fields))
+        }
+      };
       case AstSpan(sp, inner) => {
         let kept_inner = keep_sealed(sealed, list_insert_first(list_empty[AST](), inner));
         if int_eq(list_length(kept_inner), 0) then rest else list_insert_first(rest, AST.AstSpan(sp, list_get(kept_inner, 0)))
@@ -1699,7 +1723,69 @@ def seal_exports_check_flat(opaque: Bool, full: List(Pair), subs: List(Pair), si
           case _ => Pair.MkPair(string_concat("signature type component is not a type: ", n), list_empty[Pair]())
         }
       };
-      case _ => Pair.MkPair("unsupported signature declaration under sealing", list_empty[Pair]())
+      case AstModule(n, _, _, body_spec) => {
+        let found = lookup_export(full, n);
+        match found {
+          case AstModTy(impl_ex) => {
+            let nested_subs = seal_type_substs(body_spec, impl_ex);
+            match seal_exports_check_flat(opaque, impl_ex, nested_subs, body_spec) {
+              case MkPair(nested_msg, nested_ex) => {
+                if string_eq(nested_msg, "ok") then {
+                  seal_cons_export(n, AST.AstModTy(nested_ex), seal_exports_check_flat(opaque, full, subs, rest))
+                } else Pair.MkPair(string_concat("nested module signature mismatch for ", string_concat(n, string_concat(": ", nested_msg))), list_empty[Pair]())
+              }
+            }
+          };
+          case AstError(_) => Pair.MkPair(string_concat("signature requires missing module: ", n), list_empty[Pair]());
+          case _ => Pair.MkPair(string_concat("signature module component is not a module: ", n), list_empty[Pair]())
+        }
+      };
+      case AstSignature(_, decls) => {
+        match seal_exports_check_flat(opaque, full, subs, decls) {
+          case MkPair(msg, xs) => {
+            if string_eq(msg, "ok") then {
+              match seal_exports_check_flat(opaque, full, subs, rest) {
+                case MkPair(rest_msg, ys) => {
+                  if string_eq(rest_msg, "ok") then Pair.MkPair("ok", list_concat(xs, ys)) else Pair.MkPair(rest_msg, list_empty[Pair]())
+                }
+              }
+            } else Pair.MkPair(msg, list_empty[Pair]())
+          }
+        }
+      };
+      case AstSigWith(base, eqs) => {
+        match apply_sig_with(base, eqs) {
+          case AstSignature(_, decls) => {
+            match seal_exports_check_flat(opaque, full, subs, decls) {
+              case MkPair(msg, xs) => {
+                if string_eq(msg, "ok") then {
+                  match seal_exports_check_flat(opaque, full, subs, rest) {
+                    case MkPair(rest_msg, ys) => {
+                      if string_eq(rest_msg, "ok") then Pair.MkPair("ok", list_concat(xs, ys)) else Pair.MkPair(rest_msg, list_empty[Pair]())
+                    }
+                  }
+                } else Pair.MkPair(msg, list_empty[Pair]())
+              }
+            }
+          };
+          case _ => Pair.MkPair("invalid signature enrichment under sealing", list_empty[Pair]())
+        }
+      };
+      case AstModTy(exports) => {
+        let fake_decls = list_map(exports, \p => modty_fake_sigval(p));
+        match seal_exports_check_flat(opaque, full, subs, fake_decls) {
+          case MkPair(msg, xs) => {
+            if string_eq(msg, "ok") then {
+              match seal_exports_check_flat(opaque, full, subs, rest) {
+                case MkPair(rest_msg, ys) => {
+                  if string_eq(rest_msg, "ok") then Pair.MkPair("ok", list_concat(xs, ys)) else Pair.MkPair(rest_msg, list_empty[Pair]())
+                }
+              }
+            } else Pair.MkPair(msg, list_empty[Pair]())
+          }
+        }
+      };
+      case _ => Pair.MkPair("invalid signature declaration under sealing", list_empty[Pair]())
     }
   }
 };
@@ -2387,6 +2473,22 @@ def elab_named_cst_params(env: List(Pair), ps: List(Pair)): List(Pair) = {
     }
   }
 };
+def cst_list_has_arrow(xs: List(CST)): Bool = {
+  if int_eq(list_length(xs), 0) then false else {
+    match list_get(xs, 0) {
+      case Symbol(op, _) => {
+        if string_eq(op, "->") then true else cst_list_has_arrow(advance(xs))
+      };
+      case _ => cst_list_has_arrow(advance(xs))
+    }
+  }
+};
+def cst_has_arrow(c: CST): Bool = {
+  match c {
+    case SeqOf(xs, _) => cst_list_has_arrow(xs);
+    case _ => false
+  }
+};
 def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
   if int_eq(list_length(ps), 0) then Pair.MkPair(list_empty[Pair](), list_empty[Pair]()) else {
     let p = list_get(ps, 0);
@@ -2423,7 +2525,8 @@ def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
                         let tyAst_res = elaborate(env, pty_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
                         match tyAst_res {
                           case MkPair(tAst, _) => {
-                            Pair.MkPair(list_insert_first(restAst, Pair.MkPair(pname, tAst)), list_insert_first(restEnvItems, Pair.MkPair(Pair.MkPair(pname, span_context(sp)), tAst)))
+                            let param_ty = if cst_has_arrow(pty_cst) then AST.AstRef("Any") else tAst;
+                            Pair.MkPair(list_insert_first(restAst, Pair.MkPair(pname, param_ty)), list_insert_first(restEnvItems, Pair.MkPair(Pair.MkPair(pname, span_context(sp)), param_ty)))
                           }
                         }
                       } else rest_res
@@ -2708,7 +2811,34 @@ def zonk(fuel: Integer, expr: AST): AST = {
     }
   }
 };
-def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
+def expand_signature_member(env: List(Pair), member: AST): AST = {
+  match member {
+    case AstModule(n, params, seal, refs) => {
+      if int_eq(list_length(refs), 1) then {
+        match list_get(refs, 0) {
+          case AstRef(ref_name) => {
+            match resolve_hygiene(env, ref_name, list_empty[Integer]()) {
+              case MkPair(ty, _) => {
+                match ty {
+                  case AstSignature(_, ref_decls) => AST.AstModule(n, params, seal, ref_decls);
+                  case _ => member
+                }
+              }
+            }
+          };
+          case _ => member
+        }
+      } else member
+    };
+    case _ => member
+  }
+};
+def modty_fake_sigval(pair: Pair): AST = {
+  match pair {
+    case MkPair(n, ty) => AST.AstSigVal(n, list_empty[String](), list_empty[Pair](), ty, list_empty[String]())
+  }
+};
+def elaborate(env: List[Pair], expr: CST, expected: OptionAST): Pair = {
   match expr {
     case Symbol(name, span) => {
       let res = resolve_hygiene(env, name, span_context(span));
@@ -3213,7 +3343,7 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
             case MkPair(eff, ret_ty) => {
               if string_eq(eff, "") then Pair.MkPair(AST.AstError(string_concat("Unknown effect operation: ", op_name)), AST.AstRef("Any")) else {
                 put_elab_state(ElabState.MkElabState(e, next_var, subst, exts, effects, active, list_insert_first(pending, eff)));
-                Pair.MkPair(AST.AstDo(AST.AstRef(op_name), elab_args(env, args)), ret_ty)
+                Pair.MkPair(AST.AstDo(AST.AstRef(string_concat(eff, string_concat("/", op_name))), elab_args(env, args)), ret_ty)
               }
 }
           }
@@ -3427,7 +3557,8 @@ def elaborate(env: List(Pair), expr: CST, expected: OptionAST): Pair = {
           case _ => decls0
         }
       } else decls0;
-      Pair.MkPair(AST.AstSignature(name, decls), AST.AstSignature(name, decls))
+      let decls2 = list_map(decls, \member => expand_signature_member(env, member));
+      Pair.MkPair(AST.AstSignature(name, decls2), AST.AstSignature(name, decls2))
     };
     case SigWithCST(base, eqs, _) => {
       match elaborate(env, base, OptionAST.NoneAST) {

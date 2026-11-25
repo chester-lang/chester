@@ -1035,6 +1035,17 @@ def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST
               case _ => Error("Expected block for match cases", span)
             }
           }
+        } else if string_eq(s, "pack") then {
+          if int_eq(len, 4) then {
+            match list_get(collapsed, 2) {
+              case Symbol(as_kw, _) => {
+                if string_eq(as_kw, "as") then
+                  CST.PackCST(list_get(collapsed, 1), list_get(collapsed, 3), span)
+                else SeqOf(collapsed, span)
+              };
+              case _ => SeqOf(collapsed, span)
+            }
+          } else SeqOf(collapsed, span)
         } else if string_eq(s, "perform") then {
           if int_eq(len, 2) then {
             match list_get(collapsed, 1) {

@@ -19,7 +19,7 @@ module sealing and the **pure** core fragment are split across:
 | Theory | Contents |
 |--------|----------|
 | `theories/TypeSystemProps.v` | Effect-row lattice (`effect_row_subsumes_*`), binder/`free_in` lemmas, seal examples, subst capture-avoidance |
-| `theories/CoreTyping.v` | Declarative `CoreWT` / `CoreFrag`; `seal_cons_export_names`; `seal_sigval_requires_effect_subsumption` |
+| `theories/CoreTyping.v` | Declarative `CoreWT` / `CoreFrag`; `seal_cons_export_names`; `seal_sigval_member_name`; `seal_sigval_requires_effect_subsumption` |
 | `theories/RocqIRSem.v` | Rocq IR values/`REval`; logical relation `RValTy`; `emit_rocq_correct` for the full `CoreFrag` (proven, axiom-free) |
 | `theories/TypeScriptIRSem.v` | TS value/`TSEval`+`TSEvalBlock` model; `emit_ts_correct` for the full `CoreFrag` (expression and block forms, proven axiom-free); `emit_ts_expr_correct`/`emit_ts_lit_correct` corollaries |
 | `theories/GoIRSem.v` | Go value/`GoEval`+`GoEvalBlock` model; `emit_go_correct` for the full `CoreFrag` (expression and block forms across local environments, proven axiom-free); `emit_go_expr_correct`/`emit_go_correct_closed` corollaries |

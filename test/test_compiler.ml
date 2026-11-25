@@ -330,6 +330,9 @@ let parity_fixtures =
     ("tests/effects_nested.chester", "10");
     ("tests/effects_return.chester", "11");
     ("tests/effects_shallow.chester", "2");
+    ("tests/modules_pack_value.chester", "42");
+    ("tests/modules_nested.chester", "42");
+    ("tests/modules_nested_sig.chester", "42");
     ("tests/binders_param_shadow.chester", "7");
     ("tests/binders_pattern_shadow.chester", "9");
     ("tests/binders_rec_def.chester", "6");
@@ -369,8 +372,9 @@ let check_rocq_selfhosted_parity () =
       let st = selfhosted_compile_status stage1 fixture in
       print_endline
         (fixture ^ " self-hosted rejected=" ^ string_of_bool (st <> 0)))
-    [ "tests/modules_opaque_bad.chester"; "tests/if_cond_bad.chester";
-      "tests/literal_mismatch_bad.chester" ];
+    [ "tests/modules_opaque_bad.chester";
+      "tests/modules_nested_opaque_bad.chester";
+      "tests/if_cond_bad.chester"; "tests/literal_mismatch_bad.chester" ];
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote stage_dir)) in
   ()
 
@@ -616,6 +620,26 @@ let%expect_test "fixture effects multishot" =
 let%expect_test "fixture effects shallow" =
   check_fixture "tests/effects_shallow.chester";
   [%expect {| tests/effects_shallow.chester ok |}]
+
+let%expect_test "fixture first-class packed module" =
+  check_fixture "tests/modules_pack_value.chester";
+  [%expect {| tests/modules_pack_value.chester ok |}]
+
+let%expect_test "runtime go first-class packed module" =
+  run_fixture_go "tests/modules_pack_value.chester";
+  [%expect {| 42 |}]
+
+let%expect_test "runtime go nested module path" =
+  run_fixture_go "tests/modules_nested.chester";
+  [%expect {| 42 |}]
+
+let%expect_test "runtime go nested sealed module path" =
+  run_fixture_go "tests/modules_nested_sig.chester";
+  [%expect {| 42 |}]
+
+let%expect_test "nested module opaque sealing hides extra values" =
+  expect_type_error "tests/modules_nested_opaque_bad.chester";
+  [%expect {| module has no export: secret |}]
 
 let%expect_test "runtime effects shallow" =
   run_fixture_main "tests/effects_shallow.chester";
@@ -1166,6 +1190,9 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/effects_nested.chester parity ok (10)
     tests/effects_return.chester parity ok (11)
     tests/effects_shallow.chester parity ok (2)
+    tests/modules_pack_value.chester parity ok (42)
+    tests/modules_nested.chester parity ok (42)
+    tests/modules_nested_sig.chester parity ok (42)
     tests/binders_param_shadow.chester parity ok (7)
     tests/binders_pattern_shadow.chester parity ok (9)
     tests/binders_rec_def.chester parity ok (6)
@@ -1175,6 +1202,7 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/modules_effects.chester self-hosted ok
     tests/modules_ext.chester self-hosted ok
     tests/modules_opaque_bad.chester self-hosted rejected=true
+    tests/modules_nested_opaque_bad.chester self-hosted rejected=true
     tests/if_cond_bad.chester self-hosted rejected=true
     tests/literal_mismatch_bad.chester self-hosted rejected=true
     |}]

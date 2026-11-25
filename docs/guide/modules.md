@@ -12,13 +12,16 @@ Sealing/export **examples and lattice lemmas** live in `theories/CoreTyping.v` a
 `:`/`:`sealing, `with type`, aliases, functor declarations/applications, and
 `pack`/`unpack`) and carries the matching AST-level slice (param/ret/manifest sealing
 checks, `with type` substitution, generative/applicative name-based identity). Module
-bodies emit as `Module_member` Go functions. `unpack (X : S) = pack M as S in body`
-compiles by inlining the module reference, so no runtime module value is needed;
-storing a `pack` value as first-class data remains unimplemented. Abstract opaque
-type components are hidden at use sites by both backends. Applicative identity is
+bodies emit as `Module_member` Go functions plus a runtime namespace map. `pack`
+values can be stored in `let` bindings and forwarded through ordinary values;
+`unpack` selects the sealed namespace and dynamic member calls use the shared field
+dispatcher. TypeScript namespaces provide the same runtime representation. Rocq keeps
+modules at the syntactic module layer rather than materializing first-class runtime values.
+Abstract opaque type components are hidden at use sites by both backends. Applicative identity is
 keyed by the argument's hygienic declaration site and generative functors get fresh
 ids; full System Fω packaging is out of scope. Fixtures: `tests/modules*.chester`
-(including `modules_with_type.chester`).
+(including `modules_with_type.chester`, `modules_nested.chester`, and
+`modules_nested_sig.chester`).
 
 ---
 
@@ -165,6 +168,18 @@ let packed = pack Counter as Printable;
 unpack (X : Printable) = packed in {
   X.show()
 };
+```
+
+The Go and TypeScript backends materialize sealed module namespaces, so the packed
+value above can be stored or forwarded through another value. The Rocq backend keeps
+first-class modules at the compile-time syntax layer outside `CoreFrag`.
+
+Nested module paths such as `Outer.Inner.value()` are flattened consistently in Go,
+and nested opaque signatures can be named through signature aliases:
+
+```chester
+signature InnerSig { def value(): Int };
+signature OuterSig { module Inner = InnerSig };
 ```
 
 ---

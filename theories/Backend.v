@@ -7,6 +7,7 @@ Open Scope string_scope.
 Require Import Chester.AST.
 Require Import Chester.TypeScriptAST.
 Require Import Chester.GoAST.
+Require Import Chester.CoreChecker.
 
 Definition go_str_eq (a b : string) : bool :=
   if string_dec a b then true else false.
@@ -384,6 +385,40 @@ Definition is_upper (s : string) : bool :=
       (PeanoNat.Nat.leb 65 n) && (PeanoNat.Nat.leb n 90)
   end.
 
+Definition go_field_access_expr (locals : GoLocalEnv) (expr : AST)
+    (emitted : GoExpr) (field : string) : GoExpr :=
+  let fix module_parts (e : AST) {struct e} : option (list string) :=
+    match e with
+    | AstRef n =>
+        match go_lookup_local locals n with
+        | Some _ => None
+        | None => if is_upper n then Some [n] else None
+        end
+    | AstFieldAccess inner part =>
+        match module_parts inner with
+        | Some parts => Some (app parts [part])
+        | None => None
+        end
+    | AstSpan _ inner => module_parts inner
+    | _ => None
+    end
+  in
+  match module_parts expr with
+  | Some parts =>
+      GoIdentifier (concat_strings "_" (app parts [field]))
+  | None =>
+      match expr with
+      | AstRef n =>
+          match go_lookup_local locals n with
+          | Some "__chester_module" =>
+              GoCall (GoIdentifier "__chester_field")
+                [GoIdentifier n; GoStringLiteral field]
+          | _ => GoSelector emitted field
+          end
+      | _ => GoSelector emitted field
+      end
+  end.
+
 Fixpoint go_app_direct (locals : GoLocalEnv) (func : AST) {struct func} : bool :=
   match func with
   | AstRef name => 
@@ -395,6 +430,11 @@ Fixpoint go_app_direct (locals : GoLocalEnv) (func : AST) {struct func} : bool :
           if string_dec name "predicate" then false else
           if string_dec name "pred" then false else
           true
+      end
+  | AstFieldAccess (AstRef n) _ =>
+      match go_lookup_local locals n with
+      | Some "__chester_module" => false
+      | _ => true
       end
   | AstFieldAccess _ _ => true
   | AstImplicitApp inner _ => go_app_direct locals inner
@@ -963,13 +1003,7 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
       in GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs locals expr) :: emit_cases cases)) []
   | AstRecord name _ _ => GoIdentifier "nil"
   | AstFieldAccess expr field =>
-      match expr with
-      (* Chester module path M.x → M_x; lowercase pkg.Method stays a selector (fmt.Println). *)
-      | AstRef n =>
-          if is_upper n then GoIdentifier (n ++ "_" ++ field)
-          else GoSelector (emit_go_expr sigs locals expr) field
-      | _ => GoSelector (emit_go_expr sigs locals expr) field
-      end
+      go_field_access_expr locals expr (emit_go_expr sigs locals expr) field
   | AstImport _ _ _ _ => GoIdentifier "nil"
   | AstModule name _ _ _ => GoIdentifier name
   | AstSignature name _ => GoIdentifier "nil"
@@ -980,7 +1014,7 @@ Fixpoint emit_go_expr (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struc
   | AstUnpack x _ e body =>
       GoCall (GoFuncLiteral [] go_iface
         (GoLet x go_iface (emit_go_expr sigs locals e)
-         :: emit_go_block sigs locals body)) []
+         :: emit_go_block sigs (go_bind_local locals x "__chester_module") body)) []
   | AstMeta id => GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */")
   | AstUniverse _ => GoCall (GoFuncLiteral [] go_iface [GoPanic "Universe in term"]) []
   | AstError e => GoCall (GoFuncLiteral [] go_iface [GoPanic e]) []
@@ -1001,18 +1035,30 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
             GoFuncDecl (name ++ "_" ++ dname) ps ret
               (go_map_returns_top [] bls ret (emit_go_block [] bls bd))
               :: prefix_and_emit xs
-        | AstRecord rname tp fields :: xs =>
+        | AstRecord rname tp0 fields :: xs =>
             GoStruct (name ++ "_" ++ rname) (go_fields_of fields)
               :: prefix_and_emit xs
-        | AstEnum ename tp variants :: xs =>
+        | AstEnum ename tp0 variants :: xs =>
             (* Flatten enum name; emit via nested match on a renamed node is non-structural,
                so drop body-level enums for now (top-level enums still emit). *)
-            let _ := (ename, tp, variants) in prefix_and_emit xs
+            let _ := (ename, tp0, variants) in prefix_and_emit xs
         | AstSpan _ inner :: xs =>
             emit_go_stmt [] [] inner :: prefix_and_emit xs
         | _ :: xs => prefix_and_emit xs
         end
-      in GoBlock (prefix_and_emit body)
+      in
+      let fix module_values (ls : list AST) : list (string * GoExpr) :=
+        match ls with
+        | [] => []
+        | AstDef dname _ _ _ _ _ :: xs =>
+            (dname, GoIdentifier (name ++ "_" ++ dname)) :: module_values xs
+        | AstSpan _ (AstDef dname _ _ _ _ _) :: xs =>
+            (dname, GoIdentifier (name ++ "_" ++ dname)) :: module_values xs
+        | _ :: xs => module_values xs
+        end
+      in
+      GoBlock (prefix_and_emit body ++
+        [GoLet name go_iface (GoMapLiteral (module_values body))])
   | AstSignature _ _ | AstFunctorApp _ _ | AstModTy _ | AstSigVal _ _ _ _ _ | AstSigWith _ _ | AstFileImport _ _ => GoEmpty
   | AstTypeDecl name (Some _) =>
       GoExprStmt (GoIdentifier ("/* type " ++ name ++ " */"))
@@ -1022,7 +1068,7 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
   | AstUnpack x _ e body =>
       GoExprStmt (GoCall (GoFuncLiteral [] go_iface
         (GoLet x go_iface (emit_go_expr sigs locals e)
-         :: emit_go_block sigs (go_bind_local locals x go_iface) body)) [])
+         :: emit_go_block sigs (go_bind_local locals x "__chester_module") body)) [])
   | AstLet name value =>
       GoBlock [GoLet name (go_type_of_ast_value sigs locals value) (emit_go_expr sigs locals value); GoDiscardBinding name]
   | AstDef name _ params ret_ty body _ =>
@@ -1179,13 +1225,9 @@ with emit_go_stmt (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct as
             end
         end
       in GoExprStmt (GoCall (GoFuncLiteral [] go_iface (GoLet "_match_val" go_iface (emit_go_expr sigs locals expr) :: emit_cases cases)) [])
-  | AstFieldAccess expr field => GoExprStmt (
-      match expr with
-      | AstRef n =>
-          if is_upper n then GoIdentifier (n ++ "_" ++ field)
-          else GoSelector (emit_go_expr sigs locals expr) field
-      | _ => GoSelector (emit_go_expr sigs locals expr) field
-      end)
+  | AstFieldAccess expr field =>
+      GoExprStmt (go_field_access_expr locals expr
+        (emit_go_expr sigs locals expr) field)
   | AstMeta id => GoExprStmt (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))
   | AstUniverse _ => GoExprStmt (GoCall (GoFuncLiteral [] go_iface [GoPanic "Universe in term"]) [])
   | AstError e => GoExprStmt (GoCall (GoFuncLiteral [] go_iface [GoPanic e]) [])
@@ -1333,13 +1375,9 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
   | AstEnum _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstExtension _ _ _ _ => [GoReturn (GoIdentifier "nil")]
   | AstRecord name _ _ => [GoReturn (GoIdentifier "nil")]
-  | AstFieldAccess expr field => [GoReturn (
-      match expr with
-      | AstRef n =>
-          if is_upper n then GoIdentifier (n ++ "_" ++ field)
-          else GoSelector (emit_go_expr sigs locals expr) field
-      | _ => GoSelector (emit_go_expr sigs locals expr) field
-      end)]
+  | AstFieldAccess expr field =>
+      [GoReturn (go_field_access_expr locals expr
+        (emit_go_expr sigs locals expr) field)]
   | AstImport lang _ mod_path _ => [emit_go_import lang mod_path]
   | AstModule name _ _ body =>
       let fix prefix_decls (ls : list AST) : list GoStmt :=
@@ -1366,9 +1404,55 @@ with emit_go_block (sigs : GoSigEnv) (locals : GoLocalEnv) (ast : AST) {struct a
   | AstPack m _ => [GoReturn (emit_go_expr sigs locals m)]
   | AstUnpack x _ e body =>
       GoLet x go_iface (emit_go_expr sigs locals e)
-        :: emit_go_block sigs (go_bind_local locals x go_iface) body
+        :: emit_go_block sigs (go_bind_local locals x "__chester_module") body
   | AstMeta id => [GoReturn (GoIdentifier ("/* ?meta_" ++ nat_to_string id ++ " */"))]
   end.
+
+Fixpoint emit_go_nested_module_decls (fuel : nat) (prefix : string)
+    (body : list AST) : list GoStmt :=
+  match fuel with
+  | 0 => []
+  | S fuel' =>
+      match body with
+      | [] => []
+      | AstDef dname _ params ret_ty bd _ :: xs =>
+          let ps := go_params_of params in
+          let ret := chester_to_go_type ret_ty in
+          let bls := go_bind_params [] ps in
+          GoFuncDecl (append (append prefix "_") dname) ps ret
+            (go_map_returns_top [] bls ret (emit_go_block [] bls bd))
+          :: emit_go_nested_module_decls fuel' prefix xs
+      | AstRecord rname _ fields :: xs =>
+          GoStruct (append (append prefix "_") rname) (go_fields_of fields)
+          :: emit_go_nested_module_decls fuel' prefix xs
+      | AstModule nested _ _ nested_body :: xs =>
+          app
+            (emit_go_nested_module_decls fuel'
+              (append (append prefix "_") nested) nested_body)
+            (emit_go_nested_module_decls fuel' prefix xs)
+      | AstSpan _ inner :: xs =>
+          emit_go_nested_module_decls fuel' prefix (inner :: xs)
+      | _ :: xs => emit_go_nested_module_decls fuel' prefix xs
+      end
+  end.
+
+Definition emit_go_module_package (name : string) (body : list AST) : GoStmt :=
+  let fuel := S (fold_left (fun n d => n + ast_size d) body 0) in
+  let fix module_values (ls : list AST) : list (string * GoExpr) :=
+    match ls with
+    | [] => []
+    | AstDef dname _ _ _ _ _ :: xs =>
+        (dname, GoIdentifier (append (append name "_") dname))
+        :: module_values xs
+    | AstSpan _ (AstDef dname _ _ _ _ _) :: xs =>
+        (dname, GoIdentifier (append (append name "_") dname))
+        :: module_values xs
+    | _ :: xs => module_values xs
+    end
+  in
+  GoBlock
+    (app (emit_go_nested_module_decls fuel name body)
+      [GoLet name go_iface (GoMapLiteral (module_values body))]).
 
 Definition emit_go (ast : AST) : GoStmt :=
   match ast with
@@ -1425,6 +1509,12 @@ Definition emit_go_top_with (prior : GoSigEnv) (ast : AST) : GoStmt :=
         match ls with
         | [] => []
         | AstRef "Unit" :: xs => map_go_stmt xs loc
+        | AstModule name _ _ body :: xs =>
+            emit_go_module_package name body
+              :: map_go_stmt xs loc
+        | AstSpan _ (AstModule name _ _ body) :: xs =>
+            emit_go_module_package name body
+              :: map_go_stmt xs loc
         | x :: xs =>
             emit_go_stmt sigs loc x
               :: map_go_stmt xs (go_extend_from_ast sigs loc x)

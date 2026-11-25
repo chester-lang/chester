@@ -1235,6 +1235,40 @@ Definition check_terminates (fn : string) (ps : list (string * AST)) (body : AST
   if negb (free_in fn body) then true
   else rec_calls_ok fn (map fst ps) [] body.
 
+(* Module export views are needed while checking nested module paths.  The
+   fuel is derived from the AST measure, so recursive signatures/modules do
+   not need a hardcoded ceiling. *)
+Fixpoint core_module_exports_fuel (fuel : nat) (body : list AST) : list (string * AST) :=
+  match fuel with
+  | 0 => []
+  | S fuel' =>
+      match body with
+      | [] => []
+      | d :: ds =>
+          let rest := core_module_exports_fuel fuel' ds in
+          match d with
+          | AstDef n tps ps ret _ effs =>
+              (n, AstFunTy tps ps ret effs) :: rest
+          | AstSigVal n tps ps ret effs =>
+              (n, AstFunTy tps ps ret effs) :: rest
+          | AstTypeDecl n opt => (n, AstTypeDecl n opt) :: rest
+          | AstModule n _ seal body0 =>
+              let ex :=
+                match seal with
+                | Some (AstModTy ex0) => ex0
+                | _ => core_module_exports_fuel fuel' body0
+                end
+              in (n, AstModTy ex) :: rest
+          | AstSpan _ inner => core_module_exports_fuel fuel' (inner :: ds)
+          | _ => rest
+          end
+      end
+  end.
+
+Definition core_module_exports (body : list AST) : list (string * AST) :=
+  core_module_exports_fuel
+    (S (fold_left (fun n d => n + ast_size d) body 0)) body.
+
 Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struct expr} : TyResult AST :=
   match expr with
   | AstSpan _ inner => infer_check env inner expected
@@ -1545,10 +1579,20 @@ Fixpoint infer_check (env : TypeEnv) (expr : AST) (expected : option AST) {struc
                       (n, AstFunTy tps params ret_ty effs) :: exports_of xs
                   | AstSpan _ (AstTypeDecl n opt) :: xs =>
                       (n, AstTypeDecl n opt) :: exports_of xs
-                  | AstSpan _ (AstModule n _ _ _) :: xs =>
-                      (n, AstModTy []) :: exports_of xs
-                  | AstModule n _ _ _ :: xs =>
-                      (n, AstModTy []) :: exports_of xs
+                  | AstSpan _ (AstModule n _ seal0 body0) :: xs =>
+                      let ex :=
+                        match seal0 with
+                        | Some (AstModTy ex0) => ex0
+                        | _ => core_module_exports body0
+                        end
+                      in (n, AstModTy ex) :: exports_of xs
+                  | AstModule n _ seal0 body0 :: xs =>
+                      let ex :=
+                        match seal0 with
+                        | Some (AstModTy ex0) => ex0
+                        | _ => core_module_exports body0
+                        end
+                      in (n, AstModTy ex) :: exports_of xs
                   | _ :: xs => exports_of xs
                   end
                 in

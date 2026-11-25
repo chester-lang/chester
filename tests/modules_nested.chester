@@ -1,0 +1,9 @@
+module Outer {
+  module Inner {
+    def answer(): Integer = { 42 }
+  }
+};
+
+def main(): Integer = {
+  Outer.Inner.answer()
+}

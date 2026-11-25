@@ -147,12 +147,14 @@ generative and applicative (`module app`) functors, first-class `pack`/`unpack`,
 Opaque sealing exports **unsubstituted** signature value types; transparent sealing
 exports substituted views. Manifest `type t = …` (including after `with type`) stays
 visible under opaque sealing; only abstract `type t` is hidden. Nested components are
-retained under opaque keep when sealed. The self-hosted compiler lowers
+retained under opaque keep when sealed, including nested signature aliases and
+multi-segment module paths such as `Outer.Inner.value()`. The self-hosted compiler lowers
 `signature`/`module`/`with type`/`pack`/`unpack` and carries the same **AST-level**
 slice (`with type`, generative `_gN` / applicative `__Arg` identity, param/ret/
-`manifest` sealing checks), emitting `Module_member` Go functions. Unpacking a packed
-module inlines the module reference, so no runtime module value is required; storing
-`pack` as first-class data remains unimplemented. Abstract opaque-type hiding is
+`manifest` sealing checks), emitting `Module_member` Go functions and runtime namespace maps.
+TypeScript namespaces use the same runtime representation, so `pack` values can be stored in
+`let` bindings and forwarded through ordinary values. Rocq keeps first-class modules as
+compile-time syntax outside its proved `CoreFrag`. Abstract opaque-type hiding is
 enforced at use sites by both backends. Applicative identity is keyed by hygienic
 declaration sites and generative functors get fresh ids; full F-ing stamps / System Fω
 packaging is out of scope.

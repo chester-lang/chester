@@ -391,6 +391,8 @@ Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST
             end
           in
           MatchCST expr (extract_cases all_cases) span
+      | Symbol "pack" _ :: m :: Symbol "as" _ :: sig :: [] =>
+          PackCST m sig span
       | Symbol "perform" _ :: AppCST op args _ :: [] => DoCST op args span
       | Symbol "box" _ :: rest =>
           match rest with

@@ -23,6 +23,8 @@ jobs:
         Require Import Chester.TypeScriptIRSem.
         Require Import Chester.GoIRSem.
         Require Import Chester.Parser.
+        Require Import Chester.CoreTyping.
+        Print Assumptions seal_sigval_member_name.
         Print Assumptions emit_rocq_correct.
         Print Assumptions emit_rocq_correct_closed.
         Print Assumptions emit_ts_correct.

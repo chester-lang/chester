@@ -1260,19 +1260,22 @@ Definition seal_sigval_member (opaque : bool) (n : string) (tps : list string)
     (returned as inl err); opaque abstracts type components; value specs require
     implementation effects ⊆ declared signature effects and matching param/ret types.
     [subs] is the type-component substitution built from [full] (see [seal_type_substs]). *)
-Fixpoint seal_exports_check_flat (opaque : bool) (full : list (string * AST))
+Fixpoint seal_exports_check_flat_fuel (fuel : nat) (opaque : bool) (full : list (string * AST))
     (subs : list (string * AST))
     (sig_decls : list AST) : sum string (list (string * AST)) :=
+  match fuel with
+  | 0 => inl "seal export check out of fuel"
+  | S fuel' =>
   match sig_decls with
   | [] => inr []
   | AstSigVal n tps params ret effs :: rest =>
       seal_sigval_member opaque n tps params ret effs subs
         (find (fun p => String.eqb (fst p) n) full)
-        (seal_exports_check_flat opaque full subs rest)
+        (seal_exports_check_flat_fuel fuel' opaque full subs rest)
   | AstDef n _ _ _ _ _ :: rest =>
       match find (fun p => String.eqb (fst p) n) full with
       | Some p =>
-          match seal_exports_check_flat opaque full subs rest with
+          match seal_exports_check_flat_fuel fuel' opaque full subs rest with
           | inl err => inl err
           | inr xs => inr (p :: xs)
           end
@@ -1303,7 +1306,7 @@ Fixpoint seal_exports_check_flat (opaque : bool) (full : list (string * AST))
                   else AstTypeDecl n opt_impl
               end
             in
-            match seal_exports_check_flat opaque full subs rest with
+            match seal_exports_check_flat_fuel fuel' opaque full subs rest with
             | inl err => inl err
             | inr xs => inr ((n, exported) :: xs)
             end
@@ -1311,10 +1314,72 @@ Fixpoint seal_exports_check_flat (opaque : bool) (full : list (string * AST))
           inl ("signature type component is not a type: " ++ n)
       | None => inl ("signature requires missing type: " ++ n)
       end
+  | AstModule n params _ body_spec :: rest =>
+      match find (fun p => String.eqb (fst p) n) full with
+      | Some (_, AstModTy impl_ex) =>
+          match seal_exports_check_flat_fuel fuel' opaque impl_ex
+                  (seal_type_substs body_spec impl_ex) body_spec with
+          | inl err =>
+              inl ("nested module signature mismatch for " ++ n ++ ": " ++ err)
+          | inr nested_ex =>
+              match seal_exports_check_flat_fuel fuel' opaque full subs rest with
+              | inl err => inl err
+              | inr xs => inr ((n, AstModTy nested_ex) :: xs)
+              end
+          end
+      | Some _ => inl ("signature module component is not a module: " ++ n)
+      | None => inl ("signature requires missing module: " ++ n)
+      end
+  | AstSignature _ decls :: rest =>
+      match seal_exports_check_flat_fuel fuel' opaque full subs decls with
+      | inl err => inl err
+      | inr xs =>
+          match seal_exports_check_flat_fuel fuel' opaque full subs rest with
+          | inl err => inl err
+          | inr ys => inr (app xs ys)
+          end
+      end
+  | AstRef n :: _ =>
+      inl ("signature reference not resolved under sealing: " ++ n)
+  | AstSigWith base eqs :: rest =>
+      match apply_sig_with base eqs with
+      | AstSignature _ decls =>
+          match seal_exports_check_flat_fuel fuel' opaque full subs decls with
+          | inl err => inl err
+          | inr xs =>
+              match seal_exports_check_flat_fuel fuel' opaque full subs rest with
+              | inl err => inl err
+              | inr ys => inr (app xs ys)
+              end
+          end
+      | _ => inl "invalid signature enrichment under sealing"
+      end
+  | AstModTy ex :: rest =>
+      let fix fake_decls (ps : list (string * AST)) : list AST :=
+        match ps with
+        | [] => []
+        | (n, ty) :: xs => AstSigVal n [] [] ty [] :: fake_decls xs
+        end
+      in
+      match seal_exports_check_flat_fuel fuel' opaque full subs (fake_decls ex) with
+      | inl err => inl err
+      | inr xs =>
+          match seal_exports_check_flat_fuel fuel' opaque full subs rest with
+          | inl err => inl err
+          | inr ys => inr (app xs ys)
+          end
+      end
   | _ :: _ =>
       (* Spans / with-type should already be flattened; do not re-cons. *)
-      inl "unsupported signature declaration under sealing"
+      inl "invalid signature declaration under sealing"
+  end
   end.
+
+Definition seal_exports_check_flat (opaque : bool) (full : list (string * AST))
+    (subs : list (string * AST)) (sig_decls : list AST)
+  : sum string (list (string * AST)) :=
+  let fuel := S (fold_left (fun n d => n + ast_size d) sig_decls 0) in
+  seal_exports_check_flat_fuel fuel opaque full subs sig_decls.
 
 Definition seal_exports_check (opaque : bool) (full : list (string * AST))
     (sig_decls : list AST) : sum string (list (string * AST)) :=
@@ -2569,7 +2634,21 @@ Fixpoint elaborate (fuel : nat) (env : TypeEnv) (expr : CST) (expected : option 
         | _ => sig_ast
         end
       in
-      ret (AstSignature name sig_ast', AstSignature name sig_ast')
+      let sig_ast'' :=
+        map
+          (fun member =>
+             match member with
+             | AstModule n params seal0 [AstRef ref_name] =>
+                 match resolve_hygiene env ref_name [] with
+                 | Some (AstSignature _ ref_decls, _) =>
+                     AstModule n params seal0 ref_decls
+                 | _ => member
+                 end
+             | _ => member
+             end)
+          sig_ast'
+      in
+      ret (AstSignature name sig_ast'', AstSignature name sig_ast'')
   | SigWithCST base eqs span =>
       baseAst <- elaborate fuel' env base None ;
       let fix elab_eqs (es : list (string * CST)) : ElabM (list (string * AST)) :=

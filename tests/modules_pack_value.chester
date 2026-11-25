@@ -1,0 +1,15 @@
+signature Showable {
+  def show(): String
+};
+
+module Counter :> Showable {
+  def show(): String = { "42" };
+  def secret(): String = { "hidden" }
+};
+
+def main(): String = {
+  let boxed = pack Counter as Showable;
+  unpack (X : Showable) = boxed in {
+    X.show()
+  }
+}

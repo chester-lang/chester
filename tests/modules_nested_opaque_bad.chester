@@ -1,0 +1,18 @@
+signature InnerSig {
+  def answer(): Integer
+};
+
+signature OuterSig {
+  module Inner = InnerSig
+};
+
+module Outer :> OuterSig {
+  module Inner {
+    def answer(): Integer = { 42 };
+    def secret(): Integer = { 9 }
+  }
+};
+
+def main(): Integer = {
+  Outer.Inner.secret()
+}
