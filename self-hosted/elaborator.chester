@@ -2489,6 +2489,102 @@ def cst_has_arrow(c: CST): Bool = {
     case _ => false
   }
 };
+def split_cst_arrow(acc: List(CST), xs: List(CST)): Pair = {
+  if int_eq(list_length(xs), 0) then Pair.MkPair(list_reverse(acc), list_empty[CST]()) else {
+    let head = list_get(xs, 0);
+    match head {
+      case Symbol(op, _) => {
+        if string_eq(op, "->") then Pair.MkPair(list_reverse(acc), advance(xs))
+        else split_cst_arrow(list_insert_first(acc, head), advance(xs))
+      };
+      case _ => split_cst_arrow(list_insert_first(acc, head), advance(xs))
+    }
+  }
+};
+def elab_arrow_binders(env: List(Pair), binders: List(CST)): Pair = {
+  if int_eq(list_length(binders), 0) then Pair.MkPair(list_empty[Pair](), env) else {
+    let binder = list_get(binders, 0);
+    match binder {
+      case SeqOf(elems, bsp) => {
+        if int_lt(list_length(elems), 2) then Pair.MkPair(list_empty[Pair](), env) else {
+          match list_get(elems, 0) {
+            case Symbol(name, _) => {
+              match list_get(elems, 1) {
+                case Symbol(colon, _) => {
+                  if string_eq(colon, ":") then {
+                    let tys = list_drop_n(2, elems);
+                    let ty_cst = if int_eq(list_length(tys), 1) then list_get(tys, 0) else SeqOf(tys, bsp);
+                    let ty_res = elaborate(env, ty_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+                    match ty_res {
+                      case MkPair(ty_ast, _) => {
+                        let env1 = list_insert_first(env, Pair.MkPair(Pair.MkPair(name, span_context(bsp)), ty_ast));
+                        let rest = elab_arrow_binders(env1, advance(binders));
+                        match rest {
+                          case MkPair(rest_params, final_env) => Pair.MkPair(list_insert_first(rest_params, Pair.MkPair(name, ty_ast)), final_env)
+                        }
+                      }
+                    }
+                  } else Pair.MkPair(list_empty[Pair](), env)
+                };
+                case _ => Pair.MkPair(list_empty[Pair](), env)
+              }
+            };
+            case _ => Pair.MkPair(list_empty[Pair](), env)
+          }
+        }
+      };
+      case Symbol(name, bsp) => {
+        let env1 = list_insert_first(env, Pair.MkPair(Pair.MkPair(name, span_context(bsp)), AST.AstRef("Any")));
+        let rest = elab_arrow_binders(env1, advance(binders));
+        match rest {
+          case MkPair(rest_params, final_env) => Pair.MkPair(list_insert_first(rest_params, Pair.MkPair(name, AST.AstRef("Any"))), final_env)
+        }
+      };
+      case _ => Pair.MkPair(list_empty[Pair](), env)
+    }
+  }
+};
+def elab_arrow_param_type(env: List(Pair), pty_cst: CST, span: Span): AST = {
+  match pty_cst {
+    case SeqOf(elems, sp) => {
+      let split_res = split_cst_arrow(list_empty[CST](), elems);
+      match split_res {
+        case MkPair(lhs, rhs) => {
+          if int_eq(list_length(lhs), 1) then {
+            let lhs_ty = list_get(lhs, 0);
+            let ret_cst = if int_eq(list_length(rhs), 1) then list_get(rhs, 0) else SeqOf(rhs, sp);
+            match lhs_ty {
+              case Tuple(binders, _) => {
+                let bind_res = elab_arrow_binders(env, binders);
+                match bind_res {
+                  case MkPair(params, ret_env) => {
+                    let ret_res = elaborate(ret_env, ret_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+                    match ret_res {
+                      case MkPair(ret_ty, _) => AST.AstFunTy(list_empty[String](), params, ret_ty, list_empty[String]())
+                    }
+                  }
+                }
+              };
+              case _ => {
+                let arg_res = elaborate(env, lhs_ty, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+                match arg_res {
+                  case MkPair(arg_ty, _) => {
+                    let ret_env = list_insert_first(env, Pair.MkPair(Pair.MkPair("_", span_context(sp)), arg_ty));
+                    let ret_res = elaborate(ret_env, ret_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+                    match ret_res {
+                      case MkPair(ret_ty, _) => AST.AstFunTy(list_empty[String](), list_insert_first(list_empty[Pair](), Pair.MkPair("_", arg_ty)), ret_ty, list_empty[String]())
+                    }
+                  }
+                }
+              }
+            }
+          } else AST.AstError("malformed arrow parameter type")
+        }
+      }
+    };
+    case _ => AST.AstError("malformed arrow parameter type")
+  }
+};
 def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
   if int_eq(list_length(ps), 0) then Pair.MkPair(list_empty[Pair](), list_empty[Pair]()) else {
     let p = list_get(ps, 0);
@@ -2522,11 +2618,11 @@ def elab_map_params(env: List(Pair), ps: List(CST)): Pair = {
                     case Symbol(kw, _) => {
                       if string_eq(kw, ":") then {
                         let pty_cst = if int_eq(list_length(elems), 3) then list_get(elems, 2) else SeqOf(advance(advance(elems)), sp);
-                        let tyAst_res = elaborate(env, pty_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
+                        let tyAst_res = if cst_has_arrow(pty_cst) then Pair.MkPair(elab_arrow_param_type(env, pty_cst, sp), AST.AstRef("TypeUniverse"))
+                          else elaborate(env, pty_cst, OptionAST.SomeAST(AST.AstRef("TypeUniverse")));
                         match tyAst_res {
                           case MkPair(tAst, _) => {
-                            let param_ty = if cst_has_arrow(pty_cst) then AST.AstRef("Any") else tAst;
-                            Pair.MkPair(list_insert_first(restAst, Pair.MkPair(pname, param_ty)), list_insert_first(restEnvItems, Pair.MkPair(Pair.MkPair(pname, span_context(sp)), param_ty)))
+                            Pair.MkPair(list_insert_first(restAst, Pair.MkPair(pname, tAst)), list_insert_first(restEnvItems, Pair.MkPair(Pair.MkPair(pname, span_context(sp)), tAst)))
                           }
                         }
                       } else rest_res
