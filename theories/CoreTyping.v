@@ -74,7 +74,7 @@ Lemma inl_inr_neq : forall (A B : Type) (a : A) (b : B),
 Proof. intros A B a b H. discriminate H. Qed.
 Arguments inl_inr_neq {A B a b} _.
 
-Theorem seal_sigval_member_name :
+Theorem seal_sigval_member_name_fuel :
   forall fuel opaque full subs n tps params ret effs rest sealed,
     seal_exports_check_flat_fuel (S fuel) opaque full subs
       (AstSigVal n tps params ret effs :: rest) = inr sealed ->
@@ -184,7 +184,20 @@ Proof.
   - discriminate H.
 Qed.
 
-Theorem seal_sigval_requires_effect_subsumption :
+Theorem seal_sigval_member_name :
+  forall opaque full subs n tps params ret effs rest sealed,
+    seal_exports_check_flat opaque full subs
+      (AstSigVal n tps params ret effs :: rest) = inr sealed ->
+    exists exported tail,
+      sealed = (n, exported) :: tail.
+Proof.
+  intros opaque full subs n tps params ret effs rest sealed H.
+  unfold seal_exports_check_flat.
+  eapply seal_sigval_member_name_fuel.
+  exact H.
+Qed.
+
+Theorem seal_sigval_requires_effect_subsumption_fuel :
   forall fuel opaque full subs n tps params ret effs rest sealed,
     seal_exports_check_flat_fuel (S fuel) opaque full subs
       (AstSigVal n tps params ret effs :: rest) = inr sealed ->
@@ -201,6 +214,23 @@ Proof.
   destruct (effect_row_subsumes impl_effs effs) eqn:Sub; [reflexivity|].
   (* Effects fail ⇒ [seal_sigval_member] returns [inl] before type matching. *)
   discriminate H.
+Qed.
+
+Theorem seal_sigval_requires_effect_subsumption :
+  forall opaque full subs n tps params ret effs rest sealed,
+    seal_exports_check_flat opaque full subs
+      (AstSigVal n tps params ret effs :: rest) = inr sealed ->
+    forall impl_tps impl_params impl_ret impl_effs,
+      find (fun p => String.eqb (fst p) n) full
+        = Some (n, AstFunTy impl_tps impl_params impl_ret impl_effs) ->
+      effect_row_subsumes impl_effs effs = true.
+Proof.
+  intros opaque full subs n tps params ret effs rest sealed H
+         impl_tps impl_params impl_ret impl_effs F.
+  unfold seal_exports_check_flat.
+  eapply seal_sigval_requires_effect_subsumption_fuel.
+  exact H.
+  exact F.
 Qed.
 
 (* ------------------------------------------------------------ *)
