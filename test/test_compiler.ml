@@ -337,6 +337,7 @@ let parity_fixtures =
     ("tests/binders_pattern_shadow.chester", "9");
     ("tests/binders_rec_def.chester", "6");
     ("tests/option_result.chester", "158");
+    ("tests/higher_order.chester", "42");
   ]
 
 let check_rocq_selfhosted_parity () =
@@ -374,7 +375,8 @@ let check_rocq_selfhosted_parity () =
         (fixture ^ " self-hosted rejected=" ^ string_of_bool (st <> 0)))
     [ "tests/modules_opaque_bad.chester";
       "tests/modules_nested_opaque_bad.chester";
-      "tests/if_cond_bad.chester"; "tests/literal_mismatch_bad.chester" ];
+      "tests/if_cond_bad.chester"; "tests/literal_mismatch_bad.chester";
+      "tests/higher_order_bad.chester" ];
   let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote stage_dir)) in
   ()
 
@@ -521,6 +523,10 @@ let%expect_test "call_non_function_bad rejects applying a literal" =
 
 let%expect_test "literal_mismatch_bad rejects String as Integer" =
   expect_type_error "tests/literal_mismatch_bad.chester";
+  [%expect {| Type mismatch |}]
+
+let%expect_test "higher_order_bad rejects wrong argument to arrow param" =
+  expect_type_error "tests/higher_order_bad.chester";
   [%expect {| Type mismatch |}]
 
 let%expect_test "unknown_type_bad rejects undeclared type" =
@@ -1197,6 +1203,7 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/binders_pattern_shadow.chester parity ok (9)
     tests/binders_rec_def.chester parity ok (6)
     tests/option_result.chester parity ok (158)
+    tests/higher_order.chester parity ok (42)
     tests/modules.chester self-hosted ok
     tests/modules_with_type.chester self-hosted ok
     tests/modules_effects.chester self-hosted ok
@@ -1205,6 +1212,7 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/modules_nested_opaque_bad.chester self-hosted rejected=true
     tests/if_cond_bad.chester self-hosted rejected=true
     tests/literal_mismatch_bad.chester self-hosted rejected=true
+    tests/higher_order_bad.chester self-hosted rejected=true
     |}]
 
 let%expect_test "fixture dependent types" =

@@ -1,0 +1,21 @@
+// Function-typed parameters keep their declared arrow type, so higher-order
+// calls (named functions and lambdas) type-check instead of collapsing to Any.
+// Expect: 42
+def apply_twice(f: (x: Integer) -> Integer, n: Integer): Integer = {
+  f(f(n))
+};
+
+def combine(g: (a: Integer, b: Integer) -> Integer): Integer = {
+  g(20, 22)
+};
+
+def inc(x: Integer): Integer = int_add(x, 1);
+
+def plus(a: Integer, b: Integer): Integer = int_add(a, b);
+
+def main(): Integer = {
+  let a = apply_twice(inc, 40);
+  let b = combine(plus);
+  let c = apply_twice(\x => int_add(x, 0), a);
+  if int_eq(a, c) then b else 0
+};

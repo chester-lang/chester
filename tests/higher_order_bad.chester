@@ -1,0 +1,7 @@
+// A function-typed parameter keeps its declared arrow type, so applying it to a
+// String where the declaration says Integer must be a type error (not Any).
+def bad(f: (x: Integer) -> Integer): Integer = {
+  f("nope")
+};
+
+def main(): Integer = 0;
