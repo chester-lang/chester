@@ -1230,3 +1230,7 @@ let%expect_test "fixture unification" =
 let%expect_test "fixture vector" =
   check_fixture "tests/vector.chester";
   [%expect {| tests/vector.chester ok |}]
+
+let%expect_test "fixture infix eq ne" =
+  check_fixture "tests/infix_eq_ne.chester";
+  [%expect {| tests/infix_eq_ne.chester ok |}]

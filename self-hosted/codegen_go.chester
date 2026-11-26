@@ -47,6 +47,7 @@ def go_preamble_surface(name: String): Bool = {
   else if string_eq(name, "int_gt") then true
   else if string_eq(name, "int_le") then true
   else if string_eq(name, "int_ge") then true
+  else if string_eq(name, "int_ne") then true
   else if string_eq(name, "bool_or") then true
   else if string_eq(name, "bool_and") then true
   else if string_eq(name, "bool_not") then true
@@ -82,6 +83,7 @@ def go_scalar_ret_ty(name: String): String = {
   else if string_eq(name, "int_gt") then "bool"
   else if string_eq(name, "int_le") then "bool"
   else if string_eq(name, "int_ge") then "bool"
+  else if string_eq(name, "int_ne") then "bool"
   else if string_eq(name, "bool_or") then "bool"
   else if string_eq(name, "bool_and") then "bool"
   else if string_eq(name, "bool_not") then "bool"
@@ -324,6 +326,7 @@ def go_builtin_param_tys(name: String, nargs: Integer): List(String) = {
   else if string_eq(name, "int_gt") then go_reps("int", nargs)
   else if string_eq(name, "int_le") then go_reps("int", nargs)
   else if string_eq(name, "int_ge") then go_reps("int", nargs)
+  else if string_eq(name, "int_ne") then go_reps("int", nargs)
   else if string_eq(name, "int_neg") then go_reps("int", nargs)
   else if string_eq(name, "int_to_string") then go_reps("int", nargs)
   else if string_eq(name, "string_eq") then go_reps("string", nargs)

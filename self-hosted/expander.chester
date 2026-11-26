@@ -1306,7 +1306,7 @@ def op_to_fn(op: String): String = {
   else if string_eq(op, "<=") then "int_le"
   else if string_eq(op, ">=") then "int_ge"
   else if string_eq(op, "==") then "int_eq"
-  else if string_eq(op, "!=") then "int_eq"
+  else if string_eq(op, "!=") then "int_ne"
   else op
 };
 // Rocq op_prec: built-in precedence when op_env has no entry.

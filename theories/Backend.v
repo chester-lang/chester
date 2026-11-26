@@ -53,6 +53,7 @@ Definition go_scalar_ret_ty (name : string) : option string :=
         (orb (go_str_eq name "prim__int_mod") (orb (go_str_eq name "prim__int_neg")
         (orb (go_str_eq name "prim__string_length") (go_str_eq name "prim__list_length")))))))))))))))
     then Some "int"
+  else if go_str_eq name "int_ne" then Some "bool"
   else if orb (go_str_eq name "int_eq") (orb (go_str_eq name "int_lt") (orb (go_str_eq name "int_gt")
         (orb (go_str_eq name "int_le") (orb (go_str_eq name "int_ge") (orb (go_str_eq name "bool_or")
         (orb (go_str_eq name "bool_and") (orb (go_str_eq name "bool_not") (orb (go_str_eq name "string_eq")
@@ -276,6 +277,7 @@ Definition go_builtin_param_tys (name : string) (nargs : nat) : option (list str
         (orb (go_str_eq name "int_div") (orb (go_str_eq name "int_mod") (orb (go_str_eq name "int_eq")
         (orb (go_str_eq name "int_lt") (orb (go_str_eq name "int_gt") (orb (go_str_eq name "int_le")
         (go_str_eq name "int_ge"))))))))) then Some (reps "int" nargs)
+  else if go_str_eq name "int_ne" then Some (reps "int" nargs)
   else if go_str_eq name "int_neg" then Some (reps "int" nargs)
   else if go_str_eq name "int_to_string" then Some (reps "int" nargs)
   else if orb (go_str_eq name "string_eq") (orb (go_str_eq name "string_concat") (go_str_eq name "string_length"))
@@ -458,14 +460,15 @@ Definition go_bool_cond (sigs : GoSigEnv) (locals : GoLocalEnv) (e : GoExpr) : G
 
 (* Names provided as preamble aliases — skip re-emitting matching AstDef. *)
 Definition go_preamble_surface (name : string) : bool :=
-  orb (go_str_eq name "int_add") (orb (go_str_eq name "int_sub") (orb (go_str_eq name "int_mul")
+  orb (go_str_eq name "int_ne")
+    (orb (go_str_eq name "int_add") (orb (go_str_eq name "int_sub") (orb (go_str_eq name "int_mul")
         (orb (go_str_eq name "int_div") (orb (go_str_eq name "int_mod") (orb (go_str_eq name "int_neg")
         (orb (go_str_eq name "int_eq") (orb (go_str_eq name "int_lt") (orb (go_str_eq name "int_gt")
         (orb (go_str_eq name "int_le") (orb (go_str_eq name "int_ge") (orb (go_str_eq name "bool_or")
         (orb (go_str_eq name "bool_and") (orb (go_str_eq name "bool_not") (orb (go_str_eq name "string_eq")
         (orb (go_str_eq name "string_concat") (orb (go_str_eq name "string_length")
         (orb (go_str_eq name "string_substring") (orb (go_str_eq name "int_to_string")
-        (go_str_eq name "list_length"))))))))))))))))))).
+        (go_str_eq name "list_length")))))))))))))))))))).
 
 (* Names provided as TypeScript preamble aliases — skip re-emitting matching AstDef. *)
 Definition ts_preamble_surface (name : string) : bool := go_preamble_surface name.

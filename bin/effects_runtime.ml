@@ -33,6 +33,7 @@ let ts_primitives =
    const prim__int_gt = (a, b) => a > b;\n\
    const prim__int_ge = (a, b) => a >= b;\n\
    const prim__int_le = (a, b) => a <= b;\n\
+   const prim__int_ne = (a, b) => a !== b;\n\
    const prim__int_neg = (a) => -a;\n\
    const prim__int_to_string = (n) => String(n);\n\
    const prim__bool_or = (a, b) => a || b;\n\
@@ -150,6 +151,7 @@ let ts_surface_aliases =
    const int_mod = prim__int_mod;\n\
    const int_neg = prim__int_neg;\n\
    const int_eq = prim__int_eq;\n\
+   const int_ne = prim__int_ne;\n\
    const int_lt = prim__int_lt;\n\
    const int_gt = prim__int_gt;\n\
    const int_le = prim__int_le;\n\
@@ -195,6 +197,7 @@ func prim__int_mod(a, b int) int { return a % b }
 func prim__int_lt(a, b int) bool { return a < b }
 func prim__int_gt(a, b int) bool { return a > b }
 func prim__int_le(a, b int) bool { return a <= b }
+func prim__int_ne(a, b int) bool { return a != b }
 func prim__int_ge(a, b int) bool { return a >= b }
 func prim__int_neg(a int) int { return -a }
 
@@ -287,6 +290,7 @@ var int_eq = prim__int_eq
 var int_lt = prim__int_lt
 var int_gt = prim__int_gt
 var int_le = prim__int_le
+var int_ne = prim__int_ne
 var int_ge = prim__int_ge
 var bool_or = prim__bool_or
 var bool_and = prim__bool_and

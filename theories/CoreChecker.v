@@ -603,7 +603,7 @@ Definition is_preamble_prim (name : string) : bool :=
   in
   in_list
     ["int_add"; "int_sub"; "int_mul"; "int_div"; "int_mod"; "int_neg";
-     "int_eq"; "int_lt"; "int_gt"; "int_le"; "int_ge";
+     "int_eq"; "int_ne"; "int_lt"; "int_gt"; "int_le"; "int_ge";
      "bool_or"; "bool_and"; "bool_not";
      "string_eq"; "string_concat"; "string_length"; "string_substring";
      "string_char_at"; "string_append"; "string_to_int"; "int_to_string";

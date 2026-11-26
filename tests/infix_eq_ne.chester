@@ -1,0 +1,3 @@
+def check_same(a: Integer, b: Integer): Bool = a == b;
+def check_diff(a: Integer, b: Integer): Bool = a != b;
+def either(a: Integer, b: Integer): Bool = bool_or(check_same(a, b), check_diff(a, b))

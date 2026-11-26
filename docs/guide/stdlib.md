@@ -27,7 +27,7 @@ main.exe --go --prelude stdlib/std.chester -o app.go app.chester
 ## Integer
 
 `int_add`, `int_sub`, `int_mul`, `int_div`, `int_mod`, `int_neg`, `int_eq`,
-`int_lt`, `int_gt`, `int_le`, `int_ge`, `int_min`, `int_max`, `int_abs`,
+`int_ne`, `int_lt`, `int_gt`, `int_le`, `int_ge`, `int_min`, `int_max`, `int_abs`,
 `int_to_string`.
 
 ## Bool

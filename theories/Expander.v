@@ -57,6 +57,8 @@ Definition op_to_fn (op : string) : string :=
   else if string_dec op ">" then "int_gt"
   else if string_dec op "<=" then "int_le"
   else if string_dec op ">=" then "int_ge"
+  else if string_dec op "==" then "int_eq"
+  else if string_dec op "!=" then "int_ne"
   else op.
 
 Definition op_prec (op : string) : option nat :=
@@ -69,6 +71,8 @@ Definition op_prec (op : string) : option nat :=
   else if string_dec op ">" then Some 5
   else if string_dec op "<=" then Some 5
   else if string_dec op ">=" then Some 5
+  else if string_dec op "==" then Some 5
+  else if string_dec op "!=" then Some 5
   else None.
 
 Definition OpEnv := list (string * nat).

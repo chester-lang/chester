@@ -1047,6 +1047,7 @@ def is_preamble_prim(name: String): Bool = {
   else if string_eq(name, "int_gt") then true
   else if string_eq(name, "int_le") then true
   else if string_eq(name, "int_ge") then true
+  else if string_eq(name, "int_ne") then true
   else if string_eq(name, "bool_or") then true
   else if string_eq(name, "bool_and") then true
   else if string_eq(name, "bool_not") then true

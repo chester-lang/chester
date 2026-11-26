@@ -164,6 +164,8 @@ infixl "<";
 infixl ">" same_as "<";
 infixl "<=" same_as "<";
 infixl ">=" same_as "<";
+infixl "==" same_as "<";
+infixl "!=" same_as "<";
 // Integer primitives
 def int_eq(a: Integer, b: Integer): Bool = prim__int_eq(a, b);
 def int_lt(a: Integer, b: Integer): Bool = prim__int_lt(a, b);
@@ -175,6 +177,9 @@ def int_mod(a: Integer, b: Integer): Integer = prim__int_mod(a, b);
 def int_gt(a: Integer, b: Integer): Bool = prim__int_gt(a, b);
 def int_ge(a: Integer, b: Integer): Bool = prim__int_ge(a, b);
 def int_le(a: Integer, b: Integer): Bool = prim__int_le(a, b);
+def int_ne(a: Integer, b: Integer): Bool = {
+  if int_eq(a, b) then false else true
+};
 def int_neg(a: Integer): Integer = prim__int_neg(a);
 def int_min(a: Integer, b: Integer): Integer = {
   if int_lt(a, b) then a else b
