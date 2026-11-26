@@ -71,8 +71,14 @@ let tokenize filename source =
           else consume_str (j + 1)
         in
         let _end_idx = consume_str (i + 1) in
+        (* A string only ends on a closing quote; at EOF the remaining text is
+           kept as the literal body instead of over-slicing the source. *)
+        let terminated =
+          _end_idx > i + 1 && _end_idx <= len && source.[_end_idx - 1] = '"'
+        in
+        let text_end = if terminated then _end_idx - 1 else _end_idx in
         let text =
-          String.sub source (start_idx + 1) (_end_idx - start_idx - 2)
+          String.sub source (start_idx + 1) (text_end - start_idx - 1)
         in
         aux _end_idx
           (TokStr
@@ -93,6 +99,18 @@ let tokenize filename source =
       else if c = '-' && i + 1 < len && source.[i + 1] = '>' then
         aux (i + 2)
           (TokSym (char_list_of_string "->", make_span filename i (i + 2))
+          :: acc)
+      else if c = '<' && i + 1 < len && source.[i + 1] = '=' then
+        aux (i + 2)
+          (TokSym (char_list_of_string "<=", make_span filename i (i + 2))
+          :: acc)
+      else if c = '>' && i + 1 < len && source.[i + 1] = '=' then
+        aux (i + 2)
+          (TokSym (char_list_of_string ">=", make_span filename i (i + 2))
+          :: acc)
+      else if c = '!' && i + 1 < len && source.[i + 1] = '=' then
+        aux (i + 2)
+          (TokSym (char_list_of_string "!=", make_span filename i (i + 2))
           :: acc)
       else
         aux (i + 1)
