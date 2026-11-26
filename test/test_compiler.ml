@@ -338,6 +338,7 @@ let parity_fixtures =
     ("tests/binders_rec_def.chester", "6");
     ("tests/option_result.chester", "158");
     ("tests/higher_order.chester", "42");
+    ("tests/infix_ne.chester", "7");
   ]
 
 let check_rocq_selfhosted_parity () =
@@ -1204,6 +1205,7 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/binders_rec_def.chester parity ok (6)
     tests/option_result.chester parity ok (158)
     tests/higher_order.chester parity ok (42)
+    tests/infix_ne.chester parity ok (7)
     tests/modules.chester self-hosted ok
     tests/modules_with_type.chester self-hosted ok
     tests/modules_effects.chester self-hosted ok

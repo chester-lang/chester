@@ -1,0 +1,8 @@
+def distinct(a: Integer, b: Integer): Bool = a != b;
+
+def score(a: Integer, b: Integer): Integer = {
+  let d = distinct(a, b);
+  if d then 7 else 0
+};
+
+def main(): Integer = score(3, 4)
