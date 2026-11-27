@@ -29,7 +29,12 @@ findings have since been fixed (each is covered by a test added with the fix):
 
 Still open from the entries below: `int_add a b := a`, the remaining missing Rocq
 preamble primitives (`int_sub`, `int_mul`, `string_*`, `bool_*`, …), and the
-`chester_dyn` conditional typing that keeps `--rocq` output from computing.
+`chester_dyn` conditional typing that keeps `--rocq` output from computing. The
+self-hosted Go backend also returns `nil` for an `if` nested directly in another
+`if`'s branch (both still parse and elaborate), so that form is deliberately left
+out of the parity fixture. A parenthesised branch such as `(if c then 1 else 2)`
+still fails: the parser gives it the same one-element `Tuple` shape as a tuple
+literal, which the expander cannot tell apart.
 
 ## Severity legend
 
