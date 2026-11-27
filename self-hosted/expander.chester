@@ -885,6 +885,22 @@ def seq_or_single(es: List(CST), span: Span): CST = {
   else if int_eq(list_length(es), 1) then list_get(es, 0)
   else SeqOf(es, span)
 };
+// Index of the [else] belonging to the current conditional: nested ifs in the
+// then-branch are skipped together with their own else.  [len] when absent.
+def else_index(idx: Integer, depth: Integer, len: Integer, elems: List(CST)): Integer = {
+  if int_eq(idx, len) then len else {
+    let cur = list_get(elems, idx);
+    match cur {
+      case Symbol(s, _) => {
+        if string_eq(s, "if") then else_index(int_add(idx, 1), int_add(depth, 1), len, elems)
+        else if string_eq(s, "else") then {
+          if int_eq(depth, 0) then idx else else_index(int_add(idx, 1), int_sub(depth, 1), len, elems)
+        } else else_index(int_add(idx, 1), depth, len, elems)
+      };
+      case _ => else_index(int_add(idx, 1), depth, len, elems)
+    }
+  }
+};
 // Condition part: a parenthesised group `(n < 2)` parses as a one-element
 // Tuple, which cannot be a tuple literal in condition position, so unwrap it
 // back into an expression sequence.
@@ -910,7 +926,7 @@ def expand_if(elems: List(CST), op_env: List(OpEnvEntry), span: Span): OptionCST
             let cond_elems = take_until_kw("then", 1, len, elems);
             let after_then = drop_csts(int_add(then_idx, 1), elems);
             let rest_len = list_length(after_then);
-            let else_idx = kw_index("else", 0, rest_len, after_then);
+            let else_idx = else_index(0, 0, rest_len, after_then);
             if int_eq(else_idx, rest_len) then {
               OptionCST.SomeCST(IfCST(cond_cst(cond_elems, span), seq_or_single(after_then, span), Tuple(list_empty[CST](), span), span))
             } else {

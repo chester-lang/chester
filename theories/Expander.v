@@ -274,6 +274,26 @@ Definition split_at_kw (kw : string) (ls : list CST)
     end in
   go [] ls.
 
+(** Split at the [else] that belongs to the current conditional: nested `if`s
+    in the then-branch are skipped together with their own [else]. *)
+Definition split_else (ls : list CST) : option (list CST * list CST) :=
+  let fix go (depth : nat) (acc : list CST) (xs : list CST) {struct xs}
+      : option (list CST * list CST) :=
+    match xs with
+    | [] => None
+    | x :: rest =>
+        match x with
+        | Symbol "if" _ => go (S depth) (x :: acc) rest
+        | Symbol "else" _ =>
+            match depth with
+            | 0 => Some (rev acc, rest)
+            | S d => go d (x :: acc) rest
+            end
+        | _ => go depth (x :: acc) rest
+        end
+    end in
+  go 0 [] ls.
+
 (** Pack the tokens of one part of a conditional back into a single CST. *)
 Definition seq_or_single (es : list CST) (span : Span) : CST :=
   match es with
@@ -301,7 +321,7 @@ Definition expand_if (elems : list CST) (span : Span) : option CST :=
       match split_at_kw "then" rest with
       | None => None
       | Some (cond_elems, after_then) =>
-          match split_at_kw "else" after_then with
+          match split_else after_then with
           | None =>
               Some (IfCST (cond_cst cond_elems span)
                 (seq_or_single after_then span) (Tuple [] span) span)
