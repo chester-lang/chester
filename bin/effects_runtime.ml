@@ -673,6 +673,12 @@ let rocq_effects_preamble =
    Definition prim__int_add (a b : nat) : chester_dyn := chester_nat (a + \
    b)%nat.\n\
    Definition int_add (a b : chester_dyn) : chester_dyn := a.\n\
+   Definition int_lt (a b : nat) : bool := Nat.ltb a b.\n\
+   Definition int_le (a b : nat) : bool := Nat.leb a b.\n\
+   Definition int_gt (a b : nat) : bool := Nat.ltb b a.\n\
+   Definition int_ge (a b : nat) : bool := Nat.leb b a.\n\
+   Definition int_eq (a b : nat) : bool := Nat.eqb a b.\n\
+   Definition int_ne (a b : nat) : bool := negb (Nat.eqb a b).\n\
    Definition Unit : chester_dyn := chester_unit.\n\n\
    Parameter __chester_perform : string -> list chester_dyn -> chester_dyn.\n\
    Parameter __chester_handle : string -> (unit -> chester_dyn) -> list \

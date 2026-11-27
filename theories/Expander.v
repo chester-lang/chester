@@ -257,19 +257,60 @@ Definition extract_import_syms (rest : list CST) : list string :=
   | _ => []
   end.
 
-Fixpoint expand_if (elems : list CST) (span : Span) : option CST :=
+(** Split a token list at the first top-level [kw], returning the elements
+    before it and the elements after it. *)
+Definition split_at_kw (kw : string) (ls : list CST)
+    : option (list CST * list CST) :=
+  let fix go (acc : list CST) (xs : list CST) {struct xs}
+      : option (list CST * list CST) :=
+    match xs with
+    | [] => None
+    | x :: rest =>
+        match x with
+        | Symbol s _ =>
+            if string_dec s kw then Some (rev acc, rest) else go (x :: acc) rest
+        | _ => go (x :: acc) rest
+        end
+    end in
+  go [] ls.
+
+(** Pack the tokens of one part of a conditional back into a single CST. *)
+Definition seq_or_single (es : list CST) (span : Span) : CST :=
+  match es with
+  | [] => Tuple [] span
+  | [x] => x
+  | _ => SeqOf es span
+  end.
+
+(** Condition part: a parenthesised group `(n < 2)` parses as a one-element
+    [Tuple], which cannot be a tuple literal in condition position, so unwrap it
+    back into an expression sequence. *)
+Definition cond_cst (es : list CST) (span : Span) : CST :=
+  match es with
+  | [Tuple inner sp] => seq_or_single inner sp
+  | _ => seq_or_single es span
+  end.
+
+(** Recognise `if <cond> then <then> [else <else>]`. Each part may span several
+    tokens (`if n < 2 then ...`), and is left as a [SeqOf] when it does so that
+    [expand_cst] can expand infix operators inside it. A missing [else] branch
+    is the unit value, matching the old behaviour. *)
+Definition expand_if (elems : list CST) (span : Span) : option CST :=
   match elems with
-  | Symbol "if" _ :: cond :: Symbol "then" _ :: thenB :: Symbol "else" _ :: rest =>
-      match expand_if rest span with
-      | Some else_if_cst => Some (IfCST cond thenB else_if_cst span)
-      | None =>
-          match rest with
-          | [elseB] => Some (IfCST cond thenB elseB span)
-          | _ => None
+  | Symbol "if" _ :: rest =>
+      match split_at_kw "then" rest with
+      | None => None
+      | Some (cond_elems, after_then) =>
+          match split_at_kw "else" after_then with
+          | None =>
+              Some (IfCST (cond_cst cond_elems span)
+                (seq_or_single after_then span) (Tuple [] span) span)
+          | Some (then_elems, else_elems) =>
+              Some (IfCST (cond_cst cond_elems span)
+                (seq_or_single then_elems span) (seq_or_single else_elems span)
+                span)
           end
       end
-  | Symbol "if" _ :: cond :: Symbol "then" _ :: thenB :: [] =>
-      Some (IfCST cond thenB (Tuple [] span) span)
   | _ => None
   end.
 
@@ -311,6 +352,12 @@ Definition expand_arrow_type (lhs : list CST) (rhs : list CST) (span : Span) : o
   end.
 
 Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST :=
+  (* A leading `if` is a conditional, never an infix chain; its parts may
+     themselves be infix expressions, so the condition must be gathered before
+     infix parsing gets a chance to absorb it. *)
+  match expand_if elems span with
+  | Some if_cst => if_cst
+  | None =>
   match try_parse_infix op_env elems span with
   | Some infix_cst => infix_cst
   | None =>
@@ -443,6 +490,7 @@ Fixpoint expand_seq_expr (op_env : OpEnv) (elems : list CST) (span : Span) : CST
           end
       end
   end
+  end
   end.
 
 Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST * OpEnv) :=
@@ -515,7 +563,10 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                     | Symbol name _ :: Symbol kwd2 _ :: val_exprs =>
                         if eqb kwd2 "=" then
                             let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr env val_exprs s end in
-                            LetCST name val_cst (Symbol "Unit" empty_span) s
+                            (* [expand_seq_expr] can build a compound form (`if`)
+                               whose parts are still unexpanded [SeqOf]s. *)
+                            let (val_cst', _) := expand_cst f2' env val_cst in
+                            LetCST name val_cst' (Symbol "Unit" empty_span) s
                         else stmt
                     | _ => stmt
                     end
@@ -524,7 +575,8 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
                     | Symbol name _ :: Symbol kwd2 _ :: val_exprs =>
                         if eqb kwd2 "=" then
                             let val_cst := match val_exprs with [v] => v | _ => expand_seq_expr env val_exprs s end in
-                            VarCST name val_cst (Symbol "Unit" empty_span) s
+                            let (val_cst', _) := expand_cst f2' env val_cst in
+                            VarCST name val_cst' (Symbol "Unit" empty_span) s
                         else stmt
                     | _ => stmt
                     end
@@ -1284,7 +1336,14 @@ Fixpoint expand_cst (fuel: nat) (op_env : OpEnv) (c : CST) {struct fuel} : (CST 
         end
       in
       let (expanded_elems, env') := map_elems op_env elems in
-      (expand_seq_expr env' expanded_elems span, env')
+      let expanded := expand_seq_expr env' expanded_elems span in
+      (* A statement sequence can rewrite into a compound form (if/match/lam)
+         whose freshly built parts are still unexpanded `SeqOf`s; expand them
+         like the self-hosted expander does. *)
+      match expanded with
+      | SeqOf _ _ => (expanded, env')
+      | _ => expand_cst fuel' env' expanded
+      end
       
   | FieldAccessCST expr field span =>
       let (expr', env') := expand_cst fuel' op_env expr in

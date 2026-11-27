@@ -1,0 +1,13 @@
+def classify(n: Integer): Integer = {
+  if n < 2 then 1 else if n < 5 then 2 else 3
+};
+
+def flag(a: Integer, b: Integer): Bool = a != b;
+
+def main(): Integer = {
+  let x = classify(1);
+  let y = classify(3);
+  let z = classify(9);
+  let paren = if (x <= y) then x else z;
+  if flag(paren, z) then x + y + z else 0
+};

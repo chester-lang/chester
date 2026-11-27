@@ -11,9 +11,6 @@ def get_body(idx: Integer, acc: List(CST), clen: Integer, celems: List(CST)): Li
     }
   }
 };
-def expand_if_get_rest(idx: Integer, acc: List(CST), len: Integer, elems: List(CST)): List(CST) = {
-                          if int_eq(idx, len) then list_reverse(acc) else expand_if_get_rest(int_add(idx, 1), list_insert_first(acc, list_get(elems, idx)), len, elems)
-                        };
 def extract_cases(cs: List(CST)): List(CST) = {
                   if int_eq(list_length(cs), 0) then list_empty[CST]() else {
                     let c = list_get(cs, 0);
@@ -853,46 +850,74 @@ enum OptionCST {
   case NoneCST()
 };
 
+// Index of the first top-level [kw] at or after [idx]; [len] when absent.
+def kw_index(kw: String, idx: Integer, len: Integer, elems: List(CST)): Integer = {
+  if int_eq(idx, len) then len else {
+    let cur = list_get(elems, idx);
+    match cur {
+      case Symbol(s, _) => {
+        if string_eq(s, kw) then idx else kw_index(kw, int_add(idx, 1), len, elems)
+      };
+      case _ => kw_index(kw, int_add(idx, 1), len, elems)
+    }
+  }
+};
+// Elements of [elems] before the first top-level [kw] starting at [idx].
+def take_until_kw(kw: String, idx: Integer, len: Integer, elems: List(CST)): List(CST) = {
+  if int_eq(idx, len) then list_empty[CST]() else {
+    let cur = list_get(elems, idx);
+    match cur {
+      case Symbol(s, _) => {
+        if string_eq(s, kw) then list_empty[CST]()
+        else list_insert_first(take_until_kw(kw, int_add(idx, 1), len, elems), cur)
+      };
+      case _ => list_insert_first(take_until_kw(kw, int_add(idx, 1), len, elems), cur)
+    }
+  }
+};
+def drop_csts(n: Integer, elems: List(CST)): List(CST) = {
+  if int_eq(n, 0) then elems else if int_eq(list_length(elems), 0) then elems
+  else drop_csts(int_sub(n, 1), advance(elems))
+};
+// Pack the tokens of one part of a conditional back into a single CST.
+def seq_or_single(es: List(CST), span: Span): CST = {
+  if int_eq(list_length(es), 0) then Tuple(list_empty[CST](), span)
+  else if int_eq(list_length(es), 1) then list_get(es, 0)
+  else SeqOf(es, span)
+};
+// Condition part: a parenthesised group `(n < 2)` parses as a one-element
+// Tuple, which cannot be a tuple literal in condition position, so unwrap it
+// back into an expression sequence.
+def cond_cst(es: List(CST), span: Span): CST = {
+  if int_eq(list_length(es), 1) then {
+    match list_get(es, 0) {
+      case Tuple(inner, sp) => seq_or_single(inner, sp);
+      case other => other
+    }
+  } else seq_or_single(es, span)
+};
+// Recognise `if <cond> then <then> [else <else>].  Each part may span several
+// tokens (`if n < 2 then ...`); multi-token parts stay SeqOf so they are
+// expanded (including infix operators) later.  A missing else is unit.
 def expand_if(elems: List(CST), op_env: List(OpEnvEntry), span: Span): OptionCST = {
   let len = list_length(elems);
-  if int_lt(len, 4) then OptionCST.NoneCST else {
-    let tok0 = list_get(elems, 0);
-    match tok0 {
+  if int_lt(len, 1) then OptionCST.NoneCST else {
+    match list_get(elems, 0) {
       case Symbol(s0, _) => {
         if string_eq(s0, "if") then {
-          let cond = list_get(elems, 1);
-          let tok2 = list_get(elems, 2);
-          match tok2 {
-            case Symbol(s2, _) => {
-              if string_eq(s2, "then") then {
-                let thenB = list_get(elems, 3);
-                if int_eq(len, 4) then {
-                  OptionCST.SomeCST(IfCST(cond, thenB, Tuple(list_empty[CST](), span), span))
-                } else if int_lt(len, 6) then {
-                  OptionCST.NoneCST
-                } else {
-                  let tok4 = list_get(elems, 4);
-                  match tok4 {
-                    case Symbol(s4, _) => {
-                      if string_eq(s4, "else") then {
-                        let rest = expand_if_get_rest(5, list_empty[CST](), len, elems);
-                        let else_if_res = expand_if(rest, op_env, span);
-                        match else_if_res {
-                          case SomeCST(else_if_cst) => OptionCST.SomeCST(IfCST(cond, thenB, else_if_cst, span));
-                          case NoneCST() => {
-                            if int_eq(list_length(rest), 0) then OptionCST.NoneCST
-                            else if int_eq(list_length(rest), 1) then OptionCST.SomeCST(IfCST(cond, thenB, list_get(rest, 0), span))
-                            else OptionCST.SomeCST(IfCST(cond, thenB, SeqOf(rest, span), span))
-                          }
-                        }
-                      } else OptionCST.NoneCST
-                    };
-                    case _ => OptionCST.NoneCST
-                  }
-                }
-              } else OptionCST.NoneCST
-            };
-            case _ => OptionCST.NoneCST
+          let then_idx = kw_index("then", 1, len, elems);
+          if int_eq(then_idx, len) then OptionCST.NoneCST else {
+            let cond_elems = take_until_kw("then", 1, len, elems);
+            let after_then = drop_csts(int_add(then_idx, 1), elems);
+            let rest_len = list_length(after_then);
+            let else_idx = kw_index("else", 0, rest_len, after_then);
+            if int_eq(else_idx, rest_len) then {
+              OptionCST.SomeCST(IfCST(cond_cst(cond_elems, span), seq_or_single(after_then, span), Tuple(list_empty[CST](), span), span))
+            } else {
+              let then_elems = take_until_kw("else", 0, rest_len, after_then);
+              let else_elems = drop_csts(int_add(else_idx, 1), after_then);
+              OptionCST.SomeCST(IfCST(cond_cst(cond_elems, span), seq_or_single(then_elems, span), seq_or_single(else_elems, span), span))
+            }
           }
         } else OptionCST.NoneCST
       };
@@ -993,7 +1018,13 @@ def is_stmt_seq(ls: List(CST)): Bool = {
 };
 def expand_seq_expr(elems: List(CST), op_env: List(OpEnvEntry), span: Span): CST = {
   let collapsed = collapse_apps(elems, list_empty[CST]());
-  let if_res = expand_if(collapsed, op_env, span);
+  // Try the conditional on the raw tokens first: collapsing turns `if n` into
+  // an application and would hide the `if` keyword when the condition spans
+  // several tokens (`if n < 2 then ...`).
+  let if_res = match expand_if(elems, op_env, span) {
+    case SomeCST(if_cst) => OptionCST.SomeCST(if_cst);
+    case NoneCST() => expand_if(collapsed, op_env, span)
+  };
   match if_res {
     case SomeCST(if_cst) => if_cst;
     case NoneCST() => {
@@ -1407,13 +1438,13 @@ def get_relation(op1: String, op2: String, env: List(OpEnvEntry)): RelResult = {
         let _dummy_fixity = fixity;
         let _dummy_rels = rels;
                               match fixity {
-          case InfixL(_) => RelResult.RelSameL;
-          case InfixR(_) => RelResult.RelSameR;
-          case _ => RelResult.RelSameL;
+          case InfixL(_) => RelResult.RelSameL(0);
+          case InfixR(_) => RelResult.RelSameR(0);
+          case _ => RelResult.RelSameL(0);
           // fallback
         }
       };
-      case _ => RelResult.RelSameL
+      case _ => RelResult.RelSameL(0)
     }
 } else if t12 then RelResult.RelTighter(0) else if t21 then RelResult.RelLooser(0) else RelResult.RelIncomparable(0)
 };

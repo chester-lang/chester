@@ -1,0 +1,11 @@
+def main(): Integer = {
+  let a = 1;
+  let b = 2;
+  let lt = a < b;
+  let le = a <= b;
+  let gt = a > b;
+  let ge = a >= b;
+  let eq = a == b;
+  let ne = a != b;
+  if lt then { if ne then 3 else 0 } else { if le then 1 else 0 }
+};

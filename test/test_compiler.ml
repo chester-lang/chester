@@ -339,6 +339,7 @@ let parity_fixtures =
     ("tests/option_result.chester", "158");
     ("tests/higher_order.chester", "42");
     ("tests/infix_ne.chester", "7");
+    ("tests/if_infix_cond.chester", "6");
   ]
 
 let check_rocq_selfhosted_parity () =
@@ -736,6 +737,27 @@ let%expect_test "rocq emit effects handle" =
   if rc = 0 then print_endline "rocq effects ok"
   else print_endline "rocq effects compilation failed";
   [%expect {| rocq effects ok |}]
+
+let%expect_test "rocq emit comparisons" =
+  let prog =
+    assemble_rocq_program (compile_fixture_ast "tests/rocq_compare.chester")
+  in
+  let dir = Filename.temp_file "chester_rocq_cmp" "" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o700;
+  let filename = Filename.concat dir "CompareTest.v" in
+  let oc = open_out filename in
+  output_string oc prog;
+  close_out oc;
+  let rc =
+    Sys.command
+      (Printf.sprintf "cd %s && coqc -q CompareTest.v > /dev/null 2>&1"
+         (Filename.quote dir))
+  in
+  let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)) in
+  if rc = 0 then print_endline "rocq comparisons ok"
+  else print_endline "rocq comparisons failed";
+  [%expect {| rocq comparisons ok |}]
 
 let%expect_test "runtime go effects" =
   run_fixture_go "tests/effects.chester";
@@ -1206,6 +1228,7 @@ let%expect_test "rocq vs self-hosted go runtime parity" =
     tests/option_result.chester parity ok (158)
     tests/higher_order.chester parity ok (42)
     tests/infix_ne.chester parity ok (7)
+    tests/if_infix_cond.chester parity ok (6)
     tests/modules.chester self-hosted ok
     tests/modules_with_type.chester self-hosted ok
     tests/modules_effects.chester self-hosted ok
@@ -1236,3 +1259,11 @@ let%expect_test "fixture vector" =
 let%expect_test "fixture infix eq ne" =
   check_fixture "tests/infix_eq_ne.chester";
   [%expect {| tests/infix_eq_ne.chester ok |}]
+
+let%expect_test "fixture if infix cond" =
+  check_fixture "tests/if_infix_cond.chester";
+  [%expect {| tests/if_infix_cond.chester ok |}]
+
+let%expect_test "if infix cond runs ts" =
+  print_endline (run_stdlib_fixture_ts "tests/if_infix_cond.chester");
+  [%expect {| 6 |}]
