@@ -13,6 +13,24 @@ readable and matched to their titles).
   may drift after later edits. Anything marked "Counterexample" was traced through the
   source path.
 
+## Fix status
+
+The inventory below is a snapshot of the audited tree and is left as written. These
+findings have since been fixed (each is covered by a test added with the fix):
+
+| Finding | Fix |
+| --- | --- |
+| **C1** — `!=` rewritten to `int_eq` in `self-hosted/expander.chester`; `==`/`!=` missing from `op_to_fn` in `theories/Expander.v` | Both expanders map `==` → `int_eq`, `!=` → `int_ne`; `int_ne` added to both runtimes, the Go/TS emitters, the preamble whitelists and both stdlibs. Parity fixture `tests/infix_ne.chester` (returns 7 only if `!=` means inequality). |
+| Lexer splits `<=`, `>=`, `!=` into single-character symbols, and mis-slices strings ending at EOF (`bin/lexer.ml`) | Multi-character operators tokenised as one symbol. |
+| `if` whose condition is an operator expression (`if a < 2 then …`), or a parenthesised condition, is rejected with `Unbound variable: if` / `If condition is not Bool` | `expand_if` in both expanders now gathers the condition, then-branch and else-branch token runs (nesting them as `SeqOf` so infix parsing runs on them); conditions unwrap the one-element `Tuple` that a parenthesised group produces. |
+| `if` bound by `let`/`var` stays unexpanded in the Rocq pipeline (`process_stmts` built the node after the statement map) | `theories/Expander.v` re-expands the bound value, matching the self-hosted expander. |
+| `get_relation` (`self-hosted/expander.chester`) returns `RelSameL`/`RelSameR` without their `Integer` argument, so stage 1 panics (`interface conversion`) on any chained same-precedence infix such as `a + b + c` | Constructors applied with `0`. |
+| Rocq preamble defines no comparison primitives (`bin/effects_runtime.ml`), so `--rocq` output refers to unbound `int_lt`/`int_le`/`int_gt`/`int_ge`/`int_eq`/`int_ne` | Added as `nat -> nat -> bool` definitions; `tests/rocq_compare.chester` is compiled with `coqc` in `dune runtest`. |
+
+Still open from the entries below: `int_add a b := a`, the remaining missing Rocq
+preamble primitives (`int_sub`, `int_mul`, `string_*`, `bool_*`, …), and the
+`chester_dyn` conditional typing that keeps `--rocq` output from computing.
+
 ## Severity legend
 
 | Level | Meaning |
