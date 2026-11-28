@@ -590,6 +590,9 @@ let%expect_test "fixture modules import" =
   if not (has_substr code "namespace Math") then
     failwith "expected Math namespace from file import";
   if not (has_substr code "Math.add") then failwith "expected Math.add call";
+  if not (has_substr code "function mul(") then
+    failwith "expected trailing Math.mul declaration from file import";
+  if not (has_substr code "Math.mul") then failwith "expected Math.mul call";
   print_endline "tests/modules_import.chester ok";
   [%expect {| tests/modules_import.chester ok |}]
 

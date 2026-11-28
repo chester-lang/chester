@@ -20,6 +20,7 @@ findings have since been fixed (each is covered by a test added with the fix):
 
 | Finding | Fix |
 | --- | --- |
+| File imports discard a final expression-bodied `def` without a trailing semicolon (priority 14) | The file-import loader retains a `DefCST` in the parsed block tail. The `modules_import` regression calls the final expression-bodied `Math.mul` and checks that its declaration is emitted. |
 | **C1** — `!=` rewritten to `int_eq` in `self-hosted/expander.chester`; `==`/`!=` missing from `op_to_fn` in `theories/Expander.v` | Both expanders map `==` → `int_eq`, `!=` → `int_ne`; `int_ne` added to both runtimes, the Go/TS emitters, the preamble whitelists and both stdlibs. Parity fixture `tests/infix_ne.chester` (returns 7 only if `!=` means inequality). |
 | Lexer splits `<=`, `>=`, `!=` into single-character symbols, and mis-slices strings ending at EOF (`bin/lexer.ml`) | Multi-character operators tokenised as one symbol. |
 | `if` whose condition is an operator expression (`if a < 2 then …`), or a parenthesised condition, is rejected with `Unbound variable: if` / `If condition is not Bool` | `expand_if` in both expanders now gathers the condition, then-branch and else-branch token runs (nesting them as `SeqOf` so infix parsing runs on them); conditions unwrap the one-element `Tuple` that a parenthesised group produces. |
@@ -35,6 +36,18 @@ self-hosted Go backend also returns `nil` for an `if` nested directly in another
 out of the parity fixture. A parenthesised branch such as `(if c then 1 else 2)`
 still fails: the parser gives it the same one-element `Tuple` shape as a tuple
 literal, which the expander cannot tell apart.
+
+Validation for the trailing-import fix (2026-11-28): reproduced the original
+`module has no export: mul` error before the change; the rebuilt CLI and the
+focused `fixture modules import` expect test pass afterward. `dune build` passes
+with the installed OCaml toolchain. The full `dune runtest` run fails in multiple
+other areas. Its local extracted `extraction/Compiler.ml` is stale (for example,
+it lacks `int_ne`, which is present in `theories/Expander.v`); regenerate extraction
+with the documented Rocq build before treating that run as a current-core baseline.
+The review rerun also passes the focused test and executes the emitted import
+fixture successfully with Bun. A fresh Nix build was attempted but stopped while
+loading the pinned environment after several minutes without progress; the
+installed standalone Rocq cannot rebuild the core because `Stdlib` is missing.
 
 ## Severity legend
 

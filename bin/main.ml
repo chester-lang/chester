@@ -157,6 +157,8 @@ let rec resolve_file_imports ~verbose ~search_paths ~visited state op_env tenv
         in
         let body =
           match expanded with
+          (* A final expression-bodied def without a semicolon is a block tail. *)
+          | Block (stmts, (DefCST _ as decl), _) -> stmts @ [ decl ]
           | Block (stmts, _, _) -> stmts
           | other -> [ other ]
         in
