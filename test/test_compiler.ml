@@ -393,6 +393,31 @@ let check_format source =
     failwith "formatter output is not idempotent";
   print_endline formatted
 
+let%expect_test "lexer string boundaries" =
+  let check source expected =
+    match Lexer.tokenize "test.chester" source with
+    | [ TokStr (body, span); TokEOF eof_span ] ->
+        assert (string_of_char_list body = expected);
+        assert (span.range.end_pos.index.unicode = String.length source);
+        assert (eof_span.range.start_pos.index.unicode = String.length source)
+    | _ -> failwith "expected one string followed by EOF"
+  in
+  check {|"|} "";
+  check {|""|} "";
+  check {|"abc|} "abc";
+  check {|"abc"|} "abc";
+  check {|"abc\|} {|abc\|};
+  check {|"abc\"|} {|abc\"|};
+  check {|"abc\""|} {|abc\"|};
+  check {|"abc\\"|} {|abc\\|};
+  (match Lexer.tokenize "test.chester" {|"abc\"" next|} with
+  | [ TokStr (body, _); TokId (name, _); TokEOF _ ] ->
+      assert (string_of_char_list body = {|abc\"|});
+      assert (string_of_char_list name = "next")
+  | _ -> failwith "string consumed the following identifier");
+  print_endline "string boundaries ok";
+  [%expect {| string boundaries ok |}]
+
 let%expect_test "parse block" =
   let source = "let x = 5;" in
   let tokens = Lexer.tokenize "test.chester" source in

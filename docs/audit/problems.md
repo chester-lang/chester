@@ -20,6 +20,7 @@ findings have since been fixed (each is covered by a test added with the fix):
 
 | Finding | Fix |
 | --- | --- |
+| Lexer drops an escaped quote at EOF in an unterminated string | `consume_str` now reports whether it encountered an unescaped closing quote, instead of inferring termination from the final character. The `lexer string boundaries` regression checks recovered and terminated strings, escaped quotes/backslashes, token spans, and following tokens. It failed on the escaped quote at EOF before the fix. |
 | File imports discard a final expression-bodied `def` without a trailing semicolon (priority 14) | The file-import loader retains a `DefCST` in the parsed block tail. The `modules_import` regression calls the final expression-bodied `Math.mul` and checks that its declaration is emitted. |
 | **C1** — `!=` rewritten to `int_eq` in `self-hosted/expander.chester`; `==`/`!=` missing from `op_to_fn` in `theories/Expander.v` | Both expanders map `==` → `int_eq`, `!=` → `int_ne`; `int_ne` added to both runtimes, the Go/TS emitters, the preamble whitelists and both stdlibs. Parity fixture `tests/infix_ne.chester` (returns 7 only if `!=` means inequality). |
 | Lexer splits `<=`, `>=`, `!=` into single-character symbols, and mis-slices strings ending at EOF (`bin/lexer.ml`) | Multi-character operators tokenised as one symbol. |
@@ -40,8 +41,15 @@ literal, which the expander cannot tell apart.
 Validation for the trailing-import fix (2026-11-28): reproduced the original
 `module has no export: mul` error before the change; the rebuilt CLI and the
 focused `fixture modules import` expect test pass afterward. `dune build` passes
-with the installed OCaml toolchain. The full `dune runtest` run fails in multiple
-other areas. Its local extracted `extraction/Compiler.ml` is stale (for example,
+with the installed OCaml toolchain. The escaped-quote-at-EOF fix was checked the
+same way: for the unterminated input `"abc\"` the lexer now returns the body
+`abc\"`, where the old code inferred termination from the final byte and dropped
+the escaped quote. The rebuilt lexer was exercised directly on the inputs of the
+`lexer string boundaries` test, and every body, span and following token matched
+the test's expectations. Building with the pinned Nix dev shell was attempted
+again and was still loading the environment after several minutes, so these
+checks use the standalone dune/OCaml toolchain from the Nix store. The full
+`dune runtest` run fails in multiple other areas. Its local extracted `extraction/Compiler.ml` is stale (for example,
 it lacks `int_ne`, which is present in `theories/Expander.v`); regenerate extraction
 with the documented Rocq build before treating that run as a current-core baseline.
 The review rerun also passes the focused test and executes the emitted import

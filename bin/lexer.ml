@@ -65,17 +65,14 @@ let tokenize filename source =
       else if c = '"' then
         let start_idx = i in
         let rec consume_str j =
-          if j >= len then j
+          if j >= len then (j, false)
           else if source.[j] = '\\' && j + 1 < len then consume_str (j + 2)
-          else if source.[j] = '"' then j + 1
+          else if source.[j] = '"' then (j + 1, true)
           else consume_str (j + 1)
         in
-        let _end_idx = consume_str (i + 1) in
+        let _end_idx, terminated = consume_str (i + 1) in
         (* A string only ends on a closing quote; at EOF the remaining text is
            kept as the literal body instead of over-slicing the source. *)
-        let terminated =
-          _end_idx > i + 1 && _end_idx <= len && source.[_end_idx - 1] = '"'
-        in
         let text_end = if terminated then _end_idx - 1 else _end_idx in
         let text =
           String.sub source (start_idx + 1) (text_end - start_idx - 1)
